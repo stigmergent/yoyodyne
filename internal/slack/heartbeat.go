@@ -135,9 +135,17 @@ type switches struct {
 // happened, and a second message a moment later would be the sink repeating what
 // the channel already has. What this adds is the hour after that, and every hour
 // after that.
-func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, held switches, sessions []runstate.WatchTransition, inFlight, awaitingForge int, ready func(context.Context) (int, error), streams map[string]struct{}) ([]Delivery, error) {
+//
+// It reports the ask beside the message, for the state that is worth saying at
+// all. They are the same derivation deliberately: what is said in the channel
+// and what the operators are asked in a direct message are one reading of one
+// line — the read model's — so the two can never come to disagree about whether
+// it is stopped or about what would unstop it. The ask is produced whenever the
+// message is, and which operators have already been asked about this state is
+// the sink's to remember: this is the reading, not the record of who was told.
+func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, held switches, sessions []runstate.WatchTransition, inFlight, awaitingForge int, ready func(context.Context) (int, error), streams map[string]struct{}) ([]Delivery, *Ask, error) {
 	if f.Backlog == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	streams[heartbeatStream] = struct{}{}
 
@@ -148,17 +156,17 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 		// itself, as the release, the resumption, or the run it started — and the
 		// cursor forgets it so the next state to stand is armed afresh.
 		if cursor.Standing != "" {
-			return []Delivery{{Stream: heartbeatStream, Cursor: Cursor{}}}, nil
+			return []Delivery{{Stream: heartbeatStream, Cursor: Cursor{}}}, nil, nil
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	mark := state.Mark()
 	armed := Cursor{Standing: mark, Said: now}
 	if cursor.Standing != mark {
-		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil
+		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil, nil
 	}
 	if now.Sub(cursor.Said) < f.heartbeat() {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	count, err := ready(ctx)
@@ -171,14 +179,18 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 		// next interval rather than at the next poll.
 		f.say("what is ready to pull could not be read, so nothing was said about a line that has been stopped since %s: %v",
 			state.Since.UTC().Format(time.RFC3339), err)
-		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil
+		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil, nil
 	}
 	if count == 0 && awaitingForge == 0 {
 		// Idle with nothing ready and nothing waiting on the forge is the healthy
 		// quiet the operator asked to keep, so it is silent. The clock is still
 		// reset, because what a poll costs is a tracker read and there is no reason
 		// to spend one every fifteen seconds on a machine that is behaving.
-		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil
+		//
+		// Nobody is asked either, and for the same reason: a line with nothing to
+		// pull is not waiting on anybody, so a decision put to an operator about it
+		// would be the harness inventing a question.
+		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil, nil
 	}
 	// A line stopped by a hold the brake placed and then handed to a person is
 	// the one state the heartbeat says louder as it stands rather than at the
@@ -212,7 +224,7 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 	// disagreement only the operator could adjudicate. They are read only when
 	// something is actually due, which is the same cost rule the rest of this
 	// pass keeps.
-	return []Delivery{{
+	said := Delivery{
 		Stream: heartbeatStream,
 		Cursor: armed,
 		Tag:    tag,
@@ -225,7 +237,74 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 			Mover:       lineMover(state, held),
 			Standing:    f.standing(ctx),
 		}, severity, now),
-	}}, nil
+	}
+	if count == 0 {
+		// The line is said for the promotion waiting on the forge, and that is the
+		// channel's to carry: nothing here is choosing nothing over ready work, so
+		// there is no decision to put to anybody. An ask offering to release intake
+		// over an empty queue would be a question about the wrong thing.
+		return []Delivery{said}, nil, nil
+	}
+	asking := Ask{
+		Mark:    mark,
+		Stopped: state.Says,
+		Since:   state.Since,
+		Ready:   count,
+		Options: options(state.Reason),
+	}
+	return []Delivery{said}, &asking, nil
+}
+
+// options are what an operator can answer when they are asked about one stalled
+// state, in the order they are offered and numbered by that order.
+//
+// They are keyed by the read model's own reason rather than derived beside a
+// second account of the line, so what the operators are asked is about exactly
+// the state the read model says is standing — the one `yoyo status` prints and
+// the channel line above names — and never about a state this surface worked
+// out for itself. What this adds is only the answers, which are this surface's:
+// a terminal offers the command that clears the state, and a phone offers a
+// number to type.
+//
+// Every state also takes an answer in the operator's own words, so this is the
+// shortcuts rather than the whole of what may be said, and it is deliberately
+// never exhaustive. A reason with no options here is still asked, in words
+// alone.
+func options(reason readmodel.Reason) []string {
+	switch reason {
+	case readmodel.ReasonOperatorHold:
+		return []string{
+			"lift the hold and let the harness start work again",
+			"keep everything held; this is deliberate and I will lift it myself",
+		}
+	case readmodel.ReasonIntakeHold:
+		return []string{
+			"release intake so admitted work can be chosen again",
+			"keep intake held; let what is running finish and choose nothing new",
+		}
+	case readmodel.ReasonTrackerWait:
+		return []string{
+			"leave it; the dispatch is asking the tracker again on its own",
+			"the tracker needs a person; hold intake until somebody has looked at it",
+		}
+	case readmodel.ReasonStoreUnreadable:
+		return []string{
+			"leave it; the session is reading the store again on its own",
+			"the store needs a person; hold intake until somebody has looked at it",
+		}
+	case readmodel.ReasonSessionIdle:
+		return []string{
+			"what is ready is blocked on something; look at the queue before anything else is admitted",
+			"nothing is wrong; the ready work is not meant to be started yet",
+		}
+	case readmodel.ReasonNoWatchSession:
+		return []string{
+			"a watch session should be running; it stopped and nobody meant it to",
+			"leave the line stopped; work is being started by name rather than watched",
+		}
+	default:
+		return nil
+	}
 }
 
 // lineMover is whose move follows what stopped the line, in the read model's

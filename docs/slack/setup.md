@@ -115,9 +115,12 @@ to whoever step 4 grants `direct-work`. The first is **the harness reporting
 itself degraded**: a session choosing work from a build the harness has moved
 well past, the harness having started nothing at all while work was ready,
 [the provider holding every role](../reporting.md#the-provider-holding-every-role)
-with nothing configured to fail over to, and
+with nothing configured to fail over to,
 [an item that sat claimed with nothing working on it](../reporting.md#an-item-claimed-with-nothing-working-on-it)
-until the harness gave it back. Beside them, and needing no `im:write`
+until the harness gave it back, and a line that has stopped over ready work —
+which is the one of them that is *asked* rather than reported, with the answers
+numbered and your reply in the thread as the decision; see *Deciding a stopped
+line from a direct message* below. Beside them, and needing no `im:write`
 at all, [a provider nobody is logged into or nobody can reach](../reporting.md#a-provider-nobody-can-reach)
 is said once in the channel tagged to those same members by id, and once more
 when it answers again. The second is **advisory-once** — a
@@ -126,19 +129,28 @@ template has improved that this project never edited. The stale build, the
 released claim, and the improvement are sent once rather than repeated, and at
 most one improvement message goes per reading however many the reading found;
 the hold is sent when it is first seen and again with each heartbeat once it has
-stood past six hours, because it is the one state a person ends early; and the
+stood past six hours, because it is the one state a person ends early; the
 stall is sent again with every heartbeat it stands, tagged to those members by
 id in the channel as well, because a line that has stopped for reasons nobody
-can name is the one state that gets louder rather than quieter. A brake hold
+can name is the one state that gets louder rather than quieter; and the stopped
+line is asked once per state per person. A brake hold
 handed to you — by the development manager, or by the harness once its
 summons-and-probe loop has gone round its configured number of times — is
 tagged the same way each hour, and sent directly once it has stood two hours;
 the harness's own escalation is also sent directly the once, the moment it is
 recorded. Removing the scope costs those direct
 messages and nothing else: the stale-build message, the hold, the released
-claim, and the improvement are in the channel either way, the stall and the
-brake hold are still tagged there, and the stall is in the durable record `yoyo
-status` reads back.
+claim, the stopped line, and the improvement are in the channel either way, the
+stall and the brake hold are still tagged there, and the stall is in the durable
+record `yoyo status` reads back.
+
+`im:history` and the `message.im` event beside it are what carry what you say in
+a direct message with the app back: your reply to an ask, and a message there
+that @-mentions the app, which is answered exactly as one in the channel is.
+Remove them and you are still asked; what you answer never arrives, and nothing
+is recorded. The message events are scoped to conversations this app is in, so
+what it can read is the channel it was invited to and the direct messages it
+has with people — never anybody else's.
 
 ## 2. Install it and take the two tokens
 
@@ -1173,21 +1185,103 @@ Seven things are refused, visibly:
 
 Everything else in a channel is left entirely alone: a message that is not in one
 of these threads, a thread this sink never opened, and anything the app itself
-posted — with the one exception in *Asking the app directly* below, which
-answers and never records. The last is not a nicety: the sink's own messages
-arrive back on the same connection, and reading one as an instruction would be
-the harness directing itself.
+posted — with two exceptions: *Asking the app directly* below, which answers and
+never records, and a reply in a direct message the sink opened to ask you
+something, which is the next section. The last is not a nicety: the sink's own
+messages arrive back on the same connection, and reading one as an instruction
+would be the harness directing itself.
 
 `yoyo directive list` shows what is recorded whichever way it arrived, and
 `yoyo directive resolve` settles one from the terminal. The two surfaces are the
 same record.
 
+## Deciding a stopped line from a direct message
+
+The hourly waiting line above is the one state the sink asks you about rather
+than reports. The same moment it first says a line has stopped over ready work
+in the channel, it opens a direct message with each person granted `direct-work`
+with a bound Slack member id — the same allow-list a thread reply is acted on
+by, and nobody else in `operators` — one conversation each, and puts the
+decision to them:
+
+> **Nothing is being started, and it is waiting on you.** intake is held, and
+> the harness's own brake placed it after runs kept blocking. 4 admitted items
+> are ready to pull behind it — reply in this thread to decide.
+
+The context is threaded under that line, with the answers numbered:
+
+> Stopped by: intake is held, and the harness's own brake placed it after runs kept blocking
+> Since: 2026-08-30T02:02:00Z
+> Ready to pull: 4
+>
+> Reply with a number:
+> 1. release intake so admitted work can be chosen again
+> 2. keep intake held; let what is running finish and choose nothing new
+
+What stopped the line is the read model's own sentence — the same one `yoyo
+status` prints against the queue and the channel line says — so the ask and the
+channel can never disagree about whether the line is stopped or what by. What
+the sink adds is the answers, which are its own: one pair per state the
+heartbeat repeats (everything held, intake held, a dispatch waiting out the
+tracker, a session that cannot read the harness's store, the watch session idle,
+no session running), and every state also takes an answer in your own words.
+
+**Your reply in that thread is the decision.** There is no button and nothing to
+type at a terminal: a number takes the option it names, and anything else is
+recorded in your own words. It does have to be *in the thread* — a conversation
+can hold several asks, and the thread is what says which one you are answering.
+Answer in the conversation instead, which is what tapping a phone notification
+opens, and you are told so: nothing is recorded, and you are never left thinking
+you decided something you did not. While the ask is still the live one you are
+pointed at it — *the ask about … is above*; once its state has cleared you are
+told that instead, and that nothing is waiting on a decision from you now,
+because a pointer at a thread about a line that is already moving would send you
+to decide something that is over. Where the sink cannot read which state is
+standing, it says that rather than either: the ask is named, and so is the fact
+that whether it still stands could not be read. A message there that @-mentions
+the app is not a misplaced decision — it is answered the way *Asking the app
+directly* below describes. Either way a recorded decision lands as one
+operational directive in the same record `yoyo directive record` writes and
+every run consults — unscoped, because what you were asked about is the whole
+line rather than one item — and it carries what was asked, which option you
+took, and the words you typed, so somebody reading it weeks later can
+reconstruct the decision. The thread answers you by name with which option was
+taken and the sentence it stood for — and, as everywhere else here, no
+identifier: `yoyo directive list` is where the record is read back.
+
+The two halves of that are worth being plain about. Nothing acts on your answer
+by itself: choosing "release intake" records that you decided to, and does not
+release intake — the switches stay yours, and a chat message that could throw
+them would be a second thing deciding what the harness does. And you are asked
+once per state per person, however long it stands: the channel repeats it every
+`--heartbeat`, which is a room you scroll, while a direct message repeated hourly
+is what gets an app muted.
+
+Each operator is asked separately rather than in one conversation, because a
+decision addressed to a room is one everybody can reasonably assume somebody else
+is making. Somebody without `direct-work` replying in one of these threads is
+told so and nothing is recorded, the same way a channel reply from them is. And
+a line said for a promotion waiting on the forge alone, with nothing ready to
+pull, asks nobody: nothing is choosing nothing over ready work, so there is no
+decision to put, and the channel line carries the count. A
+reply into an ask whose state has since cleared is still recorded: a decision
+made late is still a decision. And if the workspace refuses the direct message —
+an app somebody has never opened, a workspace that does not let its apps message
+people — the channel still says the line is stopped, the pass finishes normally,
+and the ask is tried again at the next heartbeat.
+
+This needs `im:write` and `im:history` and the `message.im` event, which the
+checked-in manifest asks for. An app installed from an older manifest has none of
+them: reporting is unaffected and nobody is ever asked, which shows up as the
+`the stopped line could not be put to <member>` line in the sink's own log.
+Reinstalling from the current manifest is what fixes it.
+
 ## Asking the app directly
 
 **@-mention the app and you always get an answer.** Anywhere the sink can see
-you — the top of the channel, or a thread it never opened — a message that names
-the app is answered where you said it, in a reply hanging from your own message
-and tagging you. This is the one thing the sink says outside its own threads, and
+you — the top of the channel, a thread it never opened, or a direct message with
+the app outside the thread of an ask — a message that names the app is answered
+where you said it, in a reply hanging from your own message and tagging you. This is the one thing the sink says outside its own threads, and
 it exists because the alternative was silence: a question at the top of the
 channel had no handler at all, which reads exactly like a sink that has died.
 
@@ -1387,7 +1481,20 @@ command line whenever the digest is not enough.
   `yoyo directive list` is the check, and the reply can simply be sent again.
 - **Who may steer is read when the sink starts.** Granting somebody
   `direct-work` reaches the channel when the sink is next restarted, not while it
-  is running.
+  is running. The same holds for who is asked to decide a stopped line.
+- **An ask is remembered by the machine that made it.** The decision map is
+  beside the thread map and has the same shape of limit: a sink started fresh
+  against a state root that has none asks about a state that is still standing
+  once more. What that costs is a repeated question rather than a lost one.
+- **Old asks are eventually forgotten.** The map keeps the state you are being
+  asked about now and the most recent few dozen behind it, so it cannot grow
+  until it stops loading. An ask stays answerable well after its state clears — a
+  decision made late is still a decision — but a thread from months ago
+  eventually stops being read, and a reply into one gets no answer.
+- **Nothing is carried out from a direct message.** A decision is recorded as a
+  directive and read by the runs that follow; the harness does not lift its own
+  holds or start a watch session because somebody answered. `yoyo directive list`
+  shows what was recorded.
 
 ## When it does not work
 
@@ -1400,6 +1507,8 @@ command line whenever the digest is not enough.
 | `a reply could not be marked as <mark>` | The same missing scope, on a reply rather than on a thread's opener: the answer in the thread said what happened and the reaction saying where the directive stands could not go on. Reinstall from *OAuth & Permissions*. A mark that is missed is not set later — what carries the account is the thread. |
 | `the reply that asked for this could not be marked as settled` | The outcome was said in the thread and tagged to whoever asked; only the mark on their own message could not be moved. Same remedy, same reason it costs nothing else. |
 | `a direct conversation with <member> could not be opened` | Usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`, or a member id that is not in this workspace. The messages this affects are the ones that report the harness itself degraded — a stale session build, the harness having started nothing at all, the provider holding every role, a brake hold the harness escalated to you at the bound on its summons-and-probe loop, a brake hold that has waited on you for two hours, and a claim the harness gave back — and all of them are recorded either way; reinstall from *OAuth & Permissions* and the next one reaches them. |
+| `the stopped line could not be put to <member>` | The same refusal on the ask: usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`. Reinstall from *OAuth & Permissions* and the next heartbeat asks. Reporting into the channel is unaffected, and until it is fixed the stopped line is said there and nobody is asked. |
+| A decision reply that is never answered | The app can open the direct message but cannot read the reply: `im:history` and the `message.im` event are what carry it back. Reinstall from the current manifest. Nothing was recorded, so answer again once it is. |
 | `the watch session's build <sha> is not a revision this product's repository holds` | Said once per build, and not a fault. How old a `yoyo work --watch` session is is measured by counting what has landed in the repository since its binary was built, and that only means anything where the product this sink reports on is Yoyodyne's own source. For any other product the comparison is not this sink's to make, so it says so once and stays quiet. |
 | `the status mark on <item> could not be set` | Usually `reactions.add: missing_scope` — an app installed before the manifest asked for `reactions:write`. Reinstall it from *OAuth & Permissions* and the marks appear on the next pass, without the items having to move again. The messages are unaffected either way, and this is said once rather than every pass. |
 | `Your manifest has Socket Mode enabled, which requires additional setup` | Slack cannot mint the app-level token until the app exists. Create the app, then generate that token under *Basic Information* and turn Socket Mode on if it is still off. |
@@ -1415,7 +1524,7 @@ command line whenever the digest is not enough.
 | A reply is answered `Heard as a question rather than an instruction` | You ended it with a question mark, so nothing was recorded and it went to the Lead Product Manager; the answer follows in the same thread. If you meant it as an instruction, say it as one. |
 | A reply is answered `that reads as either a question or an instruction` | It opened like a question and ended with no mark, or asked something and went on. Nothing was recorded and nothing was asked. End it with a question mark to ask the Lead Product Manager, or say it as an instruction to record it. |
 | A reply is answered `that reads as a question, and` … | It was a question and nobody could answer it from here — this sink was started without the Lead Product Manager's conversation, or the Lead Product Manager was mid-turn. Nothing was recorded. `yoyo chat` is where to ask it, or say it again once that turn lands. |
-| A reply gets no answer at all | It was not in a thread this sink opened, or it was not a reply — a message at the top of the channel addresses no work item. Reply inside the item's thread. It is also what a second message gets from somebody this project does not know: they are told once per thread, and read after that. |
+| A reply gets no answer at all | It was not in a thread this sink opened, or it was not a reply — a message at the top of the channel addresses no work item. Reply inside the item's thread. It is also what a second message gets from somebody this project does not know: they are told once per thread, and read after that. In a direct message it is a thread the sink never asked in, or an ask old enough to have been forgotten; `yoyo directive record` at the terminal records the direction either way. |
 | A message to the app is answered `Where things stand is what I can tell you` | You are recognized and do not hold `direct-work`, which is what talking to the Lead Product Manager takes. Asking where things stand still works. Step 4 is where the grant is written. |
 | A message to the app is answered `The Lead Product Manager is mid-turn with another client` | Another client was taking a turn at that moment — a `yoyo chat` answering at a terminal, or the harness delivering something to the Lead Product Manager. Nothing was said; say it again once that turn lands. A `yoyo chat` waiting at its prompt holds nothing, so closing one changes nothing, and the channel itself only ever holds the conversation for the length of one answer. |
 | A message to the app is answered `I waited 10m0s for the Lead Product Manager` | The turn did not finish inside the channel's bound, and it holds the conversation until it lands. A turn that steers work and meets an exhausted usage limit is the usual cause. `yoyo chat` does not show you that turn while it is still being written — it queues behind it, says so, and continues the same conversation from wherever the turn got to once it has landed. `yoyo agent list` says whether the Lead Product Manager is still mid-turn without waiting on it. |

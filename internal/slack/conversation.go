@@ -211,7 +211,7 @@ func (s *steering) take(ctx context.Context, message inboundMessage, said string
 	// somebody typing and an answer landing are exactly where silence reads as
 	// not-listening. It is never a gate: a workspace that will not take a mark
 	// costs the message its mark and nothing else.
-	s.mark(ctx, message.ts, notify.ReceiptUnderConsideration)
+	s.markIn(ctx, s.sink.conversationOf(message), message.ts, notify.ReceiptUnderConsideration)
 	bounded, stop := context.WithTimeout(ctx, s.deadline)
 	// The call goes beside the wait rather than inside it, so what the operator
 	// waits for is this function's own deadline and not the callee's willingness
@@ -262,7 +262,7 @@ func (s *steering) came(ctx context.Context, message inboundMessage, bounded con
 		return
 	}
 	s.sink.log("%s was answered %s", message.user, from(came.answer))
-	s.mark(ctx, message.ts, notify.ReceiptSettled)
+	s.markIn(ctx, s.sink.conversationOf(message), message.ts, notify.ReceiptSettled)
 }
 
 // gaveUp says in the thread that this client stopped waiting, and is the one
@@ -278,7 +278,7 @@ func (s *steering) gaveUp(ctx context.Context, message inboundMessage, bounded c
 		return
 	}
 	s.answerOnce(ctx, message, fmt.Sprintf(conversationOverdue, s.deadline), "the wait running out")
-	s.mark(ctx, message.ts, notify.ReceiptRefused)
+	s.markIn(ctx, s.sink.conversationOf(message), message.ts, notify.ReceiptRefused)
 }
 
 // from names the conversation an answer came out of, for a log line. A command
@@ -330,7 +330,7 @@ func (s *steering) failed(ctx context.Context, message inboundMessage, bounded c
 	default:
 		s.answerOnce(ctx, message, fmt.Sprintf(conversationFailed, came.err), "why it could not answer")
 	}
-	s.mark(ctx, message.ts, notify.ReceiptRefused)
+	s.markIn(ctx, s.sink.conversationOf(message), message.ts, notify.ReceiptRefused)
 }
 
 // begin takes the one turn this sink runs at a time, reporting whether it got it.

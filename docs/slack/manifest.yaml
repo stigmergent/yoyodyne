@@ -29,14 +29,36 @@
 #   im:write               open the direct conversation with an operator the
 #                          project authorized by name, which is what
 #                          `conversations.open` needs and what the message is then
-#                          posted into. It is used for one class of message and
-#                          only that one: the harness itself being degraded — the
-#                          session choosing work running a binary from long before
-#                          the fixes it is about to spend rounds rediscovering. A
-#                          channel is somewhere somebody chooses to look, and that
-#                          is exactly what nobody thinks to look for at three in
-#                          the morning. Without it the message is still in the
-#                          channel and the refusal is said in the sink's log.
+#                          posted into. It is used for two classes of message and
+#                          only those two. The first is the harness itself being
+#                          degraded: a session choosing work from a build long
+#                          before the fixes it is about to spend rounds
+#                          rediscovering, the harness having started nothing at
+#                          all while work was ready, the provider holding every
+#                          role, a brake hold handed to a person, a recurring task
+#                          failing before its first turn for two hours, an item
+#                          that sat claimed with nothing working on it, and a line
+#                          that has stopped over ready work — the one of them put
+#                          to each operator personally with the answers numbered,
+#                          because that state costs an hour of the machine doing
+#                          nothing for every hour nobody sees it. The second is
+#                          advisory-once: a fact said exactly once, which today is
+#                          a value the project's template has improved that this
+#                          project never edited. A channel is somewhere somebody
+#                          chooses to look, and that is exactly what nobody thinks
+#                          to look for at three in the morning. Without it every
+#                          one of those is still in the channel and the refusal is
+#                          said in the sink's log; nobody is asked. docs/slack/
+#                          setup.md step 1 has the whole list.
+#   im:history             read what is said in a direct message with the app:
+#                          the reply that answers one of those asks, and a message
+#                          there that @-mentions the app, which is answered as one
+#                          in the channel is. The reply is the decision: it is
+#                          recorded as an operational directive in the same record
+#                          every run reads, and nothing is carried out on its own.
+#                          The message events are scoped to conversations this app
+#                          is in, so what it can read is the channel it was invited
+#                          to and its own direct messages — never anybody else's.
 #   channels:history       read what is typed in the channel, in public channels.
 #                          It is what carries a message back to the machine the
 #                          harness runs on, and two things are done with one: a
@@ -102,6 +124,11 @@ display_information:
     question there is answered by the Lead Product Manager. Nobody else's reply
     changes anything, and a project that has authorized nobody is steered by
     nobody.
+
+    One thing it asks rather than reports. When the line stops over ready
+    work, it messages each authorized person directly with the options
+    numbered, and their reply in that thread is the decision, recorded where
+    every run reads it.
   background_color: "#1f2933"
 features:
   bot_user:
@@ -116,6 +143,7 @@ oauth_config:
       - chat:write.customize
       - reactions:write
       - im:write
+      - im:history
       - channels:history
       - groups:history
 settings:
@@ -123,6 +151,7 @@ settings:
     bot_events:
       - message.channels
       - message.groups
+      - message.im
   interactivity:
     # Buttons and menus are a control surface, and this app is a reporting one.
     is_enabled: false
