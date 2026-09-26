@@ -125,11 +125,20 @@ const (
 	ActionAmended    Action = "amended"
 	ActionSuperseded Action = "superseded"
 	ActionRetired    Action = "retired"
+	// ActionIdentified changed only the identities a goals document gives its
+	// goals — the bracketed identifier an entry opens with — and not a word of any
+	// goal. It is its own action rather than an amendment because it is not a
+	// change of intent: an identifier is what an attribution resolves by, and
+	// recording one leaves every goal saying what it said. So it does not move the
+	// document's approval, and nothing downstream reads it as a change upstream.
+	// Store.Identify is the only write that records one, and it refuses a body
+	// that differs in anything else. See identity.go.
+	ActionIdentified Action = "identified"
 )
 
 func (a Action) Valid() bool {
 	switch a {
-	case ActionCreated, ActionAmended, ActionSuperseded, ActionRetired:
+	case ActionCreated, ActionAmended, ActionSuperseded, ActionRetired, ActionIdentified:
 		return true
 	default:
 		return false
@@ -281,8 +290,8 @@ func (a Artifact) supportsProblems() []error {
 func (r Revision) Validate() error {
 	var problems []error
 	if !r.Action.Valid() {
-		problems = append(problems, fmt.Errorf("action %q must be %q, %q, %q, or %q",
-			r.Action, ActionCreated, ActionAmended, ActionSuperseded, ActionRetired))
+		problems = append(problems, fmt.Errorf("action %q must be %q, %q, %q, %q, or %q",
+			r.Action, ActionCreated, ActionAmended, ActionSuperseded, ActionRetired, ActionIdentified))
 	}
 	// Whether the role that made this revision owns the artifact needs the kind,
 	// which one revision does not carry, so that half is checked by the artifact
