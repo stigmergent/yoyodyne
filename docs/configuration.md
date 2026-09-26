@@ -150,9 +150,9 @@ operating-system state directory, so nothing there depends on where the project
 is checked out.
 
 Committing it is the default rather than a requirement, and a contributor to a
-repository they do not own has two supported ways not to: the README's
-[Keeping the configuration out of the repository](../README.md#keeping-the-configuration-out-of-the-repository)
-covers a `.yoyodyne` listed in `.git/info/exclude` and a configuration kept
+repository they do not own has two supported ways not to, both under
+[Keeping the configuration outside the repository](#keeping-the-configuration-outside-the-repository):
+a `.yoyodyne` listed in `.git/info/exclude`, and a configuration kept
 outside the repository entirely, which
 [`yoyo init --external`](#keeping-the-configuration-outside-the-repository)
 writes and discovery finds without anything being passed to it.
@@ -421,9 +421,43 @@ is refused rather than landing where nothing looks for it.
 
 A contributor to a repository they do not own has the configuration as theirs
 rather than the project's, and a pull request adding a tool directory nobody
-asked for is a pull request about the tool. `yoyo init --external` writes the
-configuration this machine keeps for that repository, and nothing at all into
-the repository:
+asked for is a pull request about the tool. There are two ways to keep it out.
+
+**Keep it on disk and out of Git.** Discovery reads the checkout's filesystem
+and never consults the index, so an untracked `.yoyodyne/` loads exactly like a
+committed one. List it in `.git/info/exclude`, the per-clone ignore file that is
+never committed:
+
+```sh
+printf '.yoyodyne/\n' >> .git/info/exclude
+yoyo init
+yoyo doctor
+```
+
+The exclude line is required rather than tidy: a run refuses to start while the
+primary checkout holds anything uncommitted the project did not declare,
+untracked files included, so without it the first `yoyo run` names the files
+`init` wrote and stops. The same holds for the `README.md` `init` puts at the
+door of each of the five artifact homes — `docs/product`,
+`docs/product/goals`, `docs/designs`, `docs/decisions`, and
+`docs/decisions/invariants` — which in a repository you are a guest in are five
+untracked paths in somebody else's `docs/` tree. Commit them where the project
+wants them; otherwise exclude them too, or delete them, which `yoyo doctor`
+reports as a warning and nothing more:
+
+```sh
+printf '%s\n' docs/product/README.md docs/product/goals/README.md \
+  docs/designs/README.md docs/decisions/README.md \
+  docs/decisions/invariants/README.md >> .git/info/exclude
+```
+
+`bd init` writes `.beads/` and a set of agent instruction files, each another
+untracked path a run would refuse over, so a fully local adoption excludes those
+as well.
+
+**Or keep it outside the repository entirely.** `yoyo init --external` writes
+the configuration this machine keeps for that repository, and nothing at all
+into the repository:
 
 ```sh
 cd ~/src/theirproject
@@ -462,8 +496,8 @@ Four things are worth knowing about it:
   problem, so an installation configured this way runs work exactly as one with
   them does.
 
-The project stops describing itself, which in this scenario is the intent:
-another clone, another machine, and anybody else working on it get no
+Either way, the project stops describing itself, which in this scenario is the
+intent: another clone, another machine, and anybody else working on it get no
 configuration at all, and `yoyo` there reports that it found none.
 
 ## Precedence
@@ -5607,8 +5641,8 @@ refused in the same place and reads as the different fact it is: nothing is
 exhausted, and no amount of waiting makes one of those accounts able to sign this
 agent in.
 
-**Setting the second account up** is [in the
-README](../README.md#running-several-claude-accounts), and `bin/yoyo-account`
+**Setting the second account up** is [the multi-account quick
+start](multi-account-quickstart.md), and `bin/yoyo-account`
 asks the questions and runs the login. `yoyo doctor` then reports each configured
 alias by name — `account:second` — saying which provider's authentication it
 holds, whether it is authenticated, and which half of the pool it is in.

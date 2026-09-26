@@ -111,6 +111,23 @@ is asked to support anything. The
 [configuration guide](configuration.md#traceability-references-and-orphans)
 is the reference for the schema, the fields, and what is reported.
 
+### The index at the door of each home
+
+`yoyo init` puts a `README.md` at the door of every artifact home — the
+specifications directory and the goals under it, the designs, the decision
+records, and the invariants — saying three things about that directory: what is
+filed there, which agent owns it, and whether you may edit one of its documents
+by hand. The answers are the ones the harness already enforces rather than a
+policy the file invents: a role that is not the owner proposes an amendment,
+your own edit is reported rather than refused, and what a change leaves stale
+downstream is what `yoyo stale` reports. An index states no intent, so the Lead
+Product Manager reads it under a heading of its own and never counts it as a
+specification. An index that is already there is left exactly as it is,
+`--force` included, because it is your prose rather than something `init`
+generated. [`yoyo doctor`](operations.md#checking-the-installation) reports one
+that is missing or has stopped answering, and `yoyo setup` offers to write it,
+which is how a project configured before these existed gets them.
+
 ## Goals, and what work serves them
 
 The last link of the chain is the goal a work item names, and that link is

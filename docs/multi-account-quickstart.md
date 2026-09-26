@@ -34,8 +34,30 @@ yoyo doctor
 ```
 
 It reports the new account as unauthenticated and prints the exact login
-command to run. `bin/yoyo-account` is the same step as a walkthrough. The
-account you were already signed in to needs nothing.
+command to run. `bin/yoyo-account` is the same step as a walkthrough: it asks
+for the alias, the pool, and an optional weekly budget, runs the login, and
+prints the entry to add. The account you were already signed in to needs
+nothing.
+
+**Run the login in a new browser profile.** It opens an OAuth flow that binds
+whichever Claude account the browser is already signed in as. Signing the
+second alias in from the browser the first one used gives you one account under
+two names, which looks like a working pool until both halves run out at the
+same moment. Use a fresh browser profile, or a private window signed in as
+nobody, signed in as the second account and left as the default browser.
+
+By hand, the login is two commands: make the alias its own provider home under
+the state directory, then sign in into it.
+
+```sh
+home="$HOME/Library/Application Support/Yoyodyne/state/accounts/second"   # macOS
+mkdir -p "$home" && chmod 700 "$home"
+CLAUDE_CONFIG_DIR="$home" claude auth login
+```
+
+The state directory is `$YOYODYNE_STATE_HOME`, `$XDG_STATE_HOME/yoyodyne`,
+`~/Library/Application Support/Yoyodyne/state` on macOS, or
+`~/.local/state/yoyodyne` on Linux — the same one `yoyo status` reads.
 
 ## 3. That's it
 
