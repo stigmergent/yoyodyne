@@ -334,15 +334,18 @@ agents:
   when the file loads; leaving `every` out is no scheduled pass. A later layer's
   block replaces an inherited one whole, as the failover block does.
 
-**The lane is enforced; the triggers are not yet read.** The keys load, are
+**The lane is enforced, and the triggers take passes.** The keys load, are
 validated, are reported by `yoyo agent list` and `yoyo config show`, and the
 remit is delivered. The lane is what confines the instance's tracker writes: a
 creation carries the lane label in the write that admits it, and every other
 write is refused on an item not carrying it at the moment of the act — the rules
 are [a program manager's lane](conversation.md#a-program-managers-lane). An
 instance configured with no `lane` has nothing inside one, so all of its tracker
-writes are refused. Nothing yet reads the triggers to take a pass. Configuration
-selects which lane and what wakes it, and never widens what the role may do.
+writes are refused. A `yoyo work --watch` session reads the triggers and takes
+the instance's passes as recurring-task firings —
+[a program manager instance's passes](#a-program-manager-instances-passes) says
+how `every` and `on` wake one. Configuration selects which lane and what wakes
+it, and never widens what the role may do.
 
 ## Discovery
 
@@ -5353,7 +5356,9 @@ These are all errors, reported before any work is claimed:
   the same words; a `lane`, `remit`, or `triggers` on an agent of any other role;
   a `lane` the tracker would not carry, or one two agents name; a
   `triggers.every` under `5m`; and a `triggers.on` entry outside `landings`,
-  `admissions`, and `stoppages`, or named twice;
+  `admissions`, and `stoppages`, or named twice; and a `recurring_tasks` entry
+  named for a program manager instance its triggers wake, since an instance's
+  passes are recorded and paced under its own name;
 - a persona path that is absolute, traverses upward, is not Markdown, is missing,
   is empty, or resolves through a symlink to somewhere outside `.yoyodyne`;
 - a `role` that is not one of the harness's six, which is how a typo in an
@@ -6261,6 +6266,81 @@ position rather than a listing — see
 firing takes the next slice of the pile instead of the same worst one. Whether
 it is keeping up is answered by the count and the oldest undecided report's age
 that every listing of the pile now leads with.
+
+### A program manager instance's passes
+
+A [program manager instance](#a-program-manager-instance) is woken the way a
+recurring task is, by its own `triggers` block rather than by an entry here, and
+its pass **is** a recurring-task firing: everything above holds of it unchanged.
+The pause stops a pass and the intake hold does not; the claim is taken before
+the first turn; at most one firing is made per pull, a task's or an instance's,
+tasks first; a provider answering nobody is recorded as the wait; and every pass
+ends in a durable record [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found)
+reads, filed under the instance's name — `yoyo sweeps --task reliability-pm` —
+with the model its turns ran on. A recurring task named for an instance its
+triggers wake is refused when the file loads, because the two would share one
+cadence and one record.
+
+```yaml
+agents:
+  reliability-pm:
+    role: program-manager
+    # backend, model, persona, remit as any instance
+    lane: reliability
+    triggers:
+      every: 2h
+      on: [landings, stoppages]
+```
+
+- **`every`** is the instance's schedule, measured from its last pass like a
+  task's, and floored at the same `5m`. An instance with `every` fires as a
+  recurring task on that cadence whether or not anything happened; one without
+  it is woken by its events alone.
+- **`on`** is what else wakes it: `landings` (a run that landed its change),
+  `stoppages` (a run that stopped with its work item back in somebody's hands),
+  and `admissions` (work created in the tracker). The first two are read from the
+  run records by when each run ended, and admissions from the tracker's item
+  export by when each item was created.
+
+**A burst wakes an instance once.** Each instance keeps a cursor per stream —
+the run records and the tracker — under the state root, at
+`products/<product id>/program-managers/<agent>/cursor.json`, beside its lane
+report. An event past the cursor arms one wake. The wake is taken at the next
+pull once the streams have been quiet for **two minutes**, or at once where
+`every` is due, whichever comes first; the pass is handed everything between the
+cursor and the moment it was taken, grouped by stream in its first message; and
+the cursor moves to that moment only once every turn of the pass was answered. A
+product manager admitting thirty items in one turn is one pass carrying thirty
+admissions, which `yoyo sweeps` shows under the pass's header as
+`carried 30 admissions since its last pass`. A pass that fails leaves the cursor
+where it was, says so on its record, and the next pass carries the same events.
+
+**An event that arrives late is still carried.** The tracker's export is written
+after the tracker's own write, and a run record is readable only once it is
+saved, so an entry can say it happened before a pass was taken and appear only
+after that pass moved the cursor past it. Each stream is therefore read again
+from fifteen minutes behind its cursor — never from before the instance began
+watching it — and the cursor keeps, by item or run, what completed passes
+carried from inside that reach: the late entry goes to the next pass, and
+nothing a pass already carried is handed again. An entry later than fifteen
+minutes is outside what a pass promises to carry.
+
+Four more things decide whether a wake is taken, and none of them is configured.
+An instance seen for the first time, or a stream it has just begun to watch, is
+positioned at that moment, so its first pass is handed what happened since it was
+watched rather than every run the product has recorded. A turn in flight on the
+instance's conversation skips the pass rather than queueing behind it, and the
+events wait past the cursor. A wake armed by events is not taken sooner than the
+`5m` minimum after the instance's last pass, which also paces the retry of a pass
+that failed. And while the provider is answering nobody an armed wake waits
+rather than being recorded as a refusal on every pull; the schedule, which its
+cadence paces, is what records the wait. A pass taken for events moves the
+cadence as a scheduled one does, so the scheduled pass is not taken a minute
+later over the same ground.
+
+**A pass asks for the agent's own model.** The triggers block names none, and the
+[`model`](#a-tasks-own-model) a recurring task names is that task's key rather
+than one an instance carries.
 
 ## Personas
 
