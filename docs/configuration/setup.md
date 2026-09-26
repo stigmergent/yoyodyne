@@ -167,9 +167,9 @@ operating-system state directory, so nothing there depends on where the project
 is checked out.
 
 Committing it is the default rather than a requirement, and a contributor to a
-repository they do not own has two supported ways not to: the README's
-[Keeping the configuration out of the repository](../../README.md#keeping-the-configuration-out-of-the-repository)
-covers a `.yoyodyne` listed in `.git/info/exclude` and a configuration kept
+repository they do not own has two supported ways not to, both under
+[Keeping the configuration outside the repository](../configuration.md#keeping-the-configuration-outside-the-repository):
+a `.yoyodyne` listed in `.git/info/exclude`, and a configuration kept
 outside the repository entirely, which
 [`yoyo init --external`](../configuration.md#keeping-the-configuration-outside-the-repository)
 writes and discovery finds without anything being passed to it.

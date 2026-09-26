@@ -31,10 +31,14 @@ habit — the `adoption` job in `.github/workflows/ci.yml` installs `bd` and run
 `make adoption` on every pull request, so the claim the README makes about its
 own getting-started section is executed on every change.
 
-The README stands at 844 lines: 600 of them the README the split was aiming at,
-and 244 the `## Configuring a project` block held back for the configuration
-split — see [the disposition
-table](#disposition-of-every-current-readme-section). The configuration guide is
+The README stood at 844 lines at the end of the split: 600 of them the README
+the split was aiming at, and 244 the `## Configuring a project` block held back
+for the configuration split — see [the disposition
+table](#disposition-of-every-current-readme-section). **yoyodyne-ifd.437.13
+rewrote it on 2026-09-26 to 343 lines (15 KB, from 45 KB)**, taking that block
+out with the rest; [the rewrite's own
+table](#the-2026-09-26-rewrite-what-left-the-readme-and-where) records every
+move. The configuration guide is
 untouched and has grown to 3,848 lines, so its own tables below are re-measured
 against a file half again the size they were reconciled against.
 
@@ -581,6 +585,44 @@ prose the README split writes:
 - [Working on yoyo itself](docs/developing-yoyo.md) — the checks, the build, and
   what a release is.
 ```
+
+### The 2026-09-26 rewrite: what left the README, and where
+
+yoyodyne-ifd.437.13 rewrote the README from 45 KB to 15 KB on the Lead Product
+Manager's review of that day, keeping the order a newcomer needs: what it is,
+the three gates, a quick start with `yoyo setup` first, what is bounded today,
+`## Install`, `## Getting started` with its three steps and `### Optional:
+publishing and auto-merge`, and `## Further reading`. The Tier 1 anchor
+`#getting-started` is unchanged, and so are `#further-reading`, `#install`,
+`#optional-publishing-and-auto-merge`, and the three step anchors, which
+`skills/yoyo-setup/SKILL.md` cites. Two README anchors were removed, and each
+file that cited one now cites the guide section that holds its content.
+
+| What left | Where it lives now |
+|---|---|
+| **User testimonials** | Removed. They quoted AI tools' output about the repository as if from users. |
+| The bounds' "none of them act without you" and "nothing decomposes a design on its own" | Replaced: both were false. The bounds now say the development manager decides stopped work, `yoyo work` carries it out, and recurring tasks and program managers can be configured. |
+| "Days of merged work pass between them" | Replaced by what the harness brings to you. |
+| The long `yoyo run` / `review` / `status` / … command sentence | `yoyo help`. |
+| `yoyo setup`'s idempotence, `--yes` / `--json` detail | Kept in one sentence; the rest is `docs/operations.md#setting-up-with-yoyo-setup`, new in this change. |
+| The artifact-home index paragraph | One sentence in step 2; the detail is `docs/artifacts.md#the-index-at-the-door-of-each-home`, new in this change. |
+| Tracker-sync consequences (repository size, `refs/dolt/data`, team caveat) | `docs/configuration.md#where-the-tracker-syncs`. |
+| The three headings `init` writes beside `checks` | One sentence in step 2; the table is `docs/configuration.md#what-init-proposes-for-checks`. |
+| Check budgets and the stage bound | `docs/configuration.md#how-long-a-check-may-take` and the sections after it. |
+| "If you ignored it" warning detail | `docs/configuration.md#when-the-repository-ignores-the-configuration`. |
+| The `.beads/` README aside | Removed; it described a redirect that no longer needs saying. |
+| "What the Lead Product Manager can see" and its eight-document list | `docs/configuration.md#what-the-lead-product-manager-sees-besides-them-and-what-it-does-not`. |
+| Optional publishing's `integration: human` behaviour, dropped merges | `docs/configuration.md#publishing-through-pull-requests` and `docs/work.md`. |
+| `## Configuring a project` | `docs/configuration.md`, which already carried its content. |
+| `### Running several Claude accounts` (`#running-several-claude-accounts`, removed) | `docs/multi-account-quickstart.md`, which gained the browser-profile warning, the by-hand login, and the state directory. `docs/configuration.md` now links there. |
+| `### Keeping the configuration out of the repository` (`#keeping-the-configuration-out-of-the-repository`, removed) | `docs/configuration.md#keeping-the-configuration-outside-the-repository`, which gained the `.git/info/exclude` route and the artifact-home index exclusion. `docs/configuration.md` and `docs/configuration/setup.md` now link there. |
+
+Also corrected in the rewrite: `init` copies six personas, not five; the
+`yoyo version` example names no fixed tag; the repository's home is
+`github.com/stigmergent/yoyodyne` in every clone and release line, and the
+install lines keep the module path `github.com/mason-bryant/yoyodyne`, which
+installs through GitHub's redirect; and "harness" is defined where it is first
+used.
 
 ### Disposition of every current README section
 
