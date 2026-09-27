@@ -194,6 +194,22 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 			return 1
 		default:
 			scheduler.Deployment = binary
+			// A session that meets the deploy with runs still going hands the watch to
+			// the deployed build at once rather than holding it until they end. The
+			// drain lease it takes then is let go as the command returns, which is
+			// after the scheduler has waited out every run this session hosts.
+			watchStore, err := watchStoreFor(*configPath)
+			if err != nil {
+				fmt.Fprintf(stderr, "work failed: %v\n", err)
+				return 1
+			}
+			handover := &watchHandover{binary: binary, store: watchStore, sessionID: sessionID, watching: &watching, limit: *limit}
+			scheduler.Handover = handover
+			defer func() {
+				if err := handover.release(); err != nil {
+					fmt.Fprintf(stderr, "%v\n", err)
+				}
+			}()
 		}
 	}
 	schedule, err := scheduler.Schedule(ctx)
@@ -202,6 +218,87 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return code
 	}
 	return takeUpTheDeploy(ctx, binary, sessions, watching, stderr, code, *budget, schedule.SpentUSD, *limit, len(schedule.Started))
+}
+
+// startingBinary is what handing the watch to a deployed build needs of the file
+// this session is executing: the invocation to carry across, and a process of its
+// own started from it. It is an interface so a test can see what was started.
+type startingBinary interface {
+	Args() []string
+	Start([]string) (int, error)
+}
+
+// watchHandover gives the watch to a session on the build deployed over this one
+// while this session still has runs to host. See orchestrator.ScheduleHandover.
+//
+// The order is what keeps a session hosting runs named somewhere at every moment,
+// and keeps two sessions from choosing at once: the drain lease is taken while
+// this session still holds the watch, the watch is let go, and only then is the
+// deployed build started — so the build finds the watch free, and this session
+// has already stopped choosing.
+//
+// watching is the command's own hold on the watch, by address, because a start
+// that fails takes the watch back where it can and the command's release and its
+// restart have to see the lease it took back rather than the one it let go.
+type watchHandover struct {
+	binary    startingBinary
+	store     *runstate.WatchStore
+	sessionID string
+	watching  **runstate.Lease
+	limit     int
+	drain     *runstate.DrainLease
+}
+
+func (h *watchHandover) Handover(_ context.Context, started int) (string, error) {
+	// A session with no runs left of its count stops on the count before it can
+	// redeploy, so this is not reached; it is refused here rather than assumed for
+	// the reason exhausted is, because "--limit 0" is an unbounded session.
+	if gone := exhausted(0, 0, h.limit, started); gone != "" {
+		return "", errors.New(gone)
+	}
+	drain, err := h.store.Drain(h.sessionID)
+	if err != nil {
+		return "", fmt.Errorf("record that this session is draining: %w", err)
+	}
+	if err := (*h.watching).Release(); err != nil {
+		return "", errors.Join(fmt.Errorf("let the watch go: %w", err), drain.Release())
+	}
+	*h.watching = nil
+	pid, startErr := h.binary.Start(continued(h.binary.Args(), 0, 0, h.limit, started))
+	if startErr == nil {
+		h.drain = drain
+		return fmt.Sprintf("a session in process %d", pid), nil
+	}
+	// The build would not start. Where the watch is still free this session takes
+	// it back and restarts into the build once its runs end, exactly as before
+	// handovers existed. Where somebody took it in the meantime — the supervisor,
+	// starting the scheduler it found not watching — the deployed build is watching
+	// after all, and that is the handover.
+	lease, held, leaseErr := h.store.Lease(h.sessionID)
+	switch {
+	case leaseErr == nil && held:
+		*h.watching = lease
+		return "", errors.Join(fmt.Errorf("start the deployed build: %w", startErr), drain.Release())
+	case leaseErr == nil:
+		h.drain = drain
+		return "the session that took it" + heldWatchBy(h.store), nil
+	}
+	return "", errors.Join(fmt.Errorf("start the deployed build: %w", startErr), fmt.Errorf("take the watch back: %w", leaseErr), drain.Release())
+}
+
+// release lets the drain lease go, once every run this session hosted has ended.
+func (h *watchHandover) release() error {
+	return h.drain.Release()
+}
+
+// watchStoreFor is the product's watch log and leases, for a caller that needs
+// them without the rest of a pull.
+func watchStoreFor(configPath string) (*runstate.WatchStore, error) {
+	parts, err := buildComponents(configPath)
+	if err != nil {
+		return nil, err
+	}
+	return parts.watch, nil
 }
 
 // deployedBinary is what taking up a deploy needs of the file this session is
@@ -631,6 +728,10 @@ func (w watchSessionLog) Record(transition orchestrator.SessionState) error {
 		// A stop that is a restart says so, so the reader who is not at this
 		// terminal is told a session is coming back rather than told to start one.
 		Restarting: transition.Restarting,
+		// A session that handed the watch to the deployed build marks everything it
+		// writes after, so no reading of the log takes it for the session choosing
+		// work.
+		Draining: transition.Draining,
 		// A dispatch holding a slot while it waits out the tracker before it has
 		// claimed anything, which no run record exists yet to say.
 		DispatchWait: transition.DispatchWait,
@@ -967,8 +1068,8 @@ Only one session watches a product at a time. A second one is refused as it
 starts, naming the session that holds the watch and the process running it,
 because two sessions read one queue and can both choose an item before either
 has reserved a run for it. The watch is held for as long as the session runs and
-is let go however it ends, including when it stops to restart into a build
-deployed over it -- so the session that comes back takes it up again. A drain
+is let go however it ends, and as soon as it stops choosing for a build deployed
+over it -- so the session on that build takes it up. A drain
 takes nothing and is refused nothing: what this refuses is a second session that
 stays open, which is the shape that ran on 2026-09-05.
 
@@ -1024,6 +1125,18 @@ operating system refuses -- is recorded as the ending it turned out to be, so
 neither surface is left saying a stopped session is on its way back. A platform
 that cannot replace a running process says so when the session opens, and that
 session watches without this and is restarted by hand for a deploy.
+
+A session that meets a deploy with runs of its own still going does not hold the
+watch while it waits them out. It lets the watch go at once, records that it is
+draining, and starts the deployed build as a session of its own, which takes the
+watch, fills the developer slots those runs are not holding -- they count against
+the one limit until they end -- and fires any recurring task that is due. The
+draining session hosts its runs to their end, choosing and firing nothing, and
+then stops; "yoyo status" shows it as draining beside the session choosing work
+until it does, and "yoyo stop" stops it too. A session given --budget waits its
+runs out and restarts instead, since what they will cost is not known until they
+end; and where the deployed build will not start, the session takes the watch back
+and waits and restarts as before.
 
 --budget fails closed, and it bounds everything the session spends: the runs it
 starts, the turns it takes putting stopped work to the development manager, the

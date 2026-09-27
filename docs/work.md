@@ -1374,9 +1374,10 @@ the other until its run reserves — several steps later — so both can start o
 it. Two of them briefly coexisted while the 2026-09-05 wedge was being cleared,
 which is what this stops. The watch is an advisory lock the operating system
 drops when its holder exits, so a session that was killed leaves nothing for
-anybody to clear, and a session that stops to take up a deploy lets it go before
-it restarts so the build it becomes can take it up. A drain takes nothing and is
-refused nothing: what this refuses is a second session that stays open.
+anybody to clear, and a session that meets a deploy lets it go so the build it
+was deployed over by can take it up — at once where it still has runs to host,
+and before it restarts where it has none. A drain takes nothing and is refused
+nothing: what this refuses is a second session that stays open.
 
 The same lease is how the product's supervisor keeps a session watching. With
 the scheduler enabled in the configuration's
@@ -1386,7 +1387,8 @@ the scheduler enabled in the configuration's
 within the supervisor's bounds; a session you started by hand before that is
 found holding the watch and taken as it is, and `yoyo stop` stops the session
 with the rest, which cancels the runs it is hosting exactly as stopping it
-yourself does.
+yourself does. A session still draining after a deploy, below, no longer holds the
+watch, so `yoyo stop` finds it by its own drain lease and stops it too.
 
 Three things guard a loop that no longer ends. A session does not start the same
 item twice unless the item has changed — what it says, what it is for, its
@@ -1477,11 +1479,38 @@ binary it was started from, so every fix that lands behind it is a fix the work
 it dispatches is spent without — which reads as agents failing rather than as a
 process nobody restarted. It had already cost three review rounds against a bug
 dead before they started, and then a session was found forty-three changes old.
-So when the `yoyo` it is running is written over, the session stops choosing,
-waits out every run it started, and restarts into what you deployed. That stop is
-recorded as a restart rather than an ending, so `yoyo status` and the Slack sink
-say a session is coming back on the new build instead of telling you to start
-one.
+So when the `yoyo` it is running is written over, the session stops choosing and
+takes up what you deployed. A session with nothing in flight restarts into it in
+place. That stop is recorded as a restart rather than an ending, so `yoyo status`
+and the Slack sink say a session is coming back on the new build instead of
+telling you to start one.
+
+**A session with runs in flight hands the watch over rather than holding it.** A
+run's provider belongs to the process that started it, so the session has to host
+its runs to their end; what it need not do is hold the watch while it does. So it
+lets the watch go as soon as it stops choosing, records that it is draining, and
+starts the deployed build as a session of its own, which takes the watch and
+fills the free slots at once. Capacity is enforced where a run reserves rather
+than by the session, so the two share one limit: the draining session's runs
+count against it until they end, and the new session fills only the slots they
+are not holding, and each slot they give back as they end. The new session also
+fires whatever recurring task is due from its first pull, exactly as it fills
+slots; the draining one chooses nothing and fires nothing, and stops once its last
+run has ended — recorded as a handover rather than as an ending or a restart,
+because nothing is coming back and nothing needs starting. `yoyo status` shows
+both sessions while the draining one lasts, the draining one on a line of its own
+saying so. On the afternoon of 2026-09-26 holding the watch through that wait
+kept two of three developer slots empty for over an hour, with fifteen items
+ready, while one run finished its checks, and held the sweeps from about 11:25
+Pacific until one was sent by hand.
+
+Two things keep the older wait. A session given `--budget` waits its runs out and
+restarts, because what the runs still in flight will cost is not known until they
+end, so neither is what is left of the budget to hand on. And where the deployed
+build will not start, the session takes the watch back, says why, and waits its
+runs out and restarts as before; where somebody else took the watch in the
+meantime — the supervisor, starting a scheduler it found not watching — that
+session is on the deployed build too, and the handover stands.
 
 A restart has to be recorded before it is known to have happened, because one
 that works never comes back to record anything. So on the rare occasion it does
@@ -1517,7 +1546,8 @@ signal and nothing else.
 
 **The bounds you set cross the restart reduced to what is left of them.** A
 session given `--budget 50` that has spent $45.01 comes back with $4.99, and one
-given `--limit 10` that has started six comes back with four — because a bound
+given `--limit 10` that has started six comes back with four, as does the session
+it hands the watch to — because a bound
 carried whole would start again at every deploy, and a machine that deploys
 several times a day would have no bound at all. A session that has reached
 either bound stops on it instead of restarting: you set that number, and taking

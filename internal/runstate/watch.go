@@ -30,6 +30,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -42,6 +44,11 @@ const (
 	// the session, not any run it starts.
 	watchLeaseFile  = ".watch.lock"
 	watchHolderFile = ".watch.holder"
+	// drainPrefix begins the lock and the stamp of each session that handed the
+	// watch to a deployed build and is hosting its runs to their end. There is one
+	// pair per draining session, because a line that deploys twice inside a long
+	// run can have two of them at once.
+	drainPrefix = ".drain-"
 )
 
 // WatchSchemaVersion is 1 and has never changed.
@@ -344,6 +351,19 @@ type WatchTransition struct {
 	// because the entry stays in it. An unknown field is ignored by the same
 	// reader, so what an older one loses is the distinction and not the log.
 	Restarting bool `json:"restarting,omitempty"`
+	// Draining marks a session that met a build deployed over it with runs of its
+	// own still going, let the watch go to a session on the deployed build, and is
+	// hosting those runs to their end while choosing nothing. It is on every entry
+	// such a session writes from the handover on — the idle entries that count its
+	// runs down, and the stop it records when the last of them ends.
+	//
+	// A draining session is not the session choosing work, and every reading of
+	// this log for that session reads past it: its runs are still in flight and
+	// still hold their slots, which the run records say, and what it says about
+	// itself is the handover and nothing about the queue. It is a field beside the
+	// state for the reason Restarting is: an older reader ignores it rather than
+	// failing on a state it does not know.
+	Draining bool `json:"draining,omitempty"`
 	// DispatchWait is a dispatch this session started waiting out a tracker failure
 	// before it has claimed anything, recorded as the wait is taken. It is the one
 	// entry here that is not a transition of the session at all: the session is
@@ -524,6 +544,21 @@ func (t WatchTransition) Validate() error {
 	if t.Restarting && t.State != WatchStopped {
 		problems = append(problems, fmt.Errorf("a %s transition cannot be a restart, which is a thing only a stop is", t.State))
 	}
+	// A draining session chooses nothing, so it is idle while its runs go on and
+	// stopped once they have ended. And it is not coming back: the build it would
+	// have restarted into is already watching, so a draining stop that also claimed
+	// to be a restart would say one session is on its way where two are.
+	if t.Draining {
+		if t.State != WatchIdle && t.State != WatchStopped {
+			problems = append(problems, fmt.Errorf("a %s transition cannot be a draining session's, which is only ever idle or stopped", t.State))
+		}
+		if t.Restarting {
+			problems = append(problems, errors.New("a draining session handed the watch to the deployed build rather than restarting into it, so its stop cannot be a restart"))
+		}
+		if len(t.PassedOver.Groups) > 0 {
+			problems = append(problems, errors.New("a draining session reads no queue, so it cannot say what a poll passed over"))
+		}
+	}
 	// A dispatch wait is written only as a watching entry, which is what an older
 	// reader will take it for; on any other state it would tell that reader the
 	// session had braked, idled, or stopped when it had done nothing of the kind.
@@ -627,6 +662,121 @@ func (s *WatchStore) Held() (bool, error) {
 	return false, nil
 }
 
+// DrainLease is a session that let the watch go to a deployed build still being
+// alive to host the runs it started. It is a lease rather than a line in the log
+// because a line says what a session said and not whether it is still there: a
+// draining session killed before its runs ended writes no stop, and a surface
+// reading the log alone would name it as draining for ever.
+type DrainLease struct {
+	lease *Lease
+	lock  string
+}
+
+// Release drops the drain lease and removes the lock it was taken on. Releasing
+// twice is a no-op, so a caller can defer it unconditionally.
+//
+// The lock is removed as well as dropped because each draining session has one of
+// its own, named for it, and a machine that deploys several times a day would
+// otherwise gather one per deploy. It is removed after the stamp and the lock are
+// both gone, so a reader never finds a stamp naming a lock nobody holds.
+func (d *DrainLease) Release() error {
+	if d == nil || d.lease == nil {
+		return nil
+	}
+	lease := d.lease
+	d.lease = nil
+	released := lease.Release()
+	if err := os.Remove(d.lock); err != nil && !errors.Is(err, os.ErrNotExist) {
+		released = errors.Join(released, fmt.Errorf("remove the draining session's lock: %w", err))
+	}
+	return released
+}
+
+// Drain takes the lease that says this session is draining, stamped with the
+// session and this process exactly as the watch is. It is taken before the watch
+// is let go, so there is no moment a session hosting runs is named by neither.
+func (s *WatchStore) Drain(sessionID string) (*DrainLease, error) {
+	if !watchSessionIDPattern.MatchString(sessionID) {
+		return nil, fmt.Errorf("watch session id %q is invalid", sessionID)
+	}
+	lock := filepath.Join(s.root, drainPrefix+sessionID+".lock")
+	lease, held, err := TryLeasePath(lock, "draining session")
+	if err != nil {
+		return nil, err
+	}
+	if !held {
+		return nil, fmt.Errorf("session %s is already draining in another process", sessionID)
+	}
+	holder := filepath.Join(s.root, drainPrefix+sessionID+".holder")
+	if err := s.stampHolder(holder, sessionID); err != nil {
+		return nil, errors.Join(err, lease.Release())
+	}
+	lease.holder = holder
+	return &DrainLease{lease: lease, lock: lock}, nil
+}
+
+// Draining is every session that let the watch go to a deployed build and is
+// still alive hosting its runs, oldest first. A session is named only while it
+// holds its drain lease, so one that ended — by its runs ending, or by being
+// killed — is not; and the stamp of one that was killed is cleared here, under
+// its lock, since nothing else is ever going to clear it.
+func (s *WatchStore) Draining() ([]WatchHolder, error) {
+	stamps, err := filepath.Glob(filepath.Join(s.root, drainPrefix+"*.holder"))
+	if err != nil {
+		return nil, fmt.Errorf("list the draining sessions: %w", err)
+	}
+	var draining []WatchHolder
+	for _, stamp := range stamps {
+		lock := strings.TrimSuffix(stamp, ".holder") + ".lock"
+		lease, free, err := TryLeasePath(lock, "draining session")
+		if err != nil {
+			return nil, err
+		}
+		if free {
+			// Nobody holds it, so the session that stamped it is gone. The stamp is
+			// written only once the lock is held and removed before it is let go, so
+			// a stamp found with the lock free is a process that died holding it.
+			clearErr := errors.Join(removeIfPresent(stamp), removeIfPresent(lock), lease.Release())
+			if clearErr != nil {
+				return nil, fmt.Errorf("clear a draining session that is gone: %w", clearErr)
+			}
+			continue
+		}
+		holder, found, err := readHolder(stamp)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			draining = append(draining, holder)
+		}
+	}
+	slices.SortFunc(draining, func(a, b WatchHolder) int { return a.HeldAt.Compare(b.HeldAt) })
+	return draining, nil
+}
+
+// StillDraining reports whether one draining session is still alive, which is
+// what stopping it waits on.
+func (s *WatchStore) StillDraining(sessionID string) (bool, error) {
+	lock := filepath.Join(s.root, drainPrefix+sessionID+".lock")
+	lease, free, err := TryLeasePath(lock, "draining session")
+	if err != nil {
+		return false, err
+	}
+	if !free {
+		return true, nil
+	}
+	// Asking made the lock if it was gone, so it is removed again rather than
+	// left as one more file per question.
+	return false, errors.Join(removeIfPresent(lock), lease.Release())
+}
+
+func removeIfPresent(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // WatchHolder is the session holding this product's watch, as it stamped itself
 // when it took the lease. It carries the session identifier the log and `yoyo
 // status` also carry, so a refusal and every other surface name one session
@@ -650,7 +800,12 @@ type WatchHolder struct {
 // that refuses a second watch — are exactly the ones that meet a session on a
 // newer build than their own.
 func (s *WatchStore) Holder() (WatchHolder, bool, error) {
-	file, err := os.Open(filepath.Join(s.root, watchHolderFile))
+	return readHolder(filepath.Join(s.root, watchHolderFile))
+}
+
+// readHolder reads one session's stamp, the watch's or a draining session's.
+func readHolder(path string) (WatchHolder, bool, error) {
+	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return WatchHolder{}, false, nil
 	}
@@ -804,14 +959,32 @@ func (s *WatchStore) Scan() ([]WatchTransition, []SkippedLine, error) {
 // product nobody has watched has none, which is reported as an absence rather
 // than as a session in some default state: never having watched and having
 // stopped watching are different facts. A note about a dispatch is not where the
-// session got to, so it is read past.
+// session got to, so it is read past, and so is everything a draining session
+// wrote: it handed the watch on, and where the session choosing work got to is
+// what the session it handed to says.
 func (s *WatchStore) Latest() (WatchTransition, bool, error) {
 	transitions, err := s.List()
 	if err != nil {
 		return WatchTransition{}, false, err
 	}
 	for index := len(transitions) - 1; index >= 0; index-- {
-		if !transitions[index].Note() {
+		if !transitions[index].Note() && !transitions[index].Draining {
+			return transitions[index], true, nil
+		}
+	}
+	return WatchTransition{}, false, nil
+}
+
+// LatestOf is the last transition one session recorded, read past notes about
+// its dispatches exactly as Latest is. It is how a draining session is said by
+// the surfaces that name it beside the session choosing work.
+func (s *WatchStore) LatestOf(sessionID string) (WatchTransition, bool, error) {
+	transitions, err := s.List()
+	if err != nil {
+		return WatchTransition{}, false, err
+	}
+	for index := len(transitions) - 1; index >= 0; index-- {
+		if transitions[index].SessionID == sessionID && !transitions[index].Note() {
 			return transitions[index], true, nil
 		}
 	}

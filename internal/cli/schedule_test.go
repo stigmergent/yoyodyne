@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -814,4 +815,114 @@ func TestWorkUsageSaysWhenAConfigurationChangeTakesEffect(t *testing.T) {
 			t.Fatalf("work usage = %q, want it to say %q", usage.String(), want)
 		}
 	}
+}
+
+// The handover's order is the whole of its safety. The drain lease is taken while
+// the session still holds the watch, the watch is let go, and only then is the
+// deployed build started — so the build finds the watch free, the session hosting
+// runs is named at every moment, and the build is handed what is left of the
+// session's count of runs rather than the count starting again.
+func TestAHandoverDrainsBeforeItLetsTheWatchGoAndStartsTheBuildWithWhatIsLeft(t *testing.T) {
+	// Not parallel: the state root the watch is taken under is set here.
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+	watch, err := runstate.NewWatchStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewWatchStore() error = %v", err)
+	}
+
+	sessionID := newWatchSessionID(t)
+	watching := heldWatch(t, configPath, sessionID)
+	build := &startedBuild{args: []string{"/usr/local/bin/yoyo", "work", "--watch", "--limit", "10"}}
+	build.onStart = func() {
+		// What the build finds as it starts: the watch free for it, and the session
+		// that handed it over named as draining.
+		if held, err := watch.Held(); err != nil || held {
+			t.Errorf("watch held = %v, %v as the build starts, want it free for the build", held, err)
+		}
+		if draining, err := watch.Draining(); err != nil || len(draining) != 1 || draining[0].SessionID != sessionID {
+			t.Errorf("Draining() = %#v, %v as the build starts, want the session that handed over", draining, err)
+		}
+	}
+	handover := &watchHandover{binary: build, store: watch, sessionID: sessionID, watching: &watching, limit: 10}
+
+	to, err := handover.Handover(context.Background(), 4)
+	if err != nil {
+		t.Fatalf("Handover() error = %v", err)
+	}
+	if to != "a session in process 4242" {
+		t.Fatalf("Handover() = %q, want the process it started named", to)
+	}
+	if want := []string{"/usr/local/bin/yoyo", "work", "--watch", "--limit", "6"}; !slices.Equal(build.started, want) {
+		t.Fatalf("started %v, want %v: the count of runs less the four this session started", build.started, want)
+	}
+	if watching != nil {
+		t.Fatal("the command still holds a watch it handed over")
+	}
+	// Draining until the command lets go, which is after its runs have ended.
+	if alive, err := watch.StillDraining(sessionID); err != nil || !alive {
+		t.Fatalf("StillDraining() = %v, %v, want the session draining until it releases", alive, err)
+	}
+	if err := handover.release(); err != nil {
+		t.Fatalf("release() error = %v", err)
+	}
+	if draining, err := watch.Draining(); err != nil || len(draining) != 0 {
+		t.Fatalf("Draining() after release = %#v, %v, want nobody", draining, err)
+	}
+}
+
+// A build that will not start leaves the session where it was: it takes the watch
+// back, stops draining, and reports the failure, so the scheduler waits its runs
+// out and restarts into the build as it did before handovers existed.
+func TestAHandoverWhoseBuildWillNotStartTakesTheWatchBack(t *testing.T) {
+	// Not parallel: the state root the watch is taken under is set here.
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+	watch, err := runstate.NewWatchStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewWatchStore() error = %v", err)
+	}
+
+	sessionID := newWatchSessionID(t)
+	watching := heldWatch(t, configPath, sessionID)
+	build := &startedBuild{args: []string{"/usr/local/bin/yoyo", "work", "--watch"}, refuse: errors.New("exec format error")}
+	handover := &watchHandover{binary: build, store: watch, sessionID: sessionID, watching: &watching}
+
+	if _, err := handover.Handover(context.Background(), 2); err == nil || !strings.Contains(err.Error(), "exec format error") {
+		t.Fatalf("Handover() error = %v, want the refused start reported", err)
+	}
+	if watching == nil {
+		t.Fatal("the session did not take the watch back after the build would not start")
+	}
+	defer watching.Release()
+	if holder, found, err := watch.Holder(); err != nil || !found || holder.SessionID != sessionID {
+		t.Fatalf("Holder() = %#v, %v, %v, want this session holding the watch again", holder, found, err)
+	}
+	if draining, err := watch.Draining(); err != nil || len(draining) != 0 {
+		t.Fatalf("Draining() = %#v, %v, want nothing draining after a handover that did not happen", draining, err)
+	}
+}
+
+// startedBuild is the deployed build as a handover starts it: the invocation it
+// carries, what it was started as, and a start that works or is refused.
+type startedBuild struct {
+	args    []string
+	started []string
+	refuse  error
+	onStart func()
+}
+
+func (b *startedBuild) Args() []string { return append([]string(nil), b.args...) }
+
+func (b *startedBuild) Start(args []string) (int, error) {
+	if b.onStart != nil {
+		b.onStart()
+	}
+	if b.refuse != nil {
+		return 0, b.refuse
+	}
+	b.started = append([]string(nil), args...)
+	return 4242, nil
 }

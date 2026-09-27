@@ -2,7 +2,10 @@
 
 package redeploy
 
-import "syscall"
+import (
+	"os/exec"
+	"syscall"
+)
 
 // imageReplacement reports that a process here can replace its own image, which
 // is what a redeploy is. It is answered when a session opens rather than at the
@@ -15,4 +18,10 @@ const imageReplacement = true
 // left to run it.
 func replaceImage(path string, args, env []string) error {
 	return syscall.Exec(path, args, env)
+}
+
+// detach puts a process this one starts in a session of its own, so it outlives
+// this process and anything that reaps this process's group.
+func detach(command *exec.Cmd) {
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }

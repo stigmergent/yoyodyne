@@ -95,6 +95,12 @@ type statusOutput struct {
 	// does: an unreadable watch log costs this answer a line rather than the runs
 	// it found.
 	WatchError string `json:"watch_error,omitempty"`
+	// Draining is every session that handed the watch to a build deployed over it
+	// and is still alive hosting the runs it started, choosing nothing. A deploy
+	// with runs in flight leaves two sessions for a while — the one above choosing
+	// work, and these finishing theirs — and a reader shown only one would count
+	// the runs these host as nobody's.
+	Draining []drainingWatch `json:"draining,omitempty"`
 	// Stalls is the product's record of having gone quiet: stretches where nothing
 	// started at all while the tracker reported work ready and nothing accounted
 	// for it. It is the one history here that is not about a run, and it is here
@@ -277,6 +283,10 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// still choosing work — is the one an operator asks before any question
 	// about a particular run.
 	watched, watchFailure := latestWatch(*configPath)
+	draining, drainingFailure := drainingWatches(*configPath)
+	if watchFailure == "" {
+		watchFailure = drainingFailure
+	}
 
 	// Where the harness stands is read only when nothing was named, because the
 	// four lines are about the product: an operator asking about one item is
@@ -311,6 +321,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 			Recorded: history.Recorded,
 			Triage:   counters,
 			Watch:    watched,
+			Draining: draining,
 			Stalls:   stalls,
 		}
 		if counters != nil {
@@ -334,6 +345,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintln(stdout)
 	}
 	printWatch(stdout, watched)
+	printDraining(stdout, draining)
 	printStalls(stdout, stalls)
 	printRunHistory(stdout, history, workItemID, *failedOnly)
 	if counters != nil {
@@ -828,6 +840,63 @@ func printWatch(writer io.Writer, watched *runstate.WatchTransition) {
 		fmt.Fprintf(writer, ": %s", reason)
 	}
 	fmt.Fprintln(writer)
+}
+
+// drainingWatch is one session that handed the watch to a deployed build and is
+// hosting its own runs to their end: which session and process it is, as its
+// drain lease names it, and the last thing it said about itself.
+type drainingWatch struct {
+	Session runstate.WatchHolder      `json:"session"`
+	Latest  *runstate.WatchTransition `json:"latest,omitempty"`
+}
+
+// drainingWatches reads the sessions still draining beside the one choosing
+// work. A session is named only while it holds its drain lease, so one that was
+// killed before its runs ended is not reported as draining for ever.
+func drainingWatches(configPath string) ([]drainingWatch, string) {
+	resolved, err := loadConfiguration(configPath)
+	if err != nil {
+		return nil, fmt.Sprintf("which sessions are draining could not be read: %v", err)
+	}
+	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	if err != nil {
+		return nil, fmt.Sprintf("which sessions are draining could not be read: %v", err)
+	}
+	store, err := runstate.NewWatchStore(stateRoot, resolved.Config.Product.ID)
+	if err != nil {
+		return nil, fmt.Sprintf("which sessions are draining could not be read: %v", err)
+	}
+	holders, err := store.Draining()
+	if err != nil {
+		return nil, fmt.Sprintf("which sessions are draining could not be read: %v", err)
+	}
+	draining := make([]drainingWatch, 0, len(holders))
+	for _, holder := range holders {
+		session := drainingWatch{Session: holder}
+		if latest, found, err := store.LatestOf(holder.SessionID); err == nil && found {
+			session.Latest = &latest
+		}
+		draining = append(draining, session)
+	}
+	return draining, ""
+}
+
+// printDraining says each session still draining, under the line for the
+// session choosing work, so a deploy with runs in flight reads as the two
+// sessions it is: one choosing, and one finishing what it started.
+func printDraining(writer io.Writer, draining []drainingWatch) {
+	for _, session := range draining {
+		fmt.Fprintf(writer, "session %s (process %d) is draining", session.Session.SessionID, session.Session.PID)
+		if latest := session.Latest; latest != nil {
+			fmt.Fprintf(writer, " as of %s", latest.At.UTC().Format(time.RFC3339))
+			if reason := strings.TrimSpace(latest.Reason); reason != "" {
+				fmt.Fprintf(writer, ": %s", reason)
+			}
+		} else {
+			fmt.Fprint(writer, ": it handed the watch to the build deployed over it and is hosting its own runs to their end, choosing nothing")
+		}
+		fmt.Fprintln(writer)
+	}
 }
 
 // recordedStalls reads the product's record of having gone quiet. It resolves

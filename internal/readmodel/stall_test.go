@@ -338,3 +338,29 @@ func TestAHeldSwitchIsSaidOnceOnTheAttentionLine(t *testing.T) {
 		t.Fatalf("needs a human = %+v, want the hold said once", standing.NeedsHuman)
 	}
 }
+
+// A session that handed the watch to a deployed build is draining, and neither
+// reading of the log takes it for a session choosing work: the session it handed
+// to is that session, even where the draining one wrote the later line.
+func TestADrainingSessionIsNeitherLiveNorChoosing(t *testing.T) {
+	t.Parallel()
+	sessions := []runstate.WatchTransition{
+		{SessionID: "watch-old", State: runstate.WatchWatching, At: moment},
+		{SessionID: "watch-new", State: runstate.WatchWatching, At: moment.Add(time.Second)},
+		{SessionID: "watch-old", State: runstate.WatchIdle, At: moment.Add(2 * time.Second), Draining: true, Running: 1},
+	}
+	live := Live(sessions)
+	if len(live) != 1 || live[0].SessionID != "watch-new" {
+		t.Fatalf("Live() = %+v, want only the session that took the watch", live)
+	}
+	if choosing := Choosing(sessions); len(choosing) != 1 || choosing[0].SessionID != "watch-new" {
+		t.Fatalf("Choosing() = %+v, want only the session that took the watch", choosing)
+	}
+	if said := SessionSays(sessions[2]); !strings.HasPrefix(said, "draining") {
+		t.Fatalf("SessionSays(draining) = %q, want it said as draining rather than idle", said)
+	}
+	stopped := runstate.WatchTransition{State: runstate.WatchStopped, Draining: true}
+	if said := SessionSays(stopped); !strings.Contains(said, "handed the watch") {
+		t.Fatalf("SessionSays(draining stop) = %q, want the handover said rather than a bare stop", said)
+	}
+}

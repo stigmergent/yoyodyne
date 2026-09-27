@@ -612,3 +612,138 @@ func TestOnlyAnIdlePollThatCouldNotReadTheStoreIsARetriedRead(t *testing.T) {
 		}
 	}
 }
+
+// A session that hands the watch to a deployed build marks what it writes after
+// as draining, and the log is read for where the session choosing work got to
+// past every line of it: the session that took the watch is that session, and a
+// draining line written after it is not news about the queue.
+func TestADrainingSessionIsNotWhereTheSessionChoosingWorkGotTo(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := newTestWatchStore(t, root)
+	const successor = "watch-fedcba9876543210fedcba9876543210"
+	for _, transition := range []WatchTransition{
+		testWatchTransition(testWatchSessionID, WatchWatching, "watching the backlog until stopped"),
+		testWatchTransition(successor, WatchWatching, "watching the backlog until stopped"),
+		func() WatchTransition {
+			draining := testWatchTransition(testWatchSessionID, WatchIdle, "handed the watch over and hosting 1 run to its end")
+			draining.Draining = true
+			draining.Running = 1
+			return draining
+		}(),
+		func() WatchTransition {
+			stopped := testWatchTransition(testWatchSessionID, WatchStopped, "handed the watch over and stopped once its runs had ended")
+			stopped.Draining = true
+			return stopped
+		}(),
+	} {
+		if err := store.Record(transition); err != nil {
+			t.Fatalf("Record(%s) error = %v", transition.State, err)
+		}
+	}
+
+	latest, found, err := newTestWatchStore(t, root).Latest()
+	if err != nil || !found {
+		t.Fatalf("Latest() = %#v, found %v, error %v", latest, found, err)
+	}
+	if latest.SessionID != successor || latest.State != WatchWatching {
+		t.Fatalf("Latest() = %s %s, want the session that took the watch rather than the one draining", latest.SessionID, latest.State)
+	}
+	drained, found, err := store.LatestOf(testWatchSessionID)
+	if err != nil || !found || !drained.Draining || drained.State != WatchStopped {
+		t.Fatalf("LatestOf(draining) = %#v, found %v, error %v, want its draining stop", drained, found, err)
+	}
+
+	// A draining session is idle or stopped and never a restart: the build it
+	// would have restarted into is already watching.
+	for _, refused := range []WatchTransition{
+		func() WatchTransition {
+			watching := testWatchTransition(testWatchSessionID, WatchWatching, "choosing")
+			watching.Draining = true
+			return watching
+		}(),
+		func() WatchTransition {
+			restarting := testWatchTransition(testWatchSessionID, WatchStopped, "restarting")
+			restarting.Draining = true
+			restarting.Restarting = true
+			return restarting
+		}(),
+	} {
+		if err := store.Record(refused); err == nil {
+			t.Fatalf("Record(%s draining, restarting %v) error = nil, want it refused", refused.State, refused.Restarting)
+		}
+	}
+}
+
+// A draining session is named while it is alive and not after: by its drain
+// lease rather than by the log, so a session killed before its runs ended is not
+// reported as draining for ever. The watch it let go is free for the deployed
+// build to take the moment it is let go.
+func TestADrainingSessionIsNamedForExactlyAsLongAsItIsAlive(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := newTestWatchStore(t, root)
+	watch, held, err := store.Lease(testWatchSessionID)
+	if err != nil || !held {
+		t.Fatalf("Lease() = %t, %v", held, err)
+	}
+	drain, err := store.Drain(testWatchSessionID)
+	if err != nil {
+		t.Fatalf("Drain() error = %v", err)
+	}
+	if err := watch.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+
+	// Another process's view: the watch is free for the deployed build, and the
+	// draining session is named with its process.
+	reader := newTestWatchStore(t, root)
+	const successor = "watch-fedcba9876543210fedcba9876543210"
+	next, held, err := reader.Lease(successor)
+	if err != nil || !held {
+		t.Fatalf("Lease() by the deployed build = %t, %v, want the watch free once it was handed over", held, err)
+	}
+	defer next.Release()
+	draining, err := reader.Draining()
+	if err != nil {
+		t.Fatalf("Draining() error = %v", err)
+	}
+	if len(draining) != 1 || draining[0].SessionID != testWatchSessionID || draining[0].PID != os.Getpid() {
+		t.Fatalf("Draining() = %#v, want the session that handed over, with its process", draining)
+	}
+	if alive, err := reader.StillDraining(testWatchSessionID); err != nil || !alive {
+		t.Fatalf("StillDraining() = %v, %v, want the session alive while it holds its lease", alive, err)
+	}
+
+	// Its runs end and it lets go: nothing names it, and nothing is left behind.
+	if err := drain.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	if err := drain.Release(); err != nil {
+		t.Fatalf("second Release() error = %v, want a no-op", err)
+	}
+	if draining, err := reader.Draining(); err != nil || len(draining) != 0 {
+		t.Fatalf("Draining() after release = %#v, %v, want nobody", draining, err)
+	}
+	if alive, err := reader.StillDraining(testWatchSessionID); err != nil || alive {
+		t.Fatalf("StillDraining() after release = %v, %v, want gone", alive, err)
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(store.Root(), drainPrefix+"*")); len(leftovers) != 0 {
+		t.Fatalf("left behind %v, want the lock and the stamp both removed", leftovers)
+	}
+
+	// A session killed while draining leaves its stamp and no holder of the lock.
+	// It is not named, and the stamp is cleared by the reading that finds it.
+	stamp := filepath.Join(store.Root(), drainPrefix+testWatchSessionID+".holder")
+	if err := os.WriteFile(stamp, []byte(`{"session_id":"`+testWatchSessionID+`","pid":99999,"held_at":"2026-09-26T18:00:00Z"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if draining, err := reader.Draining(); err != nil || len(draining) != 0 {
+		t.Fatalf("Draining() over a dead session = %#v, %v, want nobody", draining, err)
+	}
+	if _, err := os.Stat(stamp); !os.IsNotExist(err) {
+		t.Fatalf("stat(stamp) = %v, want the dead session's stamp cleared", err)
+	}
+}

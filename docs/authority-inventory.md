@@ -260,6 +260,7 @@ to make the same judgement out loud instead of the question never being asked.
 | `internal/runstate/supervision.go` | `supervisorLeaseFile` | Names the file that lease is taken on. |
 | `internal/runstate/watch.go` | `(*WatchStore).Lease` | Serializes watching sessions against a second copy of one, so two of them do not choose from one queue at once. It decides which process may watch, never which role may do anything. |
 | `internal/runstate/watch.go` | `watchLeaseFile` | Names the file that lease is taken on. |
+| `internal/runstate/watch.go` | `DrainLease` | Says a session that handed the watch to a deployed build is still alive hosting the runs it started, so a surface names it while it lasts and `yoyo stop` can find it. It decides which process is reported and stopped, never which role may do anything. |
 | `internal/separation/separation.go` | `PromotionIsNeverUnleased` | The name one of the separation policies refuses under. The check is `separation.operation`, and the lease it defends is `promotion.lease`. |
 | `internal/sidestream/sidestream.go` | `Leases` | Who is carrying one side conversation right now, so it takes its turns one at a time. It decides which process may write, never what a side thread may do: that is `sidestream.no-action`. The lease it names is the stream's own and never the main thread's, which is what lets the two run at once. |
 | `internal/slack/state.go` | `(*Store).Lease` | Serializes the Slack process against a second copy of itself. |

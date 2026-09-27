@@ -103,7 +103,9 @@ waiting for each to let go of its lease. A part that is not running is reported
 so, and the parts are stopped whether or not a supervisor was running — a
 supervisor that died left them running, and this is what stops them. One thing
 to know before typing it: stopping the scheduler cancels the runs it is hosting,
-as stopping a watch session always has, and [`yoyo reconcile`](#recovering-interrupted-runs)
+as stopping a watch session always has — including those of a session still
+draining after a deploy, which is found by its own drain lease and stopped
+beside the session holding the watch — and [`yoyo reconcile`](#recovering-interrupted-runs)
 settles what that leaves. When what you want is for the runs to keep what they
 have and carry on later, [`yoyo pause`](#pausing-everything-and-resuming-it) is
 the verb and the product stays up.

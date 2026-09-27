@@ -15,7 +15,8 @@
 // The only thing standing in the gap between runs is the session itself.
 //
 // So this is the small half of that: which file this process was started from,
-// whether that file has been replaced since, and re-executing it. When the
+// whether that file has been replaced since, and re-executing it — or, for a
+// session that still has runs to host, starting it beside this one. When the
 // session takes it up is the scheduler's — between runs, never during one.
 package redeploy
 
@@ -23,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 )
 
@@ -129,6 +131,8 @@ func (b *Binary) Replaced() (bool, error) {
 // that spawned a successor and exited would be two processes choosing work for
 // the moment they overlapped, and would leave whatever started the first one —
 // a terminal, a supervisor — holding a process that is no longer the session.
+// Start is the child, for the one case a replacement cannot serve: a session
+// still hosting runs, which has stopped choosing and let the watch go first.
 //
 // The invocation is the caller's rather than the one this recorded, because a
 // caller that has spent part of a bound has to say so; Args is where the
@@ -144,4 +148,41 @@ func (b *Binary) Take(args []string) error {
 	// the image, which it does not do without failing. Saying so is cheaper than
 	// leaving a caller to conclude the restart worked.
 	return fmt.Errorf("re-executing %s returned rather than replacing this process", b.path)
+}
+
+// Start runs the deployed build as a process of its own, beside this one, as the
+// invocation given and with the environment this process was started with, and
+// reports the process it started. It is how a session hands the watch to the
+// deployed build while it still has runs to host: those runs' providers are this
+// process's children, so this process cannot become the new build until they
+// end, and the new build need not wait for it to.
+//
+// It is not the two sessions Take warns against. The session that calls this has
+// stopped choosing and let the watch go before it does, so the process started
+// here is the only one choosing; and what started the first one — a terminal, or
+// the supervisor, which asks the watch rather than a process whether the
+// scheduler is up — finds the watch held by this.
+//
+// The process is put in a session of its own, so the end of this one, or of
+// whatever process group this one was started in, does not take it with it. It
+// writes where this process writes, which for a supervised session is the log the
+// supervisor gave it.
+func (b *Binary) Start(args []string) (int, error) {
+	if len(args) == 0 {
+		return 0, fmt.Errorf("start %s: an invocation with no arguments names no program", b.path)
+	}
+	command := exec.Command(b.path, args[1:]...)
+	command.Args = append([]string(nil), args...)
+	command.Env = append([]string(nil), b.env...)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	detach(command)
+	if err := command.Start(); err != nil {
+		return 0, fmt.Errorf("start %s: %w", b.path, err)
+	}
+	pid := command.Process.Pid
+	// Waited on so that a successor which ends while this process is still
+	// draining is reaped rather than left as a zombie beside it.
+	go func() { _ = command.Wait() }()
+	return pid, nil
 }
