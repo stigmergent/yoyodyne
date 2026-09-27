@@ -1852,7 +1852,9 @@
     fields.appendChild(listField("Restart requests", (instance.restart_requests || []).map(function (request) {
       return request.part + ": " + request.reason + " — asked " + dayAndClock(request.requested_at) + ", unanswered; nothing acts on a request until the supervisor's periodic pass lands (" + request.id + ")";
     }), "none open"));
-    fields.appendChild(field("Report file", instance.report_path, "card-field-id"));
+    // The card ends with what it shows. report_path stays in the answer for a
+    // program that reads the file; a path on a card a person reads suggests
+    // content the card does not show, and there is none.
     section("report", "ready");
   }
 

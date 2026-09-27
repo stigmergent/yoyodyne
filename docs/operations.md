@@ -3547,11 +3547,13 @@ what it cites, and which open record of the instance's own that citation
 resolved to; the blockers it names that the record does not bear out, under
 **Not blockers**, each with the reason it blocks nothing; when the report was
 **Written**, which version it is, and the pass — or the operator's own turn —
-and the conversation turn that wrote it; the **Last pass** that completed; the
-open **Restart requests**, each with the part, the reason, and when it was
+and the conversation turn that wrote it; the **Last pass** that completed; and
+the open **Restart requests**, each with the part, the reason, and when it was
 asked, and that nothing acts on one until the supervisor's periodic pass
-lands; and the **Report file** under the state root. An instance that has
-written no report says so in the summary's place. The instance is the one the
+lands. That is everything the report holds, so the card ends there and names
+no file: where the report is kept is in the answer's `instance.report_path`,
+for a program that reads it. An instance that has written no report says so in
+the summary's place. The instance is the one the
 standing carries, from the same derivation, and the summary shown is the
 version its blockers were read from, so the card, the row, and `yoyo status`
 cannot disagree about it. The card has the four states: **loading** while it is
