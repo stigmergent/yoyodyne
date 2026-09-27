@@ -1,7 +1,7 @@
 package chat
 
 // Correcting backlog state the records have made stale, and reporting the state
-// that is held for a person instead.
+// that is held until somebody releases it instead.
 //
 // The product manager owns the queue, and three things in it stop describing the
 // world without anybody having changed them: a status of blocked left over from
@@ -218,11 +218,11 @@ func (s *Session) repairRecords(ctx context.Context, action TrackerAction, item 
 	}
 	records.Admitted = admitted
 	if s.options.Held == nil {
-		return backlogrepair.Records{}, errors.New("this conversation cannot read what the harness is holding for a person, so it cannot tell a stale status from a stoppage somebody has to decide about; nothing was corrected")
+		return backlogrepair.Records{}, errors.New("this conversation cannot read what the harness is holding back after stopped runs, so it cannot tell a stale status from a stoppage somebody has to decide about; nothing was corrected")
 	}
 	held, err := s.options.Held.HeldForAPerson(ctx)
 	if err != nil {
-		return backlogrepair.Records{}, fmt.Errorf("read what the harness is holding for a person: %w", err)
+		return backlogrepair.Records{}, fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
 	}
 	records.Held = held
 	directives, err := s.recordedDirectives(ctx)
@@ -368,7 +368,7 @@ func (s *Session) renderStaleBacklogState(ctx context.Context, open []beads.Work
 		// entries above and which somebody still has to release. Correcting one
 		// would release a stoppage nobody has decided about, so it is reported and
 		// left alone every pass, with the reason restated each time.
-		fmt.Fprintf(&rendered, "\nHeld for a person, so its state is reported rather than corrected (%d):\n", len(report.Holds))
+		fmt.Fprintf(&rendered, "\nHeld after a stopped run, waiting on the development manager's decision or the harness carrying it out, so its state is reported rather than corrected (%d):\n", len(report.Holds))
 		for _, held := range listedHolds(report.Holds) {
 			fmt.Fprintf(&rendered, "- %s [%s] %s; held because %s\n", held.WorkItemID, held.Class, held.Stale, held.Reason)
 		}
@@ -391,11 +391,11 @@ func (s *Session) surveyRecords(ctx context.Context, open []beads.WorkItem) (bac
 	}
 	records.Admitted = append(append([]beads.WorkItem(nil), open...), blocked...)
 	if s.options.Held == nil {
-		return backlogrepair.Records{}, errors.New("this conversation cannot read what the harness is holding for a person")
+		return backlogrepair.Records{}, errors.New("this conversation cannot read what the harness is holding back after stopped runs")
 	}
 	held, err := s.options.Held.HeldForAPerson(ctx)
 	if err != nil {
-		return backlogrepair.Records{}, fmt.Errorf("read what the harness is holding for a person: %w", err)
+		return backlogrepair.Records{}, fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
 	}
 	records.Held = held
 	directives, err := s.recordedDirectives(ctx)

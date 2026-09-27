@@ -269,7 +269,7 @@ func TestAnItemAwaitingADecisionOnItsEscalationIsReportedAndLeftAlone(t *testing
 	if strings.Contains(detail, "State the records have made stale, which \"repair\" corrects") {
 		t.Fatalf("the survey offers an escalated item as correctable: %q", detail)
 	}
-	for _, want := range []string{"Held for a person", "yoyodyne-ifd.72 [status]"} {
+	for _, want := range []string{"Held after a stopped run", "yoyodyne-ifd.72 [status]"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("the survey says %q, want it to carry %q", detail, want)
 		}
@@ -381,7 +381,7 @@ func TestARepairWithNothingToReadTheHoldsFromChangesNothing(t *testing.T) {
 	if len(reply.Actions) != 1 || reply.Actions[0].Applied {
 		t.Fatalf("actions = %#v, want the repair refused", reply.Actions)
 	}
-	if !strings.Contains(reply.Actions[0].Failure, "holding for a person") {
+	if !strings.Contains(reply.Actions[0].Failure, "holding back after stopped runs") {
 		t.Fatalf("failure = %q, want it to name the reading that did not happen", reply.Actions[0].Failure)
 	}
 	if len(tracker.unblocked) != 0 {
@@ -502,7 +502,7 @@ func TestASurveyListsTheStaleStateAndWhatIsHeld(t *testing.T) {
 	for _, want := range []string{
 		"State the records have made stale",
 		"yoyodyne-ifd.67 [dependency]",
-		"Held for a person",
+		"Held after a stopped run",
 		"yoyodyne-ifd.68 [status]",
 		"its change is preserved",
 	} {
@@ -630,7 +630,7 @@ func TestARepairIsRefusedWhereItDoesNotSayWhatItIsCorrecting(t *testing.T) {
 	}
 }
 
-// readHolds is what the harness is holding for a person, as a conversation
+// readHolds is what the harness is holding back after stopped runs, as a conversation
 // reads it, keyed by item with the reason each is held. A nil map is a reading
 // that found nothing held, which is not the same answer as no reading at all.
 func readHolds(reasons map[string]string) HeldWork {
@@ -745,7 +745,7 @@ func TestAStoppedRunWhoseChangeTheRepositoryHoldsIsNeverRepairedAndTheSurveySays
 		t.Fatalf("actions = %#v, want the repair refused", reply.Actions)
 	}
 	refusal := reply.Actions[0].Failure
-	for _, want := range []string{"held for a person", runID, "its change is preserved (branch and worktree checked and there)"} {
+	for _, want := range []string{"held after a stopped run", runID, "its change is preserved (branch and worktree checked and there)"} {
 		if !strings.Contains(refusal, want) {
 			t.Errorf("failure = %q, want it to say %q", refusal, want)
 		}
@@ -775,7 +775,7 @@ func TestAStoppedRunWhoseChangeTheRepositoryHoldsIsNeverRepairedAndTheSurveySays
 		t.Fatalf("the survey offers a preserved stoppage as correctable: %q", detail)
 	}
 	for _, want := range []string{
-		"Held for a person",
+		"Held after a stopped run",
 		"- yoyodyne-ifd.372 [status]",
 		"held because run " + runID + " stopped on it and its change is preserved (branch and worktree checked and there)",
 	} {

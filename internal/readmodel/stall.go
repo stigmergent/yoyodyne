@@ -150,7 +150,7 @@ func (r Reason) Whose() string {
 	case ReasonProviderWindow:
 		return "nobody's — the harness asks again when the provider's usage window lifts"
 	case ReasonTrackerWait:
-		return "nobody's — the dispatch asks the tracker again on its own, and hands the item to a person only once the recovery window is spent"
+		return "nobody's — the dispatch asks the tracker again on its own, and puts the item on the development manager's docket only once the recovery window is spent"
 	case ReasonStoreUnreadable:
 		return "the harness's — the queue could not be read, and it is read again until it answers or the session gives up on it"
 	case ReasonSessionIdle:

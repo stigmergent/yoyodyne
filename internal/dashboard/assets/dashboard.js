@@ -278,7 +278,7 @@
     { list: "running", problem: "running_problem", noun: "developer run", suffix: "", label: "Running" },
     { list: "working", problem: "working_problem", noun: "conversation", suffix: " with a turn in flight", label: "Working" },
     { list: "not_startable", problem: "not_startable_problem", noun: "admitted item", suffix: " nothing will pull", label: "Not startable" },
-    { list: "needs_human", problem: "needs_human_problem", noun: "thing", suffix: " waiting on a person", label: "Needs a human" }
+    { list: "needs_human", problem: "needs_human_problem", noun: "thing", suffix: " waiting on somebody", label: "Needs a human" }
   ];
 
   // movers is the read model's own vocabulary for who each thing waiting on a
@@ -341,7 +341,7 @@
   }
 
   // moverRank is where a mover stands in the vocabulary's order, which is the
-  // order the list of what waits on a person is shown in: the operator's
+  // order the list of what is waiting is shown in: the operator's
   // first, because the page is his.
   function moverRank(mover) {
     var rank = movers.length;
@@ -512,7 +512,7 @@
       standing.running.length === 0 && standing.working.length === 0 &&
       standing.admitted === 0 && standing.needs_human.length === 0;
     if (idle) {
-      section("band", "empty", "The harness is idle: nothing is running, no conversation has a turn in flight, nothing is admitted, and nothing waits on a person.");
+      section("band", "empty", "The harness is idle: nothing is running, no conversation has a turn in flight, nothing is admitted, and nothing waits on anybody.");
       return;
     }
 
@@ -558,7 +558,7 @@
   // Its label opens the list of the entries, each of which opens a card.
   function needsHumanTile(label, entries) {
     if (entries.length === 0) {
-      return tile(label, "nothing", "waiting on a person", null, "tile-quiet", "attention");
+      return tile(label, "nothing", "waiting on the operator or anybody else", null, "tile-quiet", "attention");
     }
     var counts = byMover(entries);
     var operator = counts[0];
@@ -752,12 +752,15 @@
   // ---- section 4: the pipeline --------------------------------------------
 
   // piles is the queue's own vocabulary for why an admitted item is not pulled,
-  // in the order a reader wants them: the ones waiting on a person first, then
-  // the ones waiting on the harness or on other work, then the ones nothing
-  // here can explain. Each says who it is waiting on, because a pile with no
-  // mover is a pile nobody empties.
+  // in the order a reader wants them: the ones waiting on a role's decision
+  // first, then the ones waiting on the harness or on other work, then the ones
+  // nothing here can explain. Each says who it is waiting on, because a pile
+  // with no mover is a pile nobody empties — and names that mover rather than
+  // "a person", because the operator moves almost none of them: on 2026-09-27
+  // the held pile said a person was needed over thirty-four items the
+  // development manager and the harness were moving.
   var piles = [
-    { kind: "held", label: "held for a person", whose: "the development manager, or the harness carrying her decision out" },
+    { kind: "held", label: "held after a stopped run", whose: "the development manager's decision, or the harness carrying out her decision" },
     { kind: "directive", label: "paused by a directive", whose: "the operator, through yoyo directive resolve" },
     { kind: "stalled", label: "pullable, and nothing is choosing", whose: "whoever the refusal names" },
     { kind: "parked", label: "parked", whose: "whoever parked it" },
@@ -858,11 +861,18 @@
     // the count said per mover after it, the operator's first.
     var attention;
     if (standing.needs_human_problem) {
-      attention = "what waits on a person could not be read: " + standing.needs_human_problem;
+      attention = "what waits on the operator could not be read: " + standing.needs_human_problem;
     } else if (standing.needs_human.length === 0) {
-      attention = "nothing waiting on a person";
+      attention = "nothing waiting on the operator or anybody else";
     } else {
-      attention = count(standing.needs_human.length, "thing") + " waiting on a person — " + moverCounts(byMover(standing.needs_human));
+      // The operator's count is the line's own; what waits on a role, the
+      // harness, or the forge is said after it under its mover, because none
+      // of that needs a human.
+      var counts = byMover(standing.needs_human);
+      attention = count(counts[0].number, "thing") + " waiting on the operator";
+      if (counts.length > 1) {
+        attention += "; waiting on others: " + moverCounts(counts.slice(1));
+      }
     }
     note.textContent = "Needs a human: " + attention + ".";
     section("pipeline", "ready");
@@ -912,11 +922,21 @@
     }
   }
 
-  // pileLabel is a pile's name, with the held pile split by who it waits on.
+  // pileLabel is a pile's name, with the held pile counted by who moves it:
+  // the development manager for a decision still to make, the harness for one
+  // she has made and it has still to carry out. Neither is the operator, so
+  // neither is said as "a person".
   function pileLabel(named, standing) {
     var label = named.label;
     if (named.kind === "held" && (standing.awaiting_decision || standing.awaiting_carry_out)) {
-      label += ": " + standing.awaiting_decision + " awaiting a decision, " + standing.awaiting_carry_out + " awaiting carry-out";
+      var split = [];
+      if (standing.awaiting_decision) {
+        split.push(standing.awaiting_decision + " waiting on the development manager's decision");
+      }
+      if (standing.awaiting_carry_out) {
+        split.push(standing.awaiting_carry_out + " waiting on the harness carrying out her decision");
+      }
+      label += ": " + split.join(", ");
     }
     return label;
   }
@@ -941,7 +961,7 @@
     figures.appendChild(figureRow("Landed", count(period.landed, "run") + " reached the target branch", period.landed > 0 ? "figure-landed" : null));
     var endings = [];
     if (period.succeeded) { endings.push(period.succeeded + " succeeded without promoting"); }
-    if (period.stopped) { endings.push(period.stopped + " stopped for a person"); }
+    if (period.stopped) { endings.push(period.stopped + " stopped, waiting on the development manager's decision"); }
     if (period.cancelled) { endings.push(period.cancelled + " cancelled"); }
     if (period.timed_out) { endings.push(period.timed_out + " timed out"); }
     if (period.failed) { endings.push(period.failed + " failed"); }
@@ -1295,7 +1315,7 @@
       return spendGrouping();
     }
     if (!standing) {
-      return { title: kind === "attention" ? "Needs a human" : "Where the work stands", note: "", state: model.standingError ? "error" : "loading", problem: model.standingError, remedy: whatToDoAboutTheStanding() };
+      return { title: kind === "attention" ? "What is waiting, and on whom" : "Where the work stands", note: "", state: model.standingError ? "error" : "loading", problem: model.standingError, remedy: whatToDoAboutTheStanding() };
     }
     if (kind === "attention") {
       return attentionGrouping(standing);
@@ -1394,7 +1414,7 @@
     return listing(title, note, spend.problem, whatToDoAboutTheSpend(), "The spend log holds no days.", lines, "line");
   }
 
-  // attentionGrouping lists what waits on a person: each entry of the
+  // attentionGrouping lists what is waiting and on whom: each entry of the
   // attention line, in the order the movers' vocabulary puts them — the
   // operator's first, so the list opens on what the tile's figure counted —
   // and within one mover in the order the terminal prints them, each by the
@@ -1405,8 +1425,8 @@
     entries.sort(function (a, b) {
       return (moverRank(a.entry.mover) - moverRank(b.entry.mover)) || (a.at - b.at);
     });
-    return listing("Needs a human", "what waits on a person, the operator's first, each with its kind and who it is waiting on; each opens its card",
-      standing.needs_human_problem, whatToDoAboutTheStanding(), "Nothing waits on a person.",
+    return listing("What is waiting, and on whom", "what waits on the operator first, then what waits on each role, the harness, and the forge, each with its kind and who it is waiting on; each opens its card",
+      standing.needs_human_problem, whatToDoAboutTheStanding(), "Nothing waits on the operator or anybody else.",
       entries.map(function (each) {
         return { entry: entryKey(each.entry), kind: each.entry.kind, title: saidWhat(each.entry), detail: saidWhose(each.entry) };
       }), "thing");
@@ -1802,14 +1822,14 @@
     var heading = document.getElementById("card-heading");
     var note = document.getElementById("card-note");
     if (!standing) {
-      heading.textContent = "Needs a human";
+      heading.textContent = "What is waiting, and on whom";
       note.textContent = "";
       clear(document.getElementById("card-fields"));
       section("card", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
       return;
     }
     if (standing.needs_human_problem) {
-      heading.textContent = "Needs a human";
+      heading.textContent = "What is waiting, and on whom";
       note.textContent = "";
       clear(document.getElementById("card-fields"));
       section("card", "error", standing.needs_human_problem, whatToDoAboutTheStanding());
@@ -1817,10 +1837,10 @@
     }
     var found = standing.needs_human.filter(function (entry) { return entryKey(entry) === openEntry; });
     if (found.length === 0) {
-      heading.textContent = "Needs a human";
+      heading.textContent = "What is waiting, and on whom";
       note.textContent = openEntry;
       clear(document.getElementById("card-fields"));
-      section("card", "empty", "Nothing under " + openEntry + " is waiting on a person any more: it was settled since the page last read where the harness stands, at " + clock(standing.observed_at) + ".");
+      section("card", "empty", "Nothing under " + openEntry + " is waiting any more: it was settled since the page last read where the harness stands, at " + clock(standing.observed_at) + ".");
       return;
     }
     var entry = found[0];

@@ -113,6 +113,10 @@ func (s Standing) RenderBriefLines() string {
 // list that is not there, and a promise a message does not keep reads as
 // something having been lost rather than as something having been left out.
 //
+// A line that is not indented is a head of its own and survives with the first:
+// the fourth line prints one for each mover other than the operator, and the
+// head is what says how much waits on each.
+//
 // One indented line survives, and it is the one that is not an entry: a count
 // assembled from a source that could not be fully read says so under itself, and
 // a brief rendering that dropped the caveat and kept the number would be the
@@ -122,8 +126,14 @@ func brief(rendered string) string {
 	head, rest := lines[0], lines[1:]
 	kept := strings.TrimSuffix(strings.TrimSuffix(head, "\n"), ":") + "\n"
 	for _, line := range rest {
-		if strings.HasPrefix(line, partialRead) {
+		switch {
+		case strings.HasPrefix(line, partialRead):
 			kept += line
+		case line != "" && !strings.HasPrefix(line, "  "):
+			// A second head under the first — the fourth line's head for each
+			// mover other than the operator — is a count rather than an entry,
+			// and is kept as the first head is.
+			kept += strings.TrimSuffix(strings.TrimSuffix(line, "\n"), ":") + "\n"
 		}
 	}
 	return kept
@@ -270,35 +280,66 @@ func (s Standing) renderNotStartable() string {
 	return rendered.String()
 }
 
+// renderNeedsHuman is the fourth line. It lists only what waits on the
+// operator, because the operator is the one human the line is named for:
+// under the operator's ruling of 2026-09-26 he moves only a change to the
+// fundamental goals, and a line that listed sixty things as needing a human
+// while three of them were his told him something false about the rest. What
+// waits on a role, the harness, the forge, or nobody is printed under it, one
+// headed line per mover in the movers' order, each head counting its entries,
+// so every entry is still printed and none of them is said to need a person.
 func (s Standing) renderNeedsHuman() string {
 	if s.NeedsHumanProblem != "" && len(s.NeedsHuman) == 0 {
 		return unreadable("Needs a human", s.NeedsHumanProblem)
 	}
+	byMover := map[Mover][]Attention{}
+	order := Movers()
+	for _, waiting := range s.NeedsHuman {
+		if _, seen := byMover[waiting.Mover]; !seen && !waiting.Mover.Valid() {
+			order = append(order, waiting.Mover)
+		}
+		byMover[waiting.Mover] = append(byMover[waiting.Mover], waiting)
+	}
 	var rendered strings.Builder
-	if len(s.NeedsHuman) == 0 {
+	operator := byMover[MoverOperator]
+	if len(operator) == 0 {
 		rendered.WriteString("Needs a human: nothing\n")
 	} else {
-		fmt.Fprintf(&rendered, "Needs a human (%d):\n", len(s.NeedsHuman))
-		// A named entry is printed wherever it falls and is never counted into
-		// the remainder; the bound is spent on the rest. A finding only the
-		// operator can act on that reached him as "and 3 things not named here"
-		// is one that did not reach him.
-		listed, further := 0, 0
-		for _, waiting := range s.NeedsHuman {
-			if !waiting.Named() {
-				if listed >= maxListed {
-					further++
-					continue
-				}
-				listed++
-			}
-			fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.CitedWhose())
+		fmt.Fprintf(&rendered, "Needs a human (%d):\n", len(operator))
+		rendered.WriteString(renderWaiting(operator))
+	}
+	for _, mover := range order {
+		entries := byMover[mover]
+		if mover == MoverOperator || len(entries) == 0 {
+			continue
 		}
-		rendered.WriteString(remainder(further, "thing waiting on somebody"))
+		fmt.Fprintf(&rendered, "%s (%d):\n", mover.WaitingOn(), len(entries))
+		rendered.WriteString(renderWaiting(entries))
 	}
 	if s.NeedsHumanProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.NeedsHumanProblem)
 	}
+	return rendered.String()
+}
+
+// renderWaiting is the entries under one mover's head. A named entry is
+// printed wherever it falls and is never counted into the remainder; the
+// bound is spent on the rest. A finding only the operator can act on that
+// reached him as "and 3 things not named here" is one that did not reach him.
+func renderWaiting(entries []Attention) string {
+	var rendered strings.Builder
+	listed, further := 0, 0
+	for _, waiting := range entries {
+		if !waiting.Named() {
+			if listed >= maxListed {
+				further++
+				continue
+			}
+			listed++
+		}
+		fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.CitedWhose())
+	}
+	rendered.WriteString(remainder(further, "thing waiting on somebody"))
 	return rendered.String()
 }
 

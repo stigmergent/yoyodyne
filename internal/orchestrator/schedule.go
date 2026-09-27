@@ -4676,7 +4676,7 @@ func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (p
 	if p.Stoppages != nil {
 		held, err = readmodel.HeldForAPerson(ctx, p.Stoppages, p.Decisions, p.Remains)
 		if err != nil {
-			return pulled{}, fmt.Errorf("read what the harness is holding for a person: %w", err)
+			return pulled{}, fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
 		}
 	}
 	queue := backlog.Order(admitted, pullable, held)

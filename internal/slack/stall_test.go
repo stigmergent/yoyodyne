@@ -385,7 +385,7 @@ func TestAStallNamesTheDominantCauseAndTheNextMover(t *testing.T) {
 	harness.stalled(t, stalls, moment.Add(-time.Hour), 47, harness.now)
 
 	said := harness.say(t, cursors, notify.KindStallNoticed)
-	if !strings.Contains(said.Body, "33 of the 47 admitted items are held for a person, waiting on triage decisions") {
+	if !strings.Contains(said.Body, "33 of the 47 admitted items are stopped, waiting on the development manager's decision or the harness carrying it out") {
 		t.Fatalf("body %q does not point out the cause", said.Body)
 	}
 	if !strings.Contains(said.Body, "Next: the development manager's") {
@@ -431,7 +431,7 @@ func TestAStallOverAnAccountAStartOvertookNamesNoCause(t *testing.T) {
 	if delivery.Notification.Event.Kind != notify.KindStallNoticed {
 		t.Fatalf("kind = %q, want the stall", delivery.Notification.Event.Kind)
 	}
-	if strings.Contains(said.Body, "held for a person") {
+	if strings.Contains(said.Body, "waiting on the development manager's decision or the harness carrying it out") {
 		t.Fatalf("body %q states an account taken before the silence it is reporting", said.Body)
 	}
 	if !strings.Contains(said.Body, "Next: the operator's") {

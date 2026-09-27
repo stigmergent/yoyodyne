@@ -55,7 +55,7 @@ func TestTheDominantCauseIsNamedWithWhoseMoveFollowsIt(t *testing.T) {
 	if !accounted {
 		t.Fatal("WhyThePollStartedNothing() found no cause in a poll that recorded one")
 	}
-	if want := "33 of the 47 admitted items are held for a person, waiting on triage decisions"; cause.Says() != want {
+	if want := "33 of the 47 admitted items are stopped, waiting on the development manager's decision or the harness carrying it out"; cause.Says() != want {
 		t.Fatalf("Says() = %q, want %q", cause.Says(), want)
 	}
 	if !strings.HasPrefix(cause.Whose(), "the development manager's") {

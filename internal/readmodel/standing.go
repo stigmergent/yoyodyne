@@ -1314,7 +1314,7 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	if sources.Stoppages != nil {
 		held, err = HeldForAPerson(ctx, sources.Stoppages, sources.Decisions, sources.Remains)
 		if err != nil {
-			return backlog.Queue{}, nil, fmt.Errorf("read what the harness is holding for a person: %w", err)
+			return backlog.Queue{}, nil, fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
 		}
 	}
 	queue := backlog.Order(admitted, pullable, held)

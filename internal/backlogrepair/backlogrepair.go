@@ -182,7 +182,7 @@ type HoldError struct {
 }
 
 func (e *HoldError) Error() string {
-	return fmt.Sprintf("%s is held for a person and nothing here touches it: %s", e.WorkItemID, e.Reason)
+	return fmt.Sprintf("%s is held after a stopped run and nothing here touches it: %s", e.WorkItemID, e.Reason)
 }
 
 // Survey reads the admitted work and reports what has gone stale about it, and
@@ -430,7 +430,7 @@ func why(item beads.WorkItem, class Class, records Records) string {
 // statement about the reader rather than about the work.
 func heldFor(workItemID string, records Records) (string, bool) {
 	if !records.Held.Read() {
-		return "what the harness is holding for a person could not be read, so nothing here can tell a stale status from a stoppage somebody has to decide about", true
+		return "what the harness is holding back after stopped runs could not be read, so nothing here can tell a stale status from a stoppage somebody has to decide about", true
 	}
 	if reason, held := records.Held.Reason(workItemID); held {
 		return reason, true

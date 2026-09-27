@@ -932,7 +932,7 @@ The claim clearing a stale status is the harness meeting one; the Lead Product
 Manager corrects them deliberately, in her own pass over the queue, along with
 dependencies on work that closed and attributions the goals no longer state. She
 is refused by the same holds and reads them from the same records, so an item
-held for a person is reported with its reason and left alone there too. What that
+held after a stopped run is reported with its reason and left alone there too. What that
 looks like from the conversation is
 [backlog state that has stopped being true](conversation.md#backlog-state-that-has-stopped-being-true).
 
@@ -1478,8 +1478,8 @@ anything. Each release is on the pass and
 [reaches the operators once](operations.md#claims-with-nothing-working-on-them).
 
 A stoppage the harness tried to deliver and gave up on is not restated by every
-pass after that. It is not lost either: the item stays held for a person, with
-the reason on it, wherever `yoyo status` reports what the harness is holding. The
+pass after that. It is not lost either: the item stays held, with the reason
+on it saying it needs the operator, wherever `yoyo status` reports what the harness is holding. The
 restating was worth having until there were twelve of them, at which point what a
 session start said was a paragraph per stoppage nobody was going to act on and
 nothing about what the pass had just done.

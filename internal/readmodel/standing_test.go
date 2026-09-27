@@ -555,9 +555,10 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 		// operator reads: a wording change has to break the document and the test
 		// together rather than leaving the two saying different things.
 		"  yoyodyne-ifd.201 — run run-b stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has\n",
-		"Needs a human (2):\n",
-		"intake is held, since 2026-08-30T10:00:00Z: the operator placed it — the overnight looked wrong — the operator's",
-		"1 admitted item awaits the development manager's decision — the development manager's",
+		// Only the operator's entry is under the line named for a human; the
+		// development manager's is under a line naming her.
+		"Needs a human (1):\n  intake is held, since 2026-08-30T10:00:00Z: the operator placed it — the overnight looked wrong — the operator's",
+		"Waiting on the development manager (1):\n  1 admitted item awaits the development manager's decision — the development manager's",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
