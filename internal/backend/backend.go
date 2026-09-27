@@ -23,12 +23,21 @@ type Capabilities struct {
 	LocalAuth         bool `yaml:"local_auth" json:"local_auth"`
 }
 
+// Availability is what a provider's executable said about itself. Installed is
+// false only for an executable that was not there to ask; one that was there and
+// did not answer -- it timed out, it was cancelled, it exited nonzero -- is an
+// error from CheckAvailability saying which, and never Installed false. See
+// availability.go for why the two are kept apart.
 type Availability struct {
 	Installed     bool   `json:"installed"`
 	Authenticated bool   `json:"authenticated"`
 	Version       string `json:"version,omitempty"`
 	AuthMethod    string `json:"auth_method,omitempty"`
 	APIProvider   string `json:"api_provider,omitempty"`
+	// Missing says what was looked for and where, when Installed is false: the
+	// executable's name and the PATH it was not found on. It is empty whenever
+	// Installed is true, and for an adapter that does not say.
+	Missing string `json:"missing,omitempty"`
 }
 
 // RunRequest is one provider invocation the harness asks for.

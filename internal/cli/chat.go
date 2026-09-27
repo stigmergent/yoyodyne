@@ -633,9 +633,15 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 	// provider home. The two are separate decisions: which provider runs the
 	// agent is the project's, and which login it runs under is this machine's.
 	provider := providerBackendIn(cfg, agent.Backend, processRunner, account.Directory)
+	// A provider that was there and did not answer -- its version check timed out,
+	// exited nonzero, or was cancelled with the pass that asked -- is this error,
+	// in the adapter's words, and never the "not installed" below. The
+	// cancellation is carried rather than restated, so a pass stopped because its
+	// scheduler was stopped reads as that where the pass is recorded, rather than
+	// as a failed firing with a cause nobody could fix.
 	availability, err := provider.CheckAvailability(ctx)
 	if err != nil {
-		return preparedChat{}, err
+		return preparedChat{}, fmt.Errorf("ask whether the %s backend is ready for %s agent %s: %w", agent.Backend, role, name, err)
 	}
 	// The refusals name the backend the agent is configured for rather than one
 	// provider for all of them. The login they hand back is Claude Code's, and
@@ -643,7 +649,7 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 	// management roles, and Codex serves neither of them, so every agent that
 	// reaches here runs on the Claude Code adapter.
 	if !availability.Installed {
-		return preparedChat{}, fmt.Errorf("the %s backend is not installed", agent.Backend)
+		return preparedChat{}, errors.New(availability.NotInstalled(agent.Backend))
 	}
 	if !availability.Authenticated {
 		// A login nobody has renewed is a wait rather than a refusal, and it is

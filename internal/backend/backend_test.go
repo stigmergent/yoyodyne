@@ -55,3 +55,16 @@ func TestDescribeFailureKeepsTheProvidersOwnWordsBesideItsCategory(t *testing.T)
 		t.Fatalf("described %d bytes ending %q", len(long), long[len(long)-8:])
 	}
 }
+
+// The refusal for a provider that is not there names where it was looked for
+// when the adapter said, and is the refusal it always was when it did not.
+func TestNotInstalledNamesThePathItWasLookedForOn(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	if got, want := NotFound("claude").NotInstalled("claude-code"), "the claude-code backend is not installed: claude was not found on PATH /usr/bin:/bin"; got != want {
+		t.Fatalf("NotInstalled() = %q, want %q", got, want)
+	}
+	if got, want := (Availability{}).NotInstalled("codex"), "the codex backend is not installed"; got != want {
+		t.Fatalf("NotInstalled() = %q, want %q", got, want)
+	}
+}
