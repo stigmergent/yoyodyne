@@ -46,6 +46,14 @@ func (PartialWorktreeManager) ChangedPaths(context.Context, gitworktree.Worktree
 	return nil, nil
 }
 
+// PartialContentIdentity is the one content a partial worktree ever holds, so a
+// test binding evidence to it can say exactly what the promotion will read.
+const PartialContentIdentity = gitworktree.ContentIdentityPrefix + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+func (PartialWorktreeManager) ContentIdentity(context.Context, gitworktree.Worktree) (string, error) {
+	return PartialContentIdentity, nil
+}
+
 func (PartialWorktreeManager) CurrentExports() []string { return nil }
 
 func (PartialWorktreeManager) CommitAttempt(context.Context, gitworktree.Worktree, string) (string, error) {

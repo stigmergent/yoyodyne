@@ -819,6 +819,59 @@ func (l LandingChecks) spent() time.Duration {
 	return l.FinishedAt.Sub(l.StartedAt)
 }
 
+// ChecksPassed is the evidence that every configured check passed over the
+// change this run is carrying, bound to the change it passed over: the content
+// of the change as the worktree held it, the attempt that produced it, and the
+// commit the harness made of it. It is what the promotion reads before it moves the target branch.
+// Control flow already orders the checks in front of the promotion, and that is
+// not the same guarantee: an integration reached by any route has to find this
+// on the record, for exactly the content it is about to promote, or refuse. A
+// later attempt invalidates it by moving the attempt count, an edit to the
+// worktree invalidates it by moving the content, and a failing check clears it,
+// so it never describes a change the gate has moved past.
+type ChecksPassed struct {
+	// Content names the change the checks passed over, as the worktree manager
+	// names it: a digest over the base, every path the change touches, and the
+	// blob each one's content is. It is the binding that always holds and is
+	// what makes this evidence about a revision rather than about a moment — the
+	// promotion reads the worktree again and refuses a change whose content is
+	// not this one, whether or not anything was ever committed.
+	Content string `json:"content"`
+	// Attempt is the repair attempt the checks ran over, which is the run's
+	// RepairAttempts at the time. The first attempt is zero.
+	Attempt int `json:"attempt"`
+	// Commit is the harness commit the worktree stood at when the checks ran.
+	// Every developer invocation is committed as it ends, publishing or not, and
+	// a replayed promotion records the rebased commit before the gate is
+	// re-earned, so a change the checks passed over has one; it is empty only for
+	// an attempt that changed nothing. It is held to beside the content because a
+	// commit is what the branch and the forge name the change by.
+	Commit string `json:"commit,omitempty"`
+	// Commands are the configured checks that passed, in the order they ran.
+	Commands []string  `json:"commands,omitempty"`
+	At       time.Time `json:"at"`
+}
+
+// Validate rejects evidence that cannot describe checks that actually ran.
+func (c ChecksPassed) Validate() error {
+	var problems []error
+	if strings.TrimSpace(c.Content) == "" {
+		problems = append(problems, errors.New("content is required: evidence bound to no change is evidence for any change"))
+	}
+	if c.Attempt < 0 {
+		problems = append(problems, fmt.Errorf("attempt %d cannot be negative", c.Attempt))
+	}
+	if c.At.IsZero() {
+		problems = append(problems, errors.New("at is required"))
+	}
+	for i, command := range c.Commands {
+		if strings.TrimSpace(command) == "" {
+			problems = append(problems, fmt.Errorf("commands[%d] is blank", i))
+		}
+	}
+	return errors.Join(problems...)
+}
+
 // MaxRefusedPaths bounds how many protected paths a refusal carries into
 // durable state and into the developer's next attempt. A change that rewrote a
 // whole artifact home must not be able to fill either with a listing, and the
@@ -2372,6 +2425,12 @@ type State struct {
 	// describe a change the gate has already moved past, and passing checks
 	// clear the failure.
 	CheckFailure *CheckFailure `json:"check_failure,omitempty"`
+	// ChecksPassed is the other answer the checks give, kept for the opposite
+	// reason: it is what the promotion has to find on the record before it moves
+	// the target branch, bound to the content and the attempt it is about to
+	// promote. Recording a failing check clears it, and recording it clears the
+	// failure, so at most one of the two describes the current attempt.
+	ChecksPassed *ChecksPassed `json:"checks_passed,omitempty"`
 	// PathRefusal carries the protected paths the gate refused before any check
 	// ran. It is the third kind of repair input and behaves as the other two do:
 	// at most one of the three describes the current attempt, and because this
@@ -2976,6 +3035,16 @@ func (s State) Validate() error {
 	if s.CheckFailure != nil {
 		if err := s.CheckFailure.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("check_failure: %w", err))
+		}
+	}
+	if s.ChecksPassed != nil {
+		if err := s.ChecksPassed.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("checks_passed: %w", err))
+		}
+		// The two are the opposite answers to one question about one attempt, so
+		// a record carrying both describes a gate that has not decided.
+		if s.CheckFailure != nil {
+			problems = append(problems, errors.New("checks_passed and check_failure cannot both describe the current attempt"))
 		}
 	}
 	if s.PathRefusal != nil {

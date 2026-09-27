@@ -98,6 +98,15 @@
       "narrowed": "the whole module (the repository root is not a Go module)",
       "started_at": "\u003ctime\u003e"
     },
+    "checks_passed": {
+      "at": "\u003ctime\u003e",
+      "attempt": 1,
+      "commands": [
+        "test -f feature.txt"
+      ],
+      "commit": "\u003ccommit-2\u003e",
+      "content": "\u003ccontent\u003e"
+    },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
     "harness_commit": "\u003ccommit-2\u003e",

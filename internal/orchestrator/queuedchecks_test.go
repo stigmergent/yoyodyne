@@ -197,6 +197,51 @@ func TestAQueuedHeadFailingACheckOnItsOwnChangeIsHandedBack(t *testing.T) {
 	}
 }
 
+// A head level with its target that fails a required check on a file its
+// change never touched is the September 2026 shape (yoyodyne-ifd.362): a red
+// test inherited from the local target held every queued merge on the forge for
+// six days, and no sweep said so. It is handed back on the first sweep that
+// reads it, with the check named and the merge drop on the record — which is
+// what the channel is told as a dropped merge — rather than left queued.
+func TestAQueuedHeadLevelWithItsTargetFailingAnUnrelatedCheckIsHandedBackOnTheFirstSweep(t *testing.T) {
+	t.Parallel()
+
+	fixture, forge, _ := queuedOnProtectedTarget(t)
+	forge.reading = publish.CheckReading{
+		Files:   []string{"feature.txt"},
+		Failing: []publish.FailedCheck{{Name: "build", Paths: []string{"internal/backend/codex/codex_test.go"}}},
+		Passing: 2,
+	}
+	fixture.docket = &memoryDocket{}
+	reconciler := fixture.sweep(t, forge, true)
+
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Action != ActionBlocked {
+		t.Fatalf("reconciliation = %#v, want the held merge handed back on the first sweep", results)
+	}
+	if len(forge.withdrawn) != 1 || forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.withdrawn, forge.HoldsQueuedMerge())
+	}
+	for _, want := range []string{"build (on internal/backend/codex/codex_test.go, which this change does not touch)", "level with main", "needs a person"} {
+		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
+			t.Errorf("blocker does not say %q:\n%s", want, fixture.tracker.Record().BlockReason)
+		}
+	}
+	settled, err := fixture.store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if settled.MergeDrop == nil || settled.PullRequest.MergeQueued || settled.Outstanding() {
+		t.Fatalf("record = drop %#v, queued %t, outstanding %t; want a dropped merge on the record, not a merge still queued", settled.MergeDrop, settled.PullRequest.MergeQueued, settled.Outstanding())
+	}
+	if updates, err := reconciler.ContinueUpdates(context.Background()); err != nil || len(updates) != 0 {
+		t.Errorf("ContinueUpdates() = %#v, %v; a head level with its target has nothing to be brought up to date onto", updates, err)
+	}
+}
+
 // A request queued past triage.stuck_merge_age with red checks — here one a
 // pass that hosts no runs could not bring up to date — is docketed with its
 // checks beside it. The attention line's half is TestAQueuedPublicationLineCarriesItsChecks.
