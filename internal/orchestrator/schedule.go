@@ -320,7 +320,7 @@ type ScheduleStaleness interface {
 type ScheduleBrake interface {
 	Brake(trip runstate.IntakeBrake, reason string, at time.Time) (runstate.IntakeHold, error)
 	ReviseBrake(revise func(*runstate.IntakeBrake) error) (runstate.IntakeHold, error)
-	ReleaseBrake() (runstate.IntakeHold, bool, error)
+	ReleaseBrake(by string, at time.Time) (runstate.IntakeHold, bool, error)
 }
 
 // ScheduleSummons is how the brake puts its trip in front of the development
@@ -2684,7 +2684,11 @@ func (s Scheduler) workBrake(schedule *Schedule, pull Pull, hold runstate.Intake
 	// the operator the harness handed it to.
 	switch {
 	case trip.Decision == runstate.BrakeDecisionRelease:
-		if _, released, err := pull.Brake.ReleaseBrake(); err != nil {
+		by := "the harness, on the development manager's decision to release it"
+		if decidedBy := strings.TrimSpace(trip.DecidedBy); decidedBy != "" {
+			by += " (" + decidedBy + ")"
+		}
+		if _, released, err := pull.Brake.ReleaseBrake(by, now); err != nil {
 			schedule.BrakeProblem = appendProblem(schedule.BrakeProblem, fmt.Sprintf(
 				"the development manager decided to release the brake's hold and it could not be lifted: %v", err))
 			return brakeWaiting
@@ -2833,7 +2837,7 @@ func (s Scheduler) settleProbe(ctx context.Context, schedule *Schedule, brake Sc
 			trip.Probe.RunID = started.Outcome.RunID
 			trip.Probe.Landed = true
 		})
-		if _, released, err := brake.ReleaseBrake(); err != nil {
+		if _, released, err := brake.ReleaseBrake(fmt.Sprintf("the harness, because the probe run%s of %s landed", namedRun(started.Outcome.RunID), started.WorkItemID), now); err != nil {
 			schedule.BrakeProblem = appendProblem(schedule.BrakeProblem, fmt.Sprintf(
 				"the probe run of %s landed and the brake's hold could not be lifted: %v", started.WorkItemID, err))
 		} else if released {

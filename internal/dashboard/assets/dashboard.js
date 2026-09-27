@@ -347,7 +347,8 @@
     { attention: "directive", title: "An unresolved directive" },
     { attention: "outage", title: "The provider answering nobody" },
     { attention: "stall", title: "A queue nothing is pulling from" },
-    { attention: "held-work", title: "Admitted work held back" }
+    { attention: "held-work", title: "Admitted work held back" },
+    { attention: "operator-action", title: "A finding only the operator can act on" }
   ];
 
   function kindTitle(kind) {
@@ -1686,6 +1687,14 @@
         if (entry.held_work) {
           add("Awaiting", entry.held_work.awaiting === "carry-out" ? "carry-out of a decision already recorded" : "the development manager's decision");
           add("Items", count(entry.held_work.count, "admitted item"));
+        }
+        break;
+      case "operator-action":
+        if (entry.operator_action) {
+          add("Needs", entry.operator_action.needs);
+          add("Found by", entry.operator_action.found_by);
+          add("Recorded in", entry.operator_action.recorded_in);
+          add("Since", named(entry.operator_action.since) ? dayAndClock(entry.operator_action.since) : "");
         }
         break;
       default:

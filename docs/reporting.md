@@ -616,6 +616,20 @@ handling — with each admission by the identifier it was assigned — so the
 development manager or a program manager can check later that each covering item
 actually covered what it was said to.
 
+One handling is not a closing. A report whose answer is a change only you can
+make by hand — a file the harness may not write, a credential, a workspace
+setting — is handled with `"needs": "operator"` and a reason saying what you
+have to do, and that record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
+said to you once, directly, and named on `yoyo status` until a later handling of
+the same report records the change made. It is a field the harness reads rather
+than a sentence in the reason, because a sentence is what six such reports were
+for a month. A report filed at `critical` is the same kind of finding on its
+own, until somebody handles it. A report handled as yours counts as handled and
+is not offered to the Lead Product Manager again, so her turns list the findings she
+has handed you, each with its identifier, until she records it done: tell her
+when the change is made, and she handles the same report once more, without
+`needs`.
+
 Where the decision is work, the admission can name the report it came from, and
 the item then records it. That citation is not bookkeeping: it is what a later
 admission citing the same report is checked against, and where one is found
@@ -1322,6 +1336,7 @@ of failures is said as a new one.
 > is a defect in the harness rather than anything waiting it out will end; every
 > firing meets the same refusal until the harness is fixed, and the first firing
 > that takes a turn clears this
+
 ### An item claimed with nothing working on it
 
 The stall reading has a blind spot, and neither state above can see it either:
@@ -1342,6 +1357,75 @@ log's position rather than this process's memory, so a restarted sink re-says
 nothing; and it is never repeated, because what follows a release is the item
 being pulled again, which says so itself.
 
+### A finding that needs your hand
+
+Some of what the roles find is yours alone to act on: a hook that has to go into
+`.claude/settings.json`, a credential to renew, a workspace setting, a file the
+harness may not write. Six developer reports of that class sat in the pile from
+2026-08-17 until the sweep of 2026-09-14 reached them, and the finding that
+sweep produced landed on the Lead Product Manager's own checklist, which you saw
+when you asked — a month after the first was filed.
+
+So the class is one the harness reads, and **each such finding is said to you
+once, directly, tagged by member id** — the communication rule's own test for a
+tag, since it is both important and yours — the pass after it is recorded.
+[Operations](operations.md#where-a-finding-that-needs-your-hand-goes) says what
+makes one: the Lead Product Manager handling a report with `"needs":
+"operator"`, a report filed at critical severity that nobody has handled, and a
+stopped run the development manager escalated to you. The message says what is
+needed, who found it, where it is recorded, and what ends it, so you can go and
+read the whole of it:
+
+> @operator This needs your hand: add the PreToolUse hook to
+> `.claude/settings.json`; the harness may not write that file. Found by the
+> Lead Product Manager, handling the report; recorded in the handling of
+> report-9f2c… recorded in chat-91253e0e…, over the developer's report from
+> run-4f2a…. Nothing here changes it, and this is not said again —
+> `yoyo status` names it until it is done, and a later handling of the report
+> records it done. Next: the operator's — only a person can act on this; a later
+> handling of the report records it done.
+
+It is said once and never again while it stands. The sink marks each finding by
+name in its own durable cursors, so a second pass, a restarted sink, and every
+poll afterwards send nothing more; `yoyo status` names it under `Needs a human`
+until it ends, which is the record that says it is done — the report handled,
+the change recorded made, the escalated run decided again — and the mark is
+dropped with it, so the same report handled as yours again later is a second
+finding, said once more. An escalated stoppage is read here from the runs and
+the triage record alone, without asking the tracker whether the item is still
+admitted, so one that ended by the item leaving the backlog keeps its mark; it
+was said once either way, and `yoyo status` reads the queue and drops it. A
+finding whose report was filed before this channel was turned on is history
+like every other record from before the watermark, and is marked without being
+said; its moment is the record that made it, so a handling made today of a
+month-old report is today's news.
+
+The brake's hold is said in the same terms once it is yours. The trip is said
+to the channel, naming what a count did not — each run it counted, with its item
+and what stopped it — and asks you for nothing, because the development manager
+and the harness are working it:
+
+> Intake is held for this product: the harness's own brake placed it after 3
+> run(s) blocked in a row with nothing landing between them, which is the
+> configured brake at 3, and the development manager was summoned at … to
+> decide what happens to it …; the runs it counted: run run-7c27… of
+> yoyodyne-ifd.398: its reviewer still required repair …; run run-a17c… of
+> yoyodyne-ifd.401: check `make test` failed (exit 1) …; run run-5035… of
+> yoyodyne-ifd.402: …
+
+When she escalates it to you, that hold is said to you once more, directly and
+tagged, in its own account of who decided it; the harness escalating it at the
+bound on its loop is [said the same way](#a-brake-hold-the-harness-escalates).
+While a hold stands the [heartbeat](#reporting-into-slack) says intake is held
+every hour, runs in flight or not: a held intake is the one state said over a
+run, because the runs are the ones that were already going when the line
+stopped, and a free slot idle beside one is exactly the shape the 2026-09-19
+trip stood in unseen. The release is said once, naming who lifted it —
+`released by the operator, at a terminal (`yoyo release`)`, the conversation and
+turn, or the harness and what moved it — read from the release the store
+records beside the hold's absence. Your own hold is said to the channel alone,
+because you placed it.
+
 ### What arrives as a direct message
 
 Almost everything above is posted in the channel and nowhere else, because a
@@ -1352,23 +1436,27 @@ only by naming its class — the
 state fitting neither class does not get one:
 
 - **Degraded** — the system is stopped, stale, or choosing nothing over ready
-  work: something only a person fixes. The seven shipped states are the ones
+  work: something only a person fixes. The shipped states are the ones
   above — a session running a build the harness has moved well past, the
   harness having started nothing at all while work was ready, the provider
   holding every role with nothing configured to fail over to, the brake's own
   hold handed to them by the harness at the bound on its summons-and-probe
   loop, a recurring task that has failed before its first turn for two hours
   (its critical message), an item that
-  sat claimed with nothing working on it until the harness gave it back, and
-  **the line choosing nothing over ready work**, which is the one state that is
+  sat claimed with nothing working on it until the harness gave it back, a
+  brake hold the development manager escalated to you, and **the line choosing
+  nothing over ready work**, which is the one state that is
   asked rather than reported and is below. The released claim is a fix rather
   than a request, and it is still in this class:
   the line was quietly degraded for as long as it stood, and a second run for an
   item with nothing accounting for the first is the kind of thing a person has
   to be able to read afterwards.
 - **Advisory-once** — a fact addressed to a person that speaks exactly once per
-  fact, never repeated and never urgent in presentation. One state ships in it:
-  **a value the project's template has improved that this project never edited**.
+  fact, never repeated and never urgent in presentation. Two states ship in it:
+  **a value the project's template has improved that this project never
+  edited**, and [**a finding that needs your hand**](#a-finding-that-needs-your-hand),
+  which is urgent in what it says and is still said exactly once, because
+  `yoyo status` carries it from then on.
 
 The stopped line is the hourly state above, put to you personally. At the same
 moment the channel first says the line has stopped over ready work, the sink
@@ -1427,8 +1515,8 @@ not four times a minute.
 All of them need the `im:write` scope the checked-in manifest asks for, and the
 ask needs `im:history` and the `message.im` event beside it to read the reply.
 A workspace that refuses them costs the direct messages and nothing else: the
-stale build, the provider's hold, the improvement, the released claim, and the
-stopped line are in the channel either way, and the stall is in the durable
+stale build, the provider's hold, the improvement, the released claim, each
+finding, and the stopped line are in the channel either way, and the stall is in the durable
 record `yoyo status` reads back.
 
 Every message ends by saying who it waits on next. A thread is a narrative and a

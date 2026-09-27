@@ -282,6 +282,69 @@ func TestHandlingARecordedReportIsWrittenDownBesideThePile(t *testing.T) {
 	}
 }
 
+// A handling that says the report needs the operator is recorded as a finding
+// for him rather than as a closing: the record carries it as a field the read
+// model can act on, and the summary says what that means. Any other value of
+// "needs" is refused whole, and nothing is recorded.
+func TestHandlingAReportAsNeedingTheOperatorIsRecordedAsAFinding(t *testing.T) {
+	t.Parallel()
+
+	reports := &fakeReports{}
+	seedReports(t, reports,
+		collectedReport("report-00000000000000000000000000000002", report.SeverityWarning, "the goals guard hook has to be added to .claude/settings.json by hand", 2),
+	)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{
+			SessionID: "session-1",
+			FinalText: trackerReply("Only Mason can add that hook.",
+				`{"action":"handle","report":"report-00000000000000000000000000000002","needs":"operator","reason":"add the PreToolUse hook to .claude/settings.json; the harness may not write that file"}`),
+		},
+		{SessionID: "session-1", FinalText: "Recorded."},
+		{SessionID: "session-1", FinalText: "Nothing more."},
+	}}
+	options := testOptions(t, provider)
+	options.Reports = reports
+	options.Tracker = &fakeTracker{}
+	session, err := Open(options)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	reply, err := session.Send(context.Background(), "deal with the hook report")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if len(reply.Actions) != 1 || !reply.Actions[0].Applied {
+		t.Fatalf("actions = %#v", reply.Actions)
+	}
+	if !strings.Contains(reply.Actions[0].Summary, "needs the operator's hand") ||
+		!strings.Contains(reply.Actions[0].Summary, "yoyo status") {
+		t.Fatalf("summary = %q, want the handling said as a finding for the operator", reply.Actions[0].Summary)
+	}
+	if len(reports.handled) != 1 || !reports.handled[0].NeedsOperator ||
+		reports.handled[0].Reason != "add the PreToolUse hook to .claude/settings.json; the harness may not write that file" {
+		t.Fatalf("handlings = %#v, want one recorded as needing the operator", reports.handled)
+	}
+
+	// A handled report is not offered again, so the next turn lists the finding
+	// still standing with its identifier: that is what lets the role record the
+	// change made without being handed the id by a person.
+	if _, err := session.Send(context.Background(), "anything else?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	next := provider.requests[len(provider.requests)-1].Prompt
+	if strings.Contains(next, "Reports nobody has decided about") {
+		t.Fatalf("a handled report was offered again as unhandled:\n%s", next)
+	}
+	for _, want := range []string{
+		"Reports you handled as needing the operator's hand",
+		"report-00000000000000000000000000000002 on yoyodyne-ifd.19: add the PreToolUse hook to .claude/settings.json; the harness may not write that file",
+	} {
+		if !strings.Contains(next, want) {
+			t.Fatalf("the standing finding was not listed with its identifier; want %q in:\n%s", want, next)
+		}
+	}
+}
+
 // An identifier is 32 hex characters copied out of a listing by a provider, so
 // one that names nothing is a plausible mistake. A handling recorded against it
 // would take no report out of anybody's view while reading as though it had.
@@ -351,6 +414,18 @@ func TestHandleNamesAReportAndNeverAWorkItem(t *testing.T) {
 			name:   "no reason",
 			action: TrackerAction{Action: actionHandle, Report: "report-00000000000000000000000000000002"},
 			want:   "reason is required",
+		},
+		{
+			// "needs" names the one person a report can be handed to rather than
+			// closed for, and any other value was misunderstood.
+			name:   "needs somebody other than the operator",
+			action: TrackerAction{Action: actionHandle, Report: "report-00000000000000000000000000000002", Needs: "architect", Reason: "dealt with"},
+			want:   `"needs" is "architect"`,
+		},
+		{
+			name:   "needs on an action that is not a handling",
+			action: TrackerAction{Action: actionClose, ID: "yoyodyne-ifd.19", Needs: "operator", Reason: "done"},
+			want:   `close does not take "needs"`,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -80,6 +80,68 @@ func TestHoldingIntakeSurvivesTheProcessThatPlacedIt(t *testing.T) {
 // The hold is about one backlog, so holding what one product's harness may pull
 // must leave another's alone. This is the whole reason it is not the switch at
 // the state root.
+// A release records who lifted the hold and when, beside the absence, and it is
+// what the channel reads to say the ending by name: the operator's release at a
+// terminal, and the harness lifting its own brake's hold on what moved it. A
+// release nothing named reads as one naming nobody rather than as somebody, and
+// releasing what is not held records nothing.
+func TestAReleaseRecordsWhoLiftedTheHold(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := newIntakeStoreAt(t, root, "yoyodyne")
+	if _, recorded, err := store.LastRelease(); err != nil || recorded {
+		t.Fatalf("LastRelease() = %t, %v, want no release on a fresh state root", recorded, err)
+	}
+
+	heldAt := time.Date(2026, 9, 19, 17, 56, 0, 0, time.UTC)
+	if _, err := store.Hold(IntakeHolderOperator, "reordering the backlog first", heldAt); err != nil {
+		t.Fatalf("Hold() error = %v", err)
+	}
+	releasedAt := heldAt.Add(2 * time.Hour)
+	lifted, wasHeld, err := store.ReleaseBy("the operator, at a terminal (`yoyo release`)", releasedAt)
+	if err != nil || !wasHeld {
+		t.Fatalf("ReleaseBy() = %t, %v, want the hold lifted", wasHeld, err)
+	}
+	release, recorded, err := newIntakeStoreAt(t, root, "yoyodyne").LastRelease()
+	if err != nil || !recorded {
+		t.Fatalf("LastRelease() = %t, %v, want the release recorded", recorded, err)
+	}
+	if !release.ReleasedAt.Equal(releasedAt) || release.ReleasedBy != "the operator, at a terminal (`yoyo release`)" || !release.Hold.HeldAt.Equal(lifted.HeldAt) {
+		t.Fatalf("LastRelease() = %#v, want who lifted which hold and when", release)
+	}
+	if release.Says() != "released by the operator, at a terminal (`yoyo release`)" {
+		t.Fatalf("Says() = %q", release.Says())
+	}
+	if (IntakeRelease{}).Says() != "released by somebody the record does not name" {
+		t.Fatalf("an unnamed release says %q", (IntakeRelease{}).Says())
+	}
+
+	// Releasing what is not held records nothing: there was nothing lifted.
+	if _, wasHeld, err := store.ReleaseBy("somebody else", releasedAt.Add(time.Hour)); err != nil || wasHeld {
+		t.Fatalf("second ReleaseBy() = %t, %v, want a no-op", wasHeld, err)
+	}
+	if again, _, err := store.LastRelease(); err != nil || again.ReleasedBy != release.ReleasedBy {
+		t.Fatalf("LastRelease() after a no-op = %#v, want the record left as it was", again)
+	}
+
+	// The harness lifting its own brake's hold records what moved it.
+	trip := IntakeBrake{
+		Blocked:        []BrakeBlockedRun{{RunID: "run-1", WorkItemID: "yoyodyne-ifd.398", Reason: "checks failed"}},
+		CooldownEndsAt: releasedAt.Add(3 * time.Hour),
+	}
+	if _, err := store.Brake(trip, "3 run(s) blocked in a row", releasedAt.Add(2*time.Hour)); err != nil {
+		t.Fatalf("Brake() error = %v", err)
+	}
+	if _, lifted, err := store.ReleaseBrake("the harness, because the probe run of yoyodyne-ifd.405 landed", releasedAt.Add(3*time.Hour)); err != nil || !lifted {
+		t.Fatalf("ReleaseBrake() = %t, %v, want the brake's hold lifted", lifted, err)
+	}
+	release, _, err = store.LastRelease()
+	if err != nil || release.ReleasedBy != "the harness, because the probe run of yoyodyne-ifd.405 landed" || release.Hold.HeldBy != IntakeHolderBrake {
+		t.Fatalf("LastRelease() = %#v, %v, want the brake's release naming what moved the harness", release, err)
+	}
+}
+
 func TestHoldingIntakeOnOneProductLeavesAnotherAlone(t *testing.T) {
 	t.Parallel()
 

@@ -76,6 +76,11 @@ const (
 	// AttentionHeldWork is the admitted work somebody has to release, counted
 	// by whose move it is rather than named item by item.
 	AttentionHeldWork AttentionKind = "held-work"
+	// AttentionOperatorAction is a finding only the operator can act on: a
+	// report handled as needing his hand, a critical report nobody has handled,
+	// or a stopped run the development manager escalated to him. It is always
+	// named and never counted into the remainder; see Named.
+	AttentionOperatorAction AttentionKind = "operator-action"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -94,6 +99,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionOutage,
 		AttentionStall,
 		AttentionHeldWork,
+		AttentionOperatorAction,
 	}
 }
 
@@ -314,6 +320,24 @@ type Attention struct {
 	// Executor is the marker that hands the item to a conversation, on an
 	// AttentionCarriedItem entry; the item is WorkItemID.
 	Executor domain.WorkItemExecutor `json:"executor,omitempty"`
+	// OperatorAction is the finding whole, on an AttentionOperatorAction entry;
+	// its key is the ID.
+	OperatorAction *OperatorAction `json:"operator_action,omitempty"`
+}
+
+// Named reports an entry the attention line prints by name wherever it falls
+// and never counts into "and N things not named here": a finding only the
+// operator can act on, and a hold the brake placed. A line that folds those
+// into a remainder has told him nothing, and nothing telling him is the month
+// one class of finding once waited and the two hours the brake once stood.
+func (a Attention) Named() bool {
+	switch a.Kind {
+	case AttentionOperatorAction:
+		return true
+	case AttentionHold:
+		return a.IntakeHold != nil && a.IntakeHold.HeldBy == runstate.IntakeHolderBrake
+	}
+	return false
 }
 
 // OwedStep is where a run that still owes a step stopped: its recorded status
@@ -365,8 +389,16 @@ func (a Attention) What() string {
 			return fmt.Sprintf("all harness activity is held, since %s",
 				a.OperatorHold.HeldAt.UTC().Format(time.RFC3339))
 		case a.IntakeHold != nil:
-			return fmt.Sprintf("intake is held, since %s: %s",
+			what := fmt.Sprintf("intake is held, since %s: %s",
 				a.IntakeHold.HeldAt.UTC().Format(time.RFC3339), singleLine(intakeClause(*a.IntakeHold), maxRefusalBytes))
+			// The brake's hold names the runs that tripped it, each with its item
+			// and what stopped it: on 2026-09-19 the line said only that intake
+			// was held, and finding which three runs had stopped it was the
+			// operator's to do.
+			if a.IntakeHold.Brake != nil && len(a.IntakeHold.Brake.Blocked) > 0 {
+				what += "; tripped by " + singleLine(strings.Join(a.IntakeHold.Brake.Entries(), "; "), maxBrakeEntriesBytes)
+			}
+			return what
 		case a.CapacityHold != nil:
 			what := "every role is held by the provider's usage window, since " + a.CapacityHold.Since.UTC().Format(time.RFC3339)
 			if !a.CapacityHold.ResetsAt.IsZero() {
@@ -441,6 +473,10 @@ func (a Attention) What() string {
 		}
 	case AttentionCarriedItem:
 		return fmt.Sprintf("%s is admitted for %q rather than a developer run", a.WorkItemID, a.Executor)
+	case AttentionOperatorAction:
+		if a.OperatorAction != nil {
+			return a.OperatorAction.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -510,6 +546,10 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — nothing pulls a stopped item until she decides what happens to it"
 	case AttentionCarriedItem:
 		return a.Mover.Possessive() + " — in conversation; no run will ever be started for it"
+	case AttentionOperatorAction:
+		if a.OperatorAction != nil {
+			return a.Mover.Possessive() + " — only a person can act on this; " + a.OperatorAction.Ends
+		}
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }
@@ -675,3 +715,20 @@ func carriedItemAttention(workItemID string, executor domain.WorkItemExecutor) A
 		Executor:   executor,
 	}
 }
+
+// operatorActionAttention is a finding only the operator can act on, as the
+// attention line carries it.
+func operatorActionAttention(action OperatorAction) Attention {
+	return Attention{
+		Kind:           AttentionOperatorAction,
+		ID:             action.Key,
+		Mover:          MoverOperator,
+		WorkItemID:     action.WorkItemID,
+		OperatorAction: &action,
+	}
+}
+
+// maxBrakeEntriesBytes bounds the runs a brake's hold names on the attention
+// line. Three stops with a line each fit; a storm longer than that is cut, and
+// the hold's own record carries the whole.
+const maxBrakeEntriesBytes = 1 << 10

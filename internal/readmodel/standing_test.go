@@ -3,11 +3,13 @@ package readmodel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
@@ -171,6 +173,25 @@ func filedReport(id string, severity report.Severity, filed time.Time) report.Re
 	}
 }
 
+// undecidedChange is one proposal nobody has decided, distinguished by its
+// identifier and when it was raised.
+func undecidedChange(id string, raised time.Time) amendment.Record {
+	return amendment.Record{Proposal: &amendment.Proposal{
+		SchemaVersion: amendment.SchemaVersion,
+		ID:            id,
+		Role:          domain.RoleDeveloper,
+		RunID:         "run-0123456789abcdef0123456789abcdef",
+		ProductID:     "yoyodyne",
+		RepositoryID:  "yoyodyne",
+		Artifact:      "brief",
+		Kind:          artifact.KindBrief,
+		Owner:         domain.RoleProductManager,
+		Change:        "say where a finding goes",
+		Why:           "nothing says it today",
+		RaisedAt:      raised,
+	}}
+}
+
 // quietSources is a harness with nothing wrong with it and nothing happening:
 // one session choosing work, no holds, an empty queue. Each test moves one
 // thing, so what a line says is attributable to the one record that changed.
@@ -195,13 +216,15 @@ func quietSources() Sources {
 
 // A pile that is being worked through says nothing on any line: it is not
 // waiting on a person, and a status that named it every reading would be a
-// status with a permanent entry nobody can clear.
+// status with a permanent entry nobody can clear. A critical report is the one
+// exception, and it is tested below: critical is the severity that means
+// action, so it is a finding for the operator until somebody handles it.
 func TestAPileBeingWorkedThroughWaitsOnNobody(t *testing.T) {
 	t.Parallel()
 
 	sources := quietSources()
 	sources.Reports = fakeReports{reports: []report.Report{
-		filedReport("report-00000000000000000000000000000001", report.SeverityCritical, moment.Add(-2*time.Hour)),
+		filedReport("report-00000000000000000000000000000001", report.SeverityWarning, moment.Add(-2*time.Hour)),
 		filedReport("report-00000000000000000000000000000002", report.SeverityNote, moment.Add(-30*time.Minute)),
 	}}
 	standing := ReadStanding(context.Background(), sources)
@@ -213,8 +236,171 @@ func TestAPileBeingWorkedThroughWaitsOnNobody(t *testing.T) {
 	if standing.Reports.Unhandled != 2 || standing.Reports.Collected != 2 {
 		t.Fatalf("Reports = %#v", standing.Reports)
 	}
-	if standing.Reports.Worst != report.SeverityCritical {
+	if standing.Reports.Worst != report.SeverityWarning {
 		t.Fatalf("Worst = %q, want the pile's worst severity", standing.Reports.Worst)
+	}
+}
+
+// A run stopping on a condition only a person can clear is recorded as the
+// development manager's escalation of that stoppage, and it is a finding for the
+// operator for as long as the escalation is the decision standing on the item's
+// latest stopped run and the item is still admitted. A later decision on the
+// run, a later run, and the item leaving the backlog each end it.
+func TestAnEscalatedStoppageIsAFindingForTheOperatorWhileItStands(t *testing.T) {
+	t.Parallel()
+
+	stopped := moment.Add(-24 * time.Hour)
+	decided := moment.Add(-20 * time.Hour)
+	sources := quietSources()
+	sources.Tracker = statusTracker{fakeTracker{
+		byStatus: map[string][]beads.WorkItem{"blocked": {
+			{ID: "yoyodyne-ifd.272", Title: "Escalated to a person", Status: "blocked"},
+			{ID: "yoyodyne-ifd.187", Title: "Decided again since", Status: "blocked"},
+			{ID: "yoyodyne-ifd.190", Title: "Run again since", Status: "blocked"},
+		}},
+	}}
+	sources.Stoppages = fakeStoppages{runs: []runstate.State{
+		heldRun("run-272a", "yoyodyne-ifd.272", stopped),
+		heldRun("run-187a", "yoyodyne-ifd.187", stopped),
+		heldRun("run-190a", "yoyodyne-ifd.190", stopped),
+		heldRun("run-190b", "yoyodyne-ifd.190", stopped.Add(time.Hour)),
+		// An item that has left the backlog: escalated, then retired.
+		heldRun("run-300a", "yoyodyne-ifd.300", stopped),
+	}}
+	escalate := func(run string) runstate.TriageDecision {
+		return runstate.TriageDecision{
+			Decision: runstate.TriageDecisionEscalate, RunID: run,
+			Reason:       "the target branch diverged from the forge and only a person can say which history is right",
+			DecidedBy:    "development-manager",
+			Conversation: "chat-dm", Turn: 12, DecidedAt: decided,
+		}
+	}
+	sources.Decisions = recordedDecisions{
+		"yoyodyne-ifd.272": {Decisions: []runstate.TriageDecision{escalate("run-272a")}},
+		// Escalated and then decided again: the later decision supersedes it.
+		"yoyodyne-ifd.187": {Decisions: []runstate.TriageDecision{escalate("run-187a"), {Decision: runstate.TriageDecisionRerun, RunID: "run-187a"}}},
+		// Escalated on an earlier run than the item's latest.
+		"yoyodyne-ifd.190": {Decisions: []runstate.TriageDecision{escalate("run-190a")}},
+		"yoyodyne-ifd.300": {Decisions: []runstate.TriageDecision{escalate("run-300a")}},
+	}
+
+	standing := ReadStanding(context.Background(), sources)
+	var named []Attention
+	for _, waiting := range standing.NeedsHuman {
+		if waiting.Named() {
+			named = append(named, waiting)
+		}
+	}
+	if len(named) != 1 {
+		t.Fatalf("NeedsHuman = %#v, want the one standing escalation named", standing.NeedsHuman)
+	}
+	finding := named[0]
+	for _, want := range []string{
+		"yoyodyne-ifd.272 needs your hand: the target branch diverged from the forge",
+		"found by the development manager, escalating the stopped run to the operator",
+		"recorded in the development manager's escalation of run run-272a, recorded in chat-dm at turn 12, and the blocker on yoyodyne-ifd.272",
+	} {
+		if !strings.Contains(finding.What(), want) {
+			t.Fatalf("finding = %q, want it to say %q", finding.What(), want)
+		}
+	}
+	if !strings.HasPrefix(finding.Whose(), "the operator's") || !strings.Contains(finding.Whose(), "a later triage decision on the run") {
+		t.Fatalf("finding is %q, want the operator's move and what ends it", finding.Whose())
+	}
+	if standing.NeedsHumanProblem != "" {
+		t.Fatalf("NeedsHumanProblem = %q, want a fully read line", standing.NeedsHumanProblem)
+	}
+
+	// The same derivation without a queue to read admits every item, which is
+	// the feed's reading: an item that left the backlog is still said once
+	// rather than never.
+	escalated, problem := EscalatedOperatorActions(sources.Stoppages.(fakeStoppages).runs, sources.Decisions, nil)
+	if problem != "" || len(escalated) != 2 || escalated[0].Key != "run:run-272a" || escalated[1].Key != "run:run-300a" {
+		t.Fatalf("EscalatedOperatorActions() = %#v, %q, want the two standing escalations oldest first", escalated, problem)
+	}
+}
+
+// A finding only the operator can act on is named on the attention line, by
+// name, ahead of the undecided proposals, and is never folded into "and N
+// things not named here". Two records make one: a critical report nobody has
+// handled, and a handling that says the report needs the operator's hand. A
+// later handling of the same report that says nothing of the kind ends it.
+func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	handled := filedReport("report-00000000000000000000000000000002", report.SeverityWarning, moment.Add(-3*time.Hour))
+	handled.WorkItemID = "yoyodyne-ifd.383"
+	sources.Reports = fakeReports{
+		reports: []report.Report{
+			filedReport("report-00000000000000000000000000000001", report.SeverityCritical, moment.Add(-2*time.Hour)),
+			handled,
+			filedReport("report-00000000000000000000000000000003", report.SeverityCritical, moment.Add(-time.Hour)),
+		},
+		handlings: []report.Handling{
+			{ReportID: "report-00000000000000000000000000000002", Role: domain.RoleProductManager, RunID: "chat-1", Reason: "the operator has to add the hook to .claude/settings.json by hand", RecordedAt: moment.Add(-90 * time.Minute), NeedsOperator: true},
+			// The third report was handled, so it is no longer a finding.
+			{ReportID: "report-00000000000000000000000000000003", Role: domain.RoleProductManager, RunID: "chat-1", Reason: "admitted as yoyodyne-ifd.400", RecordedAt: moment.Add(-30 * time.Minute)},
+		},
+	}
+	sources.Amendments = fakeAmendments{records: []amendment.Record{undecidedChange("proposal-1", moment.Add(-4*time.Hour))}}
+	standing := ReadStanding(context.Background(), sources)
+
+	var named []Attention
+	proposal := -1
+	for index, waiting := range standing.NeedsHuman {
+		if waiting.Named() {
+			named = append(named, waiting)
+		}
+		if strings.Contains(waiting.What(), "proposed and undecided") {
+			proposal = index
+		}
+	}
+	if len(named) != 2 {
+		t.Fatalf("NeedsHuman = %#v, want the two findings named", standing.NeedsHuman)
+	}
+	if proposal < 0 {
+		t.Fatalf("NeedsHuman = %#v, want the undecided proposal listed", standing.NeedsHuman)
+	}
+	for index, waiting := range standing.NeedsHuman {
+		if waiting.Named() && index > proposal {
+			t.Fatalf("finding %q is listed after the proposal at %d", waiting.What(), proposal)
+		}
+	}
+	// Oldest first, in the order the pile was filed: the handled report was
+	// filed before the critical one.
+	handling, critical := named[0], named[1]
+	if !strings.Contains(critical.What(), "report-00000000000000000000000000000001 needs your hand: something was noticed") ||
+		!strings.Contains(critical.What(), "found by the developer, in a critical report") {
+		t.Fatalf("critical finding = %q", critical.What())
+	}
+	if !strings.Contains(handling.What(), "report-00000000000000000000000000000002 needs your hand: the operator has to add the hook to .claude/settings.json by hand") ||
+		!strings.Contains(handling.What(), "found by the Lead Product Manager, handling the report") ||
+		!strings.Contains(handling.What(), "about yoyodyne-ifd.383") {
+		t.Fatalf("handling finding = %q", handling.What())
+	}
+	for _, waiting := range named {
+		if !strings.HasPrefix(waiting.Whose(), "the operator's") {
+			t.Fatalf("finding %q is %q, want the operator's move", waiting.What(), waiting.Whose())
+		}
+	}
+
+	// Rendered, the findings are listed by name however many other entries there
+	// are: eleven proposals would fold the eleventh, and never a finding.
+	var proposals []amendment.Record
+	for index := 0; index < maxListed+1; index++ {
+		proposals = append(proposals, undecidedChange(fmt.Sprintf("proposal-%d", index), moment.Add(-4*time.Hour)))
+	}
+	sources.Amendments = fakeAmendments{records: proposals}
+	rendered := ReadStanding(context.Background(), sources).Render()
+	for _, want := range []string{
+		"report-00000000000000000000000000000001 needs your hand",
+		"report-00000000000000000000000000000002 needs your hand",
+		"and 1 thing waiting on somebody not named here",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered standing lacks %q:\n%s", want, rendered)
+		}
 	}
 }
 

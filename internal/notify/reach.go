@@ -192,6 +192,10 @@ var reaches = map[Kind]Reach{
 	// message about a brake hold that asks a person for something, and the sink
 	// sends it to the operators directly as well as posting it here.
 	KindIntakeEscalated: ReachChannel,
+	// A finding only the operator can act on is the channel level by the rule's
+	// own definition — what needs his action — and it is also said to him
+	// directly, which is the surface's to do.
+	KindOperatorAction: ReachChannel,
 	// What a watch session is doing. These are the poll-by-poll narration of a
 	// process that spends most of its life saying nothing, and they were 473 of the
 	// measured posts on their own. The watch log holds every one of them and

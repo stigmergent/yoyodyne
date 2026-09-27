@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -63,6 +64,13 @@ const (
 	// the capacity stream is: a state said on a record rather than a crossing of
 	// one, and true at a time every other record is silent.
 	providerStream = "provider"
+	// operatorActionStream is what needs the operator's own hand, said to him
+	// once per finding. It is a stream of its own rather than a mark on the
+	// reports' because a finding is derived from a report and what became of it
+	// together — a handling can make one of a report the stream has long read
+	// past — and because each is said once and remembered by name rather than by
+	// position.
+	operatorActionStream = "operator-actions"
 	// improvementStream is what the project's template offers that the project
 	// has never edited. It is a stream of its own rather than a mark on the
 	// product's because what it holds is one mark per improvement rather than a
@@ -101,6 +109,10 @@ const (
 	// released and a later one escalated afresh is a second thing to say, and
 	// it is forgotten with the hold's own mark when the hold lifts.
 	brakeEscalationMark = "brake-escalated:"
+	// brakeDecisionMark records having told the operators that the development
+	// manager escalated the brake's hold to them. It is marked with the moment
+	// of her decision, and forgotten with the hold's own mark.
+	brakeDecisionMark = "brake-decided-escalate:"
 	// outcomeMark records having said what became of one directive somebody
 	// asked for in a thread. It names the directive, because a directive is
 	// settled once and what settled it is said once.
@@ -135,6 +147,11 @@ const (
 	// template that improves one setting twice has improved it twice: a mark that
 	// held the key alone would swallow the second one for the life of the project.
 	improvementMark = "improvement:"
+	// findingMark names one finding for the operator this cursor has already said,
+	// by the key the read model gives it. It is dropped once the finding is no
+	// longer standing, so a report handled and later handled again as needing
+	// him is a second finding said once more rather than swallowed by the first.
+	findingMark = "finding:"
 	// unrelatedMark records having said, in the sink's own log, that the build a
 	// session is running belongs to a repository this sink is not pointed at. It
 	// is marked for the same reason the escalation is: it is true for as long as
@@ -265,9 +282,16 @@ type HarnessFeed struct {
 	// prevent, and every sink the harness builds is given one.
 	Conversations *runstate.ConversationStore
 	Reports       *runstate.ReportStore
-	Proposals     *runstate.AmendmentStore
-	Intake        *runstate.IntakeHoldStore
-	Holds         *runstate.OperatorHoldStore
+	// Decisions is what triage has decided about each item's stoppages, read for
+	// one thing: a stopped run the development manager escalated to the operator,
+	// which is a finding that needs his hand. It is optional, and a feed
+	// assembled without one names no escalated stoppage — which is silence
+	// exactly where a person was handed something, so every sink the harness
+	// builds is given one. It is satisfied by *runstate.TriageStore.
+	Decisions readmodel.Decisions
+	Proposals *runstate.AmendmentStore
+	Intake    *runstate.IntakeHoldStore
+	Holds     *runstate.OperatorHoldStore
 	// Watch is where a watch session says what it is doing. It is optional in the
 	// same sense the conversations are: a feed assembled without one reports
 	// everything else, and what is lost is the one thing nothing else in the
@@ -484,6 +508,17 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 		return Batch{}, err
 	}
 	batch.Deliveries = append(batch.Deliveries, reported...)
+
+	// What in the pile needs the operator's own hand, from the same reading of
+	// the reports the stream above was read from and from what became of them.
+	// It is read here rather than as the reports are because a finding is not a
+	// report: a report is said where it is filed, and a finding stands from the
+	// moment a handling makes one until a later handling ends it.
+	findings, err := f.operatorActionDeliveries(cursors.Streams[operatorActionStream], filed, states, cursors.Since, batch.Streams)
+	if err != nil {
+		return Batch{}, err
+	}
+	batch.Deliveries = append(batch.Deliveries, findings...)
 
 	// The amendment log advances by record rather than by proposal, so that a
 	// line which will not decode — which says nothing about whether it was a
@@ -1175,24 +1210,68 @@ func (f *HarnessFeed) logDeliveries(stream, log string, cursor Cursor, records i
 }
 
 // holdDeliveries says the operator's two switches. Each is said when it is
-// placed and again when it is lifted, and the lift is the awkward half: nothing
-// records a release, so what says a hold has lifted is the hold's absence
-// against a mark saying it was once there. The pair is forgotten once both have
-// been said, so the product's cursor does not grow a line for every afternoon
-// somebody was away.
+// placed and again when it is lifted, and the lift is the awkward half: what
+// says a hold has lifted is the hold's absence against a mark saying it was
+// once there. The pair is forgotten once both have been said, so the product's
+// cursor does not grow a line for every afternoon somebody was away.
+//
+// A hold the brake placed is said to the channel naming the runs that tripped
+// it. While the harness is working it — the development manager deciding, a
+// probe in flight — it asks the operator for nothing, and it is said to him
+// directly only once it waits on him: a brake hold with no record of the
+// harness working it, a hold the development manager escalated to him, and a
+// hold the harness escalated at the bound on its loop. Each of those goes to
+// him directly and tagged by member id, once, because it is both important and
+// his to act on, which is the communication rule's own test for a tag. On
+// 2026-09-19 the brake tripped at 17:56Z, the channel got a note nobody was
+// reading, and the line stood for two hours; what ended that is the harness
+// working the hold itself, and what this adds is that the moment it becomes
+// his is never silent. His own hold is said to the channel alone, because he
+// placed it.
+//
+// A release names who lifted it where the store recorded one, which it does
+// for every release made since releases were written down; the record is
+// matched to the hold that was marked, so a release of some later hold is not
+// read as the ending of this one.
 func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 	var deliveries []Delivery
 	advanced := cursor
 
 	intake, held := read.intake, read.intakeHeld
 	if held {
+		saidDirectly := false
 		if mark := intakeMark + stamp(intake.HeldAt); !advanced.Has(mark) {
 			advanced = advanced.With(mark)
+			saidDirectly = brakeWaitsOnOperator(intake)
 			deliveries = append(deliveries, Delivery{
 				Stream:       productStream,
 				Cursor:       advanced,
+				Direct:       brakeWaitsOnOperator(intake),
+				Tag:          brakeWaitsOnOperator(intake),
 				Notification: notify.FromIntakeHold(intake),
 			})
+		}
+		// The brake's hold handed to the operator by the development manager. The
+		// trip was said to the channel when it happened, asking nobody for
+		// anything; her escalation is the moment it became his, and it is said
+		// to him directly, once, in the hold's own account of who decided it.
+		if intake.Braked() && intake.Brake.Decision == runstate.BrakeDecisionEscalate && intake.Brake.DecidedAt != nil {
+			if mark := brakeDecisionMark + stamp(*intake.Brake.DecidedAt); !advanced.Has(mark) {
+				advanced = advanced.With(mark)
+				// A hold first read already escalated was said to him directly
+				// just above, in the same account; it is marked, not said twice.
+				if saidDirectly {
+					deliveries = append(deliveries, Delivery{Stream: productStream, Cursor: advanced})
+				} else {
+					deliveries = append(deliveries, Delivery{
+						Stream:       productStream,
+						Cursor:       advanced,
+						Direct:       true,
+						Tag:          true,
+						Notification: notify.FromIntakeHold(intake),
+					})
+				}
+			}
 		}
 		// The brake's hold handed to the operators by the harness, at the bound on
 		// its summons-and-probe loop. It is said once, when the record first shows
@@ -1227,12 +1306,17 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 		if escalationSaid {
 			advanced = advanced.Without(escalated)
 		}
+		if decided, decisionSaid := advanced.Marked(brakeDecisionMark); decisionSaid {
+			advanced = advanced.Without(decided)
+			escalationSaid = true
+		}
 		if mark, said := advanced.Marked(intakeMark); said {
 			advanced = advanced.Without(mark)
+			release, recorded := f.releaseOf(strings.TrimPrefix(mark, intakeMark))
 			deliveries = append(deliveries, Delivery{
 				Stream:       productStream,
 				Cursor:       advanced,
-				Notification: notify.IntakeReleased(f.now()),
+				Notification: notify.IntakeReleased(f.now(), release, recorded),
 			})
 		} else if escalationSaid {
 			deliveries = append(deliveries, Delivery{Stream: productStream, Cursor: advanced})
@@ -1258,6 +1342,123 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 		})
 	}
 	return deliveries
+}
+
+// releaseOf is the recorded release of the hold placed at one moment, or
+// nothing: a release the store never recorded, a record that cannot be read,
+// or a record of some other hold's release. A record that cannot be read costs
+// the message the name and not the message, and is said in the sink's own log.
+func (f *HarnessFeed) releaseOf(heldAt string) (runstate.IntakeRelease, bool) {
+	if f.Intake == nil {
+		return runstate.IntakeRelease{}, false
+	}
+	release, recorded, err := f.Intake.LastRelease()
+	if err != nil {
+		f.say("who released the hold on intake could not be read, so the release is said without a name: %v", err)
+		return runstate.IntakeRelease{}, false
+	}
+	if !recorded || stamp(release.Hold.HeldAt) != heldAt {
+		return runstate.IntakeRelease{}, false
+	}
+	return release, true
+}
+
+// operatorActionDeliveries says each finding that needs the operator's own
+// hand, once, to him directly and tagged by member id.
+//
+// The findings are the read model's derivation over the pile and what became
+// of it, so what this says to him and what `yoyo status` names under what
+// needs a human are one list. Each is marked by its key once said and is never
+// said again while it stands: the status line carries it, and a message
+// repeated about something he has been told is the nagging that gets a channel
+// muted. A finding that ends drops its mark, so the cursor holds only what is
+// standing.
+//
+// A finding from before the watermark is marked and not said, as every other
+// record filed before the channel was turned on is: what the handling of a
+// month-old report says today is said today, because the handling is today's,
+// and the finding's moment is the record that made it.
+//
+// A stopped run the development manager escalated to the operator is read from
+// the same reading of the runs the crossings were selected from, and from what
+// triage decided about them. This surface cannot cheaply ask the tracker which
+// items are still admitted, so it reads every standing escalation as a finding:
+// what that costs is a mark kept for an item that left the backlog, and what it
+// buys is a finding said once rather than never.
+func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Report, states []runstate.State, since time.Time, streams map[string]struct{}) ([]Delivery, error) {
+	streams[operatorActionStream] = struct{}{}
+	handlings, err := f.Reports.Handlings()
+	if err != nil {
+		return nil, fmt.Errorf("read what became of the collected reports: %w", err)
+	}
+	actions := readmodel.OperatorActions(filed, handlings)
+	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil)
+	if problem != "" {
+		// A triage record that cannot be read costs that item's finding this
+		// pass and is said here; the pass carries on, and the finding is read
+		// again next time.
+		f.say("an escalated stoppage could not be read and was not said this pass: %s", problem)
+	}
+	actions = append(actions, escalated...)
+	standing := make(map[string]struct{}, len(actions))
+	advanced := cursor
+	var deliveries []Delivery
+	for _, action := range actions {
+		mark := findingMark + action.Key
+		standing[mark] = struct{}{}
+		if advanced.Has(mark) {
+			continue
+		}
+		advanced = advanced.With(mark)
+		if predates(since, action.Since) {
+			deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
+			continue
+		}
+		notification, err := notify.FromOperatorAction(notify.OperatorAction{
+			WorkItemID: action.WorkItemID,
+			RunID:      action.RunID,
+			Needs:      action.Needs,
+			RecordedIn: action.RecordedIn,
+			FoundBy:    action.FoundBy,
+			Ends:       action.Ends,
+			Mover:      action.Whose(),
+			Since:      action.Since,
+		})
+		if err != nil {
+			// A finding nothing can be addressed to is said here once and read
+			// past, for the reason every other unaddressable record is: one record
+			// must not hold up every finding behind it for as long as the sink runs.
+			f.say("a finding for the operator could not be addressed and was not said: %v", err)
+			deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
+			continue
+		}
+		deliveries = append(deliveries, Delivery{
+			Stream:       operatorActionStream,
+			Cursor:       advanced,
+			Direct:       true,
+			Tag:          true,
+			Notification: notification,
+		})
+	}
+	// Marks for findings no longer standing are dropped, in one silent advance,
+	// so the cursor holds what is standing and a finding made again of the same
+	// report is said again.
+	// The ended marks are collected before any is dropped: Without builds the
+	// next cursor from this one's marks, and dropping while ranging over them
+	// would read a list the drop had already changed.
+	var ended []string
+	for _, mark := range advanced.Delivered {
+		if _, still := standing[mark]; !still && strings.HasPrefix(mark, findingMark) {
+			ended = append(ended, mark)
+		}
+	}
+	for _, mark := range ended {
+		advanced = advanced.Without(mark)
+	}
+	if len(ended) > 0 {
+		deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
+	}
+	return deliveries, nil
 }
 
 func (f *HarnessFeed) say(format string, args ...any) {
@@ -1309,3 +1510,11 @@ func completion(state runstate.State) time.Time {
 }
 
 func stamp(at time.Time) string { return at.UTC().Format(time.RFC3339Nano) }
+
+// brakeWaitsOnOperator reports a hold the brake placed that is the operator's
+// to lift from the moment it is placed: one the harness is not working itself.
+// A brake hold the harness is working is the development manager's or the
+// harness's, and is said to the channel alone until it becomes his.
+func brakeWaitsOnOperator(hold runstate.IntakeHold) bool {
+	return hold.HeldBy == runstate.IntakeHolderBrake && hold.WaitsOnAPerson()
+}

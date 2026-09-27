@@ -834,7 +834,8 @@ and why, beneath the PAUSED banner if both are active. Who placed it is on the
 record rather than assumed: the harness's own failure-storm brake
 ([`blocked_runs_before_intake_hold`](configuration.md#watching-instead-of-draining))
 places the same hold, and a banner that called that one yours would send you
-looking for a decision you never made. It is recorded per product, unlike
+looking for a decision you never made. Who lifted a hold is recorded too, so the
+channel can say so when it announces the release. It is recorded per product, unlike
 [`yoyo pause`](operations.md#pausing-everything-and-resuming-it), because what a development
 manager may pull is a fact about one backlog.
 
@@ -1819,7 +1820,10 @@ rather than another re-arm. **An escalation is a durable blocker on the item and
 waiting on a person, and the report reaches [the pile you
 read](reporting.md#what-agents-report-and-where-it-reaches-you). Prose alone is not an escalation, and the
 harness refuses one carrying no such report rather than blocking an item you
-were never told about. `rescope` and `wait` are the two that are a note and
+were never told about. The decision itself is
+[a finding that needs your hand](operations.md#where-a-finding-that-needs-your-hand-goes):
+it is said to you directly once, and named under `Needs a human` on
+`yoyo status` while it stands as the decision on the item's latest stopped run. `rescope` and `wait` are the two that are a note and
 nothing else — a re-scope's real work is the child item it creates beside the
 note, and a wait asks for nothing at all.
 

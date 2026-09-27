@@ -204,6 +204,10 @@ const (
 	// hold does not decide a run. It is the one write a conversation makes to
 	// that record; everything else on it is the watching session's.
 	actionBrake = "brake"
+	// handleNeedsOperator is the one value "needs" takes on a handling: the
+	// report asks for a change only the operator can make, and the handling is
+	// a finding for him rather than a decision that closes the report.
+	handleNeedsOperator = "operator"
 )
 
 // trackerActionArguments names the optional arguments each operation accepts.
@@ -227,7 +231,7 @@ var trackerActionArguments = map[string][]string{
 	actionClose:        {},
 	actionRetire:       {},
 	actionTriage:       {"run", "decision", "budget"},
-	actionHandle:       {"report", "requests"},
+	actionHandle:       {"report", "requests", "needs"},
 	actionBrake:        {"decision"},
 }
 
@@ -425,6 +429,18 @@ type TrackerAction struct {
 	// block that admits it, or why it is declined. On the record the harness writes,
 	// an admission's title is replaced by the identifier the creation was assigned.
 	Requests []report.Request `json:"requests,omitempty"`
+	// Needs says who a handled report is waiting on, and it takes one value:
+	// "operator", for a report that asks for a change only the operator can make
+	// by hand — a file the harness may not write, a credential, a workspace
+	// setting. It is taken by a handling and by nothing else, and it is optional
+	// there: most handlings close a report, and this one keeps it standing as a
+	// finding for the operator — named on `yoyo status` and said to him once —
+	// until a later handling of the same report records the change made.
+	//
+	// It is a field rather than a sentence in the reason because a sentence is
+	// what six such reports were, from 2026-08-17 until the 2026-09-14 sweep read
+	// them: nothing reads a reason for whose move it names.
+	Needs string `json:"needs,omitempty"`
 	// State is which kind of stale backlog state a repair corrects, from the
 	// vocabulary internal/backlogrepair declares. It is required there and taken
 	// by nothing else: the three are found in different records and corrected by
@@ -1050,6 +1066,9 @@ func (a TrackerAction) validateArguments() []error {
 			problems = append(problems, fmt.Errorf("handle report %q is not a report identifier; a report is named exactly as it was listed to you", reported))
 		}
 		problems = append(problems, a.requestProblems()...)
+		if needs := strings.TrimSpace(a.Needs); needs != "" && needs != handleNeedsOperator {
+			problems = append(problems, fmt.Errorf("handle \"needs\" is %q; the one value it takes is %q, for a change only the operator can make by hand", needs, handleNeedsOperator))
+		}
 	case actionBrake:
 		switch decision := runstate.IntakeBrakeDecision(strings.TrimSpace(a.Decision)); {
 		case decision == "":
@@ -1221,6 +1240,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if len(a.Requests) > 0 {
 		carried = append(carried, "requests")
+	}
+	if strings.TrimSpace(a.Needs) != "" {
+		carried = append(carried, "needs")
 	}
 	return carried
 }

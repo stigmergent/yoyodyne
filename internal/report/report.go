@@ -451,6 +451,16 @@ type Handling struct {
 	// lapsed silently for three weeks.
 	Requests   []Request `json:"requests,omitempty"`
 	RecordedAt time.Time `json:"recorded_at"`
+	// NeedsOperator says the handling found that what the report asks for is a
+	// change only the operator can make by hand — a file the harness may not
+	// write, a credential, a workspace setting — and the reason says which. It
+	// is what makes the handling a finding for the operator rather than a
+	// decision that closes the report: the finding stands, named on `yoyo
+	// status` and said to him once, until a later handling of the same report
+	// records it done. Six reports of that class sat handled-in-effect on a
+	// checklist from 2026-08-17 to 2026-09-14, which is why this is a field the
+	// harness reads rather than a sentence in the reason.
+	NeedsOperator bool `json:"needs_operator,omitempty"`
 }
 
 // MaxRequestsPerHandling bounds how many requests one handling maps, and
@@ -661,14 +671,23 @@ func Tally(reports []Report) string {
 // answered it, so whoever checks the handling later — the development manager,
 // a program manager — reads which item was said to cover what, and can hold the
 // item to it, rather than reading one sentence that named one item for the lot.
+//
+// A handling that found the report needs the operator's hand says so in the
+// verb: the report is not closed by it, and a listing that read "handled" over
+// a change nobody has made yet would be the checklist this class of finding
+// waited a month on.
 func (h Handling) Render() string {
 	handler := string(h.Role)
 	if h.Agent != "" && h.Agent != string(h.Role) {
 		handler = h.Agent + " (" + string(h.Role) + ")"
 	}
+	verb := "handled"
+	if h.NeedsOperator {
+		verb = "needs the operator's hand, recorded"
+	}
 	var rendered strings.Builder
-	fmt.Fprintf(&rendered, "      handled %s by the %s (%s): %s\n",
-		h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, strings.Join(strings.Fields(h.Reason), " "))
+	fmt.Fprintf(&rendered, "      %s %s by the %s (%s): %s\n",
+		verb, h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, strings.Join(strings.Fields(h.Reason), " "))
 	for _, request := range h.Requests {
 		fmt.Fprintf(&rendered, "        request %q: %s\n", strings.TrimSpace(request.Request), request.answer())
 	}
