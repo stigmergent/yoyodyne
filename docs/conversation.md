@@ -818,6 +818,15 @@ provider invocation already streaming is never interrupted. That generation is
 already paid for, and killing it would leave the run needing the same work again,
 which is the cost that makes killing processes the wrong verb in the first place.
 
+The development manager can stop a run too, without you. A run whose work she
+decides is superseded, narrowed, or mis-launched is one she records a `stop`
+decision about, and the harness writes the same request this does on her behalf,
+naming her; the run stops at its next provider call exactly as it does for you,
+with its branch and worktree preserved.
+[Deciding what becomes of stopped work](#deciding-what-becomes-of-stopped-work)
+has the decision, and [how work flows](work.md#letting-the-harness-choose-the-work)
+has what it leaves behind.
+
 `/hold` is the narrower verb and the one with no equivalent before now: it stops
 the harness *choosing* new work, and lets everything already running finish. It
 is what you reach for when the queue looks wrong but nothing is on fire. It holds
@@ -1737,7 +1746,14 @@ records one decision per entry, on the work item, through a `triage` action that
 names the run the entry is about: `repair` hands the item another bounded go at
 the change it has, `rerun` runs it again from the start, `rescope` splits out
 what was refused as out of scope, `rearm` repeats a merge the forge dropped,
-`wait` says the forge still has it, and `escalate` hands it to you. The decision
+`wait` says the forge still has it, and `escalate` hands it to you. One more,
+`stop`, is about a run that has not stopped yet: it names a run still in flight
+whose work is superseded, narrowed, or mis-launched, with the item doing the work
+instead as `superseded_by` where there is one, and the harness asks that run to
+stop as it is recorded — the request your `/stop` writes, made in her name. The
+run ends cancelled at its next boundary with its change preserved and its slot
+freed, and it is docketed already closed by her decision, so it never reaches her
+as a question. A `stop` naming a run that has already ended is refused. The decision
 lands in the item's notes, so the next reader of a run that stopped finds the
 reasoning beside the evidence rather than deciding it a second time, and it
 closes the entry it settled — a repair, a re-run, or a re-scope closes the
@@ -2094,7 +2110,8 @@ local target or, on a target the forge protects, only on its pull request
 ([configuration](configuration.md#a-protected-target-lands-through-its-pull-request)).
 
 The harness carries out none of the other three: a re-scope, a wait, and an
-escalation ask for no action at all. The budget is spent when the decision is
+escalation ask for no action at all. A `stop` is carried out as it is recorded
+rather than by a pass, and spends nothing. The budget is spent when the decision is
 recorded whether or not the harness acts on it, which is the same direction
 every counter here fails in: an attempt nobody took rather than one nobody
 counted. What triage changed is that stopped work is decided by the role that

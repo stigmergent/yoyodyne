@@ -384,6 +384,63 @@ func conversationStoppages(parts components, role domain.AgentRole) chat.Stoppag
 	return conversationStoppedRuns{store: parts.store}
 }
 
+// conversationStops wires the hand that carries out a stop the development
+// manager decides, for her conversation and for no other. It writes the same
+// request beside the run the operator's stop writes, so the run stops the same
+// way whichever of them asked; what it adds is her name and the decision, which
+// no other conversation is given the means to write.
+func conversationStops(parts components, role domain.AgentRole) chat.DecidedStops {
+	if role != domain.RoleDevelopmentManager {
+		return nil
+	}
+	return conversationDecidedStops{store: parts.store, productID: parts.config.Product.ID, clock: execution.RealClock{}}
+}
+
+// conversationDecidedStops asks a run in flight to stop on the development
+// manager's behalf. Like the operator's stop it never adopts the run and never
+// takes its lease: the process working on the run is the only thing entitled to
+// end it, and it reads the request at its next boundary.
+type conversationDecidedStops struct {
+	store     *runstate.Store
+	productID domain.ProductID
+	clock     execution.Clock
+}
+
+// Stoppable refuses a run that has already ended, saying how, since a stop
+// recorded against one would stop nothing and read as a stoppage it never had.
+func (s conversationDecidedStops) Stoppable(_ context.Context, runID string) error {
+	state, err := s.store.Read(runID)
+	if err != nil {
+		return fmt.Errorf("run %s could not be read, so nothing says it is in flight; nothing was recorded: %w", runID, err)
+	}
+	if !state.Status.InFlight() {
+		return fmt.Errorf("run %s is not in flight — it ended %s — so there is nothing to stop; nothing was recorded, and what becomes of a run that has ended is decided about its stoppage instead",
+			runID, state.Status)
+	}
+	return nil
+}
+
+func (s conversationDecidedStops) Stop(_ context.Context, stop chat.DecidedStop) error {
+	return s.store.RecordStop(runstate.StopRequest{
+		SchemaVersion: runstate.StopSchemaVersion,
+		ProductID:     s.productID,
+		RunID:         stop.RunID,
+		WorkItemID:    stop.WorkItemID,
+		RequestedAt:   s.clock.Now().UTC(),
+		Reason:        boundStopReason(stop.Reason),
+		RequestedBy:   stop.RequestedBy,
+		Decision:      runstate.TriageDecisionStop,
+	})
+}
+
+// boundStopReason cuts a reason to what a stop request may carry. Her reasoning
+// is bounded where the decision is recorded; what can take it past the request's
+// bound is the superseding item named after it, and a stop refused for a few
+// bytes of that is a run that goes on.
+func boundStopReason(reason string) string {
+	return oneline.Bound(reason, runstate.MaxStopReasonBytes)
+}
+
 // conversationStoppedRuns answers two questions from the run records: which
 // work item a run was made for, and where a work item's own change actually is.
 // The records are the harness's own, written as the run went, so both are

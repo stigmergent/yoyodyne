@@ -18,6 +18,13 @@ package runstate
 // artifacts preserved, the item noted — so what it leaves behind is settled by
 // the same reconciliation that settles everything else.
 //
+// The development manager asks for a stop too, through the same file. A run
+// whose work she has decided is superseded, narrowed, or mis-launched is one she
+// records a "stop" triage decision about, and the harness writes the request
+// on her behalf with who asked and the decision it carries out beside the
+// reason. The run cannot tell the two apart and does not need to: it stops the
+// same way, and only the words it ends on and the docket entry it leaves differ.
+//
 // What it deliberately cannot do is interrupt a provider invocation already
 // streaming. That generation is already paid for, and throwing it away would
 // leave the run needing the same work again, which is the cost that made killing
@@ -60,6 +67,28 @@ type StopRequest struct {
 	// something in a hurry owes nobody an explanation, and a stop with no reason
 	// is still a stop.
 	Reason string `json:"reason,omitempty"`
+	// RequestedBy is who asked, in words a reader recognises, and is absent on the
+	// operator's own stop — which is every request written before anybody else
+	// could make one. A stop somebody other than the operator asked for names
+	// them, because the run's record and the item's notes say who stopped it.
+	RequestedBy string `json:"requested_by,omitempty"`
+	// Decision is the triage decision this request carries out, and is set only
+	// on a stop the development manager decided. It is what tells the run that
+	// the stoppage it is about to leave has already been decided, so it is
+	// docketed as settled rather than put back to her as a question.
+	Decision string `json:"decision,omitempty"`
+}
+
+// MaxStopRequestedByBytes bounds who a stop names as having asked for it.
+const MaxStopRequestedByBytes = 512
+
+// StoppedBy is who a stop request names as having asked for it, which is the
+// operator wherever nobody else is named.
+func (r StopRequest) StoppedBy() string {
+	if by := strings.TrimSpace(r.RequestedBy); by != "" {
+		return by
+	}
+	return "the operator"
 }
 
 func (r StopRequest) Validate() error {
@@ -81,6 +110,16 @@ func (r StopRequest) Validate() error {
 	}
 	if len(r.Reason) > MaxStopReasonBytes {
 		problems = append(problems, fmt.Errorf("stop reason is %d bytes, which exceeds the %d byte bound", len(r.Reason), MaxStopReasonBytes))
+	}
+	if len(r.RequestedBy) > MaxStopRequestedByBytes {
+		problems = append(problems, fmt.Errorf("stop requester is %d bytes, which exceeds the %d byte bound", len(r.RequestedBy), MaxStopRequestedByBytes))
+	}
+	switch decision := strings.TrimSpace(r.Decision); {
+	case decision == "":
+	case decision != TriageDecisionStop:
+		problems = append(problems, fmt.Errorf("a stop request carries out a %q decision or none, and this one names %q", TriageDecisionStop, decision))
+	case strings.TrimSpace(r.RequestedBy) == "":
+		problems = append(problems, errors.New("a stop request that carries out a decision names who decided it"))
 	}
 	return errors.Join(problems...)
 }

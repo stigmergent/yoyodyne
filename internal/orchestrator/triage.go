@@ -622,6 +622,49 @@ func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 	return d.Docket.RecordOnce(entry)
 }
 
+// RecordDecidedStop dockets a run the development manager decided to stop in
+// flight, and closes the entry with her decision in the same call.
+//
+// A run stopped this way ends cancelled with no blocker, which is a shape the
+// docket otherwise passes over — an operator's stop hands nobody a decision. This
+// one is a stoppage somebody decided, and the change it leaves on its branch is
+// still hers to account for, so it is put on the docket where she and anybody
+// reading after her find it — as a settled entry, carrying who stopped it and
+// why, rather than as a question put back to the person who already answered
+// it. The failure the run ended on is carried on the entry, because it is the
+// whole of what says why this run is not going on.
+func (d Docketer) RecordDecidedStop(state runstate.State, request runstate.StopRequest) error {
+	if err := d.validate(); err != nil {
+		return err
+	}
+	// The entry and its closure carry one moment. A closure dated before the
+	// entry it settles reads as a decision about some earlier stoppage, and the
+	// decision itself was made before the run stopped, so its own time cannot be
+	// the closure's: when she decided is on the item's triage record and in the
+	// stop request, and this is when the docket took the decided stoppage in.
+	at := d.now()
+	found := d.look(state)
+	entry, err := d.stoppedRunEntryCarrying(state, at, found, runstate.RecordFailure(state.Failure))
+	if err != nil {
+		return err
+	}
+	if _, err := d.Docket.RecordOnce(entry); err != nil {
+		return err
+	}
+	_, err = d.Docket.Close(triage.Closure{
+		SchemaVersion: triage.ClosureSchemaVersion,
+		Key:           entry.Key,
+		ProductID:     entry.ProductID,
+		RunID:         entry.RunID,
+		WorkItemID:    entry.WorkItemID,
+		Decision:      strings.TrimSpace(request.Decision),
+		Reason:        singleLine(strings.TrimSpace(request.Reason), triage.MaxMessageBytes),
+		DecidedBy:     request.StoppedBy(),
+		ClosedAt:      at.UTC(),
+	})
+	return err
+}
+
 // settledPublicationDecision is the word a closure the harness makes carries, so
 // a reader of a closed publication entry can tell a stoppage that stopped being
 // one from a stoppage somebody decided about.
@@ -1462,6 +1505,14 @@ func stoppedAt(state runstate.State) time.Time {
 }
 
 func (d Docketer) stoppedRunEntry(state runstate.State, now time.Time, found triage.Found) (triage.Entry, error) {
+	return d.stoppedRunEntryCarrying(state, now, found, docketFailure(state, found))
+}
+
+// stoppedRunEntryCarrying is stoppedRunEntry with the failure the entry carries
+// named by the caller. A stop somebody decided is the one stoppage whose reason
+// is its failure while it carries no blocker and did not die, which is not a
+// shape docketFailure reads, so the caller that dockets one says so itself.
+func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, found triage.Found, failure string) (triage.Entry, error) {
 	counters, err := d.recordedCounters(state, publicationRearms{})
 	if err != nil {
 		return triage.Entry{}, err
@@ -1480,7 +1531,7 @@ func (d Docketer) stoppedRunEntry(state runstate.State, now time.Time, found tri
 		// this a stoppage. Every other entry has a blocker that says the same thing
 		// in the words the work item carries, and printing the failure beside it
 		// would be the same fact twice on every ordinary stoppage.
-		Failure:         docketFailure(state, found),
+		Failure:         failure,
 		Summary:         docketSummary(state),
 		Findings:        docketFindings(state.ReviewFindingDetails),
 		Check:           docketCheck(state.CheckFailure),

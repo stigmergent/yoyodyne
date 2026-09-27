@@ -53,6 +53,12 @@ const (
 	TriageDecisionWait = "wait"
 	// TriageDecisionEscalate hands the entry to the operator.
 	TriageDecisionEscalate = "escalate"
+	// TriageDecisionStop stops a run still in flight whose work the development
+	// manager has decided is superseded, narrowed, or mis-launched. It is the one
+	// decision about a run that has not stopped: the harness asks the run to stop
+	// exactly as the operator's stop does, at its next boundary with its change
+	// preserved, and the stoppage that leaves is already decided.
+	TriageDecisionStop = "stop"
 )
 
 // TriageDecisionVocabulary lists the decisions in the order the development
@@ -61,6 +67,7 @@ func TriageDecisionVocabulary() []string {
 	return []string{
 		TriageDecisionRepair, TriageDecisionRerun, TriageDecisionRescope,
 		TriageDecisionRearm, TriageDecisionWait, TriageDecisionEscalate,
+		TriageDecisionStop,
 	}
 }
 
@@ -71,6 +78,7 @@ const (
 	MaxTriageDecisionReasonBytes       = 4 << 10
 	MaxTriageDecisionByBytes           = 256
 	MaxTriageDecisionConversationBytes = 256
+	MaxTriageDecisionSupersededBytes   = 256
 )
 
 // MaxTriageDecisions bounds how many stoppages one item's record carries
@@ -115,6 +123,11 @@ type TriageDecision struct {
 	// committed to beyond what it has cost, which is the one reservation such a
 	// record can be holding.
 	Rounds int `json:"rounds,omitempty"`
+	// SupersededBy is the work item that supersedes the stopped run's work, on a
+	// stop decision where there is one. It is taken by that decision and by no
+	// other: what a stop answers is why the run should not go on, and the item
+	// doing the work instead is the half of that a reader goes looking for.
+	SupersededBy string `json:"superseded_by,omitempty"`
 }
 
 // Validate reports every contract violation in the decision at once.
@@ -156,6 +169,13 @@ func (d TriageDecision) Validate() error {
 	if d.Rounds > 0 && d.Decision != TriageDecisionRepair {
 		problems = append(problems, fmt.Errorf("a %q decision reserves no rounds, and this one records %d", d.Decision, d.Rounds))
 	}
+	switch superseded := strings.TrimSpace(d.SupersededBy); {
+	case superseded == "":
+	case d.Decision != TriageDecisionStop:
+		problems = append(problems, fmt.Errorf("only a %q decision names the item that supersedes a run, and this one is %q", TriageDecisionStop, d.Decision))
+	case len(superseded) > MaxTriageDecisionSupersededBytes:
+		problems = append(problems, fmt.Errorf("the superseding item is %d bytes, limit is %d", len(superseded), MaxTriageDecisionSupersededBytes))
+	}
 	if d.DecidedAt.IsZero() {
 		problems = append(problems, errors.New("a triage decision records when it was made"))
 	}
@@ -172,13 +192,21 @@ func (d TriageDecision) Cite() string {
 
 // Describe says what one decision was, for whoever is reading an item's record.
 func (d TriageDecision) Describe() string {
+	if d.Decision == TriageDecisionStop {
+		described := fmt.Sprintf("%q of run %s in flight, %s: %s",
+			d.Decision, d.RunID, d.Cite(), strings.TrimSpace(d.Reason))
+		if superseded := strings.TrimSpace(d.SupersededBy); superseded != "" {
+			described += "; superseded by " + superseded
+		}
+		return described
+	}
 	return fmt.Sprintf("%q on the stopped work of run %s, %s: %s",
 		d.Decision, d.RunID, d.Cite(), strings.TrimSpace(d.Reason))
 }
 
 // Spends reports a decision that buys another attempt at work that already
 // failed once, which is the half of the vocabulary the durable budgets bound.
-// The other three buy no attempt and are never refused for budget.
+// The rest buy no attempt and are never refused for budget.
 func (d TriageDecision) Spends() bool {
 	switch d.Decision {
 	case TriageDecisionRepair, TriageDecisionRerun, TriageDecisionRearm:
@@ -228,7 +256,7 @@ func (c TriageCounters) AwaitingCarryOut(runID string) bool {
 }
 
 // RecordDecision records a triage decision that spends nothing: a re-scope, a
-// wait, or an escalation. The three that buy another attempt are recorded by the
+// wait, an escalation, or a stop. The three that buy another attempt are recorded by the
 // operation that spends their budget, in the same write, so that a decision and
 // the spend it authorizes can never be one without the other.
 func (s *TriageStore) RecordDecision(ctx context.Context, workItemID string, decision TriageDecision, at time.Time) (TriageCounters, error) {
@@ -259,6 +287,7 @@ func prepareTriageDecision(decision TriageDecision, at time.Time) (TriageDecisio
 	decision.Reason = strings.TrimSpace(decision.Reason)
 	decision.DecidedBy = strings.TrimSpace(decision.DecidedBy)
 	decision.Conversation = strings.TrimSpace(decision.Conversation)
+	decision.SupersededBy = strings.TrimSpace(decision.SupersededBy)
 	decision.DecidedAt = at.UTC()
 	if err := decision.Validate(); err != nil {
 		return TriageDecision{}, fmt.Errorf("invalid triage decision: %w", err)
@@ -315,7 +344,8 @@ func (c *TriageCounters) recordDecision(decision TriageDecision) error {
 func validTriageDecision(decision string) error {
 	switch decision {
 	case TriageDecisionRepair, TriageDecisionRerun, TriageDecisionRescope,
-		TriageDecisionRearm, TriageDecisionWait, TriageDecisionEscalate:
+		TriageDecisionRearm, TriageDecisionWait, TriageDecisionEscalate,
+		TriageDecisionStop:
 		return nil
 	default:
 		return fmt.Errorf("%q is not a triage decision; the decisions are %s",

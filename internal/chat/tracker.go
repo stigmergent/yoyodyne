@@ -230,7 +230,7 @@ var trackerActionArguments = map[string][]string{
 	actionRepair:       {"state", "depends_on", "goal"},
 	actionClose:        {},
 	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget"},
+	actionTriage:       {"run", "decision", "budget", "superseded_by"},
 	actionHandle:       {"report", "requests", "needs"},
 	actionBrake:        {"decision"},
 }
@@ -457,6 +457,11 @@ type TrackerAction struct {
 	// crossed by deciding to cross it, and an argument that quietly widened another
 	// decision would be a budget raised by whoever asked to spend it.
 	Budget string `json:"budget,omitempty"`
+	// SupersededBy is the work item doing the work instead, on a stop decision
+	// whose run was superseded. It is taken by that decision and by nothing else,
+	// and it is optional there: a run narrowed or launched by mistake was not
+	// superseded by anything.
+	SupersededBy string `json:"superseded_by,omitempty"`
 	// Reason is why this is being done. It is required on everything that
 	// changes something: the operator reads the queue afterwards and is owed the
 	// reasoning, not only the edit.
@@ -1231,6 +1236,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Budget) != "" {
 		carried = append(carried, "budget")
+	}
+	if strings.TrimSpace(a.SupersededBy) != "" {
+		carried = append(carried, "superseded_by")
 	}
 	if strings.TrimSpace(a.Decision) != "" {
 		carried = append(carried, "decision")

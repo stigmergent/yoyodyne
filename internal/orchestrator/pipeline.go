@@ -4750,7 +4750,7 @@ type operatorStop struct {
 }
 
 func (e operatorStop) Error() string {
-	stopped := "the operator stopped this run at " + e.request.RequestedAt.Format(time.RFC3339)
+	stopped := e.request.StoppedBy() + " stopped this run at " + e.request.RequestedAt.Format(time.RFC3339)
 	if strings.TrimSpace(e.request.Reason) != "" {
 		stopped += ": " + strings.TrimSpace(e.request.Reason)
 	}
@@ -5911,7 +5911,17 @@ func (a *activeRun) stop(ctx context.Context, cause error) (Outcome, error) {
 	// behind reads the same to reconciliation whichever way the stop arrived.
 	var stoppedByOperator operatorStop
 	if errors.As(cause, &stoppedByOperator) {
-		return a.fail(cause, runstate.StatusCancelled)
+		outcome, err := a.fail(cause, runstate.StatusCancelled)
+		// A stop the development manager decided leaves a stoppage she has already
+		// settled, so it is docketed with her decision closing it: it reads as
+		// decided rather than as one more run waiting on her. An operator's stop
+		// hands nobody a decision and is docketed nowhere, as it always was.
+		if strings.TrimSpace(stoppedByOperator.request.Decision) != "" && a.pipeline.Docket != nil {
+			if docketErr := a.pipeline.Docket.RecordDecidedStop(a.state, stoppedByOperator.request); docketErr != nil {
+				err = errors.Join(err, fmt.Errorf("docket the stop the development manager decided: %w", docketErr))
+			}
+		}
+		return outcome, err
 	}
 	return a.fail(cause, failureStatus(ctx, cause))
 }

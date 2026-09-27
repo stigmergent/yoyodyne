@@ -344,7 +344,7 @@ func TestTheContractStatesTheCrossingBoundTheStoreEnforces(t *testing.T) {
 	// the number agreeing with the guard buys nothing if the role never sees it.
 	prompt := SystemPrompt(domain.RoleDevelopmentManager, Admission{}, hostilePersona)
 	for _, required := range []string{
-		`"decision":"repair|rerun|rescope|rearm|wait|escalate|cross"`,
+		`"decision":"repair|rerun|rescope|rearm|wait|escalate|stop|cross"`,
 		maxDelegatedCapCrossingsText + " times per item",
 		"a crossing without one is refused outright",
 		"yoyo triage override",

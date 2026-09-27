@@ -295,6 +295,12 @@ type Options struct {
 	// conversation without one records a decision unchecked, and decomposes
 	// ungated, rather than appearing to have done either.
 	Stoppages Stoppages
+	// Stops is how a stop the development manager decides reaches the run in
+	// flight it names: the same request the operator's stop writes, made on her
+	// behalf. It is wired into her conversation and no other, and a conversation
+	// without one refuses a stop rather than recording a decision nothing will
+	// carry out.
+	Stops DecidedStops
 	// Held is what the harness is holding for a person: an escalation waiting on
 	// a decision, a change that exists only on a preserved branch, a publication
 	// that never finished. It is read where backlog state is corrected, and only
