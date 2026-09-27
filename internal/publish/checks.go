@@ -212,8 +212,17 @@ func (g GitHub) annotatedPaths(ctx context.Context, checkRun int64) ([]string, e
 // merge left armed would land the request the moment its checks turned green,
 // which for a rewritten head is a change no reviewer has seen.
 //
+// Withdrawing it also takes the request out of the base branch's merge queue
+// where the queue holds it. The queue consumes the auto-merge as it takes a
+// request, so turning auto-merge off leaves a queued request queued, and the
+// queue would land the head the harness is about to rewrite. A withdrawal whose
+// dequeue fails, or that cannot learn whether the queue holds the request, is
+// refused rather than reported done. The auto-merge is turned off first, so
+// nothing can put the request back in the queue between the two.
+//
 // A request with no merge armed has nothing to withdraw, and the forge saying
-// so is not a failure.
+// so is not a failure; nor is a forge with no merge queue, which answers that
+// the queue holds nothing.
 func (g GitHub) DisableAutoMerge(ctx context.Context, number int) error {
 	if number <= 0 {
 		return fmt.Errorf("pull request number %d is not a request", number)
@@ -226,14 +235,16 @@ func (g GitHub) DisableAutoMerge(ctx context.Context, number int) error {
 	if err != nil {
 		return fmt.Errorf("withdraw the queued merge of pull request %d: %w", number, err)
 	}
-	if result.Status == execution.ProcessSucceeded {
-		return nil
+	if result.Status != execution.ProcessSucceeded {
+		reason := g.redact(strings.TrimSpace(result.Stderr))
+		if !nothingArmed(reason) {
+			return fmt.Errorf("withdraw the queued merge of pull request %d failed with exit code %d: %s", number, result.ExitCode, reason)
+		}
 	}
-	reason := g.redact(strings.TrimSpace(result.Stderr))
-	if nothingArmed(reason) {
-		return nil
+	if err := g.dequeue(ctx, number); err != nil {
+		return fmt.Errorf("withdraw the queued merge of pull request %d: %w", number, err)
 	}
-	return fmt.Errorf("withdraw the queued merge of pull request %d failed with exit code %d: %s", number, result.ExitCode, reason)
+	return nil
 }
 
 // nothingArmed recognizes the forge saying a request has no queued merge to

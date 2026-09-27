@@ -1758,6 +1758,21 @@ the queue was landing them.
   worktree or branch is gone, cannot be replayed, and is handed back the same way
   when its head falls behind.
 
+**Withdrawing a queued merge takes the request out of the merge queue too.**
+Turning the request's auto-merge off is not enough on a target with a merge
+queue: the queue consumes the auto-merge as it takes the request, so a request
+already in the queue stays there with nothing armed, and the queue could land
+the head the harness withdrew it to rewrite — the queue usually drops a request
+whose checks go red itself, and "usually" is the hole. So the withdrawal turns
+the auto-merge off first, so that nothing can put the request back, and then
+asks the forge whether the queue holds it and, where it does, takes it out
+(`dequeuePullRequest`). A forge with no merge queue answers that nothing is
+queued, and there is nothing more to do. A withdrawal whose dequeue the forge
+refuses, or that cannot learn whether the queue holds the request, is refused
+rather than reported done: nothing is written, the merge stays recorded as
+queued, and the next sweep asks again, so the harness never rewrites or hands
+back a head the queue may still land.
+
 A merge the forge has stopped holding is read the same way before it is handed
 to anybody. Where the change landed through its pull request, the request is
 still open, and its head is behind the target with no failing check naming a

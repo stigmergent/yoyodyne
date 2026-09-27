@@ -1254,11 +1254,17 @@ func TestGitHubDisableAutoMergeWithdrawsTheQueuedMerge(t *testing.T) {
 	runner := &scriptedRunner{}
 	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
 	runner.reply("pr merge 713", execution.ProcessResult{Status: execution.ProcessSucceeded})
+	runner.reply("isInMergeQueue", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"data":{"repository":{"pullRequest":{"id":"PR_713","isInMergeQueue":false}}}}`})
 	if err := (GitHub{Runner: runner}).DisableAutoMerge(context.Background(), 713); err != nil {
 		t.Fatalf("DisableAutoMerge() error = %v", err)
 	}
 	if calls := runner.matching("pr merge 713"); len(calls) != 1 || !contains(calls[0], "--disable-auto") {
 		t.Fatalf("calls = %v, want one disable-auto", calls)
+	}
+	// A request the queue does not hold — which is every request on a forge with
+	// no merge queue — has nothing to take out of it.
+	if dequeued := runner.matching("dequeuePullRequest"); len(dequeued) != 0 {
+		t.Errorf("dequeued a request the merge queue does not hold: %v", dequeued)
 	}
 
 	refused := &scriptedRunner{}
@@ -1266,5 +1272,68 @@ func TestGitHubDisableAutoMergeWithdrawsTheQueuedMerge(t *testing.T) {
 	refused.reply("pr merge 713", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "GraphQL: Resource not accessible by integration"})
 	if err := (GitHub{Runner: refused}).DisableAutoMerge(context.Background(), 713); err == nil {
 		t.Error("DisableAutoMerge() reported a refused withdrawal as done")
+	}
+}
+
+// The merge queue consumes a request's auto-merge as it takes the request, so
+// turning auto-merge off leaves a queued request queued, and the queue would
+// land the head the harness withdrew it to rewrite. Withdrawing the merge takes
+// the request out of the queue as well, and a dequeue that fails, or a forge
+// that will not say whether the queue holds the request, refuses the withdrawal.
+func TestGitHubDisableAutoMergeTakesAQueuedRequestOutOfTheMergeQueue(t *testing.T) {
+	t.Parallel()
+
+	queued := execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"data":{"repository":{"pullRequest":{"id":"PR_kwDO713","isInMergeQueue":true}}}}`}
+	script := func() *scriptedRunner {
+		runner := &scriptedRunner{}
+		runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+		// The queue took the auto-merge with the request, so the forge says there
+		// is none to disable.
+		runner.reply("pr merge 713", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "Pull request acme/thing#713 does not have auto merge enabled"})
+		runner.reply("isInMergeQueue", queued)
+		return runner
+	}
+
+	runner := script()
+	runner.reply("dequeuePullRequest", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"data":{"dequeuePullRequest":{"mergeQueueEntry":{"id":"MQE_1"}}}}`})
+	if err := (GitHub{Runner: runner}).DisableAutoMerge(context.Background(), 713); err != nil {
+		t.Fatalf("DisableAutoMerge() error = %v", err)
+	}
+	asked := runner.matching("isInMergeQueue")
+	if len(asked) != 1 || !contains(asked[0], "number=713") {
+		t.Errorf("merge queue query = %v, want request 713 asked about", asked)
+	}
+	dequeued := runner.matching("dequeuePullRequest")
+	if len(dequeued) != 1 || !contains(dequeued[0], "id=PR_kwDO713") || apiRepositoryScope(runner) == "" {
+		t.Fatalf("dequeue = %v (scope %q), want request 713 taken out of the queue by its node id in the configured repository", dequeued, apiRepositoryScope(runner))
+	}
+	// The auto-merge goes first: a request whose auto-merge is still armed could
+	// be taken into the queue again the moment it was taken out.
+	var order []string
+	for _, command := range runner.commands {
+		switch joined := strings.Join(command, " "); {
+		case strings.Contains(joined, "pr merge 713"):
+			order = append(order, "disable-auto")
+		case strings.Contains(joined, "dequeuePullRequest"):
+			order = append(order, "dequeue")
+		}
+	}
+	if strings.Join(order, ",") != "disable-auto,dequeue" {
+		t.Errorf("order = %v, want the auto-merge turned off before the request is dequeued", order)
+	}
+
+	failed := script()
+	failed.reply("dequeuePullRequest", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "GraphQL: Resource not accessible by integration (dequeuePullRequest)"})
+	if err := (GitHub{Runner: failed}).DisableAutoMerge(context.Background(), 713); err == nil || !strings.Contains(err.Error(), "take pull request 713 out of the merge queue") {
+		t.Errorf("DisableAutoMerge() with a refused dequeue error = %v, want the withdrawal refused naming the dequeue", err)
+	}
+
+	unanswered := script()
+	unanswered.reply("isInMergeQueue", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 502"})
+	if err := (GitHub{Runner: unanswered}).DisableAutoMerge(context.Background(), 713); err == nil {
+		t.Error("DisableAutoMerge() reported a withdrawal done without learning whether the merge queue holds the request")
+	}
+	if dequeued := unanswered.matching("dequeuePullRequest"); len(dequeued) != 0 {
+		t.Errorf("dequeued on an unanswered question: %v", dequeued)
 	}
 }
