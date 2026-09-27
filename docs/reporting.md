@@ -431,6 +431,12 @@ name an item by what it is, and a surface that printed whatever a role wrote
 would still let the next bare number through, so the titles are put in by the
 read model as the text is shown rather than trusted to the writer.
 
+Closed items are titled too. Most of what a report or a pass names has
+closed by the time anybody reads it, and `bd list` given no status leaves
+closed work out, so the titles are read from a listing that asks for every
+status; a test against `bd` itself holds that a closed item comes back with
+its title.
+
 An identifier the tracker holds nothing under is shown as `(unknown to the
 tracker)` rather than dropped or left bare. That applies to anything shaped
 like one of this tracker's identifiers — `yoyodyne-ifd.434.9`, or `ifd.434.9`
