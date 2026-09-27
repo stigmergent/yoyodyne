@@ -180,6 +180,42 @@ func TestWorkAdmittedBeforeTheGoalMovedIsReportedAndWorkAdmittedAfterIsNot(t *te
 	}
 }
 
+// A rewording the Lead Product Manager recorded as consistent with intent is
+// still reported to the work admitted under the old wording, which may read
+// differently now, and it is reported as the rewording it is. An amendment
+// recorded as fundamental, and one that does not say, are reported as amendments.
+func TestADelegatedRewordingIsListedAsARewordingRatherThanAnAmendment(t *testing.T) {
+	t.Parallel()
+
+	rewording := amended("2026-08-10T00:00:00Z", "yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager")
+	rewording.Intent = artifact.IntentConsistent
+	fundamental := amended("2026-08-12T00:00:00Z", "yoyodyne-ifd.500 - the autonomy goal drops the product manager")
+	fundamental.Intent = artifact.IntentFundamental
+	unlabelled := amended("2026-08-14T00:00:00Z", "yoyodyne-ifd.501 - reworded")
+
+	artifacts := set(
+		document("brief", artifact.KindBrief, nil, created("2026-08-01T00:00:00Z")),
+		document("v1-goals", artifact.KindGoals, []string{"brief"},
+			created("2026-08-02T00:00:00Z"), rewording, fundamental, unlabelled),
+	)
+	items := []beads.WorkItem{admitted("ifd.1", "Work", "2026-08-05T00:00:00Z", "Run development nearly autonomously.")}
+
+	report := Survey(artifacts, statedGoals("Run development nearly autonomously."), items)
+	if len(report.WorkItems) != 1 || len(report.WorkItems[0].Changes) != 3 {
+		t.Fatalf("stale work = %#v, want the item reported with all three changes", report.WorkItems)
+	}
+	rewordings := map[string]bool{}
+	for _, change := range report.WorkItems[0].Changes {
+		if change.Action != artifact.ActionAmended {
+			t.Fatalf("change = %#v, want each recorded as the amendment it is", change)
+		}
+		rewordings[change.Reason] = change.Rewording
+	}
+	if !rewordings[rewording.Reason] || rewordings[fundamental.Reason] || rewordings[unlabelled.Reason] {
+		t.Fatalf("rewordings = %#v, want only the consistent one marked", rewordings)
+	}
+}
+
 func TestWorkIsStaleWhenAnythingUpstreamOfItsGoalsDocumentChanges(t *testing.T) {
 	t.Parallel()
 

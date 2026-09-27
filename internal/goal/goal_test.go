@@ -10,6 +10,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
 const goalsHome = "docs/product"
@@ -1595,6 +1596,37 @@ id: v1-goals
 	}
 	if gap := amendedSet.Attribute("Run development nearly autonomously.").ApprovalGap(); !strings.Contains(gap, "amended since") {
 		t.Fatalf("gap = %q, want it to say the document moved since the approval", gap)
+	}
+
+	// A rewording the Lead Product Manager recorded as consistent with intent,
+	// naming the item that directed it, is delegated: the approval stands and work
+	// naming the goal is admitted exactly as before. One recorded as a change of
+	// fundamental intent, and one that does not say which it is, are the
+	// operator's, and put admissions back to them.
+	for _, testCase := range []struct {
+		intent   artifact.Intent
+		approved bool
+	}{
+		{intent: artifact.IntentConsistent, approved: true},
+		{intent: artifact.IntentFundamental},
+		{intent: ""},
+	} {
+		revised := approved
+		revised.Revisions = []artifact.Revision{{}, {
+			Action: artifact.ActionAmended, By: domain.RoleProductManager,
+			Reason: "yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager", Intent: testCase.intent,
+		}}
+		revisedSet := Collect(root, setOf(revised))
+		gap := revisedSet.Attribute("Run development nearly autonomously.").ApprovalGap()
+		if testCase.approved {
+			if len(revisedSet.Goals) != 1 || !revisedSet.Goals[0].Approved() || gap != "" {
+				t.Fatalf("intent %q: goals = %#v, gap = %q; want the approval standing", testCase.intent, revisedSet.Goals, gap)
+			}
+			continue
+		}
+		if !strings.Contains(gap, "amended since") {
+			t.Fatalf("intent %q: gap = %q, want the admission put to the operator", testCase.intent, gap)
+		}
 	}
 
 	// And one nobody ever approved.

@@ -15,8 +15,11 @@ package artifact
 // So an approval names the revision it was given for, the revision log is
 // append-only, and an index into it always means the same change. An artifact
 // amended after its approval is therefore distinguishable from one still
-// approved, by arithmetic rather than by judgement: the approved revision is no
-// longer the last one.
+// approved, by arithmetic rather than by judgement: an amendment the operator
+// did not delegate was recorded after the approved revision. The one judgement
+// in it is the owning role's, recorded on the amendment itself: a rewording of
+// the goals the Lead Product Manager records as consistent with intent is
+// delegated, and the approval stands through it (see rewording.go).
 //
 // # What this deliberately does not do
 //
@@ -145,29 +148,58 @@ func (a Artifact) LatestApproval() (Approval, bool) {
 
 // ApprovalState reports whether the document as it now stands is what the
 // operator approved.
+//
+// A rewording the Lead Product Manager recorded as consistent with intent does
+// not count against the approval (see rewording.go). The goals admit and refuse
+// the same work after it as before, which is what the operator approved, and
+// reading it as amended-since would put every admission under the document back
+// to the operator over a decision the operator's ruling of 2026-09-26 delegated.
 func (a Artifact) ApprovalState() ApprovalState {
-	latest, approved := a.LatestApproval()
-	switch {
-	case !approved:
+	if _, approved := a.LatestApproval(); !approved {
 		return ApprovalUnapproved
-	case latest.Revision >= len(a.Revisions)-1:
-		return ApprovalApproved
-	default:
-		return ApprovalAmended
 	}
+	if a.RevisionsSinceApproval() == 0 {
+		return ApprovalApproved
+	}
+	return ApprovalAmended
 }
 
-// RevisionsSinceApproval counts the revisions recorded after the approved one,
-// which is how much of the document has moved since the operator saw it. It is
-// zero for an artifact that is approved as it stands and for one that was never
-// approved, because in neither case is there an approval something has drifted
-// from.
+// RevisionsSinceApproval counts the revisions recorded after the approved one
+// that the operator has not seen and did not delegate, which is how much of the
+// document has moved since the operator saw it. Delegated rewordings are not counted, for
+// the reason ApprovalState gives. It is zero for an artifact that is approved as
+// it stands and for one that was never approved, because in neither case is
+// there an approval something has drifted from.
 func (a Artifact) RevisionsSinceApproval() int {
-	if a.ApprovalState() != ApprovalAmended {
+	latest, approved := a.LatestApproval()
+	if !approved {
 		return 0
 	}
-	latest, _ := a.LatestApproval()
-	return len(a.Revisions) - 1 - latest.Revision
+	count := 0
+	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
+		if delegated, _ := a.Rewording(a.Revisions[index]); !delegated {
+			count++
+		}
+	}
+	return count
+}
+
+// RewordingsSinceApproval returns the delegated rewordings recorded after the
+// approved revision: what the Lead Product Manager changed under the operator's
+// approval without asking again, which a surface names so the approval
+// standing through them is visible rather than silent.
+func (a Artifact) RewordingsSinceApproval() []Revision {
+	latest, approved := a.LatestApproval()
+	if !approved {
+		return nil
+	}
+	var rewordings []Revision
+	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
+		if delegated, _ := a.Rewording(a.Revisions[index]); delegated {
+			rewordings = append(rewordings, a.Revisions[index])
+		}
+	}
+	return rewordings
 }
 
 // approvalProblems reports what makes a recorded approval unusable: one that

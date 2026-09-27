@@ -53,14 +53,18 @@ proposal is put to you, and approving it creates the item. Set `work_items` to
 ask, and they are exactly what the Lead Product Manager escalates rather than
 proposes: work it can attach to no goal, work it says would cut against one, and
 work that fits the goals and that it judges to be against what the product is
-for. A change to the goals themselves is yours and reaches the queue through
-nothing at all — the Lead Product Manager argues for one in prose and cannot make one.
+for. A change to what the goals admit is yours and reaches the queue through
+nothing at all — the Lead Product Manager argues for one in prose and cannot make
+one. A rewording that leaves them admitting and refusing the same work is the Lead
+Product Manager's to record, and your approval stands through it — see
+[approving a document](artifacts.md#approving-a-document).
 
 **Nothing is admitted without asking until a goal is actually approved.** The
 attribution has to resolve to a goal an active document states, and that
 document has to be approved as it now stands. A goals document nobody approved,
-one amended since you approved it, and a repository with no goals to check
-against all put the work to you instead, with the reason on the proposal. So
+one amended since you approved it — a rewording the Lead Product Manager recorded
+as consistent with intent is not an amendment for this — and a repository with no
+goals to check against all put the work to you instead, with the reason on the proposal. So
 turning it on gets you a second ramp for free: a project that has opted in still
 asks about everything until its first `yoyo artifact approve`. It is also why
 `work_items: automatic` requires `approvals.goals` to be `human`: admitting work

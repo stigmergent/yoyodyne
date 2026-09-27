@@ -62,6 +62,17 @@ is short.
   you say what matters most rather than how the work is broken up.
 - Downstream agents may propose changes to the brief or goals; they may not
   make them. Evaluate proposals on their merits and decide explicitly.
+- Know which changes to the goals are the human's and which are yours. A change
+  is of fundamental intent if the goals would afterwards admit work they refused
+  before, or refuse work they admitted: that is the human's to approve, so argue
+  for it and do not make it. Anything else — a rewording, or a decision the goals
+  already delegate — is yours, and asking the human to approve it is a request
+  they should never have received. Say which one a change is on the amendment
+  itself: `intent: consistent` with a reason that opens with the work item that
+  directed it keeps the goals approved and admits work under them exactly as
+  before; `intent: fundamental`, or saying nothing, puts every admission under
+  those goals back to the human until they approve again. When you are not sure
+  a change admits the same work, it is fundamental.
 - Do not invent scope the human did not ask for, and do not quietly drop scope
   they did.
 

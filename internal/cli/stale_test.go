@@ -147,6 +147,44 @@ func TestStaleWorkIsReportedWithWhatMovedAndWhatWasNotJudged(t *testing.T) {
 	}
 }
 
+// A rewording the Lead Product Manager recorded as consistent with intent is
+// listed as a rewording, so the operator does not read it as an amendment still
+// waiting on them; an amendment beside it is listed as one.
+func TestADelegatedRewordingIsListedAsARewording(t *testing.T) {
+	t.Parallel()
+
+	report := staleness.Report{
+		WorkItems: []staleness.WorkItem{{
+			ID: "ifd.1", Title: "Work", Status: "open", Priority: 2,
+			AdmittedAt: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC),
+			Goal:       "Run development nearly autonomously.", ArtifactID: "v1-goals",
+			Changes: []staleness.Change{{
+				ArtifactID: "v1-goals", Action: artifact.ActionAmended, By: "product-manager",
+				At:     time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
+				Reason: "yoyodyne-ifd.500 - the autonomy goal drops the product manager",
+			}, {
+				ArtifactID: "v1-goals", Action: artifact.ActionAmended, By: "product-manager", Rewording: true,
+				At:     time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+				Reason: "yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager",
+			}},
+		}},
+		Admitted: 1,
+		Judged:   1,
+	}
+
+	var rendered bytes.Buffer
+	printStaleness(&rendered, report, "")
+	printed := rendered.String()
+	for _, want := range []string{
+		"v1-goals was amended 2026-08-12 by the product-manager: yoyodyne-ifd.500",
+		"v1-goals was reworded, consistent with intent, 2026-08-10 by the product-manager: yoyodyne-ifd.437.11",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("report = %q, want it to contain %q", printed, want)
+		}
+	}
+}
+
 func TestATrackerThatCannotBeReadCostsTheWorkHalfAndNotTheReport(t *testing.T) {
 	t.Parallel()
 

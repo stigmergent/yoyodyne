@@ -192,6 +192,11 @@ type Amendment struct {
 	// required for the same reason an ending's is: a change nobody explained is
 	// one nobody can evaluate later.
 	Reason string
+	// Intent is what the amending role says the change does to what the document
+	// intends, recorded on the revision; left empty it says nothing, and an
+	// amendment that says nothing is treated as the operator's to approve. See
+	// rewording.go.
+	Intent Intent
 }
 
 // Create records a new artifact. Only the role that owns the kind may: see
@@ -301,6 +306,7 @@ func (s Store) Amend(role domain.AgentRole, id string, amendment Amendment, now 
 		By:     role,
 		At:     now.UTC(),
 		Reason: strings.TrimSpace(amendment.Reason),
+		Intent: amendment.Intent,
 	})
 	if err := amended.Validate(); err != nil {
 		return Artifact{}, err

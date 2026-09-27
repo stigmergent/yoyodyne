@@ -30,7 +30,26 @@ everything downstream, instead of two identical documents whose difference lived
 in a chat log. Because the approval names a revision and the revision log is
 append-only, a document amended after you approved it reads as
 approved-and-amended-since rather than as approved — the approval still stands
-for what you gave it for, and the document as it now reads is not that. What is
+for what you gave it for, and the document as it now reads is not that.
+
+**Only a change of what the goals admit comes back to you.** A change is of
+fundamental intent if the goals would afterwards admit work they refused before,
+or refuse work they admitted; that is yours to approve. Anything else is a
+consistent rewording or a decision the goals already delegate, and it is the
+Lead Product Manager's to make. Which one a change is, is said on the amendment
+itself: one the Lead Product Manager records as `intent: consistent`, with a
+reason that opens with the work item that directed it —
+`yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager` — leaves
+the goals document approved, leaves admissions against its goals exactly as they
+were, and is listed by [`yoyo stale`](#what-a-change-upstream-leaves-stale) as a
+rewording rather than an amendment. One recorded as `intent: fundamental`, and
+one that does not say which it is, reads as amended-since and puts admissions
+back to you, as every amendment did before: the default is yours, and it takes
+the Lead Product Manager's recorded claim to move off it. The
+[configuration guide](configuration.md#approving-a-document) says what else the
+record has to carry for the claim to count.
+
+What is
 asked of you is your configuration's to say: `approvals.brief` and
 `approvals.goals` are `human`, `approvals.designs` is `automatic`, and a decision
 record is an account of how something was decided rather than a statement of
@@ -45,7 +64,8 @@ is [`approvals.work_items`](configuration.md#what-reaches-the-queue) to say:
 it is `human` until you set it otherwise, and every item is put to you. Set it to
 `automatic` and your approval of the goals document is what lets work serving
 those goals into the queue — so a goals document nobody approved, and one amended
-since you approved it, are documents nothing is admitted under. Everywhere else
+since you approved it, are documents nothing is admitted under; a consistent
+rewording the Lead Product Manager recorded is not an amendment for this. Everywhere else
 an amendment after approval changes what is reported about a document rather than
 what is allowed. The
 [configuration guide](configuration.md#approving-a-document) has the schema
@@ -313,7 +333,11 @@ recorded a change after that artifact was itself last revised. An admitted work
 item is reported when the goals document stating the goal it serves, or anything
 upstream of that, changed after the item was admitted. Each one names what
 changed, when, under whose authority, and the reason that change recorded, which
-is what tells a rewording apart from a reversal of intent.
+is what tells a rewording apart from a reversal of intent. A rewording the Lead
+Product Manager recorded as consistent with intent is listed as `reworded,
+consistent with intent` rather than as `amended`, so it does not read as an
+amendment still waiting on you; it is listed at all because work admitted under
+the old wording may still read differently.
 
 Nothing is stored to make this true and nothing has to be marked. The documents'
 own revision logs and the tracker's record of when each item was admitted

@@ -836,7 +836,7 @@ The document itself, unchanged by any of the above.
 | `title` | One line naming what the document is. |
 | `supports` | The artifacts upstream of this one, by id: the goal a design serves, the brief a goal serves. Optional — the brief is the root and supports nothing. |
 | `status` | `draft` (written, not yet active), `active` (what the product currently intends), `superseded` (replaced by a later artifact), or `retired` (stopped applying, not replaced). |
-| `revisions` | Append-only: what changed (`created`, `amended`, `superseded`, `retired`), the role it was recorded under, when, and why. At least the creation is required, and the role must be the one that [owns the kind](#who-may-change-an-artifact). |
+| `revisions` | Append-only: what changed (`created`, `amended`, `superseded`, `retired`), the role it was recorded under, when, and why. At least the creation is required, and the role must be the one that [owns the kind](#who-may-change-an-artifact). An amendment may also say what it did to the document's intent — `intent: consistent` or `intent: fundamental` — which on the goals decides [whether your approval stands through it](#approving-a-document). |
 | `approvals` | Append-only, and optional: [your approval of the document](#approving-a-document), each entry naming the revision it was given for. |
 
 Everything below the frontmatter is the document, and nothing about it is
@@ -956,6 +956,37 @@ v1-goals [goals, active] V1 goals
             as it now reads is not what was approved
 ```
 
+**A rewording of the goals that is consistent with what you approved is not an
+amendment you are asked about.** The test is what the goals admit: a change is of
+fundamental intent if the goals would afterwards admit work they refused
+before, or refuse work they admitted, and that is yours; anything else is a
+consistent rewording, delegated to the Lead Product Manager. Which one a change
+is, is the Lead Product Manager's judgement, and it is recorded on the amendment
+rather than inferred from it:
+
+```yaml
+revisions:
+    - action: amended
+      by: product-manager
+      at: 2026-09-26T20:00:00Z
+      reason: yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager
+      intent: consistent
+```
+
+An amendment of a goals document recorded by the Lead Product Manager as
+`intent: consistent`, with a reason that opens with the work item that directed
+it, leaves the document approved: work naming its goals is admitted exactly as
+before, `yoyo artifact show` says the approval stands through that many
+rewordings, and [`yoyo stale`](artifacts.md#what-a-change-upstream-leaves-stale)
+lists it as a rewording rather than an amendment. Every other amendment is still
+yours — one recorded as `intent: fundamental`, one that says nothing, and one
+labelled consistent whose record is short of the rest: recorded by another role,
+against a document other than the goals, or with no item named. The last of
+those is said on `show` with what it is missing, so the label does not read as
+ignored. What is checked is the shape of the identifier the reason opens with and
+not that the tracker holds it; the reason is the record you follow to the
+decision.
+
 **Your `approvals` configuration decides what is asked of you.** `approvals.brief`
 and `approvals.goals` are `human` by default and `approvals.designs` is
 `automatic`, deliberately rather than by inheritance: the brief and the goals are
@@ -1007,14 +1038,18 @@ proposal is put to you, and approving it creates the item. Set `work_items` to
 ask, and they are exactly what the Lead Product Manager escalates rather than
 proposes: work it can attach to no goal, work it says would cut against one, and
 work that fits the goals and that it judges to be against what the product is
-for. A change to the goals themselves is yours and reaches the queue through
-nothing at all — the Lead Product Manager argues for one in prose and cannot make one.
+for. A change to what the goals admit is yours and reaches the queue through
+nothing at all — the Lead Product Manager argues for one in prose and cannot make
+one. A rewording that leaves them admitting and refusing the same work is the Lead
+Product Manager's to record, and your approval stands through it — see
+[approving a document](#approving-a-document).
 
 **Nothing is admitted without asking until a goal is actually approved.** The
 attribution has to resolve to a goal an active document states, and that
 document has to be approved as it now stands. A goals document nobody approved,
-one amended since you approved it, and a repository with no goals to check
-against all put the work to you instead, with the reason on the proposal. So
+one amended since you approved it — a rewording the Lead Product Manager recorded
+as consistent with intent is not an amendment for this — and a repository with no
+goals to check against all put the work to you instead, with the reason on the proposal. So
 turning it on gets you a second ramp for free: a project that has opted in still
 asks about everything until its first `yoyo artifact approve`. It is also why
 `work_items: automatic` requires `approvals.goals` to be `human`: admitting work
