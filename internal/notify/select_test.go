@@ -1591,6 +1591,7 @@ func TestABrakeTripNamesTheRunsItCountedAndTheReleaseNamesWhoLiftedIt(t *testing
 		"the harness's own brake placed it after 3 run(s) blocked in a row",
 		"the runs it counted: run run-1 of yoyodyne-ifd.398: its reviewer still required repair after 2 repair attempt(s)",
 		"run run-2 of yoyodyne-ifd.401: check `make test` failed (exit 1)",
+		"`yoyo release`, or `/release` in the conversation, lifts it sooner",
 	} {
 		if !strings.Contains(message.Body, want) {
 			t.Fatalf("body %q does not carry %q", message.Body, want)

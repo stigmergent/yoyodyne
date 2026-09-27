@@ -1400,18 +1400,21 @@ like every other record from before the watermark, and is marked without being
 said; its moment is the record that made it, so a handling made today of a
 month-old report is today's news.
 
-The brake's hold is said in the same terms once it is yours. The trip is said
-to the channel, naming what a count did not — each run it counted, with its item
-and what stopped it — and asks you for nothing, because the development manager
-and the harness are working it:
+The brake's trip is sent to you the same way — directly, tagged, once, the
+moment it is recorded — naming what a count did not: each run it counted, with
+its item and what stopped it, and the verb that lifts it. It is not yours to
+move while the development manager and the harness are working it, and its
+closing clause says whose it is; it is the one hold you did not place, so you
+are told it happened:
 
-> Intake is held for this product: the harness's own brake placed it after 3
-> run(s) blocked in a row with nothing landing between them, which is the
-> configured brake at 3, and the development manager was summoned at … to
+> @operator Intake is held for this product: the harness's own brake placed it
+> after 3 run(s) blocked in a row with nothing landing between them, which is
+> the configured brake at 3, and the development manager was summoned at … to
 > decide what happens to it …; the runs it counted: run run-7c27… of
 > yoyodyne-ifd.398: its reviewer still required repair …; run run-a17c… of
 > yoyodyne-ifd.401: check `make test` failed (exit 1) …; run run-5035… of
-> yoyodyne-ifd.402: …
+> yoyodyne-ifd.402: …. `yoyo release`, or `/release` in the conversation,
+> lifts it sooner. Next: the development manager's — …
 
 When she escalates it to you, that hold is said to you once more, directly and
 tagged, in its own account of who decided it; the harness escalating it at the
@@ -1443,8 +1446,9 @@ state fitting neither class does not get one:
   hold handed to them by the harness at the bound on its summons-and-probe
   loop, a recurring task that has failed before its first turn for two hours
   (its critical message), an item that
-  sat claimed with nothing working on it until the harness gave it back, a
-  brake hold the development manager escalated to you, and **the line choosing
+  sat claimed with nothing working on it until the harness gave it back, the
+  brake having held intake (its trip, once), a brake hold the development
+  manager escalated to you, and **the line choosing
   nothing over ready work**, which is the one state that is
   asked rather than reported and is below. The released claim is a fix rather
   than a request, and it is still in this class:

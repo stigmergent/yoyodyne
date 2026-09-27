@@ -2924,8 +2924,11 @@ So a brake hold waits on a person only once it is escalated, by her or by the
 harness at that bound, and either escalation is sent to you once, directly and
 tagged by member id, the moment it is recorded — it is
 [a finding for you](operations.md#where-a-finding-that-needs-your-hand-goes).
-The trip itself is said to the channel and asks you for nothing. `yoyo release`
-and the conversation's `/release` still lift any of them sooner.
+The trip itself is sent to you directly too, once and tagged, the moment it is
+recorded, naming the runs it counted and `yoyo release`: it is not yours to
+move while the harness is working it, and the message says whose it is, but it
+is the one hold you did not place. `yoyo release` and the conversation's
+`/release` still lift any of them sooner.
 
 The hold records which of you placed it, and everything that reports one says
 so: "the harness's own brake placed it after 3 run(s) blocked in a row with

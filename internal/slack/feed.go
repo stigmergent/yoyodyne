@@ -1215,19 +1215,18 @@ func (f *HarnessFeed) logDeliveries(stream, log string, cursor Cursor, records i
 // once there. The pair is forgotten once both have been said, so the product's
 // cursor does not grow a line for every afternoon somebody was away.
 //
-// A hold the brake placed is said to the channel naming the runs that tripped
-// it. While the harness is working it — the development manager deciding, a
-// probe in flight — it asks the operator for nothing, and it is said to him
-// directly only once it waits on him: a brake hold with no record of the
-// harness working it, a hold the development manager escalated to him, and a
-// hold the harness escalated at the bound on its loop. Each of those goes to
-// him directly and tagged by member id, once, because it is both important and
-// his to act on, which is the communication rule's own test for a tag. On
-// 2026-09-19 the brake tripped at 17:56Z, the channel got a note nobody was
-// reading, and the line stood for two hours; what ended that is the harness
-// working the hold itself, and what this adds is that the moment it becomes
-// his is never silent. His own hold is said to the channel alone, because he
-// placed it.
+// A hold the brake placed is the one hold the operator did not place, so its
+// trip is said to him directly and tagged by member id as well as to the
+// channel, once, the moment it is first read: it names the runs it counted
+// with what stopped each, and the verb that lifts it. On 2026-09-19 the brake
+// tripped at 17:56Z, the channel got a note nobody was reading, and the line
+// stood for two hours. While the development manager and the harness work the
+// hold it is not his to move, and the message's next-move clause says whose
+// it is; he can still lift it sooner. The moment it becomes his — her
+// escalation, or the harness's at the bound on its loop — is said to him
+// directly once more, unless the trip was first read already escalated and
+// said that in the same message. His own hold is said to the channel alone,
+// because he placed it.
 //
 // A release names who lifted it where the store recorded one, which it does
 // for every release made since releases were written down; the record is
@@ -1242,12 +1241,12 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 		saidDirectly := false
 		if mark := intakeMark + stamp(intake.HeldAt); !advanced.Has(mark) {
 			advanced = advanced.With(mark)
-			saidDirectly = brakeWaitsOnOperator(intake)
+			saidDirectly = intake.HeldBy == runstate.IntakeHolderBrake
 			deliveries = append(deliveries, Delivery{
 				Stream:       productStream,
 				Cursor:       advanced,
-				Direct:       brakeWaitsOnOperator(intake),
-				Tag:          brakeWaitsOnOperator(intake),
+				Direct:       saidDirectly,
+				Tag:          saidDirectly,
 				Notification: notify.FromIntakeHold(intake),
 			})
 		}
@@ -1510,11 +1509,3 @@ func completion(state runstate.State) time.Time {
 }
 
 func stamp(at time.Time) string { return at.UTC().Format(time.RFC3339Nano) }
-
-// brakeWaitsOnOperator reports a hold the brake placed that is the operator's
-// to lift from the moment it is placed: one the harness is not working itself.
-// A brake hold the harness is working is the development manager's or the
-// harness's, and is said to the channel alone until it becomes his.
-func brakeWaitsOnOperator(hold runstate.IntakeHold) bool {
-	return hold.HeldBy == runstate.IntakeHolderBrake && hold.WaitsOnAPerson()
-}

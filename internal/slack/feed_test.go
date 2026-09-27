@@ -369,13 +369,14 @@ func TestAFindingFromBeforeTheWatermarkIsReadPast(t *testing.T) {
 	harness.poll(t, cursors, notify.KindOperatorAction)
 }
 
-// The brake tripping is said to the channel naming the runs it counted, with
-// their items and what stopped each. While the harness works the hold it asks
-// the operator for nothing, so it is not said to him directly; the development
-// manager escalating it to him is the moment it becomes his, and that is said
-// to him once, directly and tagged. The release is said once, by whom. His own
-// hold is said to the channel alone, because he placed it.
-func TestABrakeTripIsSaidToTheChannelAndItsEscalationToTheOperatorDirectly(t *testing.T) {
+// The 17:56Z shape, replayed: the brake trips on three runs, and within one
+// poll the trip is said to the operator directly and tagged by member id,
+// naming each run with its item and what stopped it, and the verb that lifts
+// the hold — once, however many passes follow. The development manager
+// escalating it to him is the moment it becomes his, and that is said to him
+// once more. The release is said once, by whom. His own hold is said to the
+// channel alone, because he placed it.
+func TestABrakeTripIsSaidToTheOperatorDirectlyOnceAndItsEscalationOnceMore(t *testing.T) {
 	t.Parallel()
 
 	harness := newTestHarness(t, time.Time{})
@@ -407,8 +408,8 @@ func TestABrakeTripIsSaidToTheChannelAndItsEscalationToTheOperatorDirectly(t *te
 	if len(held) != 1 {
 		t.Fatalf("deliveries = %#v, want the brake trip said once", batch.Deliveries)
 	}
-	if held[0].Direct || held[0].Tag {
-		t.Fatalf("trip = %#v, want a hold the harness is working said to the channel alone", held[0])
+	if !held[0].Direct || !held[0].Tag {
+		t.Fatalf("trip = %#v, want it said to the operator directly and tagged by member id", held[0])
 	}
 	message, err := notify.Render(held[0].Notification.Topic, held[0].Notification.Speaker, held[0].Notification.Event)
 	if err != nil {
@@ -418,6 +419,7 @@ func TestABrakeTripIsSaidToTheChannelAndItsEscalationToTheOperatorDirectly(t *te
 		"run run-0000000000000000000000000000398a of yoyodyne-ifd.398: its reviewer still required repair",
 		"run run-0000000000000000000000000000401a of yoyodyne-ifd.401: check `make test` failed (exit 1)",
 		"run run-0000000000000000000000000000402a of yoyodyne-ifd.402",
+		"`yoyo release`, or `/release` in the conversation, lifts it sooner",
 	} {
 		if !strings.Contains(message.Body, want) {
 			t.Fatalf("trip reads as %q, which does not say %q", message.Body, want)

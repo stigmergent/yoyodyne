@@ -421,11 +421,12 @@ brake's hold becomes a fourth once it is yours:
   into the pile; that report is what she may handle as yours, and the finding is
   the decision rather than the report, so it is named once.)
 - **The failure-storm brake's hold, once it is yours.** The hold names the runs
-  it counted — each with its item and what stopped it. While the development
-  manager and the harness are working it, it is theirs, and the trip is said to
-  the channel and asks you for nothing; once she escalates it to you, or the
-  harness does at the bound on its loop, it is said to you directly once and
-  its line on `yoyo status` names you as the one to move.
+  it counted — each with its item and what stopped it. The trip is sent to you
+  directly once, tagged, the moment it is recorded, naming those runs and
+  `yoyo release`. While the development manager and the harness are working it,
+  it is theirs to move and the message says so; once she escalates it to you,
+  or the harness does at the bound on its loop, that is said to you directly
+  once more and its line on `yoyo status` names you as the one to move.
   [The configuration guide](configuration.md#watching-instead-of-draining) says
   what the brake counts, what it does not, and how it is worked.
 
