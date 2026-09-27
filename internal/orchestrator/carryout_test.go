@@ -631,10 +631,14 @@ func TestAPullAttemptsEveryDecisionItHasASlotForAndSaysWhyItPassedTheRest(t *tes
 		defer close(done)
 		schedule, err = (Scheduler{Open: harness.open}).Schedule(context.Background())
 	}()
+	// The pull hands each decision it has a slot for to its own goroutine, so
+	// it can account for what it passed over before either of those reaches
+	// Carry. Wait for both: the carries are held on release, so any that has
+	// arrived by now belongs to the first pull.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		harness.mu.Lock()
-		accounted := len(harness.passedOver) > 0
+		accounted := len(harness.passedOver) > 0 && len(harness.carried) >= 2
 		harness.mu.Unlock()
 		if accounted || time.Now().After(deadline) {
 			break
