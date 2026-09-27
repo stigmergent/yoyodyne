@@ -93,7 +93,7 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	case !checks.Red():
 		return result, nil
 	case checks.BehindBy > 0 && !checks.ChangeFails():
-		return r.updateQueuedHead(ctx, state, result)
+		return r.updateQueuedHead(ctx, state, result, false)
 	case checks.ChangeFails():
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail on this change: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
@@ -178,11 +178,15 @@ func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, 
 // replay from. Those are handed back as a red merge is. Where the replay is
 // possible and the moment is not — no sweep hosting runs, intake held, every
 // slot taken — the merge is left queued, saying why, for the next sweep.
-func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, result Reconciliation) (Reconciliation, error) {
+//
+// dropped is a merge the forge already stopped holding (replayDroppedLanding),
+// which has nothing to withdraw; its caller has already refused the runs that
+// cannot be replayed.
+func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, result Reconciliation, dropped bool) (Reconciliation, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
 	describe := published.Checks.Describe(target)
-	if refusal := unreplayable(state); refusal != "" {
+	if refusal := unreplayable(state); refusal != "" && !dropped {
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail on files this change does not touch while its head is behind %s, and the harness cannot bring it up to date: %s: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
 			published.Number, target, refusal, describe))
@@ -193,7 +197,11 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// the integration budget is enforced, against a replay that stops on the
 	// change.
 	waiting := func(why string) (Reconciliation, error) {
-		result.Detail += fmt.Sprintf("; its head is to be brought up to date onto %s, and %s, so it is left queued for the next sweep", target, why)
+		left := "it is left queued for the next sweep"
+		if dropped {
+			left = "it is left for the next sweep, which asks the forge again"
+		}
+		result.Detail += fmt.Sprintf("; its head is to be brought up to date onto %s, and %s, so %s", target, why, left)
 		return result, nil
 	}
 	if !r.HostsRuns {
@@ -218,15 +226,21 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// The merge is withdrawn first, because the replay rewrites the head: a merge
 	// left armed would land the rewritten head the moment its checks passed,
 	// before any reviewer had seen it. A withdrawal that fails writes nothing.
-	if err := r.Checks.DisableAutoMerge(ctx, published.Number); err != nil {
-		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("withdraw the queued merge of pull request %d before updating run %s: %w", published.Number, state.RunID, err)
-	}
-	reason := fmt.Sprintf("the forge's checks on pull request %d fail on files this change does not touch while its head is %d commit(s) behind %s (%s), so the reconcile sweep withdrew the queued merge and put the run back at its promotion to be brought up to date onto %s, checked and reviewed again, and queued again, as a replay is; this is lost race %d, and a lost race costs nothing",
+	// A dropped merge is one the forge holds no longer, so there is nothing to
+	// withdraw.
+	reason := fmt.Sprintf("the forge dropped the queued merge of pull request %d while its head was %d commit(s) behind %s (%s), so the reconcile sweep put the run back at its promotion to be brought up to date onto %s from its kept branch, checked and reviewed again, and queued again, as a replay is; this is lost race %d, and a lost race costs nothing",
 		published.Number, published.Checks.BehindBy, target, describe, target, state.IntegrationRetries+1)
+	if !dropped {
+		if err := r.Checks.DisableAutoMerge(ctx, published.Number); err != nil {
+			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("withdraw the queued merge of pull request %d before updating run %s: %w", published.Number, state.RunID, err)
+		}
+		reason = fmt.Sprintf("the forge's checks on pull request %d fail on files this change does not touch while its head is %d commit(s) behind %s (%s), so the reconcile sweep withdrew the queued merge and put the run back at its promotion to be brought up to date onto %s, checked and reviewed again, and queued again, as a replay is; this is lost race %d, and a lost race costs nothing",
+			published.Number, published.Checks.BehindBy, target, describe, target, state.IntegrationRetries+1)
+	}
 	// The item is told first, as a resumption tells it first: a run made live
 	// behind an item that says nothing about it is one nobody reading the item
 	// can account for.
-	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderQueuedUpdateNotes(state, reason)); err != nil {
+	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderQueuedUpdateNotes(state, reason, dropped)); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the update of run %s: %w", state.RunID, err)
 	}
 	now := r.clock().Now()
@@ -264,6 +278,50 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	updating := reconciliationOf(resumed, ActionUpdating)
 	updating.Detail = reason
 	return updating, nil
+}
+
+// replayDroppedLanding decides a merge the forge stopped holding for a change
+// that landed through its pull request, before it is handed to anybody as
+// dropped. decided is false where the drop is a person's after all, and the
+// caller hands it back exactly as it always has.
+//
+// A landing through the pull request moved no local branch, and its run kept
+// its branch and worktree because nothing proved the change was on the target.
+// So a drop there is not the end of a promotion: the change is whole on its kept
+// branch, and where the forge dropped it with its head behind the target and
+// failing nothing the change touches, it is the race a replay answers — brought
+// up to date from the kept branch, checked and reviewed again, and queued again
+// by its own run (updateQueuedHead). Only a drop that cannot be replayed is a
+// person's: a local promotion, a run whose artifacts or sessions are gone, a
+// request the forge closed, a head level with its target, or checks that fail
+// on the change itself.
+//
+// A reading of the checks the forge could not give decides the drop neither
+// way. The record is left as it stands, still queued, and the next sweep asks
+// the forge again — the same rule a merge still held follows.
+func (r Reconciler) replayDroppedLanding(ctx context.Context, state runstate.State, observed publish.PullRequest) (Reconciliation, bool, error) {
+	published := *state.PullRequest
+	target := state.Integration.TargetBranch
+	if r.Checks == nil || unreplayable(state) != "" || !strings.EqualFold(observed.State, "OPEN") {
+		return Reconciliation{}, false, nil
+	}
+	result := reconciliationOf(state, ActionQueued)
+	reading, err := r.Checks.Checks(ctx, published.Number, target)
+	if err != nil {
+		result.Detail = fmt.Sprintf("the forge holds no merge for pull request %d any more, and its checks could not be read (%v), so whether its head can be brought up to date is not known; the record is left as it stands and the next sweep asks again",
+			published.Number, err)
+		return result, true, nil
+	}
+	checks := recordedChecks(reading, r.clock().Now())
+	if checks.BehindBy == 0 || checks.ChangeFails() {
+		return Reconciliation{}, false, nil
+	}
+	published.Checks = &checks
+	state.PullRequest = &published
+	result = reconciliationOf(state, ActionQueued)
+	result.Detail = fmt.Sprintf("the forge holds no merge for pull request %d any more; %s", published.Number, checks.Describe(target))
+	updated, err := r.updateQueuedHead(ctx, state, result, true)
+	return updated, true, err
 }
 
 // unreplayable says why a queued run cannot be put back at its promotion, and
@@ -310,11 +368,15 @@ func (r Reconciler) slotFree() (bool, error) {
 	return inFlight < r.Capacity, nil
 }
 
-// renderQueuedUpdateNotes tells the work item its queued merge was withdrawn to
-// bring its head up to date.
-func renderQueuedUpdateNotes(state runstate.State, reason string) string {
+// renderQueuedUpdateNotes tells the work item its queued merge was withdrawn —
+// or found dropped by the forge — to bring its head up to date.
+func renderQueuedUpdateNotes(state runstate.State, reason string, dropped bool) string {
+	headline := "Yoyodyne withdrew the merge this run left queued with the forge, to bring its head up to date onto the target."
+	if dropped {
+		headline = "Yoyodyne found the merge this run left queued dropped by the forge while its head was behind the target, and is bringing the head up to date from the run's kept branch rather than handing the item back."
+	}
 	return strings.Join([]string{
-		"Yoyodyne withdrew the merge this run left queued with the forge, to bring its head up to date onto the target.",
+		headline,
 		"Outcome: " + reason,
 		"Run: " + state.RunID,
 		fmt.Sprintf("Pull request: #%d %s", state.PullRequest.Number, state.PullRequest.URL),

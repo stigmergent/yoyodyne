@@ -412,10 +412,17 @@ func TestGitHubStateReportsAQueuedMergeSeparatelyFromADroppedOne(t *testing.T) {
 
 	for name, test := range map[string]struct {
 		reported string
-		want     bool
+		// queue is the forge's answer about its merge queue, asked only of an open
+		// request holding no auto-merge.
+		queue string
+		want  bool
 	}{
 		"still queued": {reported: `{"authorEmail":"harness@example.invalid","mergeMethod":"MERGE"}`, want: true},
-		"dropped":      {reported: "null", want: false},
+		"dropped":      {reported: "null", queue: `{"data":{"repository":{"pullRequest":{"isInMergeQueue":false}}}}`, want: false},
+		// The merge queue consumes the auto-merge as it takes the request, so the
+		// listing reads exactly as a drop does. Pull requests 832 and 834 were
+		// handed to a person that way on 2026-09-27 while the queue landed them.
+		"in the merge queue": {reported: "null", queue: `{"data":{"repository":{"pullRequest":{"isInMergeQueue":true}}}}`, want: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -426,9 +433,17 @@ func TestGitHubStateReportsAQueuedMergeSeparatelyFromADroppedOne(t *testing.T) {
 				Status: execution.ProcessSucceeded,
 				Stdout: `[{"number":7,"url":"https://example.invalid/pull/7","state":"OPEN","mergedAt":"","autoMergeRequest":` + test.reported + `}]`,
 			})
+			runner.reply("api graphql", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: test.queue})
 			observed, err := (GitHub{Runner: runner}).State(context.Background(), "yoyodyne/task/abcd1234")
 			if err != nil {
 				t.Fatalf("State() error = %v", err)
+			}
+			asked := runner.matching("api graphql")
+			if test.queue == "" && len(asked) != 0 {
+				t.Errorf("the merge queue was asked about a request holding an auto-merge: %v", asked)
+			}
+			if test.queue != "" && (len(asked) != 1 || !contains(asked[0], "number=7") || apiRepositoryScope(runner) == "") {
+				t.Errorf("merge queue query = %v (scope %q), want request 7 asked about in the configured repository", asked, apiRepositoryScope(runner))
 			}
 			if observed.Merged {
 				t.Fatalf("State() = %#v, want an open request", observed)
@@ -442,6 +457,19 @@ func TestGitHubStateReportsAQueuedMergeSeparatelyFromADroppedOne(t *testing.T) {
 				t.Errorf("State() merge commit = %q, want none on an unmerged request", observed.MergeCommit)
 			}
 		})
+	}
+
+	// A forge that does not say whether the request is in its merge queue has not
+	// said the merge was dropped, so the reading fails rather than reporting one.
+	unanswered := &scriptedRunner{}
+	unanswered.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	unanswered.reply("pr list", execution.ProcessResult{
+		Status: execution.ProcessSucceeded,
+		Stdout: `[{"number":7,"url":"https://example.invalid/pull/7","state":"OPEN","mergedAt":"","autoMergeRequest":null}]`,
+	})
+	unanswered.reply("api graphql", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 502"})
+	if observed, err := (GitHub{Runner: unanswered}).State(context.Background(), "yoyodyne/task/abcd1234"); err == nil || !strings.Contains(err.Error(), "merge queue") {
+		t.Fatalf("State() with the merge queue unanswered = %#v, %v; want an error naming the merge queue", observed, err)
 	}
 
 	// The queued merge, the head the request carries, and the commit that merged

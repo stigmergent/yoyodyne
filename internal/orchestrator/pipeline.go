@@ -8159,8 +8159,18 @@ func renderUsageLimitBlockerNotes(outcome Outcome, reason string) string {
 
 func renderOutcomeNotes(outcome Outcome) string {
 	headline := "Yoyodyne bootstrap run succeeded."
+	// A protected target's change lands by the forge's merge, and a run whose
+	// merge is still queued has landed it nowhere yet; "integrated" is said only
+	// of a change that is on its target branch.
+	integrated := "was integrated automatically"
+	if outcome.Integration != nil && outcome.Integration.ThroughPullRequest {
+		integrated = "was landed through its pull request"
+		if outcome.PullRequest == nil || !outcome.PullRequest.Merged {
+			integrated = "was handed to the forge to land through its pull request"
+		}
+	}
 	if outcome.Integration != nil {
-		headline = "Yoyodyne run passed checks, was approved by an independent reviewer, and was integrated automatically."
+		headline = "Yoyodyne run passed checks, was approved by an independent reviewer, and " + integrated + "."
 		// The headline of an item that stays open has to say so, because it is the
 		// line somebody scanning the notes reads instead of the closure that is not
 		// there. It names which reader withheld the closure, because the two are
@@ -8168,10 +8178,10 @@ func renderOutcomeNotes(outcome Outcome) string {
 		// one case and the reviewer's summary in the other.
 		switch {
 		case outcome.Landing == landing.OutcomeEvidence || outcome.LandingProblem != "":
-			headline = "Yoyodyne run passed checks, was approved by an independent reviewer, and was integrated automatically; the developer did not claim it discharges this item, so the item " +
+			headline = "Yoyodyne run passed checks, was approved by an independent reviewer, and " + integrated + "; the developer did not claim it discharges this item, so the item " +
 				outcome.UndischargedDisposition() + "."
 		case !outcome.ApprovalDischarges():
-			headline = "Yoyodyne run passed checks and was integrated automatically; the independent reviewer approved the change as evidence rather than as the work this item asked for, so the item " +
+			headline = "Yoyodyne run passed checks and " + integrated + "; the independent reviewer approved the change as evidence rather than as the work this item asked for, so the item " +
 				outcome.UndischargedDisposition() + "."
 		}
 	}
@@ -8189,6 +8199,12 @@ func renderOutcomeNotes(outcome Outcome) string {
 	worktree := "Worktree: " + outcome.WorktreePath
 	if outcome.Integration != nil {
 		worktree = "Worktree (cleanup pending): " + outcome.WorktreePath
+	}
+	// A queued landing keeps its branch and worktree until the forge's merge is
+	// confirmed (finish), because nothing proves the change is on the target and
+	// the kept branch is what a head fallen behind is brought up to date from.
+	if outcome.Integration != nil && outcome.Integration.ThroughPullRequest && outcome.PullRequest != nil && outcome.PullRequest.MergeQueued {
+		worktree = "Worktree (kept with its branch until the forge's merge is confirmed): " + outcome.WorktreePath
 	}
 	lines := []string{
 		headline,
@@ -8536,7 +8552,16 @@ func renderReviewNotes(outcome Outcome) []string {
 		}
 		lines = append(lines, fmt.Sprintf("Finding [%s]%s: %s", label, location, finding.Message))
 	}
-	if outcome.Integration != nil {
+	switch {
+	case outcome.Integration != nil && outcome.Integration.ThroughPullRequest:
+		// Nothing moved the local target, so the lines say what is to land and
+		// where, and never that it is integrated there.
+		lines = append(lines,
+			"Lands on: "+outcome.Integration.TargetBranch+", by the forge's merge of its pull request; the local "+outcome.Integration.TargetBranch+" is not moved until then",
+			"Commit to land: "+outcome.Integration.SourceCommit,
+			"Target commit it was prepared on: "+outcome.Integration.PreviousTargetCommit,
+		)
+	case outcome.Integration != nil:
 		lines = append(lines,
 			"Integrated into: "+outcome.Integration.TargetBranch,
 			"Integrated commit: "+outcome.Integration.SourceCommit,

@@ -297,3 +297,141 @@ func TestAStuckQueuedMergeIsDocketedWithItsChecks(t *testing.T) {
 		t.Errorf("a queued merge with unread checks is shown without saying so:\n%s", unread.Render())
 	}
 }
+
+// assertKept holds what yoyodyne-atc is about: a run whose change lands through
+// its pull request keeps its branch and worktree until the forge's merge is
+// confirmed, because nothing before that proves the change is on the target and
+// the kept branch is what a head fallen behind is brought up to date from.
+func assertKept(t *testing.T, fixture queuedFixture, outcome Outcome, when string) {
+	t.Helper()
+	if _, err := os.Stat(outcome.WorktreePath); err != nil {
+		t.Errorf("%s: the worktree %s is gone: %v", when, outcome.WorktreePath, err)
+	}
+	if err := runGitQuiet(fixture.repository, "rev-parse", "--verify", "--quiet", "refs/heads/"+outcome.Branch); err != nil {
+		t.Errorf("%s: the branch %s is gone: %v", when, outcome.Branch, err)
+	}
+	recorded, err := fixture.store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if recorded.WorktreeRemoved || recorded.BranchRemoved {
+		t.Errorf("%s: record says worktree removed %t, branch removed %t; want both kept", when, recorded.WorktreeRemoved, recorded.BranchRemoved)
+	}
+}
+
+// A queued landing keeps its branch and worktree through the run's end and
+// through a sweep that finds the merge still held, and a merge the forge then
+// drops with nothing to replay is handed to a person with both still there and
+// said to be there. Until 2026-09-27 that blocker said both were gone — they
+// were not — and the notes said the change was integrated into the local main,
+// which is the authoritative one, over a main that was never moved.
+func TestAQueuedLandingKeepsItsBranchAndWorktreeUntilTheForgesMergeIsConfirmed(t *testing.T) {
+	t.Parallel()
+
+	fixture, forge, outcome := queuedOnProtectedTarget(t)
+	assertKept(t, fixture, outcome, "after the run")
+	if local := publishedCommit(t, fixture.repository, "main"); local != outcome.BaseCommit {
+		t.Fatalf("local main = %q after a queued landing, want the base %q", local, outcome.BaseCommit)
+	}
+	notes := fixture.tracker.Record().Notes
+	for _, unwanted := range []string{"Integrated into: main", "integrated automatically", "authoritative", "cleanup pending"} {
+		if strings.Contains(notes, unwanted) {
+			t.Errorf("the run's notes on a protected target say %q:\n%s", unwanted, notes)
+		}
+	}
+	for _, want := range []string{"handed to the forge to land through its pull request", "Lands on: main", "kept with its branch until the forge's merge is confirmed"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("the run's notes do not say %q:\n%s", want, notes)
+		}
+	}
+
+	// A sweep that finds the merge still held, its checks passing, leaves it all.
+	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3}
+	reconciler := fixture.sweep(t, forge, true)
+	if results, err := reconciler.Reconcile(context.Background()); err != nil || len(results) != 1 || results[0].Action != ActionQueued {
+		t.Fatalf("Reconcile() = %#v, %v; want the merge left queued", results, err)
+	}
+	assertKept(t, fixture, outcome, "while the forge holds the merge")
+
+	// The forge drops it with its head level with main: nothing to bring up to
+	// date, so it is a person's — with the artifacts there and said to be.
+	forge.DropQueuedMerge()
+	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3}
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil || len(results) != 1 || results[0].Action != ActionBlocked {
+		t.Fatalf("Reconcile() = %#v, %v; want the dropped merge handed back", results, err)
+	}
+	assertKept(t, fixture, outcome, "after the drop is handed back")
+	blocker := fixture.tracker.Record().BlockReason
+	for _, want := range []string{"Preserved worktree: " + outcome.WorktreePath, "Preserved branch: " + outcome.Branch, "The local main was not moved", "while settling the merge its finished run left queued"} {
+		if !strings.Contains(blocker, want) {
+			t.Errorf("blocker does not say %q:\n%s", want, blocker)
+		}
+	}
+	for _, unwanted := range []string{"is gone", "interrupted run", "authoritative"} {
+		if strings.Contains(blocker, unwanted) {
+			t.Errorf("blocker says %q:\n%s", unwanted, blocker)
+		}
+	}
+	if strings.Contains(fixture.tracker.Record().Notes, "integrated into the local target branch") {
+		t.Errorf("the settlement's notes say the change is integrated into the local target:\n%s", fixture.tracker.Record().Notes)
+	}
+	(&protectedRun{repository: fixture.repository, remote: fixture.remote}).assertMainNotAhead(t)
+}
+
+// A merge the forge drops while its head is behind the target, failing nothing
+// the change touches, is the race a replay answers: the sweep brings the head up
+// to date from the kept branch and queues the merge again, and hands nothing
+// back. There is no queued merge left to withdraw.
+func TestADroppedMergeWhoseHeadFellBehindIsReplayedFromTheKeptBranch(t *testing.T) {
+	t.Parallel()
+
+	fixture, forge, outcome := queuedOnProtectedTarget(t)
+	driftRemoteTarget(t, fixture.remote, "main")
+	forge.DropQueuedMerge()
+	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3, BehindBy: 1}
+	reconciler := fixture.sweep(t, forge, true)
+
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Action != ActionUpdating || results[0].Failure != "" {
+		t.Fatalf("reconciliation = %#v, want the dropped landing put back at its promotion", results)
+	}
+	if len(forge.withdrawn) != 0 {
+		t.Errorf("withdrawn = %v, want nothing withdrawn from a merge the forge no longer holds", forge.withdrawn)
+	}
+	record := fixture.tracker.Record()
+	if record.Blocked || record.Closed {
+		t.Fatalf("blocked = %t, closed = %t; a replayable drop hands nothing back", record.Blocked, record.Closed)
+	}
+	if !strings.Contains(record.Notes, "dropped by the forge while its head was behind") {
+		t.Errorf("the item was not told the drop is being replayed:\n%s", record.Notes)
+	}
+	resumed, err := fixture.store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !updatingQueuedHead(resumed) || resumed.MergeDrop != nil || resumed.PublishFailure != "" {
+		t.Fatalf("record = status %q, phase %q, drop %#v, publish failure %q; want a live run at its promotion with no drop recorded",
+			resumed.Status, resumed.Phase, resumed.MergeDrop, resumed.PublishFailure)
+	}
+
+	updates, err := reconciler.ContinueUpdates(context.Background())
+	if err != nil {
+		t.Fatalf("ContinueUpdates() error = %v", err)
+	}
+	if len(updates) != 1 || !updates[0].Continued || updates[0].Failure != "" || updates[0].Outcome == nil {
+		t.Fatalf("updates = %#v, want the run hosted through its replay", updates)
+	}
+	replayed := *updates[0].Outcome
+	if replayed.PullRequest == nil || !replayed.PullRequest.MergeQueued || len(forge.MergeRequests()) != 2 {
+		t.Fatalf("outcome pull request = %#v, merges = %d; want the replayed change's merge queued again", replayed.PullRequest, len(forge.MergeRequests()))
+	}
+	if again := forge.MergeRequests()[1].HeadCommit; again == outcome.PullRequest.HeadCommit {
+		t.Errorf("the merge was queued again on the old head %s, want the replayed one", again)
+	}
+	assertKept(t, fixture, replayed, "after the replay queued the merge again")
+	(&protectedRun{repository: fixture.repository, remote: fixture.remote}).assertMainNotAhead(t)
+}
