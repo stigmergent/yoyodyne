@@ -1,0 +1,244 @@
+package dashboard
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+)
+
+// slowReader is a read model whose standing build blocks until the test
+// releases it, answering with whatever the release carries, and counts the
+// builds it was asked for.
+type slowReader struct {
+	stubReader
+	release chan error
+	mu      sync.Mutex
+	builds  int
+}
+
+func (r *slowReader) Standing(ctx context.Context) (readmodel.Standing, error) {
+	r.mu.Lock()
+	r.builds++
+	build := r.builds
+	r.mu.Unlock()
+	select {
+	case err := <-r.release:
+		if err != nil {
+			return readmodel.Standing{}, err
+		}
+		return standingWith(fmt.Sprintf("build %d", build)), nil
+	case <-ctx.Done():
+		return readmodel.Standing{}, ctx.Err()
+	}
+}
+
+func (r *slowReader) built() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.builds
+}
+
+// heldClock is a clock the test moves, and a wait between builds the test
+// ends: the builder says it is asleep, and builds again when ticked.
+type heldClock struct {
+	mu     sync.Mutex
+	at     time.Time
+	asleep chan struct{}
+	tick   chan bool
+}
+
+func (c *heldClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
+func (c *heldClock) advance(by time.Duration) {
+	c.mu.Lock()
+	c.at = c.at.Add(by)
+	c.mu.Unlock()
+}
+
+func (c *heldClock) sleep(ctx context.Context, _ time.Duration) bool {
+	select {
+	case c.asleep <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+	select {
+	case again := <-c.tick:
+		return again
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// answered is one /api/standing answer decoded: its snapshot and the title the
+// build put in it.
+type answered struct {
+	Snapshot     SnapshotAge `json:"snapshot"`
+	NotStartable []struct {
+		Title string `json:"title"`
+	} `json:"not_startable"`
+}
+
+// A slow builder costs a request nothing: every request is served the latest
+// snapshot with the moment it was taken and its age, two tabs asking at once
+// cost one build, a request made while a build is under way is answered at once
+// from the one before, a failed build leaves the last snapshot served with the
+// failure named beside its age, and a reading nobody asks for stops being
+// built.
+func TestTheStandingIsASnapshotServedWithItsAgeWhateverTheBuilderIsDoing(t *testing.T) {
+	t.Parallel()
+	reader := &slowReader{release: make(chan error)}
+	w := serve(t, reader)
+	start := time.Date(2026, 9, 26, 16, 26, 0, 0, time.UTC)
+	clock := &heldClock{at: start, asleep: make(chan struct{}), tick: make(chan bool)}
+	w.server.standing.now = clock.now
+	w.server.standing.sleep = clock.sleep
+	life, stop := context.WithCancel(context.Background())
+	t.Cleanup(stop)
+	w.server.standing.live(life)
+
+	// ask is one request, bounded: a request that waits on a build it should
+	// not be waiting on fails the test rather than hanging it.
+	ask := func() (int, answered, string) {
+		t.Helper()
+		type result struct {
+			status int
+			body   string
+		}
+		done := make(chan result, 1)
+		go func() {
+			response, body := w.get("/api/standing", bearer(w.server.Token()))
+			done <- result{response.StatusCode, body}
+		}()
+		select {
+		case got := <-done:
+			var decoded answered
+			if got.status == http.StatusOK {
+				if err := json.Unmarshal([]byte(got.body), &decoded); err != nil {
+					t.Fatalf("decode %s: %v", got.body, err)
+				}
+			}
+			return got.status, decoded, got.body
+		case <-time.After(10 * time.Second):
+			t.Fatal("a request waited on the builder")
+			return 0, answered{}, ""
+		}
+	}
+	title := func(got answered) string {
+		if len(got.NotStartable) == 0 {
+			return ""
+		}
+		return got.NotStartable[0].Title
+	}
+
+	// Two tabs ask before anything has been built. Both wait for the first
+	// build, and there is one build between them.
+	type first struct {
+		status int
+		got    answered
+	}
+	firsts := make(chan first, 2)
+	for range 2 {
+		go func() {
+			response, body := w.get("/api/standing", bearer(w.server.Token()))
+			var decoded answered
+			_ = json.Unmarshal([]byte(body), &decoded)
+			firsts <- first{response.StatusCode, decoded}
+		}()
+	}
+	reader.release <- nil
+	<-clock.asleep
+	for range 2 {
+		got := <-firsts
+		if got.status != http.StatusOK || title(got.got) != "build 1" || got.got.Snapshot.AgeSeconds != 0 || !got.got.Snapshot.TakenAt.Equal(start) {
+			t.Fatalf("first reading: %d %+v", got.status, got.got)
+		}
+	}
+	if built := reader.built(); built != 1 {
+		t.Fatalf("two tabs cost %d builds, not one", built)
+	}
+
+	// Twenty-five seconds on, the next build starts and is slow. A request made
+	// while it runs is answered at once from the first, with its age, and says
+	// it is older than two intervals.
+	clock.advance(25 * time.Second)
+	clock.tick <- true
+	for reader.built() < 2 {
+		time.Sleep(time.Millisecond)
+	}
+	status, got, body := ask()
+	if status != http.StatusOK || title(got) != "build 1" || got.Snapshot.AgeSeconds != 25 || got.Snapshot.IntervalSeconds != 10 || !got.Snapshot.Stale || got.Snapshot.Failure != "" {
+		t.Fatalf("reading during a slow build: %d %s", status, body)
+	}
+	// The reading's own fields are what they were: the snapshot is beside them.
+	if !strings.Contains(body, `"observed_at":"2026-09-18T12:00:00Z"`) || !strings.HasPrefix(body, `{"snapshot":{"taken_at":"2026-09-26T16:26:00Z"`) {
+		t.Fatalf("the reading lost its own fields: %s", body)
+	}
+
+	// The slow build fails. The first reading is still served, with the
+	// failure named beside its age rather than an error.
+	reader.release <- errors.New("bd list timed out after 30s")
+	<-clock.asleep
+	clock.advance(5 * time.Second)
+	status, got, body = ask()
+	if status != http.StatusOK || title(got) != "build 1" || got.Snapshot.AgeSeconds != 30 || got.Snapshot.Failure != "bd list timed out after 30s" || got.Snapshot.FailedAt == nil {
+		t.Fatalf("reading after a failed build: %d %s", status, body)
+	}
+
+	// The next build succeeds: the failure is gone and the age starts again.
+	clock.tick <- true
+	reader.release <- nil
+	<-clock.asleep
+	clock.advance(3 * time.Second)
+	status, got, body = ask()
+	if status != http.StatusOK || title(got) != "build 3" || got.Snapshot.AgeSeconds != 3 || got.Snapshot.Stale || got.Snapshot.Failure != "" || got.Snapshot.FailedAt != nil {
+		t.Fatalf("reading after a recovered build: %d %s", status, body)
+	}
+	if built := reader.built(); built != 3 {
+		t.Fatalf("%d builds for three intervals and four requests", built)
+	}
+
+	// Nobody asks for longer than the idle bound: the builder stops by itself.
+	clock.advance(idleAfter + time.Second)
+	clock.tick <- true
+	for {
+		w.server.standing.mu.Lock()
+		running := w.server.standing.running
+		w.server.standing.mu.Unlock()
+		if !running {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if built := reader.built(); built != 3 {
+		t.Fatalf("an idle reading was built again: %d builds", built)
+	}
+}
+
+// Where every build so far has failed there is nothing to serve, and the
+// request is refused with what the build said, carrying nothing else.
+func TestAReadingNeverBuiltIsRefusedWithTheFailure(t *testing.T) {
+	t.Parallel()
+	reader := &slowReader{release: make(chan error, 1)}
+	reader.release <- errors.New("the state root could not be resolved")
+	w := serve(t, reader)
+	life, stop := context.WithCancel(context.Background())
+	t.Cleanup(stop)
+	w.server.standing.live(life)
+
+	response, body := w.get("/api/standing", bearer(w.server.Token()))
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, `"error":"the state root could not be resolved"`) || strings.Contains(body, "snapshot") {
+		t.Fatalf("a reading never built: %d %s", response.StatusCode, body)
+	}
+}

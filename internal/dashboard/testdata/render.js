@@ -284,6 +284,12 @@ function refused(status, error) {
   return { status, ok: false, body: { error }, statusText: status === 503 ? "Service Unavailable" : "Unauthorized" };
 }
 
+// aged is a reading as the dashboard serves it, with the snapshot it was
+// served from beside its own fields.
+function aged(reading, snapshot) {
+  return Object.assign({ snapshot: Object.assign({ taken_at: "2026-09-18T14:05:00Z", age_seconds: 4, interval_seconds: 10, stale: false }, snapshot) }, reading);
+}
+
 const pending = { pending: true };
 const unreachable = { unreachable: true };
 
@@ -335,6 +341,12 @@ const pages = [
   // had and says it is stale.
   { name: "stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/standing": unreachable } },
   { name: "throughput-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/throughput": refused(503, "the state root could not be resolved") } },
+  // The dashboard's answers carry the age of the snapshot they were served
+  // from: one older than two intervals says so, and one whose latest build
+  // failed names the failure beside its age.
+  { name: "snapshot", token: "t", standing: ok(aged(fixture("standing-busy"), {})), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
+  { name: "snapshot-old", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 45, stale: true })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
+  { name: "snapshot-failed", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 34, failure: "bd list timed out after 30s" })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 95, interval_seconds: 60, failure: "the state root could not be resolved" })), spend: ok(fixture("spend-busy")) },
   { name: "spend-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/spend": refused(503, "the state root could not be resolved") } }
 ];
 
@@ -424,7 +436,15 @@ async function run(scenario) {
   if (scenario.token) {
     storage.set("yoyo-dashboard-token", scenario.token);
   }
-  const intervals = [];
+  // The page asks again on timeouts it sets after each answer; a poll is every
+  // pending one firing at once, which is the page asking again in between.
+  const timeouts = new Map();
+  let lastTimeout = 0;
+  const poll = () => {
+    const due = Array.from(timeouts.values());
+    timeouts.clear();
+    due.forEach((callback) => callback());
+  };
   let answers = Object.assign({ "/api/standing": scenario.standing, "/api/throughput": scenario.throughput, "/api/spend": scenario.spend }, scenario.items || {}, scenario.reports || {});
   const requests = [];
 
@@ -454,8 +474,8 @@ async function run(scenario) {
       setItem: (key, value) => storage.set(key, String(value)),
       removeItem: (key) => storage.delete(key)
     },
-    setInterval: (callback) => intervals.push(callback) && intervals.length,
-    clearInterval: (id) => { intervals[id - 1] = null; }
+    setTimeout: (callback) => { lastTimeout += 1; timeouts.set(lastTimeout, callback); return lastTimeout; },
+    clearTimeout: (id) => { timeouts.delete(id); }
   };
   const context = vm.createContext({ document, window, fetch, console });
   new vm.Script(script, { filename: "dashboard.js" }).runInContext(context);
@@ -463,7 +483,7 @@ async function run(scenario) {
 
   if (scenario.then) {
     answers = Object.assign({}, answers, scenario.then);
-    intervals.filter(Boolean).forEach((callback) => callback());
+    poll();
     await settle();
   }
 
@@ -486,7 +506,7 @@ async function run(scenario) {
       if (typeof step.poll === "object") {
         answers = Object.assign({}, answers, step.poll);
       }
-      intervals.filter(Boolean).forEach((callback) => callback());
+      poll();
       await settle();
       // The poll redraws the sections, so what was clicked is off the page:
       // that is the premise a scenario polling under a pop-up exists to test.

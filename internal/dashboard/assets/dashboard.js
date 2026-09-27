@@ -21,7 +21,13 @@
 // what landed over today and the last seven days — and the spend — the last 24
 // hours, the last seven local days, and the month of days behind them — are
 // each asked for once a minute, the spend because pricing every event log a
-// month holds is seconds of work. Each section says which of its sources it is
+// month holds is seconds of work. The dashboard builds each of the three in the
+// background on those same clocks and answers every request with the latest
+// one, carrying under "snapshot" when it was taken and how old it is; the page
+// says that age, and says plainly when a reading is older than two of its
+// intervals or the dashboard's last build of it failed. While answers are slow
+// or failing the page asks less often, doubling the wait up to a ceiling, and
+// goes back to its ordinary clock on the first quick answer. Each section says which of its sources it is
 // still waiting for, which one could not be read, and what to do about it; none
 // of them ever shows a zero in place of an answer the model did not give. A
 // fourth reading is taken only when asked for: one work item whole, for the
@@ -37,9 +43,11 @@
 (function () {
   "use strict";
 
-  var pollStanding = 10000;
-  var pollThroughput = 60000;
-  var pollSpend = 60000;
+  // Each reading's ordinary clock, the longest it backs off to, and how long
+  // an answer may take before it counts as slow.
+  var every = { standing: 10000, throughput: 60000, spend: 60000 };
+  var ceiling = { standing: 60000, throughput: 180000, spend: 180000 };
+  var slowAnswer = 5000;
   var storageKey = "yoyo-dashboard-token";
 
   var page = document.getElementById("page");
@@ -65,7 +73,14 @@
     spend: null,
     spendError: ""
   };
-  var timers = [];
+  // delays is how long each reading waits before it is asked for again, which
+  // is its ordinary clock until an answer is slow or fails. timers holds the
+  // one pending ask of each, and generation tells a chain started for an
+  // earlier token from the current one, so a token entered again never leaves
+  // two chains asking.
+  var delays = { standing: every.standing, throughput: every.throughput, spend: every.spend };
+  var timers = {};
+  var generation = 0;
 
   // ---- small DOM helpers -------------------------------------------------
 
@@ -362,6 +377,44 @@
     return found ? found.title : String(kind);
   }
 
+  // asksAgain says when a reading is asked for next: on its ordinary clock, or
+  // later while the page is backing off from slow or failed answers.
+  function asksAgain(name) {
+    if (delays[name] === every[name]) {
+      return name === "standing" ? "asks again every 10 s" : "asks again every minute";
+    }
+    return "asks again in " + age(delays[name] * 1e6) + ", less often while the dashboard answers slowly or not at all";
+  }
+
+  // takenAgo is how old a reading was when it was served, from the snapshot
+  // the dashboard sends beside it, and nothing where it sent none.
+  function takenAgo(reading) {
+    var snapshot = reading && reading.snapshot;
+    if (!snapshot || typeof snapshot.age_seconds !== "number") {
+      return "";
+    }
+    return "taken " + age(snapshot.age_seconds * 1e9) + " ago; ";
+  }
+
+  // snapshotNote is the sentence a reading's own age calls for: the
+  // dashboard's latest build of it failed, so what is shown is the one before;
+  // or it is older than two of its intervals, so the building is falling
+  // behind. Nothing where neither is so.
+  function snapshotNote(what, reading) {
+    var snapshot = reading && reading.snapshot;
+    if (!snapshot) {
+      return "";
+    }
+    var old = age((snapshot.age_seconds || 0) * 1e9);
+    if (snapshot.failure) {
+      return "The dashboard's last reading of " + what + " failed — " + snapshot.failure + " — so what is shown is the reading taken " + old + " ago.";
+    }
+    if (snapshot.stale) {
+      return "The reading of " + what + " is " + old + " old, older than two of its " + age((snapshot.interval_seconds || 0) * 1e9) + " intervals: the dashboard is taking longer than that to read it, so what is shown may not be what the harness is doing now.";
+    }
+    return "";
+  }
+
   function renderHeader() {
     var standing = model.standing;
     if (standing) {
@@ -373,21 +426,34 @@
     // which, and which reading is still being shown.
     var failed = [];
     if (model.standingError && standing) {
-      failed.push("the standing — " + model.standingError + " — so this is the reading from " + clock(standing.observed_at) + ", asked again every ten seconds");
+      failed.push("the standing — " + model.standingError + " — so this is the reading from " + clock(standing.observed_at) + ", and the page " + asksAgain("standing"));
     }
     if (model.throughputError && model.throughput) {
-      failed.push("the throughput — " + model.throughputError + " — so its figures are from " + clock(model.throughput.observed_at) + ", asked again every minute");
+      failed.push("the throughput — " + model.throughputError + " — so its figures are from " + clock(model.throughput.observed_at) + ", and the page " + asksAgain("throughput"));
     }
     if (model.spendError && model.spend) {
-      failed.push("the spend — " + model.spendError + " — so its figures are from " + clock(model.spend.observed_at) + ", asked again every minute");
+      failed.push("the spend — " + model.spendError + " — so its figures are from " + clock(model.spend.observed_at) + ", and the page " + asksAgain("spend"));
     }
-    if (failed.length > 0) {
+    // What the answers themselves say about their age: a build the dashboard
+    // could not finish, or a reading older than two of its intervals.
+    var behind = [];
+    [["the standing", standing], ["the throughput", model.throughput], ["the spend", model.spend]].forEach(function (pair) {
+      var said = snapshotNote(pair[0], pair[1]);
+      if (said) {
+        behind.push(said);
+      }
+    });
+    if (failed.length > 0 || behind.length > 0) {
       freshness.textContent = "stale";
       freshness.className = "freshness freshness-stale";
-      stale.textContent = "The last reading failed for " + failed.join("; and for ") + ".";
+      var sentences = [];
+      if (failed.length > 0) {
+        sentences.push("The last reading failed for " + failed.join("; and for ") + ".");
+      }
+      stale.textContent = sentences.concat(behind).join(" ");
       setHidden(stale, false);
     } else {
-      freshness.textContent = standing ? "asks again every 10 s" : "";
+      freshness.textContent = standing ? takenAgo(standing) + asksAgain("standing") : "";
       freshness.className = "freshness";
       stale.textContent = "";
       setHidden(stale, true);
@@ -576,9 +642,9 @@
     }
     var staleFigures = document.getElementById("spend-stale");
     staleFigures.textContent = model.spendError
-      ? "The last reading failed — " + model.spendError + " — so these are the figures from " + clock(spend.observed_at) + ". The dashboard asks again every minute."
-      : "";
-    setHidden(staleFigures, !model.spendError);
+      ? "The last reading failed — " + model.spendError + " — so these are the figures from " + clock(spend.observed_at) + ". The page " + asksAgain("spend") + "."
+      : snapshotNote("the spend", spend);
+    setHidden(staleFigures, staleFigures.textContent === "");
     var windows = document.getElementById("spend-windows");
     clear(windows);
     (spend.windows || []).forEach(function (period) {
@@ -895,8 +961,10 @@
     }
     listProblems("throughput-problems", [throughput.runs_problem]);
     var staleFigures = document.getElementById("throughput-stale");
-    staleFigures.textContent = model.throughputError ? "The last reading failed — " + model.throughputError + " — so these are the figures from " + clock(throughput.observed_at) + ". The dashboard asks again every minute." : "";
-    setHidden(staleFigures, !model.throughputError);
+    staleFigures.textContent = model.throughputError
+      ? "The last reading failed — " + model.throughputError + " — so these are the figures from " + clock(throughput.observed_at) + ". The page " + asksAgain("throughput") + "."
+      : snapshotNote("the throughput", throughput);
+    setHidden(staleFigures, staleFigures.textContent === "");
     var windows = document.getElementById("windows");
     clear(windows);
     (throughput.windows || []).forEach(function (period) {
@@ -1993,8 +2061,9 @@
   }
 
   function stopAsking() {
-    timers.forEach(function (timer) { window.clearInterval(timer); });
-    timers = [];
+    generation += 1;
+    Object.keys(timers).forEach(function (name) { window.clearTimeout(timers[name]); });
+    timers = {};
   }
 
   function askForToken(note) {
@@ -2044,35 +2113,29 @@
       });
   }
 
-  function refreshStanding(current) {
-    read("/api/standing", current, function (standing) {
-      model.standing = standing;
-      model.standingError = "";
+  // refresh asks for one reading, and once it is answered schedules the next
+  // ask: on the reading's ordinary clock after a quick answer, and after
+  // double the last wait, up to the ceiling, after a slow or failed one. A
+  // 401 schedules nothing, because the page has gone back to asking for the
+  // token.
+  function refresh(name, current) {
+    var mine = generation;
+    var asked = Date.now();
+    var answered = function (backOff) {
+      if (mine !== generation) {
+        return;
+      }
+      delays[name] = backOff ? Math.min(delays[name] * 2, ceiling[name]) : every[name];
+      timers[name] = window.setTimeout(function () { refresh(name, current); }, delays[name]);
+    };
+    read("/api/" + name, current, function (reading) {
+      answered(Date.now() - asked > slowAnswer);
+      model[name] = reading;
+      model[name + "Error"] = "";
       render();
     }, function (reason) {
-      model.standingError = reason;
-      render();
-    });
-  }
-
-  function refreshThroughput(current) {
-    read("/api/throughput", current, function (throughput) {
-      model.throughput = throughput;
-      model.throughputError = "";
-      render();
-    }, function (reason) {
-      model.throughputError = reason;
-      render();
-    });
-  }
-
-  function refreshSpend(current) {
-    read("/api/spend", current, function (spend) {
-      model.spend = spend;
-      model.spendError = "";
-      render();
-    }, function (reason) {
-      model.spendError = reason;
+      answered(true);
+      model[name + "Error"] = reason;
       render();
     });
   }
@@ -2089,13 +2152,12 @@
     setHidden(groupingPopup, true);
     setHidden(cardPopup, true);
     setHidden(reportPopup, true);
+    stopAsking();
+    delays = { standing: every.standing, throughput: every.throughput, spend: every.spend };
     render();
-    refreshStanding(current);
-    refreshThroughput(current);
-    refreshSpend(current);
-    timers.push(window.setInterval(function () { refreshStanding(current); }, pollStanding));
-    timers.push(window.setInterval(function () { refreshThroughput(current); }, pollThroughput));
-    timers.push(window.setInterval(function () { refreshSpend(current); }, pollSpend));
+    refresh("standing", current);
+    refresh("throughput", current);
+    refresh("spend", current);
   }
 
   signin.addEventListener("submit", function (event) {

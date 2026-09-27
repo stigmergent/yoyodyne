@@ -711,7 +711,19 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			// there is no breakdown to give.
 			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on a person — the operator's: 1.",
 		},
-		"stale":            {`class="freshness freshness-stale">stale<`, "so this is the reading from 14:05:09"},
+		// A failed poll backs the page off: it says when it asks again, later
+		// than its ordinary clock.
+		"stale": {`class="freshness freshness-stale">stale<`, "so this is the reading from 14:05:09, and the page asks again in 20s, less often while the dashboard answers slowly or not at all"},
+		// The age of the snapshot each answer was served from: said beside the
+		// moment it was observed while it is fresh, said plainly once it is
+		// older than two intervals, and said with the failure beside it where
+		// the dashboard's latest build failed.
+		"snapshot":     {`class="freshness">taken 4s ago; asks again every 10 s<`},
+		"snapshot-old": {`class="freshness freshness-stale">stale<`, "The reading of the standing is 45s old, older than two of its 10s intervals"},
+		"snapshot-failed": {
+			`class="freshness freshness-stale">stale<`, "The dashboard's last reading of the standing failed — bd list timed out after 30s — so what is shown is the reading taken 34s ago.",
+			`<p id="throughput-stale" class="stale" role="status">The dashboard's last reading of the throughput failed — the state root could not be resolved — so what is shown is the reading taken 1m ago.</p>`,
+		},
 		"throughput-stale": {`class="freshness freshness-stale">stale<`, "The last reading failed for the throughput", `<p id="throughput-stale" class="stale" role="status">The last reading failed`},
 		// The spend box while the month is still being priced, and after a poll
 		// that failed on a page that had already been drawn: the figures it had
