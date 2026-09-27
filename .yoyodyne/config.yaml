@@ -21,6 +21,29 @@
 # both.
 version: 1
 
+product:
+  id: yoyodyne
+  repository: .
+  # The product manager reads product intent from the specifications under this
+  # directory and from nowhere else in the repository. Beside them, labeled as a
+  # description of what is built rather than as intent, it is given the README,
+  # the configuration guide, and the help the commands print -- not this file,
+  # not the source, not the design document. It must stay inside the repository.
+  specifications: docs/product
+  # The architect's durable architectural invariants: one Markdown file per
+  # constraint, named by its id. The harness delivers the ones relevant to a
+  # work item into the developer's context and the reviewer's evidence. A
+  # project with no such directory simply has no invariants yet.
+  invariants: docs/decisions/invariants
+  # The architect's two artifact homes: designs and specifications, and the
+  # decision records the invariants above are extracted from. Every Markdown
+  # file in these directories and in the specifications directory carries its
+  # identity and metadata in frontmatter -- id, kind, status, what it supports,
+  # and a revision log -- so downstream work can refer to one durably. A
+  # directory that does not exist simply records no artifacts of that kind yet.
+  designs: docs/designs
+  decisions: docs/decisions
+
 # The humans this project recognizes, one entry each, binding the identifier
 # namespaces they are known by. Authority attaches to the human rather than to
 # any one namespace: an act is authorized by resolving whichever namespace it
@@ -52,29 +75,6 @@ slack:
     reviewer: https://raw.githubusercontent.com/stigmergent/yoyodyne/main/docs/slack/avatars/verifier-v1.png
     harness: https://raw.githubusercontent.com/stigmergent/yoyodyne/main/docs/slack/avatars/harness-v1.png
   channel: C0BQY3ZHE8P
-
-product:
-  id: yoyodyne
-  repository: .
-  # The product manager reads product intent from the specifications under this
-  # directory and from nowhere else in the repository. Beside them, labeled as a
-  # description of what is built rather than as intent, it is given the README,
-  # the configuration guide, and the help the commands print -- not this file,
-  # not the source, not the design document. It must stay inside the repository.
-  specifications: docs/product
-  # The architect's durable architectural invariants: one Markdown file per
-  # constraint, named by its id. The harness delivers the ones relevant to a
-  # work item into the developer's context and the reviewer's evidence. A
-  # project with no such directory simply has no invariants yet.
-  invariants: docs/decisions/invariants
-  # The architect's two artifact homes: designs and specifications, and the
-  # decision records the invariants above are extracted from. Every Markdown
-  # file in these directories and in the specifications directory carries its
-  # identity and metadata in frontmatter -- id, kind, status, what it supports,
-  # and a revision log -- so downstream work can refer to one durably. A
-  # directory that does not exist simply records no artifacts of that kind yet.
-  designs: docs/designs
-  decisions: docs/decisions
 
 # The dashboard serves under a stored token rather than a fresh one each start,
 # so a restart does not hand the operator a new token to paste (yoyodyne-ifd.432.3).
