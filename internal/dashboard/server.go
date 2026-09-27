@@ -41,10 +41,11 @@
 // card is the read model's projection of the item, served here like the rest.
 //
 // It is a projection, never an engine: it owns no workflow, conversation,
-// provider, or configuration state, and offers no write of any kind. The one
-// thing it holds is the token, in memory, for exactly as long as the process
-// runs. Restarting it changes nothing about the harness and loses no history,
-// because the history is in the durable records it reads.
+// provider, or configuration state, and offers no write of any kind. What it
+// holds is the token and the latest snapshot of each polled reading, in
+// memory, for exactly as long as the process runs. Restarting it changes
+// nothing about the harness and loses no history, because the history is in
+// the durable records it reads.
 package dashboard
 
 import (
@@ -136,6 +137,12 @@ type Server struct {
 	token   string
 
 	listener net.Listener
+	// standing, throughput, and spend are the three readings the page polls,
+	// each built in the background once per interval and served to every
+	// request as the latest snapshot with its age.
+	standing   *snapshot
+	throughput *snapshot
+	spend      *snapshot
 	// hosts is every Host header that names the bound address, and origins every
 	// Origin header that does. Both are fixed at Listen and read on every request.
 	hosts   map[string]bool
@@ -153,7 +160,7 @@ func New(product string, reader Reader) (*Server, error) {
 	if _, err := rand.Read(raw); err != nil {
 		return nil, fmt.Errorf("dashboard: generate token: %w", err)
 	}
-	return &Server{Product: product, reader: reader, token: hex.EncodeToString(raw)}, nil
+	return withSnapshots(&Server{Product: product, reader: reader, token: hex.EncodeToString(raw)}), nil
 }
 
 // NewWithToken makes a server holding the token it is handed — one read from
@@ -168,7 +175,17 @@ func NewWithToken(product string, reader Reader, token string) (*Server, error) 
 	if strings.TrimSpace(token) == "" {
 		return nil, errors.New("dashboard: the supplied token is empty")
 	}
-	return &Server{Product: product, reader: reader, token: strings.TrimSpace(token)}, nil
+	return withSnapshots(&Server{Product: product, reader: reader, token: strings.TrimSpace(token)}), nil
+}
+
+// withSnapshots gives the server its three background readings, on the
+// page's own clocks: the standing every ten seconds, and the throughput and
+// the spend every minute.
+func withSnapshots(s *Server) *Server {
+	s.standing = newSnapshot(standingInterval, func(ctx context.Context) (any, error) { return s.reader.Standing(ctx) })
+	s.throughput = newSnapshot(minuteInterval, func(ctx context.Context) (any, error) { return s.reader.Throughput(ctx) })
+	s.spend = newSnapshot(minuteInterval, func(ctx context.Context) (any, error) { return s.reader.Spend(ctx) })
+	return s
 }
 
 // Token is the credential every request for the read model has to present. It
@@ -217,6 +234,11 @@ func (s *Server) URL() string {
 func (s *Server) Serve(ctx context.Context) error {
 	if s.listener == nil {
 		return errors.New("dashboard: Serve before Listen")
+	}
+	// The readings are built under the server's lifetime, so stopping the
+	// server stops their building with it.
+	for _, reading := range []*snapshot{s.standing, s.throughput, s.spend} {
+		reading.live(ctx)
 	}
 	server := &http.Server{
 		Handler:           s.Handler(),
@@ -297,11 +319,11 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		}
 		switch {
 		case request.URL.Path == "/api/throughput":
-			s.serveReading(writer, request, func(ctx context.Context) (any, error) { return s.reader.Throughput(ctx) })
+			s.serveSnapshot(writer, request, s.throughput)
 		case request.URL.Path == "/api/spend":
-			s.serveReading(writer, request, func(ctx context.Context) (any, error) { return s.reader.Spend(ctx) })
+			s.serveSnapshot(writer, request, s.spend)
 		case request.URL.Path == "/api/standing":
-			s.serveReading(writer, request, func(ctx context.Context) (any, error) { return s.reader.Standing(ctx) })
+			s.serveSnapshot(writer, request, s.standing)
 		case strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
 			s.serveProgramManager(writer, request)
 		default:
@@ -369,6 +391,28 @@ func (s *Server) serveReading(writer http.ResponseWriter, request *http.Request,
 	// later reader does.
 	encoder.SetEscapeHTML(true)
 	_ = encoder.Encode(reading)
+}
+
+// serveSnapshot is one of the polled readings as JSON: the latest snapshot,
+// with its age under "snapshot". A request never builds one. It waits only
+// where no build has ended yet, and is refused with the failure only where
+// every build so far has failed; a failure after a reading was taken is said
+// beside that reading's age instead, so the page goes on showing it.
+func (s *Server) serveSnapshot(writer http.ResponseWriter, request *http.Request, reading *snapshot) {
+	encoded, age, err := reading.get(request.Context())
+	if err == nil {
+		encoded, err = withAge(encoded, age)
+	}
+	if err != nil {
+		refuse(writer, request, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writer.WriteHeader(http.StatusOK)
+	if request.Method == http.MethodHead {
+		return
+	}
+	_, _ = writer.Write(encoded)
 }
 
 // serveWorkItem is one work item as JSON, whole or refused, for the card the

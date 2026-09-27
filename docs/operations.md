@@ -3415,7 +3415,30 @@ prices every event log a month holds, which is seconds of work, so the page asks
 for it once a minute rather than every ten seconds — and it is one read of the
 logs rather than two, because pricing a stream reads the whole of its log
 whatever window is asked for, so the rolling day and the days around it come
-off the same pass. A fourth answer is
+off the same pass.
+
+**Those three answers are snapshots, built in the background and never per
+request.** The dashboard reads the standing every ten seconds and the
+throughput and the spend every minute — each interval counted from the end of
+the last build, so a build slower than its interval never runs back to back —
+and answers every request with the latest reading it has, however many tabs
+are asking: two tabs cost one build. Each answer carries, under `snapshot`,
+when the reading was taken (`taken_at`), how old it was when served
+(`age_seconds`), its interval (`interval_seconds`), and `stale` where it is
+older than two intervals; the reading's own fields are beside it exactly as
+before. A build that fails leaves the last reading served, with what the
+failure said and when under `snapshot.failure` and `snapshot.failed_at`,
+rather than a refusal; only a reading no build has ever produced is refused,
+with the failure. The first request after the dashboard starts waits for the
+first build, and a reading nobody has asked for in five minutes stops being
+built until somebody asks again, when it is served with its age while the next
+one is taken. Until yoyodyne-ifd.432.16 every poll of every tab rebuilt the
+standing from the whole tracker listing and every run record: at a load average
+of 117 one build took 6.4 seconds, and under more load it passed the tracker's
+thirty-second timeout and the page hung or showed errors exactly when the
+harness was busiest.
+
+A fourth answer is
 served one item at a time, at `/api/items/<work-item-id>`: the work item whole
 — the tracker's own fields, and the run the harness last made for it as
 `yoyo status <item>` lists it — which is what the page's
@@ -3439,11 +3462,27 @@ else. Above them, one banner and only one, while it stands: the same sentence
 the terminal prints above the four lines when the harness is paused on the
 provider's usage window, when every role is held by one, or when the provider
 is answering nobody. Beside the product's name the page says when the reading
-was taken and that it asks again; a poll that fails after one that succeeded —
-of any of the three readings, the standing, the throughput, or the spend —
-marks the page **stale**, says which reading failed and which it is still
-showing, and the throughput and spend sections say the same under their own
-figures, rather than going blank on one dropped request.
+was observed, how old the dashboard's snapshot of it was when it was served —
+`taken 4s ago; asks again every 10 s` — and when it asks again. It marks the
+page **stale**, and says why in a line above the sections, in three cases: a
+reading older than two of its intervals, said plainly as that — `The reading
+of the standing is 45s old, older than two of its 10s intervals: the dashboard
+is taking longer than that to read it, so what is shown may not be what the
+harness is doing now.`; a reading whose latest build failed, with the failure
+beside its age — `The dashboard's last reading of the standing failed — bd list
+timed out after 30s — so what is shown is the reading taken 34s ago.`; and a
+poll that fails after one that succeeded, of any of the three readings, saying
+which reading failed and which it is still showing. The throughput and spend
+sections say the same under their own figures, rather than going blank on one
+dropped request.
+
+**The page asks less often while the dashboard is slow or failing.** An answer
+that fails, or takes longer than five seconds, doubles the wait before that
+reading is asked for again — up to a minute for the standing and three minutes
+for the throughput and the spend — and the first quick answer puts it back on
+its ordinary clock. While it is backed off the page says so where it says when
+it asks again: `asks again in 20s, less often while the dashboard answers
+slowly or not at all`.
 
 1. **Where the harness stands** — a tile for each of the four lines: running
    developer runs, conversations with a turn in flight, admitted items nothing
