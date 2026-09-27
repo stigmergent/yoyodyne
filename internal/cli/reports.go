@@ -134,14 +134,7 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 	// A report is a role's own words, a program manager's digest among them, so
 	// each is printed with every work item it names beside its title. A tracker
 	// that cannot be listed costs the titles and nothing else.
-	titles := reportTitles(*configPath)
-	for _, reported := range collected {
-		text := titles.Cite(reported.RenderAgainst(gauge))
-		fmt.Fprint(stdout, theme.Severity(console.Severity(reported.Severity), text))
-		if handling, done := handled[reported.ID]; done {
-			fmt.Fprint(stdout, titles.CiteAfter(text, handling.Render()))
-		}
-	}
+	writeReports(stdout, theme, collected, handled, gauge, reportTitles(*configPath))
 	// Why the counts are missing is said once, under the listing, rather than
 	// under every report it affects.
 	switch {
@@ -177,6 +170,18 @@ func reportBuilds(configPath string) (report.Builds, error) {
 		runner:     execution.OSProcessRunner{},
 		timeout:    chatTrackerTimeout,
 	}, nil
+}
+
+// writeReports prints each report dressed by its severity, with what became of
+// it plainly under it, and every work item either names beside its title.
+func writeReports(out io.Writer, theme console.Theme, collected []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles) {
+	for _, reported := range collected {
+		text := titles.Cite(reported.RenderAgainst(gauge))
+		fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), text))
+		if handling, done := handled[reported.ID]; done {
+			fmt.Fprint(out, titles.CiteAfter(text, handling.Render()))
+		}
+	}
 }
 
 // reportTitles is what the product's tracker calls every item, or nil where the

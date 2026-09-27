@@ -521,12 +521,13 @@ Every listing prints the build beside the run, and says how far it is behind the
 target branch's tip:
 
 ```text
-  !  report-… [warning] 2026-09-22T09:14:02Z from the developer on yoyodyne-ifd.380 (run-…, build 0123456789ab, 31 change(s) behind the target branch)
-     report-… [note] 2026-09-22T11:02:41Z from the reviewer on yoyodyne-ifd.402 (run-…, build fedcba987654, the target branch's tip)
-     report-… [note] 2026-08-25T18:30:00Z from the developer on yoyodyne-ifd.201 (run-…, no build recorded)
+  !  report-… [warning] 2026-09-22T09:14:02Z from the developer on yoyodyne-ifd.380 (No run's invariant delivery names the invariants README as an unreadable invariant) (run-…, build 0123456789ab, 31 change(s) behind the target branch)
+     report-… [note] 2026-09-22T11:02:41Z from the reviewer on yoyodyne-ifd.402 (A docket entry names the open publication and how to arm it, …) (run-…, build fedcba987654, the target branch's tip)
+     report-… [note] 2026-08-25T18:30:00Z from the developer on yoyodyne-ifd.201 (The invariant loader skips the directory README, as everything else already documents) (run-…, no build recorded)
 ```
 
-`yoyo reports` and `/reports` print it that way, and the reports carried into
+`yoyo reports` and `/reports` print it that way, each item
+[beside its title](#every-work-item-beside-its-title), and the reports carried into
 the Lead Product Manager's turn are printed the same way, with the instruction to
 check whether a fix has landed before admitting work from a report whose build
 is behind. A build behind the tip is not a verdict. It says the fix may already
@@ -1205,7 +1206,8 @@ to them directly and tagged to them by member id**, at `warning` severity:
 > row with nothing landing between them, which is the configured brake at 3,
 > and the harness escalated it to the operator after 4 summons-and-probe cycles
 > with the development manager not escalating it (the last probe run, of
-> yoyodyne-ifd.405, blocked: the checks failed on main), so it stays held until
+> yoyodyne-ifd.405 (Every yoyo verb runs from inside a harness-managed
+> worktree), blocked: the checks failed on main), so it stays held until
 > somebody releases it. Next: the operator's — the harness has stopped probing,
 > and nothing new is chosen until `yoyo release` lifts it.
 
@@ -1456,9 +1458,12 @@ are told it happened:
 > after 3 run(s) blocked in a row with nothing landing between them, which is
 > the configured brake at 3, and the development manager was summoned at … to
 > decide what happens to it …; the runs it counted: run run-7c27… of
-> yoyodyne-ifd.398: its reviewer still required repair …; run run-a17c… of
-> yoyodyne-ifd.401: check `make test` failed (exit 1) …; run run-5035… of
-> yoyodyne-ifd.402: …. `yoyo release`, or `/release` in the conversation,
+> yoyodyne-ifd.398 (A draining watch session keeps pulling and running
+> recurring tasks until it restarts, …): its reviewer still required repair …;
+> run run-a17c… of yoyodyne-ifd.401 (A check stage cannot take hours: …):
+> check `make test` failed (exit 1) …; run run-5035… of yoyodyne-ifd.402 (A
+> docket entry names the open publication and how to arm it, …): ….
+> `yoyo release`, or `/release` in the conversation,
 > lifts it sooner. Next: the development manager's — …
 
 When she escalates it to you, that hold is said to you once more, directly and
