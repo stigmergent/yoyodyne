@@ -91,3 +91,44 @@ func TestPresenceReadsAStampWhoseProcessHasExitedAsNoProcess(t *testing.T) {
 		t.Fatalf("Presence() over a dead holder's stamp = %+v, want no process found", presence)
 	}
 }
+
+// A run with no process behind it is ended by different things depending on
+// what it was parked on, and the sentence every surface carries says which: the
+// sweep leaves a standing operator pause alone and continues a usage-limit wait
+// at its deadline, so telling either that `yoyo reconcile` settles it would send
+// the operator to a command that does nothing.
+func TestDeadRunRemedyNamesWhatActuallyEndsTheRun(t *testing.T) {
+	t.Parallel()
+
+	grace := 30 * time.Minute
+	base := testState(t, StatusRunning)
+	base.WorkItemID = "yoyodyne-ifd.1"
+
+	parked := base
+	if says := DeadRunRemedy(parked, grace); !strings.Contains(says, "`yoyo reconcile` settles it") {
+		t.Fatalf("remedy for a parked run = %q, want the sweep's settlement named", says)
+	}
+
+	held := base
+	since := base.UpdatedAt
+	held.OperatorHeldSince = &since
+	held.PauseCause = PauseOperatorHold
+	if says := DeadRunRemedy(held, grace); !strings.Contains(says, "leaves alone while it stands") || strings.HasPrefix(says, "`yoyo reconcile` settles it") {
+		t.Fatalf("remedy under the operator's pause = %q, want the pause named as what holds it", says)
+	}
+
+	limited := base
+	deadline := base.UpdatedAt.Add(2 * time.Hour)
+	limited.UsageLimitResetsAt = &deadline
+	limited.PauseCause = PauseUsageLimit
+	if says := DeadRunRemedy(limited, grace); !strings.Contains(says, "continues it once that has passed") || strings.Contains(says, "settles") {
+		t.Fatalf("remedy for a usage-limit wait = %q, want the continuation at its deadline named", says)
+	}
+
+	// An outage wait is settled like any park, so it reads as one.
+	away := limited
+	away.PauseCause = PauseProviderUnauthenticated
+	if says := DeadRunRemedy(away, grace); !strings.Contains(says, "`yoyo reconcile` settles it") {
+		t.Fatalf("remedy for an outage wait = %q, want the sweep's settlement named", says)
+	}
+}

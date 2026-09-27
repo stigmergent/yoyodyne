@@ -1395,7 +1395,7 @@ goes terminal. A run with no process behind it — parked on a dependency, say,
 with the process that parked it long gone — reaches no boundary, so the next
 [`yoyo reconcile`](operations.md#recovering-interrupted-runs) honours the stop
 in its place, at once, and ends the run exactly as it would have ended itself.
-Until yoyodyne-ifd.428.49 nothing did: on 2026-09-27 her stop of run-3b94404c
+Until the sweep honoured a dead run's stop (yoyodyne-ifd.428.49), nothing did: on 2026-09-27 her stop of run-3b94404c
 stood unread for most of a day over a run that had been dead since the evening
 before. The run's record, its ending on the item's notes, and the triage
 note her decision leaves all say who stopped it and why. What differs from your

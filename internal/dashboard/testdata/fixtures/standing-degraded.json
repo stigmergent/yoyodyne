@@ -54,6 +54,7 @@
       "account": "default",
       "phase": "checking",
       "no_process": "no process holds it, and nothing has been written to it since 2026-09-19T01:05:29Z",
+      "no_process_remedy": "`yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.230` continues it before then",
       "started_at": "2026-09-19T00:21:56Z",
       "elapsed": 49800000000000,
       "cost_usd": 12.5,

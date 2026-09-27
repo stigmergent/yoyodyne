@@ -660,7 +660,7 @@ func TestARunWithNoProcessBehindItIsNamedAsSuchOnTheRunningLine(t *testing.T) {
 	rendered := standing.Render()
 	for _, want := range []string{
 		"Running (2 developer runs, 1 with no process behind it):\n",
-		"  yoyodyne-ifd.428.34 — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-08-29T16:05:00Z; recorded as checking, and `yoyo reconcile` settles it, 20h00m elapsed",
+		"  yoyodyne-ifd.428.34 — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-08-29T16:05:00Z; recorded as checking; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h00m elapsed",
 		"  yoyodyne-ifd.194 — developing, 12m elapsed",
 	} {
 		if !strings.Contains(rendered, want) {

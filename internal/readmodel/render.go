@@ -366,7 +366,11 @@ func phaseOf(run RunningRun) string {
 		if recorded == "" {
 			recorded = "no phase"
 		}
-		return "no process can be found behind it: " + run.NoProcess + "; recorded as " + recorded + ", and `yoyo reconcile` settles it"
+		said := "no process can be found behind it: " + run.NoProcess + "; recorded as " + recorded
+		if run.NoProcessRemedy != "" {
+			said += "; " + run.NoProcessRemedy
+		}
+		return said
 	}
 	if run.ResumingIntegration {
 		return runstate.ResumingIntegrationSays

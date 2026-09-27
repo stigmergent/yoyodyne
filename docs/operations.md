@@ -1027,7 +1027,7 @@ What the wait costs is nothing, and that is the whole of the rule:
   worktree, and developer session are kept, and the stoppage is docketed for
   the development manager, whose repair-continue picks it up in its own
   worktree and session. Until then `yoyo run <beads-id>` resumes it as above.
-  Before yoyodyne-ifd.428.49 such a run held its developer slot until somebody
+  Before the sweep settled every park nothing continues (yoyodyne-ifd.428.49), such a run held its developer slot until somebody
   typed the command.
 - **The scheduler dispatches nothing into it.** A dispatch the provider turned
   away counts toward nothing — not the brake, not the docket, not the session's
@@ -2170,7 +2170,7 @@ live process held the run, that no ending was recorded, when the record last
 moved, and what the run was parked on. Two parks are left out, because each has
 something else that ends it: a usage limit or an overloaded provider, which the
 sweep's own last step continues once its deadline passes, and the operator's
-pause while it still stands. Until yoyodyne-ifd.428.49 only a provider stop was
+pause while it still stands. Until the sweep settled every park nothing continues (yoyodyne-ifd.428.49), only a provider stop was
 settled here, and on 2026-09-26 a run parked on a dependency held developer
 slot 1 for twenty hours while every sweep reported it resumable
 ([the diagnosis](diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md)). The branch and worktree are left
@@ -2519,12 +2519,21 @@ has the rule.
   **A run with no process behind it is named as one rather than as running.**
   Its record says `running` until something writes its ending, and a process
   that dies writes nothing, so it stays on this line — it still holds its
-  slot — but in place of the phase the line says so, and the head counts it:
+  slot — but in place of the phase the line says so, with what ends it, and
+  the head counts it:
 
   ```text
   Running (2 developer runs, 1 with no process behind it):
-    yoyodyne-ifd.428.34 (…) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-09-27T01:05:29Z; recorded as checking, and `yoyo reconcile` settles it, 20h02m elapsed, $41.20 so far
+    yoyodyne-ifd.428.34 (…) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-09-27T01:05:29Z; recorded as checking; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h02m elapsed, $41.20 so far
   ```
+
+  What ends it depends on what it was parked on, because the
+  [sweep](#recovering-interrupted-runs) does not settle every park. A run
+  parked on your pause says the sweep leaves it alone while the pause stands,
+  that `yoyo run` continues it, and that the sweep settles it once the pause is
+  lifted. A run waiting out a usage limit or an overloaded provider says the
+  sweep continues it once its deadline passes, and names the deadline. Every
+  other run says the sweep settles it.
 
   Whether a process is behind a run is observed rather than taken, the way the
   Working line below observes a conversation: a process that takes a run's
@@ -2534,7 +2543,8 @@ has the rule.
   a park whose process let go of it and exited — reads so once neither its
   record nor its event log has been written to for half an hour, which is also
   what keeps a run from a build older than the stamp, still working, from being
-  called dead. `--json` carries the sentence as the run's `no_process`.
+  called dead. `--json` carries the first sentence as the run's `no_process` and what ends it
+  as `no_process_remedy`, which the dashboard's card prints.
 - **Working** is the persona conversations with a turn in flight, which nothing
   counted before this: a conversation is not a run, so a machine spending money
   on six persona turns used to report nothing running at all. The advisory hold

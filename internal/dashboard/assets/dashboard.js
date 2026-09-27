@@ -683,7 +683,7 @@
     meta.appendChild(el("span", run.unknown_cost ? "spend spend-unknown" : "spend", spendOf(run)));
     card.appendChild(meta);
     if (run.no_process) {
-      card.appendChild(el("p", "problem", "No process can be found behind this run: " + run.no_process + ". `yoyo reconcile` settles it."));
+      card.appendChild(el("p", "problem", "No process can be found behind this run: " + run.no_process + (run.no_process_remedy ? "; " + run.no_process_remedy : "") + "."));
     }
     var where = provenance(run);
     if (where) {

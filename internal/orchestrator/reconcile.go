@@ -388,7 +388,7 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// A stop somebody asked for comes first and does not wait for the grace: the
 	// run was going to end at its next boundary, no process will reach one, and
 	// the lease this sweep holds is the evidence that none is there to.
-	if state.Status.InFlight() {
+	if honoursStop(state) {
 		request, requested, err := r.Store.StopRequested(state.RunID)
 		if err != nil {
 			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
@@ -1437,6 +1437,17 @@ func vanishedReason(state runstate.State, park recordedPark, grace time.Duration
 	return fmt.Sprintf(
 		"the run was recorded as running in the %s phase with no live process behind it: at %s %s, no ending was ever recorded, and nothing continued the run within %s of that, so the harness settled it as an environmental stop. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them",
 		nonEmpty(string(state.Phase), "unrecorded"), park.since.UTC().Format(time.RFC3339), park.says, grace)
+}
+
+// honoursStop reports a run the sweep may end on a stop request: one in flight
+// that has not reached its promotion. A live run reads a stop only at a
+// provider-call boundary, and the last of those is its review, so a run in its
+// integrating phase or with a promotion on its record is past every point a
+// stop could have reached. Cancelling one would record work already on the
+// target as stopped; the sweep completes it from its promotion instead, as it
+// always has.
+func honoursStop(state runstate.State) bool {
+	return state.Status.InFlight() && state.Integration == nil && state.Phase != runstate.PhaseIntegrating
 }
 
 // settleStopRequest honours a stop somebody asked for on a run whose process is

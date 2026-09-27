@@ -26,6 +26,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -186,4 +187,26 @@ func readRunHolder(path string) (runHolder, error) {
 		return runHolder{}, fmt.Errorf("run holder %s names no process", filepath.Base(path))
 	}
 	return holder, nil
+}
+
+// DeadRunRemedy is what ends a run in flight that has no process behind it, in
+// a sentence a person reads beside the run. It is not the same for every run,
+// and a surface that said one remedy for all of them would send an operator to
+// a command that does nothing: the reconciling sweep settles a parked run
+// nothing continues once its record has sat still for the grace, but it leaves
+// a run parked on the operator's pause while the pause stands, and it continues
+// a usage-limit or overload wait once its deadline has passed rather than
+// settling it. Those are the sweep's own rules (Reconciler.parkNothingServes in
+// internal/orchestrator), read here from the same fields, so the surfaces carry
+// the answer rather than each writing their own.
+func DeadRunRemedy(state State, grace time.Duration) string {
+	item := strings.TrimSpace(state.WorkItemID)
+	switch {
+	case state.OperatorHeldSince != nil:
+		return fmt.Sprintf("it is parked on the operator's pause, which the sweep leaves alone while it stands: `yoyo run %s` continues it, and once the pause is lifted `yoyo reconcile` settles it if nothing has continued it within %s", item, grace)
+	case state.UsageLimitResetsAt != nil && (state.PauseCause == PauseUsageLimit || state.PauseCause == PauseServerOverload || state.PauseCause == ""):
+		return fmt.Sprintf("it is waiting out %s until %s: `yoyo reconcile` continues it once that has passed, and `yoyo run %s` continues it sooner",
+			DescribePause(state.PauseCause, state.UsageLimitKind), state.UsageLimitResetsAt.UTC().Format(time.RFC3339), item)
+	}
+	return fmt.Sprintf("`yoyo reconcile` settles it — a parked run once its record has not moved for %s — and `yoyo run %s` continues it before then", grace, item)
 }

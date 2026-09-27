@@ -22,7 +22,7 @@ All times are UTC, from the product's state directory under `runs/`.
 | 2026-09-27 01:05:29 | The record's last write: `status: running`, `phase: checking`, `dependency_pause: {blockers: [yoyodyne-ifd.398]}`. No `provider_stop`. |
 | 2026-09-27 14:59:57 | `run-3b94404c….stop.json` written, carrying the development manager's `stop` decision (superseded by yoyodyne-ifd.398). |
 
-Shortly before, the development manager had linked 428.34 to wait on 398.
+Shortly before, the development manager had linked the deploy-restart item (yoyodyne-ifd.428.34) to wait on the draining-watch item (yoyodyne-ifd.398).
 The run read that link at the gate boundary before its checks, recorded the
 dependency park, noted it on the item ("this item waits on work that is not
 finished, so the run is waiting rather than failing"), and returned. Its
@@ -41,14 +41,14 @@ returned `resumable` with no time limit. Every sweep reported it that way.
 scheduler never chose it again. The claim audit (`internal/readmodel/claims.go`)
 treats every recorded park as a wait that is still pending and leaves its claim
 alone. The only thing that continues a dependency park is somebody typing
-`yoyo run` once the dependency closes. 398 was itself stopped, so the dependency
+`yoyo run` once the dependency closes. The draining-watch item it waited on (yoyodyne-ifd.398) was itself stopped, so the dependency
 was not going to close soon, and when it did, nothing would have noticed. The run
 stayed in `Incomplete()`, which is what both the developer slots and the
 in-flight guard read.
 
 The same gap covered every park whose process returns and exits: a directive
 pause, a tracker pause, an outage wait whose process died, and an operator-pause
-park once the pause was lifted. 428.4 closed it for provider stops only.
+park once the pause was lifted. The earlier settlement for a run whose process vanished (yoyodyne-ifd.428.4) closed it for provider stops only.
 
 **Only a live process reads a stop request.** A stop is written beside the run
 (`runstate.Store.RecordStop`) and read by `activeRun.stopRequested` at the run's
@@ -70,7 +70,7 @@ slot 1 for the whole twenty hours.
   nobody could reach, or an operator pause since lifted is settled as a vanished
   process once its record has not moved for thirty minutes and the sweep can
   take its lease. For an outage wait, the thirty minutes run from the probe it
-  recorded. The settlement is 428.4's: an environmental stop of cause
+  recorded. The settlement is the one the vanished-process work (yoyodyne-ifd.428.4) built: an environmental stop of cause
   `process-vanished`, the item blocked with the account, the change left where
   it is, and the stoppage docketed. Two parks are left out, because something
   else ends each one: a usage limit or overload, which the sweep continues

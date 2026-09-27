@@ -340,10 +340,14 @@ type RunningRun struct {
 	// says it is not running rather than printing the phase the dead process last
 	// wrote. It is read without taking the run's lease, from the holder stamp the
 	// lease keeps; see runstate.Store.Presence.
-	NoProcess string        `json:"no_process,omitempty"`
-	StartedAt time.Time     `json:"started_at"`
-	Elapsed   time.Duration `json:"elapsed"`
-	CostUSD   float64       `json:"cost_usd"`
+	NoProcess string `json:"no_process,omitempty"`
+	// NoProcessRemedy is what ends such a run, which is not the same for every
+	// park: runstate.DeadRunRemedy, from the sweep's own rules. It is set exactly
+	// where NoProcess is.
+	NoProcessRemedy string        `json:"no_process_remedy,omitempty"`
+	StartedAt       time.Time     `json:"started_at"`
+	Elapsed         time.Duration `json:"elapsed"`
+	CostUSD         float64       `json:"cost_usd"`
 	// UnknownCost says why there is no figure rather than reporting one of zero: a
 	// run whose evidence cannot be read has not cost nothing.
 	UnknownCost string `json:"unknown_cost,omitempty"`
@@ -789,6 +793,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, string) {
 			// strength of a stamp nobody could read.
 			if found, err := presence.Presence(state, DefaultDeadClaimThreshold, now); err == nil && !found.Found {
 				run.NoProcess = found.Says
+				run.NoProcessRemedy = runstate.DeadRunRemedy(state, DefaultDeadClaimThreshold)
 			}
 		}
 		price, err := sources.Runs.Price(state.WorkItemID)

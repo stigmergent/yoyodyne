@@ -494,3 +494,27 @@ func TestTheSweepSettlesDirectiveAndTrackerParksNothingContinued(t *testing.T) {
 		})
 	}
 }
+
+// A stop reaches a run only up to its last provider-call boundary, so the sweep
+// honours one only there too: a run already promoting, or with its promotion on
+// the record, is completed from that promotion rather than recorded as stopped
+// with its change already on the target.
+func TestTheSweepHonoursAStopOnlyBeforeThePromotion(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		state runstate.State
+		want  bool
+	}{
+		{"parked before its checks", runstate.State{Status: runstate.StatusRunning, Phase: runstate.PhaseChecking}, true},
+		{"reserved and not started", runstate.State{Status: runstate.StatusPending}, true},
+		{"integrating", runstate.State{Status: runstate.StatusRunning, Phase: runstate.PhaseIntegrating}, false},
+		{"promotion recorded", runstate.State{Status: runstate.StatusRunning, Phase: runstate.PhaseReviewing, Integration: &runstate.Integration{}}, false},
+		{"already ended", runstate.State{Status: runstate.StatusFailed, Phase: runstate.PhaseChecking}, false},
+	} {
+		if got := honoursStop(test.state); got != test.want {
+			t.Errorf("honoursStop(%s) = %t, want %t", test.name, got, test.want)
+		}
+	}
+}
