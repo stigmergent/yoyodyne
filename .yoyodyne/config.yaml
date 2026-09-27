@@ -85,8 +85,7 @@ services:
     token: file
 
 execution:
-  max_concurrent_developers: 3  # back to 3 on 2026-09-22 as the 09-21 raise promised, once the phantom-run fix (yoyodyne-ifd.428.4) landed and settled the two stalled runs; three live suites is what this machine carries. History: 3 on 09-04, 2 on 09-15, 3 on 09-18 morning, 2 on 09-18 evening, 3 on 09-19, 4 on 09-21 while two slots were phantoms.
-                                # lease serializes integrations underneath
+  max_concurrent_developers: 2  # lowered 3->2 on 2026-09-27 at the operator's direction, to slow things down for now; the reliability slot stays
   # One developer slot prefers the reliability label, per the operator's
   # direction of 2026-09-19: bugs, anything that keeps the system from
   # stalling, and anything that keeps the system from making mistakes. The
@@ -98,7 +97,7 @@ execution:
   # change: it selects what a slot pulls first, and never what it may do.
   developer_slots:
     - prefer: [reliability]   # slot 1 pulls reliability-labelled work first
-    # slots 2 and 3 are not named, so they prefer nothing
+    # slot 2 is not named, so it prefers nothing
   repair_attempts_before_replan: 2
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
@@ -300,8 +299,8 @@ agents:
     backend: claude-code
     model: opus
     # One instance per developer slot, because the capacity rule refuses a
-    # limit the instances cannot supply; three with max_concurrent_developers: 3.
-    instances: 3
+    # limit the instances cannot supply; two with max_concurrent_developers: 2.
+    instances: 2
     persona:
       version: v2
       path: personas/developer.md
