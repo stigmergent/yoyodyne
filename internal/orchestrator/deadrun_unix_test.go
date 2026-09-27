@@ -298,3 +298,199 @@ func TestTheSweepSettlesADependencyPausedRunNothingContinued(t *testing.T) {
 		t.Fatalf("docket = %#v, %v; want the stoppage docketed for the development manager", entries, err)
 	}
 }
+
+// parkedRun is a run parked on a dependency with its process gone, over a real
+// repository, for a test to rewrite into whatever park it is about.
+type parkedRun struct {
+	repository, worktreeRoot string
+	store                    *runstate.Store
+	tracker                  *orchestratortest.Tracker
+	docket                   *runstate.DocketStore
+	pipeline                 Pipeline
+	state                    runstate.State
+}
+
+func parkRunOnADependency(t *testing.T) parkedRun {
+	t.Helper()
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if request.Role != domain.RoleDeveloper {
+			return nil
+		}
+		tracker.Item.Dependencies = blockedBy("yoyodyne-blocker")
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
+	paused, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil || !paused.Paused || paused.PausedByDependency == nil {
+		t.Fatalf("Run() = %#v, %v; want a run paused on the work its item waits on", paused, err)
+	}
+	tracker.Item.Status = "in_progress"
+	state, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewDocketStore() error = %v", err)
+	}
+	return parkedRun{repository: repository, worktreeRoot: worktreeRoot, store: store, tracker: tracker, docket: docket, pipeline: pipeline, state: state}
+}
+
+// repark rewrites the run's park, as though the run had parked on something else.
+func (p parkedRun) repark(t *testing.T, rewrite func(*runstate.State)) runstate.State {
+	t.Helper()
+	state := p.state
+	state.DependencyPause = nil
+	rewrite(&state)
+	if err := p.store.Save(state); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	return state
+}
+
+func (p parkedRun) sweepAt(t *testing.T, at time.Time, holds OperatorHolds) Reconciliation {
+	t.Helper()
+	reconciler := Reconciler{
+		Tracker:   p.tracker,
+		Worktrees: newObserver(t, p.repository, p.worktreeRoot),
+		Store:     p.store,
+		Docket:    docketerOverStore(p.docket, p.store, p.pipeline.Config),
+		Clock:     &pausingClock{now: at},
+		Holds:     holds,
+	}
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil || len(results) != 1 {
+		t.Fatalf("Reconcile() = %#v, %v; want the one parked run", results, err)
+	}
+	return results[0]
+}
+
+// The operator's pause is theirs while it stands, however long that is: the
+// sweep never settles a run parked on it, which is the pause's whole promise.
+// Once it is lifted, a run nothing continued is a run with no process behind it
+// like any other, and is settled.
+func TestTheSweepLeavesARunOnAStandingPauseAndSettlesItOnceLifted(t *testing.T) {
+	t.Parallel()
+
+	parked := parkRunOnADependency(t)
+	state := parked.repark(t, func(state *runstate.State) {
+		heldSince := state.UpdatedAt
+		state.OperatorHeldSince = &heldSince
+		state.PauseCause = runstate.PauseOperatorHold
+	})
+	holds := newOperatorHoldStore(t)
+	if _, err := holds.Hold(state.UpdatedAt); err != nil {
+		t.Fatalf("Hold() error = %v", err)
+	}
+	dayLater := state.UpdatedAt.Add(24 * time.Hour)
+
+	standing := parked.sweepAt(t, dayLater, holds)
+	if standing.Action != ActionResumable {
+		t.Fatalf("sweep under a standing pause = %#v, want the park left alone", standing)
+	}
+	// A sweep that cannot read the pause does not guess it lifted.
+	unwired := parked.sweepAt(t, dayLater, nil)
+	if unwired.Action != ActionResumable {
+		t.Fatalf("sweep with no pause to read = %#v, want the park left alone", unwired)
+	}
+	after, err := parked.store.Load(state.RunID)
+	if err != nil || after.Status.Terminal() || after.OperatorHeldSince == nil {
+		t.Fatalf("parked run after the sweeps = %#v, %v; want it untouched", after, err)
+	}
+
+	if _, _, err := holds.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	lifted := parked.sweepAt(t, dayLater, holds)
+	if lifted.Action != ActionBlocked || !strings.Contains(lifted.Detail, "operator's pause of all harness activity, which has since been lifted") {
+		t.Fatalf("sweep after the pause lifted = %#v, want the run settled as having no process", lifted)
+	}
+	settled, err := parked.store.Load(state.RunID)
+	if err != nil || !settled.Status.Terminal() || settled.OperatorHeldSince != nil || settled.PauseCause != "" {
+		t.Fatalf("settled run = %#v, %v; want it terminal with the park cleared", settled, err)
+	}
+}
+
+// A wait on a provider nobody could reach is measured from the probe it
+// recorded, not from its last write: until that probe has passed, nothing has
+// failed to serve it.
+func TestTheSweepTimesADeadOutageWaitFromItsProbe(t *testing.T) {
+	t.Parallel()
+
+	parked := parkRunOnADependency(t)
+	probe := parked.state.UpdatedAt.Add(2 * time.Hour)
+	state := parked.repark(t, func(state *runstate.State) {
+		state.Phase = runstate.PhaseDeveloping
+		state.PauseCause = runstate.PauseProviderUnauthenticated
+		state.UsageLimitResetsAt = &probe
+	})
+
+	// Past the grace from its last write, but not from its probe.
+	early := parked.sweepAt(t, state.UpdatedAt.Add(DefaultVanishedGrace+time.Minute), nil)
+	if early.Action != ActionResumable {
+		t.Fatalf("sweep before the probe's grace = %#v, want the wait left", early)
+	}
+	inside := parked.sweepAt(t, probe.Add(DefaultVanishedGrace-time.Minute), nil)
+	if inside.Action != ActionResumable {
+		t.Fatalf("sweep inside the probe's grace = %#v, want the wait left", inside)
+	}
+	past := parked.sweepAt(t, probe.Add(DefaultVanishedGrace), nil)
+	if past.Action != ActionBlocked || !strings.Contains(past.Detail, "nothing asked the provider again at its recorded probe") ||
+		!strings.Contains(past.Detail, probe.UTC().Format(time.RFC3339)) {
+		t.Fatalf("sweep past the probe's grace = %#v, want the dead wait settled from its probe", past)
+	}
+	settled, err := parked.store.Load(state.RunID)
+	if err != nil || !settled.Status.Terminal() || settled.UsageLimitResetsAt != nil || settled.PauseCause != "" {
+		t.Fatalf("settled run = %#v, %v; want it terminal with the wait cleared", settled, err)
+	}
+}
+
+// A directive park and a tracker park are settled past the grace exactly as a
+// dependency park is, each named in the account for what it was.
+func TestTheSweepSettlesDirectiveAndTrackerParksNothingContinued(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		park   func(*runstate.State)
+		clears func(runstate.State) bool
+		says   string
+	}{
+		{
+			name: "directive",
+			park: func(state *runstate.State) {
+				state.DirectivePause = &runstate.DirectivePause{DirectiveID: "directive-0123", Kind: "question", Unresolved: "which branch does this land on?"}
+			},
+			clears: func(state runstate.State) bool { return state.DirectivePause == nil },
+			says:   "unresolved directive directive-0123",
+		},
+		{
+			name: "tracker",
+			park: func(state *runstate.State) {
+				state.TrackerPause = &runstate.TrackerPause{Boundary: runstate.RetryDependencyRead, Attempts: 3, WaitedSeconds: 7200, Failure: "bd show timed out"}
+			},
+			clears: func(state runstate.State) bool { return state.TrackerPause == nil },
+			says:   "it parked because",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			parked := parkRunOnADependency(t)
+			state := parked.repark(t, test.park)
+			inside := parked.sweepAt(t, state.UpdatedAt.Add(DefaultVanishedGrace-time.Minute), nil)
+			if inside.Action != ActionResumable || !strings.Contains(inside.Detail, "settles it as a stopped run") {
+				t.Fatalf("sweep inside the grace = %#v, want it resumable with the grace said", inside)
+			}
+			past := parked.sweepAt(t, state.UpdatedAt.Add(DefaultVanishedGrace), nil)
+			if past.Action != ActionBlocked || !strings.Contains(past.Detail, test.says) {
+				t.Fatalf("sweep past the grace = %#v, want it settled naming %q", past, test.says)
+			}
+			settled, err := parked.store.Load(state.RunID)
+			if err != nil || !settled.Status.Terminal() || !test.clears(settled) {
+				t.Fatalf("settled run = %#v, %v; want it terminal with the park cleared", settled, err)
+			}
+		})
+	}
+}

@@ -1017,6 +1017,18 @@ What the wait costs is nothing, and that is the whole of the rule:
   that dies mid-wait leaves a run `yoyo run <beads-id>` resumes rather than one
   that failed, and `yoyo resume <beads-id>` asks again now rather than at the
   next probe, exactly as it does for a limit.
+
+  All of that is the wait a live process is serving, and it costs nothing
+  however long it lasts. A wait whose process died is different, because
+  nothing but `yoyo run` ever continues it: once half an hour has passed since
+  its recorded probe with no process holding it, the next
+  [`yoyo reconcile`](#recovering-interrupted-runs) settles it as a run with no
+  process behind it. The item is blocked with that account, the branch,
+  worktree, and developer session are kept, and the stoppage is docketed for
+  the development manager, whose repair-continue picks it up in its own
+  worktree and session. Until then `yoyo run <beads-id>` resumes it as above.
+  Before yoyodyne-ifd.428.49 such a run held its developer slot until somebody
+  typed the command.
 - **The scheduler dispatches nothing into it.** A dispatch the provider turned
   away counts toward nothing — not the brake, not the docket, not the session's
   exclusion of the item — and `yoyo work --watch` chooses nothing while the wait
