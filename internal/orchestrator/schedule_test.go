@@ -2920,7 +2920,7 @@ func (h *scheduleHarness) ReviseBrake(revise func(*runstate.IntakeBrake) error) 
 
 // ReleaseBrake is the harness lifting the brake's own hold and no other: on
 // the development manager's decision, or on a probe that landed.
-func (h *scheduleHarness) ReleaseBrake() (runstate.IntakeHold, bool, error) {
+func (h *scheduleHarness) ReleaseBrake(string, time.Time) (runstate.IntakeHold, bool, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.held == nil || !h.held.Braked() {

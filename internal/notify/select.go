@@ -508,13 +508,18 @@ func FromProposal(proposal amendment.Proposal) (Notification, error) {
 // so they are addressed to the product and spoken by the harness: what an
 // operator did is not any persona's account to give.
 //
-// Only the holds themselves are records; what lifts either is their absence, so
-// releasing takes the moment it was observed rather than a record of it.
+// What lifts either is its absence. The operator's hold records nothing about
+// its lifting, so that release takes the moment it was observed; the intake
+// hold's release is recorded with who lifted it, and says so where it can.
 
 // The hold carries who placed it as well as why, and both are said: the same
 // switch is placed by the operator and by the harness's own failure-storm brake,
 // and a channel that named one for the other is a channel that sent somebody to
 // look at the wrong state.
+//
+// The brake's hold carries the runs that tripped it, each with its item and
+// what stopped it, so the message names what stopped the line rather than
+// counting it.
 func FromIntakeHold(hold runstate.IntakeHold) Notification {
 	detail := Detail{Reason: hold.Account()}
 	// A hold the brake is working itself is the development manager's or the
@@ -522,12 +527,72 @@ func FromIntakeHold(hold runstate.IntakeHold) Notification {
 	// which is right for the operator's hold and for nothing else.
 	if hold.Braked() {
 		detail.Mover = hold.Whose()
+		detail.Stops = strings.Join(hold.Brake.Entries(), "; ")
 	}
 	return productNotification(KindIntakeHeld, hold.HeldAt, detail)
 }
 
-func IntakeReleased(at time.Time) Notification {
-	return productNotification(KindIntakeReleased, at, Detail{})
+// IntakeReleased says the hold was lifted, and by whom where the record names
+// them. The moment is the observer's where no release was recorded — a hold
+// lifted by a harness from before releases were written down — because what
+// lifts a hold is its absence, and an absence has no moment of its own.
+func IntakeReleased(at time.Time, release runstate.IntakeRelease, recorded bool) Notification {
+	if !recorded {
+		return productNotification(KindIntakeReleased, at, Detail{})
+	}
+	return productNotification(KindIntakeReleased, release.ReleasedAt, Detail{Reason: release.Says()})
+}
+
+// OperatorAction is one finding only the operator can act on, as the read model
+// derives it: what is needed, where it is recorded, who found it, and since
+// when. It is carried here rather than read from the read model because this
+// package speaks and does not read; the surface that reads hands it over.
+type OperatorAction struct {
+	WorkItemID string
+	// RunID is the stopped run the finding came from, where it came from one.
+	RunID      string
+	Needs      string
+	RecordedIn string
+	FoundBy    string
+	// Ends is what ends the finding, and Mover whose move it is with that
+	// ending, both worded by the read model so the attention line and this
+	// message close on the same words.
+	Ends  string
+	Mover string
+	Since time.Time
+}
+
+// FromOperatorAction says a finding that needs the operator's hand, once. It is
+// addressed to the item the finding is about where there is one, so it sits in
+// that item's narrative, and to the product otherwise. The harness speaks it:
+// what the finding says is in Needs, in the words of whoever found it, and the
+// message is the harness telling the operator it is his.
+//
+// It is a warning, whatever the report was filed at: something only a person
+// can change is stopping something until they change it, and a note is what a
+// reader scrolls past.
+func FromOperatorAction(action OperatorAction) (Notification, error) {
+	topic, err := topicForItem(action.WorkItemID)
+	if err != nil {
+		return Notification{}, fmt.Errorf("address the finding recorded in %s: %w", action.RecordedIn, err)
+	}
+	return Notification{
+		Topic:   topic,
+		Speaker: Harness(),
+		Event: Event{
+			Kind:     KindOperatorAction,
+			At:       action.Since,
+			Severity: report.SeverityWarning,
+			Refs:     Refs{RunID: action.RunID, WorkItemID: action.WorkItemID},
+			Detail: Detail{
+				Needs:      action.Needs,
+				RecordedIn: action.RecordedIn,
+				FoundBy:    action.FoundBy,
+				Ends:       action.Ends,
+				Mover:      action.Mover,
+			},
+		},
+	}, nil
 }
 
 // FromIntakeEscalation says the harness has handed the brake's hold to the

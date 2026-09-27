@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // IntakeHoldSchemaVersion is 1 and has never changed.
@@ -373,10 +374,17 @@ func (s *IntakeHoldStore) Held() (IntakeHold, bool, error) {
 	return held, true, nil
 }
 
-// Release lifts the hold and reports what was lifted. Releasing what is not held
-// is not an error for the same reason holding twice is not: the operator means
-// the harness to be choosing work, and it is.
+// Release lifts the hold and reports what was lifted, recording nobody as the
+// one who lifted it. It is ReleaseBy for a caller with nobody to name.
 func (s *IntakeHoldStore) Release() (IntakeHold, bool, error) {
+	return s.ReleaseBy("", time.Now())
+}
+
+// ReleaseBy lifts the hold and reports what was lifted, recording who lifted it
+// beside the absence. Releasing what is not held is not an error for the same
+// reason holding twice is not: the operator means the harness to be choosing
+// work, and it is — and nothing is recorded, because nothing was lifted.
+func (s *IntakeHoldStore) ReleaseBy(by string, at time.Time) (IntakeHold, bool, error) {
 	release, err := s.lock()
 	if err != nil {
 		return IntakeHold{}, false, err
@@ -389,6 +397,25 @@ func (s *IntakeHoldStore) Release() (IntakeHold, bool, error) {
 	if !found {
 		return IntakeHold{}, false, nil
 	}
+	return s.lift(held, by, at)
+}
+
+// lift removes the hold in force, having first recorded who lifted it. The
+// record is written before the hold is removed, so a process killed between
+// the two leaves a hold that is still standing and a release that names it;
+// the next release overwrites the record, and a reader matching the record to
+// the hold it lifted finds the hold still there and reads past it. The caller
+// holds the store's lock.
+func (s *IntakeHoldStore) lift(held IntakeHold, by string, at time.Time) (IntakeHold, bool, error) {
+	record := IntakeRelease{
+		SchemaVersion: IntakeReleaseSchemaVersion,
+		Hold:          held,
+		ReleasedAt:    at.UTC(),
+		ReleasedBy:    oneline.Fold(by, MaxIntakeReleasedByBytes-len(oneline.Marker)),
+	}
+	if err := s.writeRelease(record); err != nil {
+		return IntakeHold{}, false, err
+	}
 	if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return IntakeHold{}, false, fmt.Errorf("release intake hold: %w", err)
 	}
@@ -396,6 +423,121 @@ func (s *IntakeHoldStore) Release() (IntakeHold, bool, error) {
 		return IntakeHold{}, false, err
 	}
 	return held, true, nil
+}
+
+// IntakeReleaseSchemaVersion is 1 and has never changed.
+const IntakeReleaseSchemaVersion = 1
+
+// MaxIntakeReleasedByBytes bounds who a release names. It is a line: a terminal,
+// a conversation and its turn, or the harness and what moved it.
+const MaxIntakeReleasedByBytes = 1 << 10
+
+// IntakeRelease is the record of the last hold being lifted: what was lifted,
+// when, and by whom. It exists because a hold is a file and its release is that
+// file's absence, and an absence says nothing about who made it — which is what
+// the channel has to say when a hold it announced is lifted. One record rather
+// than a log, because what it answers is who lifted the hold that was just
+// standing, and the hold before that is history the channel already said.
+type IntakeRelease struct {
+	SchemaVersion int        `json:"schema_version"`
+	Hold          IntakeHold `json:"hold"`
+	ReleasedAt    time.Time  `json:"released_at"`
+	// ReleasedBy is who lifted it, in the words the surface that lifted it
+	// recorded. It is absent on a release nothing named, which is read rather
+	// than refused.
+	ReleasedBy string `json:"released_by,omitempty"`
+}
+
+func (r IntakeRelease) Validate() error {
+	var problems []error
+	if r.SchemaVersion != IntakeReleaseSchemaVersion {
+		problems = append(problems, fmt.Errorf("intake release schema version %d is not supported", r.SchemaVersion))
+	}
+	if err := r.Hold.Validate(); err != nil {
+		problems = append(problems, fmt.Errorf("released hold: %w", err))
+	}
+	if r.ReleasedAt.IsZero() {
+		problems = append(problems, errors.New("released at is required"))
+	}
+	if len(r.ReleasedBy) > MaxIntakeReleasedByBytes {
+		problems = append(problems, fmt.Errorf("released by is %d bytes, which exceeds the %d byte bound", len(r.ReleasedBy), MaxIntakeReleasedByBytes))
+	}
+	return errors.Join(problems...)
+}
+
+// Says is who lifted the hold, as a clause: what the surface recorded, or the
+// stated absence.
+func (r IntakeRelease) Says() string {
+	if by := strings.TrimSpace(r.ReleasedBy); by != "" {
+		return "released by " + by
+	}
+	return "released by somebody the record does not name"
+}
+
+// writeRelease replaces the release record, whole and durable, as write does
+// the hold's.
+func (s *IntakeHoldStore) writeRelease(record IntakeRelease) error {
+	if err := record.Validate(); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(s.root, ".intake-release-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary intake release: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("secure temporary intake release: %w", err)
+	}
+	if err := writeJSONFile(temporary, "intake release", record); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary intake release: %w", err)
+	}
+	if err := os.Rename(temporaryPath, s.releasePath()); err != nil {
+		return fmt.Errorf("replace intake release: %w", err)
+	}
+	return syncDirectory(s.root)
+}
+
+// LastRelease is the record of the last hold lifted, or nothing where none has
+// ever been. A record that cannot be read is an error rather than an absence,
+// for the reason a hold's is: a reader would otherwise say nobody lifted a hold
+// somebody did.
+func (s *IntakeHoldStore) LastRelease() (IntakeRelease, bool, error) {
+	file, err := os.Open(s.releasePath())
+	if errors.Is(err, os.ErrNotExist) {
+		return IntakeRelease{}, false, nil
+	}
+	if err != nil {
+		return IntakeRelease{}, false, fmt.Errorf("open intake release: %w", err)
+	}
+	defer file.Close()
+	encoded, err := io.ReadAll(io.LimitReader(file, maxEncodedStateBytes))
+	if err != nil {
+		return IntakeRelease{}, false, fmt.Errorf("read intake release: %w", err)
+	}
+	// The record is only ever read to say who lifted a hold, so a field this
+	// build does not know is read past rather than refused.
+	var release IntakeRelease
+	if _, err := decodeTolerating(encoded, &release); err != nil {
+		return IntakeRelease{}, false, fmt.Errorf("decode intake release: %w", err)
+	}
+	if err := release.Validate(); err != nil {
+		return IntakeRelease{}, false, err
+	}
+	if release.Hold.ProductID != s.productID {
+		return IntakeRelease{}, false, fmt.Errorf("intake release belongs to product %q, not %q", release.Hold.ProductID, s.productID)
+	}
+	return release, true, nil
+}
+
+// releasePath names the record of the last release, beside the hold it lifted.
+func (s *IntakeHoldStore) releasePath() string {
+	return filepath.Join(s.root, "intake-release.json")
 }
 
 // path names the hold's file. It is one fixed name under the product: nothing

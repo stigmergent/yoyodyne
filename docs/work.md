@@ -1417,7 +1417,8 @@ decided by `execution.brake_cooldown`, so a hold the brake placed
 round `execution.brake_escalation_cycles` times.
 Stops the environment made count toward nothing. What reports that hold
 names the brake rather than you, because the hold records which of the two
-placed it, and says who is deciding it. And it records what it is doing — watching, idle, braked, resumed,
+placed it, names the runs it counted with what stopped each, and says who is
+deciding it. And it records what it is doing — watching, idle, braked, resumed,
 stopped — where `yoyo status` and the Slack sink read it, because an idle
 session and a dead one are otherwise the same silence. A
 poll that starts nothing names the runs going and what it passed over. It records

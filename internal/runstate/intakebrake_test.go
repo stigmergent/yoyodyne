@@ -97,7 +97,7 @@ func TestTheBrakesRecordRidesItsOwnHoldAndNoOther(t *testing.T) {
 	}
 
 	// Released by the harness, the record goes with the hold.
-	if _, lifted, err := store.ReleaseBrake(); err != nil || !lifted {
+	if _, lifted, err := store.ReleaseBrake("the harness", time.Now()); err != nil || !lifted {
 		t.Fatalf("ReleaseBrake() = %t, %v, want the brake's hold lifted", lifted, err)
 	}
 	if _, err := store.DecideBrake(BrakeDecisionRelease, "nothing", "nobody", trippedAt); !errors.Is(err, ErrNoBrakeHold) {
@@ -116,7 +116,7 @@ func TestTheBrakesRecordRidesItsOwnHoldAndNoOther(t *testing.T) {
 		t.Fatalf("the operator's hold = %#v, whose %q; want it theirs and untouched", operators, operators.Whose())
 	}
 	// And the harness's own release does not lift it either.
-	if _, lifted, err := store.ReleaseBrake(); err != nil || lifted {
+	if _, lifted, err := store.ReleaseBrake("the harness", time.Now()); err != nil || lifted {
 		t.Fatalf("ReleaseBrake() over the operator's hold = %t, %v, want theirs left where it is", lifted, err)
 	}
 	if _, held, _ := store.Held(); !held {

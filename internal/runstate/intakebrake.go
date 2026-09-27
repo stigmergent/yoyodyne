@@ -33,7 +33,6 @@ package runstate
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -504,8 +503,9 @@ func (s *IntakeHoldStore) ReviseBrake(revise func(*IntakeBrake) error) (IntakeHo
 // manager's decision, or on a probe that landed — and the reason it is not
 // Release is the window between reading the hold and lifting it: a hold the
 // operator placed in that window is theirs, and this leaves it exactly where
-// it is, reporting nothing lifted.
-func (s *IntakeHoldStore) ReleaseBrake() (IntakeHold, bool, error) {
+// it is, reporting nothing lifted. by is what moved the harness to lift it,
+// recorded as the release's author.
+func (s *IntakeHoldStore) ReleaseBrake(by string, at time.Time) (IntakeHold, bool, error) {
 	release, err := s.lock()
 	if err != nil {
 		return IntakeHold{}, false, err
@@ -518,13 +518,7 @@ func (s *IntakeHoldStore) ReleaseBrake() (IntakeHold, bool, error) {
 	if !found || !held.Braked() {
 		return held, false, nil
 	}
-	if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return IntakeHold{}, false, fmt.Errorf("release intake hold: %w", err)
-	}
-	if err := syncDirectory(s.root); err != nil {
-		return IntakeHold{}, false, err
-	}
-	return held, true, nil
+	return s.lift(held, by, at)
 }
 
 // ErrBrakeEscalatedByHarness refuses a probe decision on a hold the harness has

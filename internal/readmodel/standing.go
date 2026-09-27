@@ -612,9 +612,29 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// and this is where a surface finds out that it is asleep.
 	standing.CapacityBlocked = CapacityBlockedOf(sources, now)
 
-	standing.Reports, standing.ReportsProblem = readReports(sources, now)
+	// The pile is read once and used twice: for how it stands, and for the
+	// findings in it that need the operator. Two readings of one pile a moment
+	// apart could disagree about whether a report is handled.
+	reports, handlings, pileProblem := readPile(sources)
+	standing.Reports, standing.ReportsProblem = summarizePile(reports, handlings, pileProblem, now)
+	// An escalated stoppage is a finding while its item is still admitted: an
+	// item the operator retired, or closed after doing what was asked, is read
+	// from the same queue the not-startable line was read from.
+	// A queue that could not be read admits nothing this reading can see, and
+	// that must not read as every escalation having ended: the findings are read
+	// as standing instead, which says one once rather than never.
+	var admitted func(string) bool
+	if notStartableProblem == "" || len(queue.Entries) > 0 {
+		inQueue := make(map[string]bool, len(queue.Entries))
+		for _, entry := range queue.Entries {
+			inQueue[entry.ID] = true
+		}
+		admitted = func(id string) bool { return inQueue[id] }
+	}
+	actions, actionsProblem := readOperatorActions(reports, handlings, pileProblem, sources, admitted)
 
-	needs, needsProblem := readNeedsHuman(sources, switches)
+	needs, needsProblem := readNeedsHuman(sources, switches, actions)
+	needsProblem = joinProblems(needsProblem, actionsProblem)
 	// The provider answering nobody is on the attention line whatever the queue
 	// holds, because what ends it is a person: it is added here where the stall
 	// did not already carry it, which is a stall over an empty queue.
@@ -1254,13 +1274,13 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 // says so and reports no counts at all: a zero here would read as a channel
 // nobody has filed into, which is the one thing a broken read of it must never
 // look like.
-func readReports(sources Sources, now time.Time) (report.Pile, string) {
+func readPile(sources Sources) ([]report.Report, []report.Handling, string) {
 	if sources.Reports == nil {
-		return report.Pile{}, "nothing was wired to read what the roles have reported"
+		return nil, nil, "nothing was wired to read what the roles have reported"
 	}
 	reports, err := sources.Reports.List()
 	if err != nil {
-		return report.Pile{}, fmt.Sprintf("the collected reports could not be read: %v", err)
+		return nil, nil, fmt.Sprintf("the collected reports could not be read: %v", err)
 	}
 	handlings, err := sources.Reports.Handlings()
 	if err != nil {
@@ -1268,7 +1288,16 @@ func readReports(sources Sources, now time.Time) (report.Pile, string) {
 		// count as undecided. That overstates the backlog in the direction that
 		// sends somebody to work on something already done, so no counts are given
 		// at all and the gap is named.
-		return report.Pile{}, fmt.Sprintf("what became of the collected reports could not be read, so how many are still waiting cannot be said: %v", err)
+		return nil, nil, fmt.Sprintf("what became of the collected reports could not be read, so how many are still waiting cannot be said: %v", err)
+	}
+	return reports, handlings, ""
+}
+
+// summarizePile is how the pile stands, from one reading of it, or the stated
+// absence where it could not be read.
+func summarizePile(reports []report.Report, handlings []report.Handling, problem string, now time.Time) (report.Pile, string) {
+	if problem != "" {
+		return report.Pile{}, problem
 	}
 	return report.Summarize(reports, handlings, now), ""
 }
@@ -1285,8 +1314,13 @@ func readReports(sources Sources, now time.Time) (report.Pile, string) {
 // Held work is the one entry here whose mover can be the harness rather than a
 // person, and it is on this line for exactly that reason: an operator scanning
 // for what is waiting on him has to be able to see which of it is not.
-func readNeedsHuman(sources Sources, held switches) ([]Attention, string) {
-	attention := make([]Attention, 0, 4)
+//
+// A finding only the operator can act on is named ahead of the undecided
+// proposals and is never folded into the remainder: the brake's hold, with the
+// runs that tripped it, and each report-derived finding by name. Those are the
+// entries whose wait was measured in weeks before they were named here.
+func readNeedsHuman(sources Sources, held switches, actions []Attention) ([]Attention, string) {
+	attention := make([]Attention, 0, 4+len(actions))
 	if held.operatorHeld {
 		attention = append(attention, operatorHoldAttention(held.operator))
 	}
@@ -1305,6 +1339,7 @@ func readNeedsHuman(sources Sources, held switches) ([]Attention, string) {
 	for _, paused := range held.pausing {
 		attention = append(attention, directiveAttention(paused))
 	}
+	attention = append(attention, actions...)
 	problem := strings.Join(held.problems, "; ")
 
 	if sources.Amendments == nil {

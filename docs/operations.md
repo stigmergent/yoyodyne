@@ -374,7 +374,98 @@ blocking, and every report of a held intake at a terminal names this command
 beside `/release`. Releasing what is not held is not an error, an item you name
 with `yoyo run` was never subject to the hold, and a watching `yoyo work` session
 starts choosing again at its next poll. Placing a hold stays in the conversation,
-where the reason for it can be recorded with it.
+where the reason for it can be recorded with it. Who lifted a hold is recorded
+beside the absence — `intake-release.json` under the product, naming the hold it
+lifted, when, and by whom: this command, the conversation and its turn, or the
+harness and what moved it — because the channel owes you who ended a hold it
+announced: [the release is said once, by whom](reporting.md#a-finding-that-needs-your-hand).
+
+## Where a finding that needs your hand goes
+
+Some of what the roles find can be acted on only by a person: a hook that has to
+go into `.claude/settings.json`, a credential to renew, a setting in a workspace,
+a change to a file the harness may not write. Until 2026-09-19 such a finding
+went where every other report went — into [the collected pile](reporting.md#what-agents-report-and-where-it-reaches-you),
+worked through on the Lead Product Manager's cadence, and from there onto a checklist
+in her conversation that you saw when you asked. Six developer reports of that
+class sat in the pile from 2026-08-17 until the sweep of 2026-09-14 reached
+them, and the finding it produced reached you a month after the first of them
+was filed, because you asked why.
+
+**A finding that needs your hand is a class the harness reads, and it goes to
+three places the moment it is recorded.** Three things make one, and the
+brake's hold becomes a fourth once it is yours:
+
+- **The Lead Product Manager handling a report as yours.** Her `handle` action takes
+  `"needs": "operator"` for a report whose answer is a change only you can make,
+  with the reason saying what you have to do. That handling does not close the
+  report; it records the finding, and a later handling of the same report
+  without `needs` is what records the change made. She is not handed the report
+  again as unhandled, so her turns list the findings she has handed you, with
+  their identifiers, until she records each one done — tell her when you have
+  made the change, or she will see it.
+- **A report filed at critical severity** by any role, until somebody handles it.
+  Critical is the severity that means action, in the reporting contract's own
+  words; a critical report the Lead Product Manager then handles as yours is the same
+  finding, and one she handles any other way ends it.
+- **A run stopping on a condition only a person can clear.** The harness does
+  not judge a stoppage itself; the development manager does, on
+  [her docket](conversation.md#deciding-what-becomes-of-stopped-work), and her
+  `escalate` decision is the one typed record that says a stopped run needs a
+  person rather than a repair, a re-run, or a wait — a target branch that
+  diverged from the forge, a publication nothing asked the forge to merge, a
+  stop no budget answers. That decision is the finding, standing while it is
+  the decision on the item's latest stopped run and the item is still in the
+  backlog; a later decision on the run, a later run, or the item being retired
+  or closed ends it. (Her escalation already carries a warning-or-above report
+  into the pile; that report is what she may handle as yours, and the finding is
+  the decision rather than the report, so it is named once.)
+- **The failure-storm brake's hold, once it is yours.** The hold names the runs
+  it counted — each with its item and what stopped it. The trip is sent to you
+  directly once, tagged, the moment it is recorded, naming those runs and
+  `yoyo release`. While the development manager and the harness are working it,
+  it is theirs to move and the message says so; once she escalates it to you,
+  or the harness does at the bound on its loop, that is said to you directly
+  once more and its line on `yoyo status` names you as the one to move.
+  [The configuration guide](configuration.md#watching-instead-of-draining) says
+  what the brake counts, what it does not, and how it is worked.
+
+Two stops a run makes on its own are named to you elsewhere and are not
+findings of this class: a run parked on provider capacity the harness cannot
+wait for is on the attention line's capacity entry with its remedy, and a
+promotion the forge has not published is on the line as awaiting the forge, each
+with whose move it is.
+
+Where each goes:
+
+1. **One Slack direct message, tagged to you by member id, the moment it is
+   recorded** — saying what is needed, who found it, and where it is recorded,
+   so you can go and read the whole of it. It is said once and never again
+   while it stands: a second pass sends nothing more, and a message repeated
+   about something you have been told is the nagging that gets a channel muted.
+   The brake's message names the runs it counted; the release of any intake
+   hold is said once, naming who lifted it. See
+   [reporting](reporting.md#a-finding-that-needs-your-hand).
+2. **A named line under `Needs a human` on `yoyo status`**, ahead of the
+   undecided proposals and never folded into `and N things not named here`:
+   `report-… needs your hand: <what> (found by …; recorded in …)`,
+   `yoyodyne-ifd.272 needs your hand: <the development manager's reason> (found
+   by the development manager, escalating the stopped run to the operator;
+   recorded in …)`, and for the brake `intake is held, since <trip time>: …;
+   tripped by run … of …: …`. It stays until the finding ends — the change
+   recorded made, the report handled, the run decided again, the hold lifted.
+   `--json` carries each finding as an entry of kind `operator-action`, with the
+   finding whole under `operator_action`.
+3. **The durable records that made it** — the report and its handling in the
+   pile, read with `yoyo reports`; the triage decision on the item's record and
+   the blocker on the item; the hold in `intake-hold.json` under the product,
+   which the status line is read from. A finding is derived from those and
+   stored nowhere else, so there is nothing to clear by hand: what ends it is
+   the record that says it is done.
+
+What is deliberately not here is a list of your own. The Lead Product Manager keeps
+none, and the harness keeps none apart from the records above: a checklist is
+what reaches you when you ask, and this is what reaches you when it happens.
 
 **These three verbs, and `yoyo artifact approve`, are a person's, and a
 process an agent started is refused them.** Every process the harness launches
@@ -2311,7 +2402,8 @@ Needs a human (3):
   it waits on, which for [a hold the brake placed](#pausing-everything-and-resuming-it)
   is the development manager's or the harness's rather than yours until she
   escalates it, and names the probe run while one is in flight — an unresolved
-  directive, a
+  directive, each [finding that needs your hand](#where-a-finding-that-needs-your-hand-goes)
+  by name, a
   proposed change nobody has decided, a run that ended still owing a step, a
   promotion the forge has not published, work
   marked for a conversation rather than for a run, a queue nothing is pulling
@@ -2325,7 +2417,10 @@ Needs a human (3):
   oldest undecided entry has been waiting more than a week. A stall over an empty
   queue is not listed: it is a state of the machine rather than something waiting
   on you, and neither is a report pile that is being worked through — what is
-  listed is one that is not. The unpublished promotions are the same set the
+  listed is one that is not. The line names ten entries and counts the rest,
+  except a finding that needs your hand and a hold the brake placed: those are
+  named wherever they fall and never counted into `and N things not named
+  here`, because a finding folded into a count is one that did not reach you. The unpublished promotions are the same set the
   channel's hourly line counts as awaiting the forge, read by the same
   derivation, and each says who it is waiting on: the forge's while it holds the
   merge queued — with the checks the last sweep read beside it, since a merge

@@ -98,7 +98,8 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		AttentionFailingTask: {failingTaskAttention(failingTask),
 			"the recurring task development-manager-sweep has failed before its first turn 2 times in a row since 2026-08-30T09:00:00Z: the harness refused the message it composed for the pass; latest: scheduled pass's message is 47768 bytes, limit is 32768"},
 		AttentionHold: {intakeHoldAttention(brake),
-			"intake is held, since 2026-08-30T10:00:00Z: " + singleLine(brake.Account(), maxRefusalBytes)},
+			"intake is held, since 2026-08-30T10:00:00Z: " + singleLine(brake.Account(), maxRefusalBytes) +
+				"; tripped by a run of yoyodyne-ifd.300: checks failed"},
 		AttentionDirective: {directiveAttention(paused),
 			"directive directive-4f2c is unresolved: which branch does this land on?"},
 		AttentionOutage: {outageAttention(outage), outage.Says()},
@@ -106,6 +107,15 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			"a watch session is alive and has found nothing it can start, since 2026-08-30T11:00:00Z"},
 		AttentionHeldWork: {heldWorkAttention(HeldAwaitingCarryOut, 2),
 			"2 admitted items await carry-out of a decision already recorded"},
+		AttentionOperatorAction: {operatorActionAttention(OperatorAction{
+			Key: "report:report-1", Subject: "report-1", ReportID: "report-1", WorkItemID: "yoyodyne-ifd.383",
+			Needs:      "add the hook to .claude/settings.json by hand",
+			RecordedIn: "the handling of report-1 recorded in chat-1",
+			FoundBy:    "the Lead Product Manager, handling the report",
+			Ends:       reportFindingEnds,
+			Since:      moment.Add(-time.Hour),
+		}),
+			"report-1 needs your hand: add the hook to .claude/settings.json by hand (found by the Lead Product Manager, handling the report; recorded in the handling of report-1 recorded in chat-1, about yoyodyne-ifd.383)"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
