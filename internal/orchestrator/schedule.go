@@ -1154,6 +1154,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// reserves, which is several steps after it is started, and a pull that
 	// counted only the recorded runs would start the same slot twice.
 	mine := make(map[string]int)
+	// elsewhere is the runs another process had in flight at the last pull, by run
+	// identifier, and ended is the runs of this session collected since then. The
+	// next pull reads both to say which slots freed and whose runs had held them:
+	// a run of another process leaves no completion here, so the only way this
+	// session learns one ended is that a pull no longer finds it in flight.
+	elsewhere := map[string]string{}
+	var ended []freedSlot
 	// cadence is what this pass knows about why a recurring task might not have
 	// fired when it fell due; see recurringWatch.
 	cadence := recurringWatch{opened: s.now(), missed: map[string]time.Time{}}
@@ -1387,6 +1394,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		running--
 		delete(mine, schedule.Started[done.index].WorkItemID)
 		settle(done)
+		// Only a start that became a run held a slot anybody could see; one that
+		// was declined before it reserved anything frees nothing worth naming.
+		if started := schedule.Started[done.index]; started.Outcome.RunID != "" {
+			ended = append(ended, freedSlot{runID: started.Outcome.RunID, workItemID: started.WorkItemID, ours: true})
+		}
 	}
 
 	// collect takes one finished run. It reports false when the context ended
@@ -1453,6 +1465,25 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		return s.sleep(ctx, pull.Poll)
 	}
 
+	// awaitRunOrPoll waits for whichever comes first of a run of this session
+	// ending and the poll interval this pull read, and reports false when the
+	// context ended. It is what a watch waits on whenever something other than its
+	// own runs can change the answer: a slot it could not fill, or a slot another
+	// process holds, which that process's run ending frees without this session
+	// hearing of it until it reads the runs in flight again.
+	awaitRunOrPoll := func(pull Pull) bool {
+		select {
+		case done := <-completions:
+			finish(done)
+			return true
+		case <-s.interval(pull.Poll):
+			schedule.Polls++
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
 	// refill is the wait of a watching session with a developer slot free that
 	// this poll could not fill. With no run of its own going it is wait. With one
 	// going it is whichever comes first of that run ending and the poll interval
@@ -1468,25 +1499,16 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// the third run's completion while the queue behind it stood ready. Nothing
 	// about a slot that is free waits on a run that is not in it, so a free slot
 	// is refilled at the next poll, whatever else is still in flight. A session
-	// whose slots are all taken still waits on a completion, because a run ending
-	// is then the only thing that can change the answer.
+	// whose slots are all taken by its own runs still waits on a completion,
+	// because a run ending is then the only thing that can change the answer; one
+	// whose slots are all taken with another process holding any of them waits on
+	// the interval as well, for the same reason a free slot does.
 	refill := func(pull Pull, said account) bool {
 		if running == 0 {
 			return wait(pull, runstate.WatchIdle, said)
 		}
 		session.enter(runstate.WatchIdle, said)
-		select {
-		case done := <-completions:
-			running--
-			delete(mine, schedule.Started[done.index].WorkItemID)
-			settle(done)
-			return true
-		case <-s.interval(pull.Poll):
-			schedule.Polls++
-			return true
-		case <-ctx.Done():
-			return false
-		}
+		return awaitRunOrPoll(pull)
 	}
 
 	// awaitProvider waits out one interval of the provider answering nobody. It
@@ -1826,6 +1848,13 @@ pulling:
 			}
 		}
 		free := pull.Capacity - len(occupied)
+		// freed is the slots that came free since the last pull and whose runs had
+		// held them, which the line a filling poll writes says; heldElsewhere is how
+		// many slots another process's runs hold now, which decides what a session
+		// at full capacity waits on below.
+		var freed []freedSlot
+		freed, ended, elsewhere = freedSince(elsewhere, ended, occupied, mine, schedule.Started)
+		heldElsewhere := len(elsewhere)
 		// freeAtPoll and filledByCarryOut are what the line a filling poll writes
 		// says about the slots: how many this poll found free, and how many of them
 		// a carried-out decision took before the queue was read.
@@ -1953,6 +1982,19 @@ pulling:
 			free = 1
 		}
 		if free < 1 {
+			// A watch with a slot another process holds waits on the interval as
+			// well as on its own runs: that process's run ending frees a slot this
+			// session hears of only by reading the runs in flight again, so a wait on
+			// its own completions alone left the slot empty until one of them ended.
+			// With every slot its own, a run of its own ending is still the only
+			// thing that can change the answer, and it waits on that as it did.
+			if running > 0 && s.Watching && heldElsewhere > 0 {
+				if !awaitRunOrPoll(pull) {
+					schedule.Stopped = ScheduleCancelled
+					break
+				}
+				continue
+			}
 			if running > 0 {
 				if !collectUntilDue(pull) {
 					schedule.Stopped = ScheduleCancelled
@@ -2273,13 +2315,18 @@ pulling:
 			// said on every such poll rather than only the first after a wait,
 			// because a slot left empty beside a run in flight is what a reader of
 			// this log has to be able to see.
+			//
+			// It also says which slots freed since the last poll and whose runs had
+			// held them, because a slot another process's run freed is refilled here
+			// with nothing of this session's having ended, and a reader who sees only
+			// the count cannot tell where the room came from.
 			slots := filledLine(filledByCarryOut+started, freeAtPoll, running-len(tasks)-started)
 			if started == 0 {
 				session.filled(fmt.Sprintf("%s; a triage decision the development manager recorded was carried out; nothing was pulled from a backlog of %d admitted, %d of them ready",
-					slots, len(queue.Entries), queue.Ready()))
+					slots, len(queue.Entries), queue.Ready()) + freedLine(freed))
 				continue
 			}
-			session.filled(fmt.Sprintf("%s; %d item(s) pulled from a backlog of %d admitted, %d of them ready", slots, started, len(queue.Entries), queue.Ready()))
+			session.filled(fmt.Sprintf("%s; %d item(s) pulled from a backlog of %d admitted, %d of them ready", slots, started, len(queue.Entries), queue.Ready()) + freedLine(freed))
 			continue
 		}
 		// Nothing was startable this pull. With runs of ours still going, one of
@@ -4267,6 +4314,74 @@ func filledLine(filled, free, alreadyRunning int) string {
 		line += fmt.Sprintf(", beside %s this session already had in flight", plural(alreadyRunning, "run", "runs"))
 	}
 	return line
+}
+
+// freedSlot is a developer slot that came free between two pulls: the run that
+// had held it, the item that run was over, and whether the run was this
+// session's or another process's.
+type freedSlot struct {
+	runID      string
+	workItemID string
+	ours       bool
+}
+
+// freedSince reads which slots freed since the last pull. The runs of this
+// session that ended are the ones it collected, handed in as ended; the runs of
+// another process that ended are the ones the last pull found in flight,
+// handed in as elsewhere, that this pull does not. It returns those together,
+// ended emptied for the next pull, and the runs another process has in flight
+// now, which the next pull reads the same way.
+//
+// A run is judged this session's by its identifier against every run the
+// session has started, as well as by the item it is over, so a run of its own
+// the store still lists for a moment after it was collected is never counted
+// again as another process's.
+func freedSince(elsewhere map[string]string, ended []freedSlot, occupied map[string]runstate.State, mine map[string]int, started []Started) ([]freedSlot, []freedSlot, map[string]string) {
+	ours := make(map[string]bool, len(started))
+	for _, run := range started {
+		if run.Outcome.RunID != "" {
+			ours[run.Outcome.RunID] = true
+		}
+	}
+	inFlight := make(map[string]bool, len(occupied))
+	now := make(map[string]string)
+	for id, state := range occupied {
+		if state.RunID == "" {
+			continue
+		}
+		inFlight[state.RunID] = true
+		if _, mineToo := mine[id]; mineToo || ours[state.RunID] {
+			continue
+		}
+		now[state.RunID] = id
+	}
+	freed := ended
+	var gone []freedSlot
+	for runID, id := range elsewhere {
+		if !inFlight[runID] {
+			gone = append(gone, freedSlot{runID: runID, workItemID: id})
+		}
+	}
+	slices.SortFunc(gone, func(a, b freedSlot) int { return strings.Compare(a.runID, b.runID) })
+	return append(freed, gone...), nil, now
+}
+
+// freedLine is what a filling poll adds about the slots that freed since the
+// last poll, and nothing where none did.
+func freedLine(freed []freedSlot) string {
+	if len(freed) == 0 {
+		return ""
+	}
+	named := make([]string, 0, len(freed))
+	for _, slot := range freed {
+		whose := "another process's run"
+		if slot.ours {
+			whose = "this session's run"
+		}
+		named = append(named, fmt.Sprintf("%s over %s, %s", slot.runID, slot.workItemID, whose))
+	}
+	return fmt.Sprintf("; %s since the last poll: %s",
+		plural(len(freed), "developer slot freed", "developer slots freed"), strings.Join(named, "; "))
 }
 
 // dispatching is the context a dispatch this session starts runs under, carrying
