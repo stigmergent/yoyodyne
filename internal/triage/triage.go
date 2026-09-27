@@ -132,11 +132,17 @@ const (
 	// run behind it, and that is the point of it: the whole value of catching this
 	// is that it costs a read instead of a run.
 	ClassUnreadyItem Class = "unready_item"
+	// ClassProductDecision is the Lead Product Manager having decided, while a
+	// run for the item was still in flight, that the item is superseded,
+	// narrowed, or to be retired. It is the one class about a run that has not
+	// stopped, and what it asks the development manager is whether the run stops
+	// or finishes. See productdecision.go.
+	ClassProductDecision Class = "product_decision"
 )
 
 func (c Class) Valid() bool {
 	switch c {
-	case ClassStoppedRun, ClassUnstartedRun, ClassUnstartedAttempt, ClassEscalation, ClassPublication, ClassUnreadyItem:
+	case ClassStoppedRun, ClassUnstartedRun, ClassUnstartedAttempt, ClassEscalation, ClassPublication, ClassUnreadyItem, ClassProductDecision:
 		return true
 	default:
 		return false
@@ -153,6 +159,7 @@ func Classes() []Class {
 		ClassEscalation,
 		ClassPublication,
 		ClassUnreadyItem,
+		ClassProductDecision,
 	}
 }
 
@@ -180,6 +187,8 @@ func (c Class) Title() string {
 		return "unfinished publication"
 	case ClassUnreadyItem:
 		return "item the tree is not ready for"
+	case ClassProductDecision:
+		return "product decision about a run in flight"
 	default:
 		return string(c)
 	}
@@ -1142,7 +1151,10 @@ type Entry struct {
 	// integration stop it is written into the entry, because the request is made
 	// before the run stops and so before the entry exists.
 	StopRequested *RequestedStop `json:"stop_requested,omitempty"`
-	Counters      Counters       `json:"counters"`
+	// ProductDecision is what the Lead Product Manager decided about the item
+	// while this run was in flight, on the one class that carries it.
+	ProductDecision *ProductDecision `json:"product_decision,omitempty"`
+	Counters        Counters         `json:"counters"`
 	// Rerun is the re-run already claimed against this entry's own stoppage, when
 	// there is one. It is joined to the entry where the docket is read rather
 	// than written into the log: an entry is recorded once as the work stops, and
@@ -1332,6 +1344,12 @@ func (e Entry) keys() []string {
 	if e.Class == ClassUnstartedAttempt {
 		return []string{AttemptKey(e.WorkItemID, e.Failure)}
 	}
+	if e.Class == ClassProductDecision {
+		if e.ProductDecision == nil {
+			return nil
+		}
+		return []string{ProductDecisionKey(e.RunID, e.ProductDecision.Decision)}
+	}
 	derived := []string{Key(e.Class, e.RunID)}
 	// A publication whose request is unrecorded has no number to key to, and is
 	// keyed to the run alone — the first shape above, which is also what an entry
@@ -1486,6 +1504,9 @@ func (e Entry) Validate() error {
 			problems = append(problems, errors.New("replay_conflict: a conflict is a person's and an integration stop is the harness's, so one stop is never both"))
 		}
 	}
+	if e.ProductDecision != nil && e.Class != ClassProductDecision {
+		problems = append(problems, fmt.Errorf("product_decision: only a product decision entry carries one, and this entry is a %s", e.Class))
+	}
 	if e.StopRequested != nil {
 		if strings.TrimSpace(e.StopRequested.By) == "" {
 			problems = append(problems, errors.New("stop_requested: who asked is required, because a stop nobody is named for is one nobody can answer for"))
@@ -1604,6 +1625,17 @@ func (e Entry) Validate() error {
 		if e.Publication != nil || strings.TrimSpace(e.Blocker) != "" || strings.TrimSpace(e.Failure) != "" {
 			problems = append(problems, errors.New("an unready item entry describes work that never started: there is no blocker, no failure and no publication to carry"))
 		}
+	case ClassProductDecision:
+		// The decision is the whole of the entry. Nothing stopped, so there is no
+		// blocker, no failure, and nothing reviewed, checked, or published to carry.
+		if e.ProductDecision == nil {
+			problems = append(problems, errors.New("a product decision entry carries the decision"))
+		} else {
+			problems = append(problems, e.ProductDecision.validate()...)
+		}
+		if strings.TrimSpace(e.Blocker) != "" || strings.TrimSpace(e.Failure) != "" || e.Publication != nil || len(e.Findings) > 0 || e.Check != nil {
+			problems = append(problems, errors.New("a product decision entry is about a run in flight: there is no blocker, failure, review, check, or publication to carry"))
+		}
 	case ClassPublication:
 		if e.Publication == nil {
 			problems = append(problems, errors.New("a publication entry carries the publication it is about"))
@@ -1672,6 +1704,7 @@ func (e Entry) Render() string {
 		rendered.WriteString(indented("Decided", e.Closed.Describe()))
 	}
 	rendered.WriteString(e.renderUnready())
+	rendered.WriteString(e.renderProductDecision())
 	rendered.WriteString(e.renderEscalation())
 	rendered.WriteString(e.renderUnstarted())
 	rendered.WriteString(e.renderAttempt())
@@ -1722,7 +1755,11 @@ func (e Entry) Render() string {
 	rendered.WriteString(e.renderResumableSession())
 	rendered.WriteString(e.renderIntegrationStop())
 	rendered.WriteString(e.renderReplayConflict())
-	rendered.WriteString(e.renderNextMover())
+	// A product decision names its own next mover, because the question it asks
+	// is about a run in flight rather than a stoppage.
+	if e.Class != ClassProductDecision {
+		rendered.WriteString(e.renderNextMover())
+	}
 	fmt.Fprintf(&rendered, "      Triage counters: %d of %s review round(s) used%s; %d repair attempt(s) spent in this run; a grant would hand it %d\n",
 		e.Counters.ReviewRounds, capFigure(e.Counters.ReviewRoundsCap), roundsNote(e.Counters),
 		e.Counters.RepairAttempts, e.Counters.RepairGrantAttempts)

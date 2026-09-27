@@ -825,7 +825,10 @@ naming her; the run stops at its next provider call exactly as it does for you,
 with its branch and worktree preserved.
 [Deciding what becomes of stopped work](#deciding-what-becomes-of-stopped-work)
 has the decision, and [how work flows](work.md#letting-the-harness-choose-the-work)
-has what it leaves behind.
+has what it leaves behind. When it is the Lead Product Manager who decides the
+item is superseded, narrowed, or to be retired, her decision reaches the
+development manager as a docket entry rather than through you;
+[a decision about work in flight](work.md#a-decision-about-work-in-flight) is how.
 
 `/hold` is the narrower verb and the one with no equivalent before now: it stops
 the harness *choosing* new work, and lets everything already running finish. It
@@ -1761,7 +1764,14 @@ change is preserved. A `stop` naming a run that has already ended is refused.
 boundary before it reads the request, and then stops for another reason — a
 failed review, say — reached a stoppage the stop never reached: it is docketed as
 an undecided entry naming both the stop she asked for and what actually stopped
-the run, and it waits on her decision like any other. The decision
+the run, and it waits on her decision like any other. `proceed` is the other
+answer about a run in flight: it lets the run finish, asks nothing of it, and
+records that she looked. Both answer the one docket entry that is about a run
+still going — the Lead Product Manager's decision that its item is superseded,
+narrowed, or to be retired, which that role records with an `inflight` action and
+the harness dockets for her at once, ahead of the stoppages, with where the run
+stands; either decision closes it, and `proceed` is refused on a run that has
+already ended, as a stop is. The decision
 lands in the item's notes, so the next reader of a run that stopped finds the
 reasoning beside the evidence rather than deciding it a second time, and it
 closes the entry it settled — a repair, a re-run, or a re-scope closes the

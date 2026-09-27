@@ -1812,15 +1812,20 @@ const triageDocketHeader = `
 
 The work that has stopped moving and is still yours to decide: entries on work
 that is still open and that nobody has decided about, one per stopped run. What
-is critical comes first — an item a role raised as unmeetable, and a decision
-of yours the harness was stopped carrying out by a gate that will not clear on
-its own — and then the oldest stoppage this docket has not yet shown you,
+is critical comes first — an item a role raised as unmeetable, a decision the
+Lead Product Manager made about an item whose run is still in flight, and a
+decision of yours the harness was stopped carrying out by a gate that will not
+clear on its own — and then the oldest stoppage this docket has not yet shown you,
 resuming past where the last docket you were given stopped. A run that ended on
 a durable blocker is here, and so is an approved publication the forge has not
 merged.
 So is an item dispatch would not start, because the tree does not meet a
 prerequisite the item states — that one has no run behind it, which is the point
 of it: it was caught by a read rather than by a run spending itself.
+So is the Lead Product Manager's decision that an item whose run is in flight is
+superseded, narrowed, or to be retired, with where the run now stands: it asks
+whether the run stops ("stop") or finishes ("proceed"), and the run goes on
+spending until you record one.
 Each entry carries the evidence as it was recorded rather than a summary of it:
 the blocker in the words it was recorded in, the reviewer's own findings, the
 check that was failing, the branch and worktree that were preserved, what the

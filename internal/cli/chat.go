@@ -864,6 +864,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// operator's stop request, made on her behalf and naming her. Wired for
 		// that role alone, so no other conversation can stop a run in her name.
 		Stops: conversationStops(parts, role),
+		// The hand that dockets the Lead Product Manager's decision about an item
+		// whose run is in flight, for the development manager to decide the run
+		// from. Wired for her conversation alone.
+		InFlight: conversationInFlight(parts, role),
 		// What the harness is holding for a person, which is what a repair of stale
 		// backlog state is refused by. It is the same derivation the scheduler and
 		// every operator surface read, so an item this conversation reports as held

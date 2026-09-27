@@ -348,7 +348,8 @@
     { attention: "outage", title: "The provider answering nobody" },
     { attention: "stall", title: "A queue nothing is pulling from" },
     { attention: "held-work", title: "Admitted work held back" },
-    { attention: "operator-action", title: "A finding only the operator can act on" }
+    { attention: "operator-action", title: "A finding only the operator can act on" },
+    { attention: "product-decision", title: "A product decision about a run in flight" }
   ];
 
   function kindTitle(kind) {

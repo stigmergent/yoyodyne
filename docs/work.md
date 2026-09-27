@@ -755,6 +755,64 @@ to do is a repair however much of it there is, and an escalation says that no
 change would help. A branch review cannot escalate at all, because it has no
 single item to raise and nowhere to send the decision.
 
+## A decision about work in flight
+
+The Lead Product Manager decides what is admitted, and sometimes she decides it
+about an item that already has a developer run going: another item now does its
+work, its scope was cut after the run started, or it is not going to be done at
+all. Whether that run stops is not hers to decide — stopping a run in flight is
+the development manager's — and until this existed nothing carried the one
+decision to the other. A note on the item is read when a stoppage on it is
+decided, never while its run is still going, and the ask channel decides
+nothing. On 2026-09-27 the operator's assistant relayed exactly that by hand, for
+yoyodyne-ifd.428.34 superseded by yoyodyne-ifd.398, and by the operator's rule a
+hand step routed to a person is a defect.
+
+So the Lead Product Manager records it as an action in her conversation:
+
+```json
+{"action":"inflight","id":"yoyodyne-ifd.428.34","decision":"superseded","superseded_by":"yoyodyne-ifd.398","reason":"398 rebuilds this card whole, so this run's change would be thrown away"}
+```
+
+`decision` is `superseded`, `narrowed`, or `retired`; `superseded_by` names the
+item doing the work instead, and is required on a supersession. She names the
+item and not the run: the harness finds the run in flight from its own records,
+and refuses the action where there is none, because a decision about an item
+with nothing running is a `retire`, a `park`, or an `update` she makes directly.
+Nothing about the item changes — not its status, not its place in the order —
+and retiring it stays hers, once the run has stopped or finished.
+
+What the action does is docket the decision for the development manager at
+once, as a *product decision about a run in flight*: what was decided, why, by
+whom, the item that supersedes it, and the run's branch and worktree. It is the
+one entry on her docket about a run that has not stopped, and it is put ahead of
+the stoppages there, because the run goes on spending while the question waits.
+Where the run stands is read again from its own record every time the docket is
+built for her, so her sweep or her triage conversation shows the phase it has
+reached by then rather than the one it was in when the decision was made. The
+item's notes say the same, attributed to the Lead Product Manager's
+conversation.
+
+The entry asks her one thing: does the run stop, or finish? `stop` is the stop
+[below](#letting-the-harness-choose-the-work) — the harness writes the request
+the operator's `/stop` writes, in her name, and the run ends cancelled at its
+next boundary with its change preserved and its slot free. `proceed` lets it
+finish and be reviewed and promoted as it would have been, and records that she
+looked; it is for the run nearly done, or building something the superseding
+work keeps. Either is a triage decision naming the run, recorded on the item's
+triage record and its notes with her reason, and either closes the entry — and
+neither decides a stoppage, so a run she let finish that stops anyway reaches her
+as a stoppage like any other. Both are refused for a run that has already ended.
+
+A run that ends before she decides settles the entry itself. One that stopped
+holding its change is docketed as that stoppage, with the product decision
+folded beneath it, and her decision about the stoppage settles both. One that
+finished, or that the operator stopped, leaves nothing to stop, and the next
+build of the docket closes the entry saying so; one whose item was closed closes
+with the item. While the entry stands undecided and its run is in flight, `yoyo
+status` names it under what needs a human, as the development manager's move,
+and so do the dashboard and the channel, from the same read model.
+
 ## Letting the harness choose the work
 
 `/work <id>` and `yoyo run <id>` are you naming an item. `yoyo work` is the
@@ -1350,6 +1408,10 @@ and the stopped run's branch or worktree is still there, the pull holds it,
 saying which run she stopped, which decision, and which item supersedes it.
 Closing or retiring the item, the change going, or a later decision of hers
 releases it.
+Where it is the Lead Product Manager who decided the run's item is superseded,
+narrowed, or to be retired, that decision reaches the development manager's
+docket by itself, and `proceed` is the answer beside `stop`;
+[a decision about work in flight](#a-decision-about-work-in-flight) is how.
 
 A stop decides the stoppage it causes and no other. A run that passed its last
 boundary before the request was read, and then stopped for another reason — a

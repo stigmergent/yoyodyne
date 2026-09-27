@@ -58,6 +58,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // backlogStatuses are the tracker slices the admitted work is assembled from.
@@ -168,6 +169,13 @@ type ProviderOutages interface {
 	Standing() (runstate.ProviderOutage, bool, error)
 }
 
+// Docket is the development manager's triage docket, read for the one entry the
+// attention line names: a product decision about a run in flight she has not yet
+// answered. It is satisfied by *runstate.DocketStore.
+type Docket interface {
+	List() ([]triage.Entry, error)
+}
+
 // Sources are the durable records one standing reading is assembled from, and
 // the two configured numbers it is read against. Every store is an interface so
 // that this derivation can be exercised without a state directory, which is the
@@ -203,6 +211,10 @@ type Sources struct {
 	// reported anything" and "nothing was wired to read what anybody reported" are
 	// opposite answers, and only one of them means there is nothing to do.
 	Reports Reports
+	// Docket is the triage docket, read for the Lead Product Manager's decisions
+	// about runs in flight that the development manager has not answered. It is
+	// optional, and a reading without one names none of them.
+	Docket Docket
 	// UsageLimits is the provider's refusals outside a run, read with the runs
 	// above — for the ones parked on a limit — and the agents below for the one
 	// thing the three say together: whether the provider is holding every role
@@ -1368,6 +1380,10 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention) ([]Atte
 		}
 	}
 
+	decisions, decisionsProblem := readProductDecisions(sources)
+	attention = append(attention, decisions...)
+	problem = joinProblems(problem, decisionsProblem)
+
 	if sources.Runs == nil {
 		problem = joinProblems(problem, "nothing was wired to read the runs that owe a step")
 		return attention, problem
@@ -1395,6 +1411,42 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention) ([]Atte
 		}
 	}
 	return attention, problem
+}
+
+// readProductDecisions is every product decision about a run still in flight
+// that the development manager has not answered, read off the docket she decides
+// from. A run that has ended is left out: there is nothing left to stop, and the
+// next docket build settles its entry. Where the runs cannot be read, every
+// unanswered decision is named rather than none.
+func readProductDecisions(sources Sources) ([]Attention, string) {
+	if sources.Docket == nil {
+		return nil, ""
+	}
+	entries, err := sources.Docket.List()
+	if err != nil {
+		return nil, fmt.Sprintf("the product decisions about runs in flight could not be read: %v", err)
+	}
+	var inFlight map[string]bool
+	if sources.Runs != nil {
+		if running, err := sources.Runs.Incomplete(); err == nil {
+			inFlight = make(map[string]bool, len(running))
+			for _, state := range running {
+				inFlight[state.RunID] = true
+			}
+		}
+	}
+	now := sources.now()
+	var attention []Attention
+	for _, entry := range entries {
+		if entry.Class != triage.ClassProductDecision || entry.ProductDecision == nil || !entry.Undecided(now) {
+			continue
+		}
+		if inFlight != nil && !inFlight[entry.RunID] {
+			continue
+		}
+		attention = append(attention, productDecisionAttention(entry))
+	}
+	return attention, ""
 }
 
 // Held is the admitted work somebody has to release, as attention rather than as

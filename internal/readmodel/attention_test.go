@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // proposedChange is one undecided proposal, as the amendment store records it.
@@ -116,6 +117,15 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			Since:      moment.Add(-time.Hour),
 		}),
 			"report-1 needs your hand: add the hook to .claude/settings.json by hand (found by the Lead Product Manager, handling the report; recorded in the handling of report-1 recorded in chat-1, about yoyodyne-ifd.383)"},
+		AttentionProductDecision: {productDecisionAttention(triage.Entry{
+			RunID: "run-superseded", WorkItemID: "yoyodyne-ifd.428.34",
+			ProductDecision: &triage.ProductDecision{
+				Decision: triage.ProductSuperseded, SupersededBy: "yoyodyne-ifd.398",
+				Reason: "398 does this work whole", DecidedBy: "the Lead Product Manager in conversation chat-1",
+				RunStatus: "running", RunInFlight: true, RunReadAt: moment,
+			},
+		}),
+			"yoyodyne-ifd.428.34 is superseded by yoyodyne-ifd.398 while run run-superseded is in flight, decided by the Lead Product Manager in conversation chat-1: 398 does this work whole"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -185,6 +195,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionStall:           string(ReasonSessionIdle),
 		AttentionReports:         "",
 		AttentionHeldWork:        "",
+		AttentionProductDecision: "run-superseded",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)
