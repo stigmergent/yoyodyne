@@ -727,15 +727,21 @@ the configuration rather than a reading that failed.
 
 **Beyond the three: a watching session takes up a build deployed over it.** When
 the `yoyo` it is running is written over — you rebuild it, you install it — the
-session stops choosing, waits out every run it already started, and restarts into
-what you deployed. A run in flight is never interrupted for it, and nothing is
-configured: a deploy is the whole of the instruction. What that costs is one
-restart per deploy, and the queue is re-read from scratch on the way back in
-exactly as it is at every poll.
+session stops choosing and takes up what you deployed. With nothing in flight it
+restarts into it in place. With runs in flight it lets the watch go at once and
+starts the deployed build as a session of its own, which takes the watch, fills
+the slots those runs are not holding, and fires what is due; the old session
+hosts its runs to their end, choosing and firing nothing, and `yoyo status` shows
+it as draining until it stops. A run in flight is never interrupted for it, and
+nothing is configured: a deploy is the whole of the instruction. What that costs
+is one restart per deploy and no idle slots, and the queue is re-read from scratch
+by the build that takes the watch exactly as it is at every poll.
 
 The bounds cross the restart reduced to what is left of them — `--budget` less
 what the session has spent, `--limit` less what it has started — because a bound
-carried whole would start again at every deploy. A session that has reached
+carried whole would start again at every deploy. A session given `--budget` waits
+its runs out rather than handing the watch over, since what they will cost is not
+known until they end. A session that has reached
 either one stops on the bound instead of restarting: you set that number, and
 taking up a build is not you raising it. There is nothing here for a drain, which
 is a command you are waiting on the return of.

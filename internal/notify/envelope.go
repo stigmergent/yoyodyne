@@ -248,6 +248,13 @@ const (
 	// them the same way would hand the operator a move they do not have, once per
 	// deploy, which is the standing chore self-redeployment exists to end.
 	KindWatchRedeploying Kind = "watch.redeploying"
+	// A session that met a build deployed over it with runs still going, handed the
+	// watch to a session on that build at once, and is finishing its own runs while
+	// choosing nothing — and the stop it records when the last of them ends. It is
+	// said apart from an idle poll and from an ending for the reason the restart
+	// is: an idle poll reads as a queue found empty and an ending as a line nobody
+	// is pulling from, while the build it handed to has been pulling since.
+	KindWatchDraining Kind = "watch.draining"
 	// A session that chose nothing because the harness's store could not be read,
 	// and is reading it again. It is the same recorded idle poll as KindWatchIdle
 	// and it is said apart from it, on the precedent above: a poll that read the
@@ -456,6 +463,7 @@ func Kinds() []Kind {
 		KindWatchResumed,
 		KindWatchStopped,
 		KindWatchRedeploying,
+		KindWatchDraining,
 		KindWatchReadRetrying,
 		KindLineWaiting,
 		KindResidentStale,
@@ -492,7 +500,7 @@ func (k Kind) Valid() bool {
 		KindDirectiveWithdrawn, KindQuestionHeard,
 		KindIntakeHeld, KindIntakeReleased, KindIntakeEscalated, KindHoldPlaced, KindHoldLifted,
 		KindWatchStarted, KindWatchIdle, KindWatchBraked, KindWatchResumed, KindWatchStopped,
-		KindWatchRedeploying, KindWatchReadRetrying, KindLineWaiting, KindResidentStale, KindStallNoticed,
+		KindWatchRedeploying, KindWatchDraining, KindWatchReadRetrying, KindLineWaiting, KindResidentStale, KindStallNoticed,
 		KindProviderWindow, KindCapacityHold, KindProviderOutage, KindProviderRestored,
 		KindRecurringTaskFailing, KindClaimReleased,
 		KindBundleImprovement, KindBundleImprovements, KindCatchUpDigest, KindLogLineSkipped:

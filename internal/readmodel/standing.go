@@ -1181,6 +1181,12 @@ func Live(sessions []runstate.WatchTransition) []runstate.WatchTransition {
 // ones a caller counts as still going, newest first. A note about one of a
 // session's dispatches is not a transition of the session, so it is read past;
 // see runstate.WatchTransition.Note.
+//
+// A session whose last word is that it is draining is kept by neither reading.
+// It handed the watch to a session on a build deployed over it and chooses
+// nothing more, so it is not what either question is about: the runs it is
+// hosting are in the run records, which is where anything counting slots reads
+// them, and what is choosing work is the session it handed to.
 func alive(sessions []runstate.WatchTransition, keep func(runstate.WatchState) bool) []runstate.WatchTransition {
 	last := make(map[string]runstate.WatchTransition, len(sessions))
 	for _, transition := range sessions {
@@ -1194,7 +1200,7 @@ func alive(sessions []runstate.WatchTransition, keep func(runstate.WatchState) b
 	}
 	kept := make([]runstate.WatchTransition, 0, len(last))
 	for _, transition := range last {
-		if keep(transition.State) {
+		if !transition.Draining && keep(transition.State) {
 			kept = append(kept, transition)
 		}
 	}

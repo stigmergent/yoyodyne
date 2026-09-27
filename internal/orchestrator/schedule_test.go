@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -2354,12 +2355,400 @@ func TestADrainNeverRedeploysItself(t *testing.T) {
 	}
 }
 
+// The whole of what a handover buys, and the case of 2026-09-26: a build lands
+// while a session's runs are going, and the slots those runs are not holding are
+// filled by the deployed build's session before the old runs end, rather than
+// sitting empty until the last of them does.
+//
+// Three slots. The old session fills all three; the run that lands the deploy
+// ends, and the session hands the watch over with two runs still going. The new
+// session takes the one free slot at once, and the next slot one of the old runs
+// gives back — the draining session's runs count against the shared limit for
+// exactly as long as they last, and not a moment longer. The last old run does
+// not end until the new session has started both items, so a session that held
+// the watch through the wait would never let it end.
+func TestAHandoverFillsTheFreeSlotsBeforeTheOldRunsEnd(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-lander", "yoyodyne-long", "yoyodyne-longer", "yoyodyne-new-one", "yoyodyne-new-two")...)
+	harness.capacity = 3
+	// The three old runs are required to be inside at once, so the old session
+	// fills every slot before the deploy lands.
+	harness.developersMeet(3)
+	deployment := &deployedOver{}
+	oldSessions := &recordedSessions{}
+	newSessions := &recordedSessions{}
+	var fullAtHandover []string
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		switch id {
+		case "yoyodyne-lander":
+			deployment.deploy()
+		case "yoyodyne-longer":
+			// Given back once the new session has taken the one slot that was free, so
+			// the second item it starts can only be in the slot this run held.
+			if !h.awaitStarted("yoyodyne-new-one") {
+				t.Error("the new session never took the slot left free at the handover")
+			}
+		case "yoyodyne-long":
+			if !h.awaitStarted("yoyodyne-new-one", "yoyodyne-new-two") {
+				t.Error("the old session's last run ended without the new session having filled the slots it freed")
+			}
+		}
+		return h.complete(id), nil
+	}
+	harness.onSleep = func(h *scheduleHarness, sleeps int) bool {
+		// Only the new session ever sleeps: the old one is collecting its runs from
+		// the handover on. It keeps polling until it has started both items.
+		return sleeps < 100000 && !h.startedAll("yoyodyne-new-one", "yoyodyne-new-two")
+	}
+
+	successor := &successorSession{scheduler: Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: newSessions}}
+	successor.before = func() { fullAtHandover = harness.pullOrder() }
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: oldSessions, Deployment: deployment, Handover: successor}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if !schedule.HandedOver() || schedule.Redeploying() {
+		t.Fatalf("stopped = %q, want the session stopped having handed the watch over, and restarting nothing", schedule.Stopped)
+	}
+	if schedule.HandedOverTo != "the successor" {
+		t.Fatalf("handed over to = %q, want what the handover started named on the pass", schedule.HandedOverTo)
+	}
+	if len(schedule.Started) != 3 {
+		t.Fatalf("old session started %#v, want its three runs and nothing chosen after the deploy landed", schedule.Started)
+	}
+	for _, started := range schedule.Started {
+		if started.Failure != "" || started.Outcome.Status != runstate.StatusSucceeded {
+			t.Fatalf("%s = %#v, want a run carried to its own end by the session that started it", started.WorkItemID, started)
+		}
+	}
+	if len(fullAtHandover) != 3 {
+		t.Fatalf("pulled before the handover = %v, want the old session's three runs only", fullAtHandover)
+	}
+	if successor.asked != 1 || successor.started != 3 {
+		t.Fatalf("handover asked %d time(s) with %d started, want once with the three runs this session started", successor.asked, successor.started)
+	}
+
+	newSchedule := successor.wait(t)
+	if len(newSchedule.Started) != 2 {
+		t.Fatalf("new session started %#v, want both items the free slots could take", newSchedule.Started)
+	}
+	if harness.peak > 3 {
+		t.Fatalf("%d runs were in flight at once, want the two sessions held to the one limit of three", harness.peak)
+	}
+
+	// The old session said it was draining, and said it where the log marks it as
+	// draining, and its stop is neither an ending somebody must answer nor a restart
+	// that will not come.
+	drained := false
+	for _, transition := range oldSessions.recorded() {
+		if transition.draining && transition.state == runstate.WatchIdle && strings.Contains(transition.reason, "handed the watch to the successor") {
+			drained = true
+		}
+	}
+	if !drained {
+		t.Fatalf("old session recorded %#v, want a draining line naming what it handed the watch to", oldSessions.recorded())
+	}
+	last := oldSessions.recorded()[len(oldSessions.recorded())-1]
+	if last.state != runstate.WatchStopped || !last.draining || last.restarting {
+		t.Fatalf("old session's last line = %#v, want a draining stop that is not a restart", last)
+	}
+	for _, transition := range newSessions.recorded() {
+		if transition.draining {
+			t.Fatalf("new session recorded %#v as draining, want only the session that handed over marked", transition)
+		}
+	}
+}
+
+// The cadence goes with the watch. A draining session fires nothing; the session
+// on the deployed build fires what is due from its first pull, so a redeploy no
+// longer holds the recurring tasks until the old runs end — which on 2026-09-26
+// held the sweeps from about 11:25 Pacific until one was sent by hand.
+func TestADueTaskFiresInTheNewSessionWhileTheOldOneDrains(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-lander", "yoyodyne-long")...)
+	harness.capacity = 2
+	harness.developersMeet(2)
+	deployment := &deployedOver{}
+	oldFired := &countingRecurring{}
+	newFired := &countingRecurring{}
+	var oldFiredAtHandover int
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		switch id {
+		case "yoyodyne-lander":
+			deployment.deploy()
+		case "yoyodyne-long":
+			if !newFired.await() {
+				t.Error("the old session's last run ended with nothing fired by the session on the deployed build")
+			}
+		}
+		return h.complete(id), nil
+	}
+	harness.onSleep = func(*scheduleHarness, int) bool { return newFired.count() == 0 }
+
+	successor := &successorSession{scheduler: Scheduler{Open: withRecurring(harness.open, newFired), Watching: true, Sleep: harness.sleep}}
+	successor.before = func() { oldFiredAtHandover = oldFired.count() }
+	scheduler := Scheduler{Open: withRecurring(harness.open, oldFired), Watching: true, Sleep: harness.sleep, Deployment: deployment, Handover: successor}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if !schedule.HandedOver() {
+		t.Fatalf("stopped = %q, want the session to have handed the watch over", schedule.Stopped)
+	}
+	successor.wait(t)
+	if newFired.count() == 0 {
+		t.Fatal("the session on the deployed build fired nothing, want the due task fired from its first pull")
+	}
+	if got := oldFired.count(); got != oldFiredAtHandover {
+		t.Fatalf("the draining session fired %d task(s) after the handover, want none", got-oldFiredAtHandover)
+	}
+}
+
+// A handover that fails with the watch still here changes nothing: the session
+// waits out its runs and restarts into the build, exactly as before handovers
+// existed, and says why it did not hand over.
+func TestAFailedHandoverWaitsOutTheRunsAndRestarts(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-lander", "yoyodyne-long")...)
+	harness.capacity = 2
+	harness.developersMeet(2)
+	deployment := &deployedOver{}
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		switch id {
+		case "yoyodyne-lander":
+			deployment.deploy()
+		case "yoyodyne-long":
+			// Still going when the session meets the deploy, which is the case a
+			// handover is for.
+			if !deployment.awaitNoticed() {
+				t.Error("the session never met the deploy")
+			}
+		}
+		return h.complete(id), nil
+	}
+	refusing := &successorSession{refuse: errors.New("exec format error")}
+	sessions := &recordedSessions{}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Deployment: deployment, Handover: refusing}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if !schedule.Redeploying() {
+		t.Fatalf("stopped = %q, want the session restarting into the build as it did before handovers", schedule.Stopped)
+	}
+	if !strings.Contains(schedule.HandoverProblem, "exec format error") {
+		t.Fatalf("handover problem = %q, want why the watch was not handed over", schedule.HandoverProblem)
+	}
+	if len(schedule.Started) != 2 {
+		t.Fatalf("started %d run(s), want the two already going and nothing after", len(schedule.Started))
+	}
+	for _, transition := range sessions.recorded() {
+		if transition.draining {
+			t.Fatalf("recorded %#v as draining, want nothing marked for a handover that did not happen", transition)
+		}
+	}
+	if !sessions.restarted() {
+		t.Fatal("the stop was not recorded as a restart")
+	}
+}
+
+// A session given a budget is not handed over. What its runs in flight will cost
+// is not known until they end, so what is left of the budget is not known either,
+// and a successor given a guess would be the operator's bound quietly moving.
+func TestABoundedBudgetWaitsOutItsRunsRatherThanHandingOver(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-lander", "yoyodyne-long")...)
+	harness.capacity = 2
+	harness.developersMeet(2)
+	deployment := &deployedOver{}
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		switch id {
+		case "yoyodyne-lander":
+			deployment.deploy()
+		case "yoyodyne-long":
+			// Still going when the session meets the deploy, which is the case a
+			// handover is for.
+			if !deployment.awaitNoticed() {
+				t.Error("the session never met the deploy")
+			}
+		}
+		return h.complete(id), nil
+	}
+	successor := &successorSession{}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Budget: 50, Deployment: deployment, Handover: successor}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if !schedule.Redeploying() || successor.asked != 0 {
+		t.Fatalf("stopped = %q with the handover asked %d time(s), want a bounded session to restart rather than hand over", schedule.Stopped, successor.asked)
+	}
+}
+
+// A session with nothing in flight when it meets the deploy has nothing to host,
+// so it restarts in place as it always has and hands nothing over.
+func TestASessionWithNothingInFlightRestartsRatherThanHandingOver(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one")...)
+	// Deployed before the first pull, so the session meets it with nothing started.
+	deployment := &deployedOver{}
+	deployment.deploy()
+	successor := &successorSession{}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Deployment: deployment, Handover: successor}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if !schedule.Redeploying() || successor.asked != 0 || len(schedule.Started) != 0 {
+		t.Fatalf("stopped = %q with the handover asked %d time(s) and %d started, want a restart in place", schedule.Stopped, successor.asked, len(schedule.Started))
+	}
+}
+
+// successorSession stands in for the handover: it lets the watch go by starting
+// the deployed build's session — here, a second scheduler against the same
+// harness, which is what sharing one capacity limit is — or refuses.
+type successorSession struct {
+	scheduler Scheduler
+	refuse    error
+	// before runs as the handover is asked, before the successor starts.
+	before func()
+
+	asked, started int
+	done           chan struct{}
+	schedule       Schedule
+	err            error
+}
+
+func (s *successorSession) Handover(ctx context.Context, started int) (string, error) {
+	s.asked++
+	s.started = started
+	if s.refuse != nil {
+		return "", s.refuse
+	}
+	if s.before != nil {
+		s.before()
+	}
+	s.done = make(chan struct{})
+	go func() {
+		defer close(s.done)
+		s.schedule, s.err = s.scheduler.Schedule(ctx)
+	}()
+	return "the successor", nil
+}
+
+func (s *successorSession) wait(t *testing.T) Schedule {
+	t.Helper()
+	select {
+	case <-s.done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the successor session did not end")
+	}
+	if s.err != nil {
+		t.Fatalf("successor Schedule() error = %v", s.err)
+	}
+	return s.schedule
+}
+
+// awaitStarted waits for every named item to have been started by either
+// session, and reports whether they all were before a generous bound. It is how
+// a run stands in for one that is still going when the other session acts.
+func (h *scheduleHarness) awaitStarted(ids ...string) bool {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if h.startedAll(ids...) {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
+}
+
+func (h *scheduleHarness) startedAll(ids ...string) bool {
+	order := h.pullOrder()
+	for _, id := range ids {
+		if !slices.Contains(order, id) {
+			return false
+		}
+	}
+	return true
+}
+
+// countingRecurring is a recurring schedule with one task always due, counting
+// the firings, so a test can tell which session fired and when.
+type countingRecurring struct {
+	mu     sync.Mutex
+	firing int
+}
+
+func (c *countingRecurring) Fire(context.Context) (RecurringSweep, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.firing++
+	return RecurringSweep{Fired: []Fired{{Task: "dm-sweep", Role: domain.RoleDevelopmentManager, Turns: 1}}}, nil
+}
+
+func (c *countingRecurring) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.firing
+}
+
+func (c *countingRecurring) await() bool {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if c.count() > 0 {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
+}
+
+// withRecurring opens the harness's pull with a recurring schedule of the
+// caller's, so two sessions over one harness each fire their own.
+func withRecurring(open func(context.Context) (Pull, error), recurring ScheduleRecurring) func(context.Context) (Pull, error) {
+	return func(ctx context.Context) (Pull, error) {
+		pull, err := open(ctx)
+		pull.Recurring = recurring
+		return pull, err
+	}
+}
+
 // deployedOver is the session's own binary: unchanged until a test deploys over
 // it, and unreadable where a test says the reading itself fails.
 type deployedOver struct {
 	mu       sync.Mutex
 	replaced bool
 	failure  error
+	// noticed is closed the first time the session is told the build was
+	// replaced, so a run can stay in flight until the session has met the deploy.
+	noticed     chan struct{}
+	noticedOnce sync.Once
+}
+
+// awaitNoticed waits for the session to have been told the build was replaced.
+func (d *deployedOver) awaitNoticed() bool {
+	d.mu.Lock()
+	if d.noticed == nil {
+		d.noticed = make(chan struct{})
+	}
+	noticed := d.noticed
+	d.mu.Unlock()
+	select {
+	case <-noticed:
+		return true
+	case <-time.After(30 * time.Second):
+		return false
+	}
 }
 
 func (d *deployedOver) deploy() {
@@ -2373,6 +2762,12 @@ func (d *deployedOver) Replaced() (bool, error) {
 	defer d.mu.Unlock()
 	if d.failure != nil {
 		return false, d.failure
+	}
+	if d.replaced {
+		if d.noticed == nil {
+			d.noticed = make(chan struct{})
+		}
+		d.noticedOnce.Do(func() { close(d.noticed) })
 	}
 	return d.replaced, nil
 }
@@ -2935,6 +3330,9 @@ type recordedTransition struct {
 	// ending, which is what every surface reads to tell the operator whether
 	// anything is waiting on them.
 	restarting bool
+	// draining is the session marking a line as one written after it handed the
+	// watch to a deployed build, while it hosts its own runs to their end.
+	draining bool
 	// window and windowResetsAt are the provider's usage window the poll was made
 	// inside, which is what every surface reads to tell this silence from one
 	// nothing accounts for.
@@ -2962,6 +3360,7 @@ func (r *recordedSessions) Record(transition SessionState) error {
 		executor:   transition.Executor,
 		unreadable: transition.Unreadable,
 		restarting: transition.Restarting,
+		draining:   transition.Draining,
 
 		window:         transition.ProviderWindow,
 		windowResetsAt: transition.ProviderWindowResetsAt,

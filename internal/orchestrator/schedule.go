@@ -150,6 +150,17 @@ package orchestrator
 // moved inside: the session declining to claim anything more is what makes the
 // window exist at all, and nothing but the session can decline.
 //
+// Waiting its runs out is not the same as holding the watch while it does. A
+// session that meets a deployed build with runs still going hands the watch to a
+// session on that build at once, through ScheduleHandover, and drains: it hosts
+// its runs to their end, because their providers are its children, and chooses
+// and fires nothing more. The session it handed to fills the slots those runs are
+// not holding — capacity is enforced where a run reserves, so the two share one
+// limit — and fires what is due from its first pull. The draining session stops
+// with ScheduleHandedOver once its last run ends, and nothing restarts it. Only a
+// session with nothing in flight, or one the handover is not open to, restarts in
+// place as above.
+//
 // A drain never does any of this. It is a command somebody is waiting on the
 // return of, and restarting it would run the pass again from the beginning.
 
@@ -251,6 +262,12 @@ const (
 	// the caller re-executes, and the session that comes back is watching the
 	// same queue from the build that was deployed.
 	ScheduleRedeployed = "a build was deployed over the one this session was started from, and the session is restarting into it"
+	// ScheduleHandedOver reports a session that met a deployed build with runs of
+	// its own still going, handed the watch to a session on that build at once, and
+	// stopped once the last of its runs ended. It is not the end of the line either:
+	// the session it handed to has been choosing work since the handover, so the
+	// caller neither restarts nor waits on anything.
+	ScheduleHandedOver = "a build was deployed over the one this session was started from; the session handed the watch to a session on that build and stopped once its own runs had ended"
 	// ScheduleProviderAway reports a drain that stopped because the provider is
 	// answering nobody — a login nobody has renewed, an API nothing reaches. A
 	// watch waits it out instead; a drain is a command somebody is waiting on the
@@ -362,6 +379,31 @@ type ScheduleDeployment interface {
 	Replaced() (bool, error)
 }
 
+// ScheduleHandover is how a watching session that has met a deployed build, with
+// runs of its own still going, gives the watch to a session on that build rather
+// than holding it until its runs end. Handover lets the watch go and starts the
+// deployed build's session, which takes the watch and fills the slots this
+// session's runs are not holding; it reports what it started, in words a reader
+// of the log can follow.
+//
+// started is how many runs this session has started, so a session given a count
+// of runs hands on what is left of it. A session given a budget is never handed
+// over: what its runs still in flight will cost is not known until they end, so
+// what is left of the budget is not known either, and it waits them out and
+// restarts as before.
+//
+// A handover that fails reports an error only where this session still holds the
+// watch, and the session then waits its runs out and restarts exactly as it did
+// before this existed. Where the watch has gone to somebody else by then —
+// another session on the deployed build, started by the supervisor — that is a
+// handover, and it is reported as one.
+//
+// It is optional, and a session wired without one waits out its runs and
+// restarts, which is the two idle slots this exists to end.
+type ScheduleHandover interface {
+	Handover(ctx context.Context, started int) (string, error)
+}
+
 // SessionState is one transition a watch session records about itself: what it
 // entered, when, why, and whether the stop it is recording is a session coming
 // straight back rather than a line going down.
@@ -402,6 +444,10 @@ type SessionState struct {
 	// already on its way back, which is the standing chore this whole mechanism
 	// exists to end rather than reproduce once per deploy.
 	Restarting bool
+	// Draining marks every entry a session writes once it has handed the watch to
+	// a session on a deployed build: the idle entries that count its runs down, and
+	// its last stop. See runstate.WatchTransition.Draining.
+	Draining bool
 	// Mover is whose move follows a braked poll, worded by the hold's own record
 	// where the hold carries one. It travels for the reason the executor does:
 	// the clause a channel closes a braked message on used to name the operator
@@ -786,6 +832,11 @@ type Scheduler struct {
 	// consulted only while watching, because a drain is a command somebody is
 	// waiting on the return of rather than a process that outlives a deploy.
 	Deployment ScheduleDeployment
+	// Handover is how a session that met a deployed build with runs still going
+	// gives the watch to a session on that build at once, rather than holding it
+	// until those runs end. Optional; see ScheduleHandover. It is consulted only
+	// where Deployment has said the build was replaced.
+	Handover ScheduleHandover
 	// Watchdog notices that this product has started nothing at all while work
 	// was ready, and records it where every surface reads it back. It is called
 	// once per pull, from this loop's own goroutine and before anything is
@@ -1091,6 +1142,12 @@ type Schedule struct {
 	// work because it could not stat a file would be a worse failure than the
 	// staleness it is guarding against.
 	RedeployProblem string `json:"redeploy_problem,omitempty"`
+	// HandedOverTo is what took the watch when this session handed it to the
+	// deployed build, and HandoverProblem is a handover that failed with the watch
+	// still this session's, which it answered by waiting its runs out and
+	// restarting as it did before handovers existed. Neither stops the session.
+	HandedOverTo    string `json:"handed_over_to,omitempty"`
+	HandoverProblem string `json:"handover_problem,omitempty"`
 	// SessionProblem names a transition that could not be recorded. It costs the
 	// session its visibility rather than its work, so it is reported beside the
 	// pass rather than failing it — the alternative is a session that stops
@@ -1236,6 +1293,12 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// already started, which is the whole of how a restart reaches the machine
 	// without cancelling a run.
 	redeploying := false
+	// handedOver is the session having given the watch to a session on that build
+	// while its own runs were still going, and handoverAsked is it having asked
+	// once, whichever way the asking went: a handover that failed with the watch
+	// still here is waited out and restarted as before rather than asked again at
+	// every run that ends.
+	handedOver, handoverAsked := false, false
 	// retries is the run of harness readings that have failed with none
 	// succeeding between them. See readRetries: it is what lets a watch ride
 	// through the store contention a reconcile or a settling run makes, and what
@@ -1523,7 +1586,10 @@ pulling:
 		// itself. A session that has stopped choosing would report nothing about
 		// that however carefully this loop described itself, which is the whole
 		// reason the reading is of the durable records instead.
-		if s.Watchdog != nil {
+		//
+		// A session draining after a handover leaves it to the session it handed
+		// to, which reads the same records from its own loop.
+		if s.Watchdog != nil && !handedOver {
 			s.Watchdog(ctx)
 		}
 		// Whether a build has been deployed over this one, asked before anything
@@ -1547,12 +1613,39 @@ pulling:
 			// bounded by the run rather than by the queue, because the session has
 			// already stopped claiming: the window an external restart could never
 			// find is one this makes rather than waits for.
+			//
+			// What it need not do is hold the watch while it waits. A run's provider
+			// belongs to the process that started it, so this session has to host its
+			// runs to their end; but capacity is enforced where a run reserves rather
+			// than by the session, so a session on the deployed build, sharing that
+			// limit, fills only the slots these runs are not holding. On 2026-09-26
+			// holding the watch through the wait kept two of three slots empty for
+			// over an hour, with fifteen items ready, while one run finished its
+			// checks — and held every recurring task for as long. So the watch goes to
+			// the deployed build at once, and this session drains.
 			if running > 0 {
+				if !handoverAsked && s.Handover != nil && s.Budget == 0 {
+					handoverAsked = true
+					to, err := s.Handover.Handover(ctx, len(schedule.Started))
+					if err != nil {
+						schedule.HandoverProblem = fmt.Sprintf("the watch could not be handed to a session on the build deployed over this one, so this session waits out its runs and restarts into it: %v", err)
+					} else {
+						handedOver = true
+						schedule.HandedOverTo = to
+					}
+				}
+				if handedOver {
+					session.enter(runstate.WatchIdle, account{reason: drainingReason(running, schedule.HandedOverTo), running: running, draining: true})
+				}
 				if !collect() {
 					schedule.Stopped = ScheduleCancelled
 					break
 				}
 				continue
+			}
+			if handedOver {
+				schedule.Stopped = ScheduleHandedOver
+				break
 			}
 			schedule.Stopped = ScheduleRedeployed
 			break
@@ -2207,8 +2300,18 @@ pulling:
 	// The last line, and whether it is an ending. A session stopping to be
 	// restarted into the build deployed over it is waiting on nothing and nobody,
 	// and a reader told otherwise is being handed the chore this exists to end.
-	session.stop(stopping(schedule), schedule.Redeploying())
+	session.stop(stopping(schedule), schedule.Redeploying(), handedOver)
 	return schedule, failure
+}
+
+// drainingReason is what a draining session says about itself: what it handed
+// the watch to, and how many of its own runs it is still hosting.
+func drainingReason(running int, to string) string {
+	if strings.TrimSpace(to) == "" {
+		to = "a session"
+	}
+	return fmt.Sprintf("handed the watch to %s on the build deployed over this one, and hosting %s of its own to their end while choosing nothing",
+		to, plural(running, "run", "runs"))
 }
 
 // stopping is what the session's last recorded line says: why it stopped, and
@@ -3755,6 +3858,9 @@ type account struct {
 	// mover is whose move a braked poll is, in the hold's own words, where the
 	// hold carries them. It is empty everywhere else.
 	mover string
+	// draining marks the account of a session that has handed the watch to a
+	// deployed build and is hosting its own runs to their end.
+	draining bool
 }
 
 // same reports two accounts as the same account, which is what makes a poll that
@@ -3764,7 +3870,7 @@ type account struct {
 func (a account) same(other account) bool {
 	if a.reason != other.reason || a.running != other.running ||
 		a.executor != other.executor || a.unreadable != other.unreadable ||
-		a.window != other.window || a.mover != other.mover {
+		a.window != other.window || a.mover != other.mover || a.draining != other.draining {
 		return false
 	}
 	if a.passedOver.Admitted != other.passedOver.Admitted ||
@@ -3868,6 +3974,7 @@ func (w *watchSession) enter(state runstate.WatchState, said account) {
 		Unreadable: said.unreadable,
 		PassedOver: said.passedOver,
 		Mover:      said.mover,
+		Draining:   said.draining,
 	}
 	if said.window.waiting {
 		transition.ProviderWindow = true
@@ -3883,13 +3990,15 @@ func (w *watchSession) enter(state runstate.WatchState, said account) {
 // being restarted into a build deployed over it rather than the line going down.
 // The two read identically in the log and mean opposite things to whoever is
 // waiting: one is a session somebody has to start again, and the other is a
-// session that is already on its way back.
-func (w *watchSession) stop(reason string, restarting bool) {
+// session that is already on its way back. A session that handed the watch on
+// and drained says that instead: nothing is coming back, because what it would
+// have become has been watching since the handover.
+func (w *watchSession) stop(reason string, restarting, draining bool) {
 	if w.to == nil {
 		return
 	}
-	w.state, w.said = runstate.WatchStopped, account{reason: reason}
-	w.record(SessionState{State: runstate.WatchStopped, Reason: reason, Restarting: restarting})
+	w.state, w.said = runstate.WatchStopped, account{reason: reason, draining: draining}
+	w.record(SessionState{State: runstate.WatchStopped, Reason: reason, Restarting: restarting, Draining: draining})
 }
 
 // resume records the session choosing work again after a wait. It leaves the
@@ -4425,6 +4534,12 @@ func (s Schedule) Render() string {
 	if s.RedeployProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.RedeployProblem)
 	}
+	if s.HandedOverTo != "" {
+		fmt.Fprintf(&rendered, "handed the watch to %s on the build deployed over this session\n", s.HandedOverTo)
+	}
+	if s.HandoverProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.HandoverProblem)
+	}
 	if s.StalenessProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.StalenessProblem)
 	}
@@ -4485,6 +4600,13 @@ func endedWithoutSucceeding(status runstate.Status) bool {
 // closed it.
 func (s Schedule) Redeploying() bool {
 	return s.Stopped == ScheduleRedeployed
+}
+
+// HandedOver reports a session that gave the watch to a session on a build
+// deployed over it and stopped once its own runs had ended. The caller restarts
+// nothing: the session it handed to has been choosing work since the handover.
+func (s Schedule) HandedOver() bool {
+	return s.Stopped == ScheduleHandedOver
 }
 
 // Failed reports a pass with something in it an operator has to act on. A

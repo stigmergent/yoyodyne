@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // takeTargetVariable is how the test below tells the process it starts to
@@ -50,5 +53,43 @@ func TestTakeReplacesTheRunningImage(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(output)); got != "redeployed" {
 		t.Fatalf("output = %q, want the replaced image's own, which is the whole evidence that it was replaced", got)
+	}
+}
+
+// Handing the watch over starts the deployed build beside this process rather
+// than in place of it, as the invocation given, and in a session of its own —
+// so the end of the draining process, or of the group it was started in, does
+// not take the build with it.
+func TestStartRunsTheBuildBesideThisProcessInASessionOfItsOwn(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("this machine has no shell to start: %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "started")
+	binary, err := at(shell, []string{shell}, os.Environ())
+	if err != nil {
+		t.Fatalf("at() error = %v", err)
+	}
+	// The process ends by itself a few seconds on, however this test ends.
+	pid, err := binary.Start([]string{shell, "-c", `echo "$0" > "$1"; sleep 3`, "handed-over", out})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if pid <= 0 || pid == os.Getpid() {
+		t.Fatalf("Start() = pid %d, want a process beside this one", pid)
+	}
+	if group, err := syscall.Getpgid(pid); err != nil || group != pid {
+		t.Fatalf("Getpgid(%d) = %d, %v, want the build leading a group, and a session, of its own", pid, group, err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		written, err := os.ReadFile(out)
+		if err == nil && strings.TrimSpace(string(written)) == "handed-over" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the started build wrote %q, %v, want the invocation it was given", written, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

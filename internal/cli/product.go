@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -581,7 +582,39 @@ func (c schedulerChild) holderPID() int {
 	return holder.PID
 }
 
+// Stop stops the session holding the watch, and then every session still
+// draining beside it. A draining session handed the watch to a deployed build
+// and is hosting the runs it started, so it no longer holds the lease the
+// supervisor asks; stopping the scheduler is stopping the runs it hosts as well,
+// wherever they are hosted, so each is found by its own drain lease and stopped
+// the same way.
 func (c schedulerChild) Stop(ctx context.Context) (supervise.Stopped, error) {
+	stopped, err := c.stopWatching(ctx)
+	if err != nil {
+		return stopped, err
+	}
+	draining, err := c.watch.Draining()
+	if err != nil {
+		return stopped, fmt.Errorf("find the sessions draining beside the watch: %w", err)
+	}
+	for _, holder := range draining {
+		sessionID := holder.SessionID
+		drained, err := supervise.StopHolder(ctx, holder.PID, func() (bool, error) { return c.watch.StillDraining(sessionID) })
+		if err != nil {
+			return stopped, fmt.Errorf("stop the draining session %s: %w", sessionID, err)
+		}
+		stopped.WasRunning = true
+		if stopped.PID == 0 {
+			stopped.PID = drained.PID
+		}
+		if drained.Detail != "" {
+			stopped.Detail = strings.TrimSpace(stopped.Detail + " the draining session in pid " + strconv.Itoa(drained.PID) + ": " + drained.Detail)
+		}
+	}
+	return stopped, nil
+}
+
+func (c schedulerChild) stopWatching(ctx context.Context) (supervise.Stopped, error) {
 	held, err := c.watch.Held()
 	if err != nil {
 		return supervise.Stopped{}, err

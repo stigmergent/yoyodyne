@@ -2,7 +2,10 @@
 
 package redeploy
 
-import "errors"
+import (
+	"errors"
+	"os/exec"
+)
 
 // imageReplacement is false where a process cannot be replaced by another binary
 // in place. It is answered when a session opens rather than at the end, so a
@@ -14,3 +17,5 @@ const imageReplacement = false
 func replaceImage(string, []string, []string) error {
 	return errors.New("replacing the running process image is unsupported on this platform")
 }
+
+func detach(*exec.Cmd) {}

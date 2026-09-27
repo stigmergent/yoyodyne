@@ -573,6 +573,12 @@ func FromWatch(transition runstate.WatchTransition) (Notification, error) {
 	if transition.Restarting {
 		kind = KindWatchRedeploying
 	}
+	// A session that handed the watch to the deployed build is said as that,
+	// whether it is counting its runs down or has stopped after the last of them:
+	// neither is a queue found empty or a line nobody is pulling from.
+	if transition.Draining {
+		kind = KindWatchDraining
+	}
 	// An idle poll that could not read the store is said as a read being retried
 	// rather than as a session that found nothing, for the same reason: the idle
 	// line is for a queue that was read, and this one was not.

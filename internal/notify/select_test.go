@@ -2045,3 +2045,28 @@ func TestACrossProviderSubstitutionNamesTheProviderThatProducedTheWork(t *testin
 		}
 	}
 }
+
+// A session that handed the watch to a deployed build is said as that, whether it
+// is counting its runs down or has stopped after the last of them: an idle poll
+// reads as a queue found empty and an ending as a line nobody is pulling from,
+// while the build it handed to has been pulling since.
+func TestADrainingSessionIsSaidAsOneRatherThanAsIdleOrEnded(t *testing.T) {
+	for _, state := range []runstate.WatchState{runstate.WatchIdle, runstate.WatchStopped} {
+		draining := watchTransition(state, "handed the watch to a session on the build deployed over this one")
+		draining.Draining = true
+		said, err := FromWatch(draining)
+		if err != nil {
+			t.Fatalf("address a draining %s session: %v", state, err)
+		}
+		if said.Event.Kind != KindWatchDraining {
+			t.Fatalf("a draining %s session was said as %q, want %q", state, said.Event.Kind, KindWatchDraining)
+		}
+		message, err := Render(said.Topic, said.Speaker, said.Event)
+		if err != nil {
+			t.Fatalf("render a draining session: %v", err)
+		}
+		if strings.Contains(message.Body, nextMoves[KindWatchStopped]) {
+			t.Fatalf("body %q hands the operator the move a session that ended would", message.Body)
+		}
+	}
+}

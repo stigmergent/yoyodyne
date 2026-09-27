@@ -282,12 +282,18 @@ func ReadSilence(activity Activity) Silence {
 
 // SessionSays is what one transition's state is said as, wherever a surface names
 // where a session got to. The recorded state is the word for it, except for the
-// two transitions whose mark says the state alone would be read backwards: a stop
-// that is a restart, which reads as a session somebody has to start again, and an
+// transitions whose mark says the state alone would be read backwards: a stop
+// that is a restart, which reads as a session somebody has to start again; an
 // idle poll that could not read the store at all, which reads as a queue with
-// nothing in it for as long as the outage lasts.
+// nothing in it for as long as the outage lasts; and a draining session, whose
+// idle entries are not a queue it found empty and whose stop is not a line gone
+// down.
 func SessionSays(transition runstate.WatchTransition) string {
 	switch {
+	case transition.Draining && transition.State == runstate.WatchStopped:
+		return "stopped, having handed the watch to the build deployed over it and waited out its own runs"
+	case transition.Draining:
+		return "draining: it handed the watch to the build deployed over it and is hosting its own runs to their end, choosing nothing"
 	case transition.Restarting:
 		return "stopped to restart into the build deployed over it"
 	case transition.RetryingRead():
