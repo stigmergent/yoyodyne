@@ -501,6 +501,14 @@ type ScheduleCarryOut interface {
 	RecordUnattempted(ctx context.Context, poll time.Duration, passed map[string]string) ([]CarriedOut, error)
 }
 
+// ScheduleRearms fires the re-arms decided about publications nothing ever
+// asked the forge to merge. A ScheduleCarryOut that also satisfies it has them
+// fired on every pull; it is satisfied by *CarryOut, and asked for by assertion
+// so a carry-out that fires only runs is wired exactly as it was.
+type ScheduleRearms interface {
+	CarryRearms(ctx context.Context, intakeHeld bool) ([]CarriedOut, error)
+}
+
 // ScheduleRecurring fires the configured recurring tasks, at most one per pass.
 // It is satisfied by Trigger.
 //
@@ -1893,6 +1901,10 @@ pulling:
 		// this pull can see: a decision the hold stopped is left alone while the hold
 		// is up and attempted on the first pull it is down, which is the latency the
 		// unpaced record exists to keep. See nextCarryOut.
+		// A re-arm she decided about a request nothing ever asked the forge to merge
+		// is fired first, and in the pull's own thread: it is one merge request
+		// rather than a run, so it takes no slot and leaves nothing to wait out.
+		s.carryOutRearms(ctx, &schedule, pull, held)
 		closed := closedGates{intake: held, pause: paused, capacity: free < 1}
 		carrying := false
 		// A session bounded by --limit is bounded here too: every decision fired is
@@ -3576,6 +3588,45 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		delete(occupied, id)
 	}
 	return chosen, passed
+}
+
+// carryOutRearms fires the re-arms the development manager decided about
+// publications nothing ever asked the forge to merge, and says on the pass what
+// each came to. A failure to read is said beside the pass rather than stopping
+// it, like every other account the carry-out keeps.
+func (s Scheduler) carryOutRearms(ctx context.Context, schedule *Schedule, pull Pull, intakeHeld bool) {
+	rearms, fires := pull.CarryOut.(ScheduleRearms)
+	if pull.CarryOut == nil || !fires {
+		return
+	}
+	carried, err := rearms.CarryRearms(ctx, intakeHeld)
+	for _, attempt := range carried {
+		if attempt.Carried {
+			schedule.CarriedOut = append(schedule.CarriedOut, attempt)
+		}
+		problems := make([]string, 0, 2)
+		if !attempt.Carried {
+			problems = append(problems, attempt.Problem)
+		}
+		if attempt.RecordProblem != "" {
+			problems = append(problems, attempt.RecordProblem)
+		}
+		if len(problems) > 0 {
+			schedule.CarryOutProblem = joinProblem(schedule.CarryOutProblem, strings.Join(problems, "; "))
+		}
+	}
+	if err != nil {
+		schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem,
+			fmt.Sprintf("the re-arms the development manager decided about publications nothing asked the forge to merge could not be read in full, so one may be waiting that nothing here fired: %v", err))
+	}
+}
+
+// joinProblem adds one account to a pass's line of them.
+func joinProblem(line, problem string) string {
+	if line == "" {
+		return problem
+	}
+	return line + "; " + problem
 }
 
 // recordUnattempted writes onto the items every decision of hers standing a

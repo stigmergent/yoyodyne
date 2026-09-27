@@ -97,6 +97,14 @@ type RearmForge interface {
 	Merge(ctx context.Context, request publish.MergeRequest) (publish.MergeResult, error)
 }
 
+// RearmChecks is the forge's reading of a request's checks: which failed, and
+// how far the target has moved on without the head. It is what gates arming a
+// request nothing ever asked the forge to merge, and it is satisfied by
+// publish.GitHub.
+type RearmChecks interface {
+	Checks(ctx context.Context, number int, base string) (publish.CheckReading, error)
+}
+
 // RearmWorktrees is the repository access a re-arm needs, and it is one read:
 // the pre-merge check on the remote target that the original gate ran. Nothing
 // here moves a ref.
@@ -136,7 +144,13 @@ type Rearmer struct {
 	// here would be a second guard over a budget already spent, and the two could
 	// disagree.
 	Decisions RearmDecisions
-	Clock     execution.Clock
+	// Checks is the reading that gates arming a request nothing ever asked the
+	// forge to merge: a head behind its target, or a failing check, refuses the
+	// arming and names which. A re-arm of a dropped merge does not read it — the
+	// forge's merge state is its gate, as it always was. Optional, and a Rearmer
+	// wired without it refuses every first arming rather than arming unchecked.
+	Checks RearmChecks
+	Clock  execution.Clock
 }
 
 // RearmRequest is one decision to carry out: the run whose publication the
@@ -172,6 +186,10 @@ type RearmResult struct {
 	// recorded them, which is where every triage decision's account of itself
 	// lives. What this run's own records keep is the count.
 	Reason string `json:"reason,omitempty"`
+	// FirstArm reports a publication nothing had ever asked the forge to merge:
+	// what this made is the merge request the run's own merge would have made,
+	// rather than a repeat of one the forge dropped.
+	FirstArm bool `json:"first_arm,omitempty"`
 	// Rearmed reports the request having actually been repeated, and Queued the
 	// forge having accepted it to perform later rather than performing it now.
 	Rearmed bool `json:"rearmed"`
@@ -220,6 +238,7 @@ func (r Rearmer) Rearm(ctx context.Context, request RearmRequest) (RearmResult, 
 		URL:        published.URL,
 		Method:     published.MergeMethod,
 		HeadCommit: published.HeadCommit,
+		FirstArm:   prior.PublicationUnarmed(),
 	}
 	// The publication has to be on the docket, for the reason a stoppage does: the
 	// entry is what the development manager decided against, and a re-arm of
@@ -242,7 +261,7 @@ func (r Rearmer) Rearm(ctx context.Context, request RearmRequest) (RearmResult, 
 	if err != nil {
 		return result, err
 	}
-	result.Reason = rearmReason(prior, published, decided, decision, result.DocketKey, reasoning)
+	result.Reason = rearmReason(prior, published, decided, decision, result.DocketKey, reasoning, result.FirstArm)
 	// Everything above is read from the harness's own records and refuses without
 	// taking a lease, so the ordinary refusal holds up no promotion. What is left —
 	// what the forge says, whether the remote target still passes, and the request
@@ -300,7 +319,7 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	if err != nil {
 		return result, fmt.Errorf("run %s was settled while its publication was being checked: %w", runID, err)
 	}
-	if published.Number != result.Number || published.MergeRearms != checked {
+	if published.Number != result.Number || published.MergeRearms != checked || state.PublicationUnarmed() != result.FirstArm {
 		return result, fmt.Errorf("run %s was settled while its publication was being checked, so what would be repeated is no longer what was checked", runID)
 	}
 	// What the forge says decides whether this is a drop worth repeating at all,
@@ -308,6 +327,11 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	// and the one that refuses most re-arms.
 	if err := r.forgeWouldTakeItBack(ctx, state, published, integration); err != nil {
 		return result, err
+	}
+	if result.FirstArm {
+		if err := r.landingChecksPass(ctx, published, integration); err != nil {
+			return result, err
+		}
 	}
 	if err := r.Worktrees.VerifyRemoteTarget(ctx, gitworktree.Integration{
 		Branch:               state.Branch,
@@ -385,6 +409,13 @@ func rearmablePublication(state runstate.State) (runstate.PullRequest, runstate.
 	}
 	if published.Merged {
 		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf("pull request %d is merged, so there is no dropped merge to repeat", published.Number)
+	}
+	// A request nothing ever asked the forge to merge has no method on its record,
+	// because the method is recorded by the merge request that was never made. What
+	// arming it makes is the request the run's own merge would have made, so the
+	// method is the one that merge makes rather than one chosen here.
+	if strings.TrimSpace(published.MergeMethod) == "" && state.PublicationUnarmed() {
+		published.MergeMethod = string(mergeMethod)
 	}
 	if strings.TrimSpace(published.MergeMethod) == "" {
 		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf(
@@ -555,6 +586,43 @@ func (r Rearmer) forgeWouldTakeItBack(ctx context.Context, state runstate.State,
 	return nil
 }
 
+// landingChecksPass is the gate a first arming passes before the merge request is
+// made: the request's head level with its target, and no check on it failing. It
+// is asked of the forge now, under the promotion lease, for the reason the merge
+// state is: what decides the arming is what is true when it is made.
+//
+// A re-arm of a dropped merge does not ask it, because what it repeats already
+// went through the forge's requirement machinery once. A request nothing ever
+// asked the forge to merge has not, and arming one behind its target or red
+// would hand the forge a merge that cannot land — the state the queued-merge
+// sweep exists to withdraw — so each is refused naming which gate stopped it,
+// and nothing is spent. Pending checks are not refused: a merge the forge queues
+// waits for them, which is what arming it asks for.
+func (r Rearmer) landingChecksPass(ctx context.Context, published runstate.PullRequest, integration runstate.Integration) error {
+	if r.Checks == nil {
+		return fmt.Errorf("nothing is wired to this harness to read the checks of pull request %d, and a request nothing ever asked the forge to merge is armed only on a reading of them; nothing was spent, so the publication keeps its re-arm",
+			published.Number)
+	}
+	reading, err := r.Checks.Checks(ctx, published.Number, integration.TargetBranch)
+	if err != nil {
+		return fmt.Errorf("read the checks of pull request %d before arming its merge: %w; a merge is not armed on checks nothing could read, and nothing was spent, so the publication keeps its re-arm",
+			published.Number, err)
+	}
+	if reading.BehindBy > 0 {
+		return fmt.Errorf("refused at the head-behind-target gate: pull request %d's head is %d commit(s) behind %s, so its merge would land a change nobody checked against the target it lands on; nothing was spent, so the publication keeps its re-arm, and a re-run hands the change back for a fresh run",
+			published.Number, reading.BehindBy, integration.TargetBranch)
+	}
+	if len(reading.Failing) > 0 {
+		names := make([]string, 0, len(reading.Failing))
+		for _, failed := range reading.Failing {
+			names = append(names, failed.Name)
+		}
+		return fmt.Errorf("refused at the checks gate: pull request %d has %d failing check(s) on its head (%s), and the harness does not arm a merge its checks refuse; nothing was spent, so the publication keeps its re-arm, and a re-run hands the change back for a fresh run",
+			published.Number, len(names), strings.Join(names, ", "))
+	}
+	return nil
+}
+
 // rearmRequirement says what a merge state holds a request on, for a refusal
 // that has to name it. A state the forge's vocabulary has grown since is quoted
 // rather than described, so the refusal still says something a reader can act on.
@@ -593,10 +661,14 @@ func rearmRequirement(status string) string {
 // settled answer to how long an account of a triage carry-out may be: an
 // unbounded one is a whole argument printed into a terminal, and having two
 // different bounds for the same sentence would be worse than borrowing one.
-func rearmReason(state runstate.State, published runstate.PullRequest, decided runstate.TriageCounters, decision runstate.TriageDecision, key, reasoning string) string {
+func rearmReason(state runstate.State, published runstate.PullRequest, decided runstate.TriageCounters, decision runstate.TriageDecision, key, reasoning string, firstArm bool) string {
+	made := "repeated the merge request of"
+	if firstArm {
+		made = "made the merge request nothing had ever asked the forge for, as the run's own merge would have, of"
+	}
 	reason := fmt.Sprintf(
-		"the development manager's triage decided a re-arm of publication %s, %s — %d recorded against that publication's durable triage budget, %d already made — and the harness repeated the merge request of pull request %d by the %s method, on the promotion run %s made.%s The reasoning given to the harness when it was asked to: ",
-		key, decision.Cite(), decided.RearmsOf(key), published.MergeRearms, published.Number, published.MergeMethod, state.RunID, crossedRearmCap(decided))
+		"the development manager's triage decided a re-arm of publication %s, %s — %d recorded against that publication's durable triage budget, %d already made — and the harness %s pull request %d by the %s method, on the promotion run %s made.%s The reasoning given to the harness when it was asked to: ",
+		key, decision.Cite(), decided.RearmsOf(key), published.MergeRearms, made, published.Number, published.MergeMethod, state.RunID, crossedRearmCap(decided))
 	room := runstate.MaxSelectionReasonBytes - len(reason)
 	if room < 0 {
 		room = 0
@@ -649,8 +721,13 @@ func (r Rearmer) now() time.Time {
 // Render describes what the action did, for whoever asked for it.
 func (result RearmResult) Render() string {
 	var rendered strings.Builder
-	fmt.Fprintf(&rendered, "repeated the merge request for pull request %d of %s by the %s method\n",
-		result.Number, result.WorkItemID, result.Method)
+	if result.FirstArm {
+		fmt.Fprintf(&rendered, "armed the merge of pull request %d of %s by the %s method, which nothing had asked the forge for\n",
+			result.Number, result.WorkItemID, result.Method)
+	} else {
+		fmt.Fprintf(&rendered, "repeated the merge request for pull request %d of %s by the %s method\n",
+			result.Number, result.WorkItemID, result.Method)
+	}
 	if result.URL != "" {
 		fmt.Fprintf(&rendered, "pull request: %s\n", result.URL)
 	}

@@ -136,6 +136,12 @@ type CarryOutRepairer interface {
 	Continue(ctx context.Context, request RepairContinueRequest) (RepairContinueResult, error)
 }
 
+// CarryOutRearmer arms the merge of a publication nothing ever asked the forge
+// to merge, on a re-arm decision. It is satisfied by Rearmer.
+type CarryOutRearmer interface {
+	Rearm(ctx context.Context, request RearmRequest) (RearmResult, error)
+}
+
 // CarryOutCheckStages continues a run the check stage bound stopped, at its
 // checks. It is the one thing this fires that nobody decided: the harness
 // stopped the stage, so carrying it on is the harness's own act rather than a
@@ -173,6 +179,12 @@ type CarryOut struct {
 	// carry-out with neither fires nothing.
 	Rerunner CarryOutRerunner
 	Repairer CarryOutRepairer
+	// Rearmer arms a publication nothing ever asked the forge to merge, where the
+	// development manager decided a re-arm of it. Optional: a carry-out wired
+	// without it leaves that decision for somebody typing `yoyo triage rearm`,
+	// which is what it was before yoyodyne-ifd.429.31. A re-arm of a merge the
+	// forge dropped is not fired here, and stays the verb's.
+	Rearmer CarryOutRearmer
 	// CheckStages continues a run the check stage bound stopped, where she has
 	// decided nothing about it. Optional: a carry-out wired without it leaves such
 	// a stoppage on the docket for her, which is what it was before.
@@ -357,11 +369,22 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		reading.tasks = append(reading.tasks, task)
 	}
+	// A publication entry is considered where its run has no stopped-run entry,
+	// which is a request nothing ever asked the forge to merge: a re-run decided
+	// about it is fired off that entry, so the claim it makes and the claim this
+	// reads back are keyed alike. Only a re-run is ever offered from one, because
+	// taskFor offers nothing else a publication can be decided.
+	stoppedRuns := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if entry.Class == triage.ClassStoppedRun {
+			stoppedRuns[entry.RunID] = true
+		}
+	}
 	for _, entry := range entries {
 		if entry.WorkItemID == "" {
 			continue
 		}
-		if entry.Class != triage.ClassStoppedRun {
+		if entry.Class != triage.ClassStoppedRun && (entry.Class != triage.ClassPublication || stoppedRuns[entry.RunID]) {
 			itemFor(entry.WorkItemID)
 			continue
 		}
@@ -590,10 +613,11 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 			return CarryOutTask{}, false, nil, nil
 		}
 	default:
-		// A re-scope, a wait, an escalation, and a merge re-arm are decisions the
-		// harness does not carry out: the first three ask for no run at all, and a
-		// re-arm is an integration retry rather than work, which the operator still
-		// takes by hand.
+		// A re-scope, a wait, an escalation, and a merge re-arm are decisions this
+		// sweep does not offer: the first three ask for no run at all, and a re-arm
+		// is an integration retry rather than work, which takes no developer slot.
+		// The re-arm of a request nothing ever asked the forge to merge is fired
+		// on its own path, CarryRearms; a re-arm of a dropped merge is still typed.
 		return CarryOutTask{}, false, nil, nil
 	}
 	if stopped, refused := i.counters.CarryOutOf(entry.RunID); refused && stopped.Cooling(now) {

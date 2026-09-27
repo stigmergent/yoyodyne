@@ -167,8 +167,10 @@ var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross)
 // the tree is not ready for, and an attempt that never became a run — are closed
 // by nothing here, because a triage decision names a run and neither has one.
 var triageSettles = map[string]triageSettlement{
-	decisionRepair:   {classes: runEntryClasses},
-	decisionRerun:    {classes: runEntryClasses},
+	decisionRepair: {classes: runEntryClasses},
+	// A re-run also answers a publication: handing the change back for a fresh run
+	// is one of the two answers to a request nothing ever asked the forge to merge.
+	decisionRerun:    {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
 	decisionRescope:  {classes: runEntryClasses},
 	decisionRearm:    {classes: []triage.Class{triage.ClassPublication}},
 	decisionWait:     {classes: []triage.Class{triage.ClassPublication}, revisit: true},

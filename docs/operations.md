@@ -471,8 +471,10 @@ brake's hold becomes a fourth once it is yours:
   [her docket](conversation.md#deciding-what-becomes-of-stopped-work), and her
   `escalate` decision is the one typed record that says a stopped run needs a
   person rather than a repair, a re-run, or a wait — a target branch that
-  diverged from the forge, a publication nothing asked the forge to merge, a
-  stop no budget answers. That decision is the finding, standing while it is
+  diverged from the forge, a stop no budget answers. A publication nothing
+  asked the forge to merge is not one of these: it is hers to decide, by a
+  re-arm the harness carries out or a re-run
+  ([below](#recovering-interrupted-runs)). That decision is the finding, standing while it is
   the decision on the item's latest stopped run and the item is still in the
   backlog; a later decision on the run, a later run, or the item being retired
   or closed ends it. (Her escalation already carries a warning-or-above report
@@ -1830,6 +1832,47 @@ the same run's own attempt reissued rather than a new one; and a queued merge
 the settlement put back at its promotion to bring its head up to date is
 carried through its replay, its checks, and its review by the same run.
 
+**A publication nothing asked the forge to merge is decided, not merged by
+hand.** A promoted, approved run whose record holds its pull request with no
+merge queued, none dropped, and no account of anything going wrong is a merge
+nobody made — every merge a run asks for leaves one of those marks, whichever
+way the forge answers. Until yoyodyne-ifd.429.31 that state was named as the
+operator's, and its only exit was a person merging the request on the forge.
+Now it is put on the development manager's docket the moment it is recorded,
+rather than after `triage.stuck_merge_age`, since nothing is waiting on the
+forge and no amount of time changes it, and she decides it one of two ways:
+
+- **A re-arm**, which the harness carries out as the merge request the run's
+  own merge would have made — the same method, pinned to the promoted commit,
+  after the same pre-merge check on the remote target, under the target
+  branch's promotion lease — and records as a queued merge, which the next
+  sweep settles like any other. It spends the publication's one re-arm, so a
+  later drop of the same request is an escalation. It is refused, naming the
+  gate and spending nothing, where the request's head is behind its target, a
+  check on its head is failing, the forge's merge state names something only a
+  person can supply, or the checks could not be read.
+- **A re-run**, which hands the change back for a fresh run from the target
+  branch. Once it is carried out, the prior run's record marks its publication
+  handed back (`handed_back` on the pull request), and from then on nothing
+  names it: it is not docketed again, on its age or otherwise, the "Needs a
+  human" line drops it, and the heartbeat stops counting it as awaiting the
+  forge. The old request is left open on the forge: nothing here closes it
+  yet, and nothing reads it as work once it is marked.
+
+A request the forge has closed unmerged is docketed the same way, with nothing
+left to arm: a re-run is the one decision offered for it, and the watch never
+arms it.
+
+Neither waits on anybody typing a verb. A watching `yoyo work` session carries
+the re-arm out itself on its next pull — outside the developer slots, since it
+is one merge request rather than a run, and not while the operator's pause or
+the intake hold stands — and fires the re-run as it fires any other. A refused
+arming is written onto the item's triage record naming the gate, where the
+development manager reads it, and is attempted again only once the refusal has
+cooled. `yoyo triage rearm <run-id>` makes the request now rather than at the
+next pull; a re-arm of a merge the forge dropped is still made only by that
+verb.
+
 **None of the three stands forever.** Every sweep asks the remote again about
 each publication the record says is merged and unfinished, and finishes the ones
 the remote now confirms — the promoted commit on the remote target, unrewritten.
@@ -2527,12 +2570,15 @@ has the rule.
   derivation, and each says who it is waiting on: the forge's while it holds the
   merge queued — with the checks the last sweep read beside it, since a merge
   held for checks that will not pass is [not left queued](#recovering-interrupted-runs)
-  — the development manager's once it has dropped one, the
-  operator's for a request nothing ever asked it to merge, and the harness's for
-  a promotion whose record holds no request at all — the next
+  — the development manager's once it has dropped one, the development
+  manager's too for a request nothing ever asked it to merge, which is on her
+  docket to arm or re-run rather than yours to merge by hand, and the harness's
+  for a promotion whose record holds no request at all — the next
   [`yoyo reconcile`](#recovering-interrupted-runs) looks the request up by the
-  run's branch and arms its merge. All four leave the line the moment the forge
-  records the merge and `yoyo reconcile` settles it.
+  run's branch and arms its merge. An unmerged request whose record carries some
+  other account and no drop is still named as the operator's. All of them leave
+  the line the moment the forge records the merge and `yoyo reconcile` settles
+  it.
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident

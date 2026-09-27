@@ -283,7 +283,13 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		"queued":                {runstate.State{RunID: "run-2", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}}, MoverForge},
 		"re-armed after a drop": {runstate.State{RunID: "run-3", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}, MergeDrop: &dropped}, MoverForge},
 		"dropped":               {runstate.State{RunID: "run-4", PullRequest: &runstate.PullRequest{Number: 1}, MergeDrop: &dropped}, MoverDevelopmentManager},
-		"unasked":               {runstate.State{RunID: "run-5", PullRequest: &runstate.PullRequest{Number: 1}}, MoverOperator},
+		// A request nothing ever asked the forge to merge is the development
+		// manager's to decide rather than a person's to merge by hand
+		// (yoyodyne-ifd.429.31).
+		"unasked": {runstate.State{RunID: "run-5", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
+			Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 1}}, MoverDevelopmentManager},
+		"unmerged with another account": {runstate.State{RunID: "run-6", PullRequest: &runstate.PullRequest{Number: 1},
+			PublishFailure: "confirm the pull request merged: the forge did not answer"}, MoverOperator},
 	} {
 		entry := awaitingForgeAttention(want.state)
 		if entry.Mover != want.mover {
@@ -295,6 +301,27 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		if entry.Publication == nil || (want.state.MergeDrop != nil) != (entry.Publication.MergeDrop != nil) {
 			t.Errorf("%s: publication = %+v, want the drop carried exactly where the record has one", name, entry.Publication)
 		}
+	}
+	// The unasked request's sentence names the two decisions on her docket, and
+	// never a merge by hand.
+	unasked := awaitingForgeAttention(runstate.State{RunID: "run-5", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
+		Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 1}})
+	if !unasked.Publication.Unarmed || !strings.Contains(unasked.Whose(), "a re-arm has the harness arm it") ||
+		!strings.Contains(unasked.Whose(), "a re-run hands the change back") || strings.Contains(unasked.Whose(), "merge it") {
+		t.Fatalf("unasked publication = %+v, whose = %q; want it marked unarmed and put to the development manager's decisions", unasked.Publication, unasked.Whose())
+	}
+	// One the forge closed is hers too, offered only the re-run; one handed back
+	// for a fresh run is nobody's, and is off the line altogether.
+	closed := awaitingForgeAttention(runstate.State{RunID: "run-7", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
+		Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 1, State: "CLOSED"}})
+	if closed.Mover != MoverDevelopmentManager || !strings.Contains(closed.Whose(), "nothing left to arm") || strings.Contains(closed.Whose(), "a re-arm") {
+		t.Fatalf("closed publication mover %q, whose = %q; want her docket with the re-run alone", closed.Mover, closed.Whose())
+	}
+	handedBack := runstate.State{RunID: "run-8", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
+		Integration: &runstate.Integration{TargetBranch: "main"},
+		PullRequest: &runstate.PullRequest{Number: 1, HandedBack: &runstate.PublicationHandBack{At: moment}}}
+	if awaiting := AwaitingForge([]runstate.State{handedBack}); len(awaiting) != 0 {
+		t.Fatalf("awaiting the forge = %+v, want a handed-back publication off the line", awaiting)
 	}
 	// A record with no integration leaves the target field empty and says so
 	// in the sentence: a placeholder is a sentence, and a field a surface acts

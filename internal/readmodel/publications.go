@@ -34,14 +34,18 @@ func AwaitingForge(states []runstate.State) []runstate.State {
 }
 
 // awaitingForgeAttention is one unpublished promotion as the attention line
-// carries it, with whose move it is. Four cases have four different movers: a
-// merge the forge is holding is the forge's, a merge it dropped is the
-// development manager's to re-arm or a person's to make by hand, a request
-// nothing ever asked the forge to merge is the operator's, and a promotion
-// whose record holds no request at all is the harness's — the next reconcile
-// looks the request up by the run's branch and arms its merge. All four are
-// settled by the same sweep once the forge records the merge, and the sentence
-// Attention.Whose derives from the record says so.
+// carries it, with whose move it is: a merge the forge is holding is the
+// forge's, a merge it dropped is the development manager's to re-arm or a
+// person's to make by hand, a request nothing ever asked the forge to merge is
+// the development manager's to decide — a re-arm the harness carries out, or a
+// re-run — and a promotion whose record holds no request at all is the
+// harness's: the next reconcile looks the request up by the run's branch and
+// arms its merge. Until yoyodyne-ifd.429.31 the request nothing asked the forge
+// to merge was the operator's, whose only move was a hand merge on the forge;
+// what is left as the operator's is an unmerged request whose record carries
+// some other account and no drop. All are settled by the same sweep once the
+// forge records the merge, and the sentence Attention.Whose derives from the
+// record says so.
 func awaitingForgeAttention(state runstate.State) Attention {
 	// The predicate that selects a state here requires the promotion to be
 	// recorded, so it cannot be missing; a reading of every recorded run must
@@ -68,6 +72,9 @@ func awaitingForgeAttention(state runstate.State) Attention {
 		case published.MergeQueued:
 			mover = MoverForge
 		case publication.MergeDrop != nil:
+			mover = MoverDevelopmentManager
+		case state.PublicationUnasked():
+			publication.Unarmed = true
 			mover = MoverDevelopmentManager
 		default:
 			mover = MoverOperator
