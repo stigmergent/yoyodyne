@@ -1745,8 +1745,9 @@ An entry decides nothing, and the development manager is the role that does. It
 records one decision per entry, on the work item, through a `triage` action that
 names the run the entry is about: `repair` hands the item another bounded go at
 the change it has, `rerun` runs it again from the start, `rescope` splits out
-what was refused as out of scope, `rearm` repeats a merge the forge dropped,
-`wait` says the forge still has it, and `escalate` hands it to you. One more,
+what was refused as out of scope, `rearm` repeats a merge the forge dropped —
+or arms one nothing ever asked the forge for, which is also answered by
+`rerun` — `wait` says the forge still has it, and `escalate` hands it to you. One more,
 `stop`, is about a run that has not stopped yet: it names a run still in flight
 whose work is superseded, narrowed, or mis-launched, with the item doing the work
 instead as `superseded_by` where there is one, and the harness asks that run to
@@ -1765,7 +1766,8 @@ lands in the item's notes, so the next reader of a run that stopped finds the
 reasoning beside the evidence rather than deciding it a second time, and it
 closes the entry it settled — a repair, a re-run, or a re-scope closes the
 run's own entries, whichever of the stopped run, the run that died before it
-claimed, and the escalation a role raised from it the run carries; a re-arm or a
+claimed, and the escalation a role raised from it the run carries, and a re-run
+closes the unfinished publication's entry too; a re-arm or a
 wait closes the unfinished publication's entry, `wait` only until the merge has
 been sitting there as long again and `rearm` for good; and an escalation closes
 all of them, because an escalated item is waiting on you and none of it is hers
@@ -2115,6 +2117,19 @@ no work — it repeats a merge an approving verdict already authorized, for a
 change that already passed every gate, whether that change is already on the
 local target or, on a target the forge protects, only on its pull request
 ([configuration](configuration.md#a-protected-target-lands-through-its-pull-request)).
+
+**The same verb arms a request nothing ever asked the forge to merge.** Such a
+publication — its record holds the pull request, with no merge queued, none
+dropped, and no account of anything going wrong — is docketed the moment it is
+recorded, and a `rearm` decision about it is carried out as the merge request
+the run's own merge would have made: that merge's method, since no method was
+ever recorded, pinned to the promoted commit, under every refusal above. It is
+held to two more, read from the forge's checks under the promotion lease: the
+request's head has to be level with its target, and no check on its head may be
+failing. Each refusal names its gate, and a reading of the checks that could
+not be made refuses too. A `rerun` decision is the other answer, and hands the
+change back for a fresh run. Before yoyodyne-ifd.429.31 nothing armed this
+state, and its only exit was a hand merge on the forge.
 
 The harness carries out none of the other three: a re-scope, a wait, and an
 escalation ask for no action at all. A `stop` is carried out as it is recorded

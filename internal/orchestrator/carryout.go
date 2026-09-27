@@ -357,11 +357,22 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		reading.tasks = append(reading.tasks, task)
 	}
+	// A publication entry is considered where its run has no stopped-run entry,
+	// which is a request nothing ever asked the forge to merge: a re-run decided
+	// about it is fired off that entry, so the claim it makes and the claim this
+	// reads back are keyed alike. Only a re-run is ever offered from one, because
+	// taskFor offers nothing else a publication can be decided.
+	stoppedRuns := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if entry.Class == triage.ClassStoppedRun {
+			stoppedRuns[entry.RunID] = true
+		}
+	}
 	for _, entry := range entries {
 		if entry.WorkItemID == "" {
 			continue
 		}
-		if entry.Class != triage.ClassStoppedRun {
+		if entry.Class != triage.ClassStoppedRun && (entry.Class != triage.ClassPublication || stoppedRuns[entry.RunID]) {
 			itemFor(entry.WorkItemID)
 			continue
 		}

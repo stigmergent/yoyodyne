@@ -3584,6 +3584,30 @@ func (s State) PublicationUnrecorded() bool {
 		strings.Contains(s.PublishFailure, lostPublicationAccount)
 }
 
+// PublicationUnarmed reports a promotion whose record holds its pull request
+// and says nothing ever asked the forge to merge it: the run is over, its change
+// is promoted, its reviewer approved it, and the request is neither merged, nor
+// queued, nor dropped, with no account of anything having gone wrong beside it.
+// A merge the run asked for leaves one of those marks whichever way the forge
+// answered, so a record without any of them is a merge nobody made.
+//
+// Until yoyodyne-ifd.429.31 this state was read as the operator's, and its only
+// exit was a person merging the request on the forge. It is now what the docket
+// puts to the development manager at once, what the re-arm verb arms on her
+// decision, and what a re-run may hand back for a fresh run; this predicate is
+// the one reading all three, and the status line, take of it.
+func (s State) PublicationUnarmed() bool {
+	if !s.Status.Terminal() || s.Integration == nil || s.PullRequest == nil {
+		return false
+	}
+	published := s.PullRequest
+	return s.ReviewDecision == ReviewApprove &&
+		!published.Merged &&
+		!published.MergeQueued &&
+		s.MergeDrop == nil &&
+		strings.TrimSpace(s.PublishFailure) == ""
+}
+
 // Discharges reports whether this run closes its work item. It is the one
 // derivation every closure site reads — the run's own completion, the sweep that
 // settles a queued merge, and the sweep that finishes an interrupted run — so a

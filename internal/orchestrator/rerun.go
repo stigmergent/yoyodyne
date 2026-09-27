@@ -488,8 +488,28 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 // the docket is refused rather than run: the docket entry is what a re-run is
 // counted against, so a re-run of something nothing docketed would be a re-run
 // nothing bounds.
+//
+// A publication nothing ever asked the forge to merge is the one other entry a
+// re-run answers. It stopped nothing and so is not docketed as a stoppage, and
+// it is the development manager's to decide all the same: arming it is one
+// answer, and handing the change back for a fresh run is the other. Whether the
+// run's record still says nothing was asked is stoppageIsOver's to check, off
+// the record rather than the entry.
 func (r Rerunner) entry(priorRunID string) (triage.Entry, error) {
-	return docketedStoppage(r.Docket, priorRunID, "run again")
+	entry, err := docketedStoppage(r.Docket, priorRunID, "run again")
+	if err == nil {
+		return entry, nil
+	}
+	entries, listErr := r.Docket.List()
+	if listErr != nil {
+		return triage.Entry{}, err
+	}
+	for _, candidate := range entries {
+		if candidate.Class == triage.ClassPublication && candidate.RunID == priorRunID {
+			return candidate, nil
+		}
+	}
+	return triage.Entry{}, err
 }
 
 // docketedStoppage finds the docketed stoppage of one run, for whichever action
@@ -525,7 +545,7 @@ func stoppageIsOver(prior runstate.State) error {
 		return fmt.Errorf("run %s is recorded as %s rather than ended, so it is owed a continuation rather than a fresh run; a re-run is refused while anything of it is resumable",
 			prior.RunID, prior.Status)
 	}
-	if strings.TrimSpace(prior.Blocker) == "" && !preservedDeath(prior) {
+	if strings.TrimSpace(prior.Blocker) == "" && !preservedDeath(prior) && !prior.PublicationUnarmed() {
 		return fmt.Errorf("run %s ended carrying no durable blocker and left no change behind, so nothing about it stopped for a person to decide", prior.RunID)
 	}
 	return nil

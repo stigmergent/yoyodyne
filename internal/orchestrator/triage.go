@@ -1512,6 +1512,14 @@ func stuckPublication(state runstate.State, now time.Time, stuckMergeAge time.Du
 	if published.Merged {
 		return false
 	}
+	// A request nothing ever asked the forge to merge is docketed at once, like
+	// the recorded ones above rather than on its age: nothing is waiting for the
+	// forge, so no amount of time changes it, and until yoyodyne-ifd.429.31 its
+	// only exit was a person merging it by hand. The development manager decides
+	// it — a re-arm the harness carries out, or a re-run.
+	if state.PublicationUnarmed() {
+		return true
+	}
 	// A threshold of no time at all would docket every publication the instant
 	// it was made, which the configuration refuses; this refuses to act on one
 	// anyway, because a docket built from a configuration nobody validated must
@@ -1796,7 +1804,7 @@ func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.
 			MergeQueued: published.MergeQueued,
 			MergeMethod: published.MergeMethod,
 			MergeCommit: published.MergeCommit,
-			Message:     state.PublishFailure,
+			Message:     publicationMessage(state),
 			Checks:      publicationChecks(published, state),
 			ApprovedAt:  publicationApprovedAt(state).UTC(),
 		},
@@ -1806,6 +1814,29 @@ func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.
 		return triage.Entry{}, fmt.Errorf("docket the unmerged publication of run %s: %w", state.RunID, err)
 	}
 	return entry, nil
+}
+
+// publicationMessage is what the entry says went wrong with the publication:
+// the run's own account where it wrote one, and for a request nothing ever asked
+// the forge to merge — which carries no account, because nothing failed — the
+// two decisions that answer it, so the entry never reads as a publication with
+// nothing to say about it.
+func publicationMessage(state runstate.State) string {
+	if !state.PublicationUnarmed() {
+		return state.PublishFailure
+	}
+	target := state.TargetBranch
+	if state.Integration != nil {
+		target = state.Integration.TargetBranch
+	}
+	return oneline.Bound(unarmedPublication(state.PullRequest.Number, target), triage.MaxBlockerBytes)
+}
+
+// unarmedPublication is the account of a request nothing ever asked the forge
+// to merge, in the words the docket entry and the arming's refusals share.
+func unarmedPublication(number int, target string) string {
+	return fmt.Sprintf("nothing ever asked the forge to merge pull request %d into %s: a re-arm decision has the harness arm it as the run would have, under the same landing checks, and a re-run hands the change back for a fresh run",
+		number, target)
 }
 
 // publicationChecks is the entry's account of the request's checks, in the

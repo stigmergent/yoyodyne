@@ -328,19 +328,23 @@ func buildRearmer(configPath string) (orchestrator.Rearmer, error) {
 	if err != nil {
 		return orchestrator.Rearmer{}, err
 	}
+	// The same forge access the run's own merge was made through and the same
+	// reconciliation asks what became of one, so what repeats a request and what
+	// opened it speak to the same repository.
+	forge := publish.GitHub{
+		Runner:       parts.runner,
+		Dir:          parts.repository,
+		Remote:       parts.config.Execution.Remote,
+		PushRemote:   parts.config.Execution.PushRemote,
+		RedactValues: parts.redactValues,
+	}
 	return orchestrator.Rearmer{
 		Docket: parts.docket,
 		Runs:   parts.store,
-		// The same forge access the run's own merge was made through and the same
-		// reconciliation asks what became of one, so what repeats a request and what
-		// opened it speak to the same repository.
-		Forge: publish.GitHub{
-			Runner:       parts.runner,
-			Dir:          parts.repository,
-			Remote:       parts.config.Execution.Remote,
-			PushRemote:   parts.config.Execution.PushRemote,
-			RedactValues: parts.redactValues,
-		},
+		Forge:  forge,
+		// The reading the queued-merge sweep takes of a request's checks, which is
+		// what gates arming a request nothing ever asked the forge to merge.
+		Checks: forge,
 		// The same manager the run's own merge checked the remote target with, so
 		// the check that gated the original merge and the check that gates its
 		// repeat are one thing rather than two.
