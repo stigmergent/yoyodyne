@@ -1,0 +1,215 @@
+package readmodel
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/directive"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
+)
+
+// titledItems is a tracker holding the two items the operator was handed as
+// bare numbers on 2026-09-26, and one more.
+func titledItems() []beads.WorkItem {
+	return []beads.WorkItem{
+		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by"},
+		{ID: "yoyodyne-ifd.434.3", Title: "Say the provider's reset in local time"},
+		{ID: "yoyodyne-ifd.12", Title: "Pause on a provider usage limit"},
+	}
+}
+
+func TestEveryShapeOfIdentifierIsShownBesideItsTitle(t *testing.T) {
+	t.Parallel()
+
+	titles := NewWorkItemTitles(titledItems())
+	for _, test := range []struct {
+		name, text, want string
+	}{
+		{"the bare numbers a lane report used", "Blocked on 434.9 and 434.3.",
+			"Blocked on 434.9 (Price a resumed session at what it moved by) and 434.3 (Say the provider's reset in local time)."},
+		{"the full identifier", "yoyodyne-ifd.12 is next",
+			"yoyodyne-ifd.12 (Pause on a provider usage limit) is next"},
+		{"the identifier without the product", "see ifd.434.9",
+			"see ifd.434.9 (Price a resumed session at what it moved by)"},
+		{"a full identifier the tracker does not hold", "admitted as yoyodyne-ifd.999.1",
+			"admitted as yoyodyne-ifd.999.1 (unknown to the tracker)"},
+		{"the form without the product the tracker does not hold", "see ifd.999",
+			"see ifd.999 (unknown to the tracker)"},
+	} {
+		if got := titles.Cite(test.text); got != test.want {
+			t.Errorf("%s: Cite(%q) = %q, want %q", test.name, test.text, got, test.want)
+		}
+	}
+}
+
+// Text that already says what an item is, or that only looks like it names one,
+// is left exactly as it was written.
+func TestTextThatIsNotABareIdentifierIsLeftAlone(t *testing.T) {
+	t.Parallel()
+
+	titles := NewWorkItemTitles(append(titledItems(),
+		beads.WorkItem{ID: "yoyodyne-ifd.3.5", Title: "Something numbered like a duration"},
+		beads.WorkItem{ID: "yoyodyne-ifd.27.93", Title: "Something numbered like a price"},
+	))
+	for _, text := range []string{
+		"[yoyodyne-ifd.12] Pause on a provider usage limit",
+		"waited 3.5 hours for the provider",
+		"it cost $27.93 across 3 runs",
+		"cached 27.93% of input",
+		"release v0.3.0 and 10.0.0.1 and 2026.09.26",
+		"the branch yoyodyne/yoyodyne-ifd-432-18/e6775b59 and run-e6775b59",
+		"docs/diagnoses/yoyodyne-ifd-206-coined-terms-sweep.md",
+		"run `yoyo cost yoyodyne-ifd.12` to see it",
+		"a yoyodyne-watch session and the yoyodyne-ifd tracker",
+		"https://forge.example/yoyodyne-ifd.12",
+		"5.5 is not an item and 99.99 is not one either",
+	} {
+		if got := titles.Cite(text); got != text {
+			t.Errorf("Cite(%q) = %q, want it unchanged", text, got)
+		}
+	}
+}
+
+func TestAnItemIsTitledOnceHoweverOftenItIsNamed(t *testing.T) {
+	t.Parallel()
+
+	titles := NewWorkItemTitles(titledItems())
+	once := titles.Cite("434.9 first, then yoyodyne-ifd.434.9 again, and 999.1 never")
+	want := "434.9 (Price a resumed session at what it moved by) first, then yoyodyne-ifd.434.9 again, and 999.1 never"
+	if once != want {
+		t.Fatalf("Cite() = %q, want %q", once, want)
+	}
+	if twice := titles.Cite(once); twice != once {
+		t.Errorf("Cite(Cite()) = %q, want it unchanged from %q", twice, once)
+	}
+	unknown := titles.Cite("yoyodyne-ifd.999.1")
+	if again := titles.Cite(unknown); again != unknown {
+		t.Errorf("an unknown identifier was said to be unknown twice: %q", again)
+	}
+	if after := titles.CiteAfter(once, "434.9 is still open"); after != "434.9 is still open" {
+		t.Errorf("CiteAfter() = %q, want an item the prior text titled left bare", after)
+	}
+}
+
+func TestATrackerThatCouldNotBeListedLeavesTextAsWritten(t *testing.T) {
+	t.Parallel()
+
+	var titles *WorkItemTitles
+	if got := titles.Cite("yoyodyne-ifd.999.1 and 434.9"); got != "yoyodyne-ifd.999.1 and 434.9" {
+		t.Errorf("nil Cite() = %q, want the text unchanged rather than every number called unknown", got)
+	}
+	sources := quietSources()
+	sources.Tracker = statusTracker{fakeTracker{fail: context.DeadlineExceeded}}
+	standing := ReadStanding(context.Background(), sources)
+	if standing.Titles != nil {
+		t.Errorf("Titles = %+v, want none from a tracker that failed", standing.Titles)
+	}
+}
+
+func titledSources() Sources {
+	sources := quietSources()
+	sources.Tracker = statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{"": titledItems()}}}
+	return sources
+}
+
+// The needs-a-human line is what the operator reads in a terminal and in the
+// channel, and the dashboard reads the same entry's sentences from JSON.
+func TestTheNeedsAHumanLineShowsEveryItemBesideItsTitle(t *testing.T) {
+	t.Parallel()
+
+	sources := titledSources()
+	sources.Directives = fakeDirectives{recorded: []directive.Directive{{
+		ID: "directive-4f2c", Kind: directive.KindAmbiguous, Unresolved: "should 434.9 land before 434.3?", ReceivedAt: moment.Add(-time.Hour),
+	}}}
+	standing := ReadStanding(context.Background(), sources)
+	rendered := standing.Render()
+	for _, want := range []string{
+		"434.9 (Price a resumed session at what it moved by)",
+		"434.3 (Say the provider's reset in local time)",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("Render() = %q, want it to carry %q", rendered, want)
+		}
+	}
+
+	var entry Attention
+	for _, waiting := range standing.NeedsHuman {
+		if waiting.Kind == AttentionDirective {
+			entry = waiting
+		}
+	}
+	encoded, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if said, _ := wire["said_what"].(string); !strings.Contains(said, "434.9 (Price a resumed session") {
+		t.Errorf("said_what = %q, want the sentence the dashboard shows with the title in it", said)
+	}
+	if what, _ := wire["what"].(string); strings.Contains(what, "Price a resumed") {
+		t.Errorf("what = %q, want the derived sentence left as the fields say it", what)
+	}
+	var decoded Attention
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Errorf("an entry carrying its titled sentences does not read back: %v", err)
+	}
+}
+
+func TestTheNotStartableLineShowsEachItemBesideItsTitle(t *testing.T) {
+	t.Parallel()
+
+	standing := Standing{
+		NotStartable: []Refused{{WorkItemID: "yoyodyne-ifd.12", Reason: "waiting on 434.9"}},
+		Admitted:     1,
+		Titles:       NewWorkItemTitles(titledItems()),
+	}
+	rendered := standing.RenderLines()
+	for _, want := range []string{
+		"yoyodyne-ifd.12 (Pause on a provider usage limit)",
+		"434.9 (Price a resumed session at what it moved by)",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("RenderLines() = %q, want it to carry %q", rendered, want)
+		}
+	}
+}
+
+// The lane report is the surface the defect was found on, and the card the
+// dashboard opens on it reads this query.
+func TestALaneReportsCardShowsEveryItemBesideItsTitle(t *testing.T) {
+	t.Parallel()
+
+	current := blockedBy("factory-pgm", "restart-0123456789abcdef")
+	current.Report.Summary = "Moving on 434.9 and 434.3."
+	current.Report.Remaining = []string{"yoyodyne-ifd.12", "yoyodyne-ifd.999.1"}
+	current.Report.Blockers[0].What = "434.9 needs a restart"
+	sources := programManagerSources()
+	sources.Tracker = titledSources().Tracker
+	sources.RestartRequests = fakeRestartRequests{requests: []runstate.RestartRequest{restartRequest("restart-0123456789abcdef", "factory-pgm")}}
+	sources.LaneReports = fakeLaneReports{reports: map[string]runstate.LaneReport{"factory-pgm": current}}
+
+	answer, err := ReadProgramManagerReport(sources, "factory-pgm")
+	if err != nil || answer.Report == nil {
+		t.Fatalf("ReadProgramManagerReport() = %+v, %v", answer, err)
+	}
+	if want := "Moving on 434.9 (Price a resumed session at what it moved by) and 434.3 (Say the provider's reset in local time)."; answer.Report.Summary != want {
+		t.Errorf("Summary = %q, want %q", answer.Report.Summary, want)
+	}
+	if got := strings.Join(answer.Report.Remaining, "|"); got != "yoyodyne-ifd.12 (Pause on a provider usage limit)|yoyodyne-ifd.999.1 (unknown to the tracker)" {
+		t.Errorf("Remaining = %q, want each item titled and the unknown one said to be unknown", got)
+	}
+	if len(answer.Instance.Blockers) != 1 || !strings.Contains(answer.Instance.Blockers[0].What, "434.9 (Price a resumed session") {
+		t.Errorf("Blockers = %+v, want the blocker's item titled", answer.Instance.Blockers)
+	}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.ProgramManagers) == 0 || !strings.Contains(standing.ProgramManagers[0].Blockers[0].What, "434.9 (Price a resumed session") {
+		t.Errorf("the standing's instance = %+v, want its blocker titled as the card's is", standing.ProgramManagers)
+	}
+}

@@ -411,6 +411,51 @@ are redirecting is the one running. It never changes the item's status: saying
 what to do differently is not deciding that the work is done or blocked. Start
 it again with `/work` when you want it retried.
 
+## Every work item beside its title
+
+A work item's identifier is always shown with its title. Wherever the harness
+puts text in front of a person — the four lines of `yoyo status` and the
+needs-a-human line among them, a program manager's lane report and the card the
+dashboard opens on it, a pass's account in `yoyo sweeps`, the report pile a
+program manager's digest is filed into (`yoyo reports` and `/reports`), and
+every message the Slack sink posts — each identifier in it is shown beside the
+item's title, in plain words:
+
+```text
+Blocked on 434.9 (Price a resumed session at what it moved by) and 434.3 (Say the provider's reset in local time).
+```
+
+That holds whoever wrote the text. On 2026-09-26 a lane report named work as
+"434.9 and 434.3", with nothing saying what either was. The roles are told to
+name an item by what it is, and a surface that printed whatever a role wrote
+would still let the next bare number through, so the titles are put in by the
+read model as the text is shown rather than trusted to the writer.
+
+An identifier the tracker holds nothing under is shown as `(unknown to the
+tracker)` rather than dropped or left bare. That applies to anything shaped
+like one of this tracker's identifiers — `yoyodyne-ifd.434.9`, or `ifd.434.9`
+where one root carries that hash. A bare dotted number like `434.9` is read as
+an item only where the tracker holds exactly one item it could name, because a
+dotted number is also a version, a price, a duration, or an address: `3.5 hours`
+and `$27.93` are left alone, and so is anything in a path, a link, or between
+backticks, where a title put into the middle would break what somebody is meant
+to type.
+
+An item is titled once per piece of text: text that already says the title is
+left as written, and a later mention of an item already titled is left bare. The
+title is cut to a line where it runs longer. Where the tracker cannot be listed
+the text is shown as it was written, because calling every number unknown over
+a listing that failed would be false. The Slack sink lists the tracker at most
+once a minute rather than once a message, so an item admitted in the last minute
+can reach the channel by its number until the next listing.
+
+The records themselves are not changed. A lane report, a report, and a pass's
+account are kept exactly as their author wrote them, and `yoyo reports --json`
+and `yoyo sweeps --json` carry them that way. What the read model hands a
+surface is titled: a program manager's blockers in `yoyo status --json` and the
+lane report the dashboard's card reads, and the attention entries, which carry
+the titled sentences beside the derived ones as `said_what` and `said_whose`.
+
 ## What agents report, and where it reaches you
 
 An agent used to be able to reach you only by failing. A spent repair budget
@@ -476,12 +521,13 @@ Every listing prints the build beside the run, and says how far it is behind the
 target branch's tip:
 
 ```text
-  !  report-… [warning] 2026-09-22T09:14:02Z from the developer on yoyodyne-ifd.380 (run-…, build 0123456789ab, 31 change(s) behind the target branch)
-     report-… [note] 2026-09-22T11:02:41Z from the reviewer on yoyodyne-ifd.402 (run-…, build fedcba987654, the target branch's tip)
-     report-… [note] 2026-08-25T18:30:00Z from the developer on yoyodyne-ifd.201 (run-…, no build recorded)
+  !  report-… [warning] 2026-09-22T09:14:02Z from the developer on yoyodyne-ifd.380 (No run's invariant delivery names the invariants README as an unreadable invariant) (run-…, build 0123456789ab, 31 change(s) behind the target branch)
+     report-… [note] 2026-09-22T11:02:41Z from the reviewer on yoyodyne-ifd.402 (A docket entry names the open publication and how to arm it, …) (run-…, build fedcba987654, the target branch's tip)
+     report-… [note] 2026-08-25T18:30:00Z from the developer on yoyodyne-ifd.201 (The invariant loader skips the directory README, as everything else already documents) (run-…, no build recorded)
 ```
 
-`yoyo reports` and `/reports` print it that way, and the reports carried into
+`yoyo reports` and `/reports` print it that way, each item
+[beside its title](#every-work-item-beside-its-title), and the reports carried into
 the Lead Product Manager's turn are printed the same way, with the instruction to
 check whether a fix has landed before admitting work from a report whose build
 is behind. A build behind the tip is not a verdict. It says the fix may already
@@ -1160,7 +1206,8 @@ to them directly and tagged to them by member id**, at `warning` severity:
 > row with nothing landing between them, which is the configured brake at 3,
 > and the harness escalated it to the operator after 4 summons-and-probe cycles
 > with the development manager not escalating it (the last probe run, of
-> yoyodyne-ifd.405, blocked: the checks failed on main), so it stays held until
+> yoyodyne-ifd.405 (Every yoyo verb runs from inside a harness-managed
+> worktree), blocked: the checks failed on main), so it stays held until
 > somebody releases it. Next: the operator's — the harness has stopped probing,
 > and nothing new is chosen until `yoyo release` lifts it.
 
@@ -1411,9 +1458,12 @@ are told it happened:
 > after 3 run(s) blocked in a row with nothing landing between them, which is
 > the configured brake at 3, and the development manager was summoned at … to
 > decide what happens to it …; the runs it counted: run run-7c27… of
-> yoyodyne-ifd.398: its reviewer still required repair …; run run-a17c… of
-> yoyodyne-ifd.401: check `make test` failed (exit 1) …; run run-5035… of
-> yoyodyne-ifd.402: …. `yoyo release`, or `/release` in the conversation,
+> yoyodyne-ifd.398 (A draining watch session keeps pulling and running
+> recurring tasks until it restarts, …): its reviewer still required repair …;
+> run run-a17c… of yoyodyne-ifd.401 (A check stage cannot take hours: …):
+> check `make test` failed (exit 1) …; run run-5035… of yoyodyne-ifd.402 (A
+> docket entry names the open publication and how to arm it, …): ….
+> `yoyo release`, or `/release` in the conversation,
 > lifts it sooner. Next: the development manager's — …
 
 When she escalates it to you, that hold is said to you once more, directly and

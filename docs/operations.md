@@ -449,7 +449,7 @@ Where each goes:
 2. **A named line under `Needs a human` on `yoyo status`**, ahead of the
    undecided proposals and never folded into `and N things not named here`:
    `report-… needs your hand: <what> (found by …; recorded in …)`,
-   `yoyodyne-ifd.272 needs your hand: <the development manager's reason> (found
+   `yoyodyne-ifd.272 (<its title>) needs your hand: <the development manager's reason> (found
    by the development manager, escalating the stopped run to the operator;
    recorded in …)`, and for the brake `intake is held, since <trip time>: …;
    tripped by run … of …: …`. It stays until the finding ends — the change
@@ -1439,7 +1439,7 @@ bound it has spent, and which check it is on:
 
 ```text
 Running (1 developer run):
-  yoyodyne-ifd.389 — checks: 14m of 30m, on make race, 1h02m elapsed, $4.10 so far
+  yoyodyne-ifd.389 (Timing-bound tests do not fail the gate under machine load) — checks: 14m of 30m, on make race, 1h02m elapsed, $4.10 so far
 ```
 
 `yoyo status <beads-id>` prints the same line under a run that is in its checks
@@ -2283,20 +2283,25 @@ remote gained, which is by definition work this repository has never seen.
 
 ```text
 Running (2 developer runs):
-  yoyodyne-ifd.194 — developing, 12m elapsed, $3.41 so far
-  yoyodyne-ifd.201 — reviewing, 3m elapsed, cost unknown (its event log is gone)
+  yoyodyne-ifd.194 (The four-line status: running, working, not-startable-with-reasons, needs-a-human) — developing, 12m elapsed, $3.41 so far
+  yoyodyne-ifd.201 (The invariant loader skips the directory README, as everything else already documents) — reviewing, 3m elapsed, cost unknown (its event log is gone)
 Working (1 conversation):
   product-manager — product-manager, a turn in flight for 40s after 270 recorded turns
 Not startable (4 of 7 admitted items; 1 awaits the development manager's decision, 1 awaits the harness carrying out a decision already recorded):
-  yoyodyne-ifd.200 — waiting on yoyodyne-ifd.199
-  yoyodyne-ifd.212 — parked, so no pull selects it however far the queue drains: the design is being reworked
-  yoyodyne-ifd.153 — run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
-  yoyodyne-ifd.150 — run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
+  yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
+  yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
+  yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
+  yoyodyne-ifd.150 (The release gate commits the tracker's derived exports instead of refusing on them) — run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
 Needs a human (3):
   directive directive-4f2c… is unresolved: which branch does this land on? — the operator's — the work it affects waits until `yoyo directive resolve` settles it
   1 admitted item awaits the development manager's decision — the development manager's — nothing pulls a stopped item until she decides what happens to it
   1 admitted item awaits carry-out of a decision already recorded — the harness's — the decision is made, and what is outstanding is the harness acting on it
 ```
+
+Every work item the lines name is shown beside its title, the first time the
+lines name it, including an item named inside a reason or a directive; one the
+tracker does not hold says so. [Reporting](reporting.md#every-work-item-beside-its-title)
+has the rule.
 
 - **Running** is the developer runs in flight, each with its item, the phase it
   reached, how long it has been going, and what it has spent so far. A run whose
@@ -2613,11 +2618,14 @@ proposer was working on — names it under `work_item_id` as well; a carried
 item carries its `executor` marker rather than a record of its own. Two kinds
 carry no `id`, because each is about a set rather than a record: `report` is
 the pile, and `held-work` is how many items are in one of the two waits. The
-`what` and `whose` the terminal prints are there beside them, and they are
+`what` and `whose` sentences are there beside them, and they are
 derived from those fields at the moment the answer is written rather than
 stored, so a record and the line about it cannot disagree; a document whose
 `what` says something its fields do not, or whose `kind` or `mover` is outside
-its vocabulary, is refused when the model reads it back.
+its vocabulary, is refused when the model reads it back. `said_what` and
+`said_whose` are the same two sentences as the terminal prints them, with
+[every work item beside its title](reporting.md#every-work-item-beside-its-title),
+and are present only where that changes something; the dashboard shows those.
 
 One thing is carried there that the four lines do not print: what is parked or
 held on provider capacity, one run and one conversation at a time, under

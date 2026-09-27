@@ -2312,7 +2312,7 @@ the bare phase:
 
 ```text
 Running (1 developer run):
-  yoyodyne-ifd.389 — checks: 14m of 30m, on make race, 1h02m elapsed, $4.10 so far
+  yoyodyne-ifd.389 (Timing-bound tests do not fail the gate under machine load) — checks: 14m of 30m, on make race, 1h02m elapsed, $4.10 so far
 ```
 
 The same figures reach the item: the run's notes carry `Check stage: 14m0s of

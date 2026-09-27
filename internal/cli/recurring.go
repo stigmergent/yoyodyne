@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/forgehygiene"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -455,7 +456,11 @@ func readSweeps(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	fmt.Fprint(stdout, renderSweeps(recorded, unreadable, *limit))
+	// A pass's account is a role's own words, and a role that named work by its
+	// number alone is read here with each item's title beside it. A tracker
+	// that cannot be listed costs the titles and nothing else.
+	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: parts.tracker(), TrackerTimeout: trackerCommandTimeout})
+	fmt.Fprint(stdout, renderSweeps(recorded, unreadable, *limit, titles))
 	if partial != nil {
 		// Said after the listing rather than before it, and on stderr, so what a
 		// reader is looking at stays on stdout whole: the sweeps above are real
@@ -485,7 +490,7 @@ func reportSweepFailure(stdout, stderr io.Writer, jsonOutput bool, err error) in
 // pile says so and says how to see the rest — the bound is what fits a terminal
 // rather than what the log holds, and a reader who cannot tell the difference is
 // a reader who thinks the schedule started yesterday.
-func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSweep, limit int) string {
+func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSweep, limit int, titles *readmodel.WorkItemTitles) string {
 	var rendered strings.Builder
 	// Said first, and said whether or not there is anything else to show: a log
 	// that has lost a record is the thing a reader most needs to know before they
@@ -507,7 +512,9 @@ func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSwe
 			len(recorded), len(shown))
 	}
 	for index := len(shown) - 1; index >= 0; index-- {
-		rendered.WriteString(renderSweep(shown[index]))
+		// Each pass is cited on its own, so an item two passes both name is
+		// titled in each of them rather than only in the newer.
+		rendered.WriteString(titles.Cite(renderSweep(shown[index])))
 		if index > 0 {
 			rendered.WriteString("\n")
 		}
