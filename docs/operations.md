@@ -3641,9 +3641,10 @@ slowly or not at all`.
    and every pile's label is a button that opens [the list of the items in it](#opening-a-work-item).
 5. **Throughput** — two columns, today and the last seven days, each labeled
    with the local days it covers: how many runs landed their work on the target
-   branch; the other endings, in the run history's own words (stopped, waiting
-   on the development manager's decision; cancelled, timed out, failed, and
-   succeeded without promoting anything); and how many runs started. What those days cost is in the spend
+   branch; the other endings, in the run history's own words (stopped on a
+   blocker, cancelled, timed out, failed, and succeeded without promoting
+   anything) — what each run ended as, never a wait it is still in, since a run
+   that stopped days ago may have been decided, re-run, or landed since; and how many runs started. What those days cost is in the spend
    box above rather than here: a page carrying "today" in one section and "the
    last 24 hours" in another is a page with two cost figures a reader has to
    reconcile, and with the money moved out this section needs no pricing at all,
@@ -3869,7 +3870,7 @@ holds the page as its own script renders it from the fixtures under
 `internal/dashboard/testdata/fixtures` — the document as the script left it,
 keeping the one page state and the one state per section a browser would show
 and dropping the hidden ones — one file per scenario — `quiet`, `busy`,
-`held`, `degraded`, `unreadable`, `loading`, `throughput-pending`,
+`held`, `roles` (nothing waiting on the operator, everything on a role or the harness), `degraded`, `unreadable`, `loading`, `throughput-pending`,
 `throughput-refused`, `throughput-stale`, `spend-pending`, `spend-stale`,
 `refused`, `unreachable`,
 `wrong-token`, `stale`, `snapshot`, `snapshot-old`, `snapshot-failed`, and

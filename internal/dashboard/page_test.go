@@ -698,6 +698,9 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1</span>`,
 			"Needs a human: 2 things waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 			"22 runs reached the target branch",
+			// A stopped run is said as what it ended as, never as a wait it is
+			// still in.
+			"9 stopped on a blocker, 3 cancelled",
 			"at least $1,232.58 from 452 invocations",
 			"1 exchange record could not be read, so the cost is a floor",
 			`<span class="held-state">capacity-blocked</span>`,
@@ -707,6 +710,15 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"quiet":      {"The harness is idle", "Nothing is running, and no conversation has a turn in flight.", "The backlog is empty", "Nothing ran in the last 7 days", "Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.", "No run or conversation is waiting on provider capacity", `<p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>`},
 		"degraded":   {`<span class="figure">—</span>`, `<li class="stage stage-unreadable">`, "Could not be read: the admitted work could not be read", `<button class="grouping-open pile-label" type="button" data-grouping="stage:developing">developing</button>`},
 		"unreadable": {"Could not be read: the recorded runs could not be read: open runs: input/output error", "Could not be read: the spend could not be read: open streams: input/output error", "yoyo doctor says whether bd answers in this checkout"},
+		// Nothing waits on the operator and everything waits on a role or the
+		// harness: the commonest real case. The operator's figure is zero, and
+		// no role's count is said as his.
+		"roles": {
+			`<span class="figure">0</span>`,
+			`<span class="unit">things waiting on the operator</span>`,
+			`<span class="detail">of 6 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1</span>`,
+			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
+		},
 		"held": {
 			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "pullable, and nothing is choosing", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
 			// One thing waiting, and it is the operator's: the figure says so and

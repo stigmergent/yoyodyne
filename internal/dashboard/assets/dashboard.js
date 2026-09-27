@@ -869,7 +869,7 @@
       // harness, or the forge is said after it under its mover, because none
       // of that needs a human.
       var counts = byMover(standing.needs_human);
-      attention = count(counts[0].number, "thing") + " waiting on the operator";
+      attention = (counts[0].number === 0 ? "nothing" : count(counts[0].number, "thing")) + " waiting on the operator";
       if (counts.length > 1) {
         attention += "; waiting on others: " + moverCounts(counts.slice(1));
       }
@@ -961,7 +961,10 @@
     figures.appendChild(figureRow("Landed", count(period.landed, "run") + " reached the target branch", period.landed > 0 ? "figure-landed" : null));
     var endings = [];
     if (period.succeeded) { endings.push(period.succeeded + " succeeded without promoting"); }
-    if (period.stopped) { endings.push(period.stopped + " stopped, waiting on the development manager's decision"); }
+    // What the run ended as, and not a wait: a run that stopped five days ago
+    // may since have been decided, re-run, or landed, so the held pile and the
+    // attention line are where a current wait and its mover are said.
+    if (period.stopped) { endings.push(period.stopped + " stopped on a blocker"); }
     if (period.cancelled) { endings.push(period.cancelled + " cancelled"); }
     if (period.timed_out) { endings.push(period.timed_out + " timed out"); }
     if (period.failed) { endings.push(period.failed + " failed"); }
