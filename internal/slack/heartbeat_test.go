@@ -707,10 +707,11 @@ func TestEveryStateTheHeartbeatSaysOffersOptions(t *testing.T) {
 	for _, reason := range readmodel.Reasons() {
 		// A run in flight and the provider's usage window are never said by this
 		// surface, a provider answering nobody is said once in its own message
-		// rather than by the heartbeat, and a product nobody watched is not a
-		// stopped line; the rest are.
+		// rather than by the heartbeat, a product nobody watched is not a
+		// stopped line, and a session restarting into a deployed build is said by
+		// its own restart message rather than repeated here; the rest are.
 		switch reason {
-		case readmodel.ReasonNoCapacity, readmodel.ReasonProviderWindow, readmodel.ReasonProviderAway, readmodel.ReasonUnwatched:
+		case readmodel.ReasonNoCapacity, readmodel.ReasonProviderWindow, readmodel.ReasonProviderAway, readmodel.ReasonUnwatched, readmodel.ReasonRedeploying:
 			continue
 		}
 		if len(options(reason)) < 2 {
