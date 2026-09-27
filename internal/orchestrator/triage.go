@@ -1548,25 +1548,31 @@ func (d Docketer) stoppedRunEntry(state runstate.State, now time.Time, found tri
 	if err != nil {
 		return triage.Entry{}, err
 	}
-	entry.StopRequested = d.unreachedStop(state.RunID)
+	entry.StopRequested = d.requestedStop(state)
 	return entry, nil
 }
 
-// unreachedStop is a stop asked of a run that stopped for some other reason:
-// it passed its last boundary before the request was read, and a failed review
-// or a check ended it instead. The entry carries it beside what actually stopped
-// the run, so whoever decides the stoppage knows the stop was asked, and knows it
-// decides nothing here — it was recorded against a run in flight, and this is a
-// stoppage it never reached.
+// requestedStop is a stop asked of a run whose stoppage this entry records, and
+// whether that stop is what ended it.
+//
+// Two stoppages carry one. A run that honored the stop ends cancelled — an
+// operator's `/stop` does, and is then settled into a durable blocker and
+// docketed here — and the stop landed. A run that passed its last boundary
+// before the request was read ended some other way, a failed review or a check,
+// and the stop never reached it: the entry carries it beside what actually
+// stopped the run, so whoever decides the stoppage knows the stop was asked, and
+// knows it decides nothing here. Cancelled is what a stop that landed leaves, and
+// a run that failed or was blocked on its own account is not cancelled, so the
+// status is what tells the two apart.
 //
 // A request that cannot be read is left off rather than failing the entry: the
 // stoppage is undecided either way, and an entry refused over the half of its
 // account that could not be read is a stoppage nobody is shown.
-func (d Docketer) unreachedStop(runID string) *triage.RequestedStop {
+func (d Docketer) requestedStop(state runstate.State) *triage.RequestedStop {
 	if d.Stops == nil {
 		return nil
 	}
-	request, requested, err := d.Stops.StopRequested(runID)
+	request, requested, err := d.Stops.StopRequested(state.RunID)
 	if err != nil || !requested {
 		return nil
 	}
@@ -1575,6 +1581,7 @@ func (d Docketer) unreachedStop(runID string) *triage.RequestedStop {
 		At:       request.RequestedAt.UTC(),
 		Reason:   singleLine(strings.TrimSpace(request.Reason), triage.MaxMessageBytes),
 		Decision: strings.TrimSpace(request.Decision),
+		Landed:   state.Status == runstate.StatusCancelled,
 	}
 }
 

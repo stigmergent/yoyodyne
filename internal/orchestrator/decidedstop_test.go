@@ -351,3 +351,64 @@ func TestAnOperatorStopIsStillDocketedNowhere(t *testing.T) {
 		t.Fatalf("docket = %#v, want an operator's stop docketed nowhere", entries)
 	}
 }
+
+// fixedStops is a stop request on record for every run it is asked about.
+type fixedStops struct{ request runstate.StopRequest }
+
+func (f fixedStops) StopRequested(string) (runstate.StopRequest, bool, error) {
+	return f.request, true, nil
+}
+
+// A stop that landed is not a stop the run never reached. An operator's stop
+// ends the run cancelled and is settled into a durable blocker, which is docketed
+// on the same path as a stoppage the stop never reached; its entry says the stop
+// is what ended it. A run that failed on its own account with the same request
+// on record says the stop never reached it.
+func TestAStoppedRunEntrySaysWhetherTheStopItCarriesLanded(t *testing.T) {
+	t.Parallel()
+
+	request := runstate.StopRequest{
+		SchemaVersion: runstate.StopSchemaVersion,
+		ProductID:     "yoyodyne",
+		RunID:         docketedRunID,
+		WorkItemID:    docketedItem,
+		RequestedAt:   baseTime,
+		Reason:        "wrong item",
+	}
+	for _, tc := range []struct {
+		name   string
+		status runstate.Status
+		landed bool
+	}{
+		{name: "an operator's stop that landed", status: runstate.StatusCancelled, landed: true},
+		{name: "a failed review the stop never reached", status: runstate.StatusFailed, landed: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			state := stoppedState()
+			state.Status = tc.status
+			docket := &memoryDocket{}
+			docketer := docketerOver([]runstate.State{state}, docket)
+			docketer.Stops = fixedStops{request: request}
+			if _, err := docketer.RecordStoppedRun(state); err != nil {
+				t.Fatalf("RecordStoppedRun() error = %v", err)
+			}
+			entries, err := docket.List()
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("docket = %#v, %v; want the stopped run", entries, err)
+			}
+			stop := entries[0].StopRequested
+			if stop == nil || stop.Landed != tc.landed || stop.By != "the operator" {
+				t.Fatalf("stop on the entry = %#v, want landed=%t", stop, tc.landed)
+			}
+			rendered := entries[0].Render()
+			if never := strings.Contains(rendered, "never reached"); never == tc.landed {
+				t.Fatalf("rendered entry says never reached = %t, want %t:\n%s", never, !tc.landed, rendered)
+			}
+			if tc.landed && !strings.Contains(rendered, "Stopped in flight") {
+				t.Fatalf("rendered entry does not say the stop ended the run:\n%s", rendered)
+			}
+		})
+	}
+}
