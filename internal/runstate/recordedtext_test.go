@@ -78,6 +78,8 @@ var structuredStrings = map[string]string{
 	"environmental.round_charged_by":       "a run id",
 	"integration_stop.cause":               "an enumeration",
 	"integration_stop.phase":               "an enumeration",
+	"replay_conflict.target_branch":        "a local branch name",
+	"replay_conflict.phase":                "an enumeration",
 	"integration_resumptions[].cause":      "an enumeration",
 	"integration_resumptions[].superseded_refusal.cause":            "an enumeration",
 	"integration_resumptions[].superseded_refusal.round_charged_by": "a run id",

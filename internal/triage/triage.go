@@ -430,6 +430,39 @@ func IntegrationGoneSays(runID, what string) string {
 		runID, what)
 }
 
+// ReplayConflict is an approved change having conflicted when it was replayed
+// onto what its target branch had become. It is the one stoppage after an
+// approval that is a decision rather than weather: the environment did not
+// stop the change, the target moved under it, and somebody has to say what the
+// target is supposed to look like. It is on the entry as its own fact rather
+// than left to the blocker, because on yoyodyne-ifd.441 the blocker write
+// timed out and the entry named the harness's resume verb as the next mover
+// of a conflict that verb would only have met again.
+//
+// It is declared here rather than imported from the run record for the reason
+// IntegrationStop is.
+type ReplayConflict struct {
+	// TargetBranch is the branch the replay was onto, which is what the conflict
+	// is with.
+	TargetBranch string `json:"target_branch,omitempty"`
+	Detail       string `json:"detail,omitempty"`
+	// Phase is the phase the run stopped in.
+	Phase string `json:"phase,omitempty"`
+}
+
+// ReplayConflictSays is the one sentence every surface says of an approved
+// change whose replay conflicted: that it is approved, what it conflicted with,
+// and who moves next — a person, or the repair-continue once that verb extends
+// to conflicts, and not the resume verb, which replays onto the same target and
+// meets the same conflict. It is one sentence here for the reason
+// ResumeIntegrationSays is: a docket entry and a run record that say different
+// things about one conflict send the development manager to different verbs.
+func ReplayConflictSays(runID, targetBranch string) string {
+	return fmt.Sprintf(
+		"run %s's change is approved and its replay onto %s conflicted, so what it needs is a person to settle the conflict — or a repair-continue of the developer that wrote it, once `yoyo triage repair` extends to replay conflicts (yoyodyne-ifd.132) — and not `yoyo triage resume`, which would replay onto the same target and meet the same conflict",
+		runID, nonEmpty(targetBranch, "its target branch"))
+}
+
 // Prerequisite is one thing an item's own statement asks of the tree that the
 // tree does not have. It is declared here rather than imported from the package
 // that reads it for the reason Finding is: what reaches a development manager
@@ -1055,7 +1088,13 @@ type Entry struct {
 	// joined where the docket is read: it is settled as the run ends, which is
 	// before the entry exists.
 	IntegrationStop *IntegrationStop `json:"integration_stop,omitempty"`
-	Counters        Counters         `json:"counters"`
+	// ReplayConflict is this run's approved change having conflicted when it
+	// was replayed onto its target, when that is what stopped it. It is written
+	// into the entry for the reason the integration stop is, and the two never
+	// stand together: they are the two classifications of one stop after an
+	// approval, and an entry carrying both would name two next movers.
+	ReplayConflict *ReplayConflict `json:"replay_conflict,omitempty"`
+	Counters       Counters        `json:"counters"`
 	// Rerun is the re-run already claimed against this entry's own stoppage, when
 	// there is one. It is joined to the entry where the docket is read rather
 	// than written into the log: an entry is recorded once as the work stops, and
@@ -1388,6 +1427,17 @@ func (e Entry) Validate() error {
 			problems = append(problems, fmt.Errorf("integration_stop: only a stopped run is an approved change the environment stopped, and this entry is a %s", e.Class))
 		}
 	}
+	if e.ReplayConflict != nil {
+		if len(e.ReplayConflict.Detail) > MaxMessageBytes {
+			problems = append(problems, fmt.Errorf("replay_conflict: detail is %d bytes, limit is %d", len(e.ReplayConflict.Detail), MaxMessageBytes))
+		}
+		if e.Class != ClassStoppedRun {
+			problems = append(problems, fmt.Errorf("replay_conflict: only a stopped run is an approved change whose replay conflicted, and this entry is a %s", e.Class))
+		}
+		if e.IntegrationStop != nil {
+			problems = append(problems, errors.New("replay_conflict: a conflict is a person's and an integration stop is the harness's, so one stop is never both"))
+		}
+	}
 	// Each class is held to the evidence that makes it the thing it claims to
 	// be. An entry that cannot say what stopped is an entry nobody can act on,
 	// which is worse than no entry: it looks like coverage.
@@ -1607,6 +1657,7 @@ func (e Entry) Render() string {
 	rendered.WriteString(e.renderEnvironmental())
 	rendered.WriteString(e.renderResumableSession())
 	rendered.WriteString(e.renderIntegrationStop())
+	rendered.WriteString(e.renderReplayConflict())
 	rendered.WriteString(e.renderNextMover())
 	fmt.Fprintf(&rendered, "      Triage counters: %d of %s review round(s) used%s; %d repair attempt(s) spent in this run; a grant would hand it %d\n",
 		e.Counters.ReviewRounds, capFigure(e.Counters.ReviewRoundsCap), roundsNote(e.Counters),
@@ -1799,6 +1850,30 @@ func (e Entry) renderIntegrationStop() string {
 	return rendered.String()
 }
 
+// renderReplayConflict says the change was approved and its replay onto the
+// target conflicted, and it says in the same breath which verb does not answer
+// that: the resume, which replays onto the same target. It is silent on every
+// other stoppage, which is nearly all of them.
+//
+// It is said even where the blocker above already describes the conflict,
+// because the case it exists for is the one where there is no blocker: the
+// write that would have carried it to the work item is what timed out on
+// yoyodyne-ifd.441, and the entry was then the only surface that could name the
+// conflict at all.
+func (e Entry) renderReplayConflict() string {
+	conflicted := e.ReplayConflict
+	if conflicted == nil {
+		return ""
+	}
+	var rendered strings.Builder
+	fmt.Fprintf(&rendered, "      %s. The conflict is a decision about the change rather than the environment, and nothing was force-merged.\n",
+		ReplayConflictSays(e.RunID, conflicted.TargetBranch))
+	if detail := strings.TrimSpace(conflicted.Detail); detail != "" {
+		rendered.WriteString(indented("What the replay found", detail))
+	}
+	return rendered.String()
+}
+
 // renderNextMover says which of the two waits this entry is in and who has to
 // move next: a stoppage with nothing outstanding about it is yours, and one
 // whose recorded decision the harness has still to act on is the harness's.
@@ -1828,6 +1903,11 @@ func (e Entry) renderIntegrationStop() string {
 // gone there is nothing for the resume to promote, and the stop is answered as
 // every other stoppage is, with the re-run named as the way on: that is what the
 // hold the pull reads says of the same run, by the same rule.
+//
+// An approved change whose replay conflicted is yours like any other undecided
+// stoppage, and is named as the conflict it is rather than as a bare wait,
+// because the verb a reader reaches for after an approval is the resume and the
+// resume cannot help it.
 func (e Entry) renderNextMover() string {
 	gone := ""
 	if e.IntegrationStop != nil {
@@ -1868,6 +1948,9 @@ func (e Entry) renderNextMover() string {
 		}
 		return fmt.Sprintf("      Next mover: you — nothing the harness has still to carry out is recorded about this stoppage, so what happens to it next is your decision; a repair (`yoyo triage repair %s`) continues it at %s, keeping its branch.\n",
 			e.RunID, step)
+	}
+	if e.ReplayConflict != nil {
+		return "      Next mover: you — this change is approved and its replay conflicted, so it is waiting on a person to settle the conflict (or on a repair-continue once yoyodyne-ifd.132 extends that verb to conflicts), and `yoyo triage resume` is not the answer.\n"
 	}
 	return "      Next mover: you — " + gone + "nothing the harness has still to carry out is recorded about this stoppage, so what happens to it next is your decision.\n"
 }
