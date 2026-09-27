@@ -486,3 +486,19 @@ func TestEveryContractNamesWorkItemsByWhatTheyAre(t *testing.T) {
 		t.Error("the lane report contract does not carry the rule for naming work items")
 	}
 }
+
+// Every role's contract says that a decision the role's authority covers is
+// made by the role and reported afterwards, that an approval routed to the
+// operator is a defect, and how to tell the one decision that is theirs. It is
+// in the contract rather than left to the persona because a project's own
+// persona can drop it.
+func TestEveryContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
+	t.Parallel()
+
+	for _, role := range ConversationalRoles() {
+		authority, _ := AuthorityFor(role)
+		if !strings.Contains(authority.Contract, terms.DecideAndReport) {
+			t.Errorf("%s contract does not carry the rule against routing approvals to the operator", role)
+		}
+	}
+}

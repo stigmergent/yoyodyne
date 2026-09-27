@@ -383,6 +383,12 @@ func TestThePassMessageGroupsTheEventsByStream(t *testing.T) {
 	if !strings.Contains(message, terms.ItemNaming) {
 		t.Errorf("message = %q, want the rule for naming work items", message)
 	}
+	// The pass decides things inside its lane, so the message tells the
+	// instance to make those decisions and report them rather than route them
+	// to the operator for approval.
+	if !strings.Contains(message, terms.DecideAndReport) {
+		t.Errorf("message = %q, want the rule against routing approvals to the operator", message)
+	}
 	if rendered := (RecurringSweep{Fired: fired.Fired}).Render(); !strings.Contains(rendered, "carried 1 landing, 2 admissions, 1 stoppage") {
 		t.Errorf("rendered = %q, want what the pass carried said on its line", rendered)
 	}

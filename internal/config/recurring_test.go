@@ -275,6 +275,11 @@ func TestScaffoldedRecurringExampleLoadsWhenUncommented(t *testing.T) {
 		if !namesWorkItemsByWhatTheyAre(prompt) {
 			t.Errorf("prompt = %q, want the rule that a work item is named by what it is", prompt)
 		}
+		// Both passes decide things, so both are told to decide what their
+		// authority covers rather than put it to the operator for approval.
+		if !decidesAndReports(prompt) {
+			t.Errorf("prompt = %q, want the rule that a decision the role can make is made and reported afterwards", prompt)
+		}
 	}
 }
 
