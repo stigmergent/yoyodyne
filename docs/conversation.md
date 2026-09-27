@@ -1890,8 +1890,11 @@ fires a recorded repair or re-run itself, oldest stoppage first and as many per
 pull as there are developer slots for them, through these same two actions and
 under every condition each of them asks — so
 recording the decision is what causes it, and the verbs are what fires one *now*
-rather than at the next pull. A re-arm is still typed: it is the one decision the
-pass does not carry out. Every refusal is written onto the item's own triage record and shown on the
+rather than at the next pull. A re-arm of a merge the forge dropped is still
+typed: it is the one decision the pass does not carry out. A re-arm of a request
+nothing ever asked the forge to merge is not typed — the pass makes it itself, on
+every pull, outside the developer slots since it is one merge request rather
+than a run, and not while your pause or intake hold stands. Every refusal is written onto the item's own triage record and shown on the
 docket entry the development manager reads, naming which gate refused and what
 would clear it, so a decision that cannot be carried out says so where she is
 already looking — and a decision no pass has attempted a poll interval after it
@@ -2128,7 +2131,10 @@ held to two more, read from the forge's checks under the promotion lease: the
 request's head has to be level with its target, and no check on its head may be
 failing. Each refusal names its gate, and a reading of the checks that could
 not be made refuses too. A `rerun` decision is the other answer, and hands the
-change back for a fresh run. Before yoyodyne-ifd.429.31 nothing armed this
+change back for a fresh run. A watching `yoyo work` session carries the re-arm
+out itself on its next pull, and a refusal is written onto the item naming the
+gate and asked again only once it has cooled; `yoyo triage rearm` makes it now
+rather than at the next pull. Before yoyodyne-ifd.429.31 nothing armed this
 state, and its only exit was a hand merge on the forge.
 
 The harness carries out none of the other three: a re-scope, a wait, and an

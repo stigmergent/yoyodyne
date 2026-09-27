@@ -1854,9 +1854,15 @@ forge and no amount of time changes it, and she decides it one of two ways:
 - **A re-run**, which hands the change back for a fresh run from the target
   branch.
 
-`yoyo triage rearm <run-id>` carries out the re-arm, as it does for a dropped
-merge; the watch's own carry-out fires re-runs and repairs, and does not yet
-fire re-arms.
+Neither waits on anybody typing a verb. A watching `yoyo work` session carries
+the re-arm out itself on its next pull — outside the developer slots, since it
+is one merge request rather than a run, and not while the operator's pause or
+the intake hold stands — and fires the re-run as it fires any other. A refused
+arming is written onto the item's triage record naming the gate, where the
+development manager reads it, and is attempted again only once the refusal has
+cooled. `yoyo triage rearm <run-id>` makes the request now rather than at the
+next pull; a re-arm of a merge the forge dropped is still made only by that
+verb.
 
 **None of the three stands forever.** Every sweep asks the remote again about
 each publication the record says is merged and unfinished, and finishes the ones

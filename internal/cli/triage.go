@@ -328,6 +328,12 @@ func buildRearmer(configPath string) (orchestrator.Rearmer, error) {
 	if err != nil {
 		return orchestrator.Rearmer{}, err
 	}
+	return rearmerFrom(parts), nil
+}
+
+// rearmerFrom wires the re-arm action over parts that are already built, for the
+// verb and for the watch's carry-out alike, so the two make the one request.
+func rearmerFrom(parts components) orchestrator.Rearmer {
 	// The same forge access the run's own merge was made through and the same
 	// reconciliation asks what became of one, so what repeats a request and what
 	// opened it speak to the same repository.
@@ -353,7 +359,7 @@ func buildRearmer(configPath string) (orchestrator.Rearmer, error) {
 		// `yoyo status` reports, so what proves the decision was made and what an
 		// operator reads about it can never be two different records.
 		Decisions: parts.store.Triage(),
-	}, nil
+	}
 }
 
 // reportRearm describes what the action did. There are three outcomes and an
@@ -688,6 +694,10 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		Runs:     parts.store,
 		Rerunner: rerunnerFrom(parts),
 		Repairer: repairContinuerFrom(parts),
+		// A re-arm decided about a request nothing ever asked the forge to merge,
+		// made through the same action `yoyo triage rearm` makes it through, with
+		// the same checks reading gating it.
+		Rearmer: rearmerFrom(parts),
 		// The one thing fired here that nobody decided: a check stage its bound
 		// stopped, continued by the harness at its checks on the change the run
 		// already has. It spends nothing, so no triage budget is wired to it.

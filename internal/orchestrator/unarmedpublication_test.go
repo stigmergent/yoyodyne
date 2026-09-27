@@ -210,3 +210,87 @@ func TestAnUnaskedPublicationCanBeHandedBackForAFreshRun(t *testing.T) {
 		t.Fatal("stoppageIsOver() admitted a queued merge to a re-run")
 	}
 }
+
+// carryOut is the watch's carry-out over the harness's records, with the same
+// Rearmer the verb makes the request through.
+func (h *rearmHarness) carryOut(checks RearmChecks) CarryOut {
+	return CarryOut{
+		Docket:    h.docket,
+		Decisions: h.runs.Triage(),
+		Reruns:    h.runs.Reruns(),
+		Runs:      h.runs,
+		Rearmer:   h.armer(checks),
+		Clock:     docketClock{},
+	}
+}
+
+// The re-arm she records is carried out by the watch on its own pull, with
+// nobody typing `yoyo triage rearm`: the merge request is made once, and a pull
+// after it finds nothing left to carry out. Under the intake hold nothing is
+// attempted.
+func TestTheWatchArmsAnUnaskedPublicationItsDecisionNames(t *testing.T) {
+	t.Parallel()
+
+	harness, checks, _ := newUnarmedHarness(t)
+	harness.decide(t)
+	watch := harness.carryOut(checks)
+
+	held, err := watch.CarryRearms(context.Background(), true)
+	if err != nil || len(held) != 0 || len(harness.forge.requested) != 0 {
+		t.Fatalf("CarryRearms() under the intake hold = %+v, %v with requests %#v; want nothing attempted", held, err, harness.forge.requested)
+	}
+
+	carried, err := watch.CarryRearms(context.Background(), false)
+	if err != nil {
+		t.Fatalf("CarryRearms() error = %v", err)
+	}
+	if len(carried) != 1 || !carried[0].Carried || carried[0].RunID != harness.state.RunID || carried[0].Decision != runstate.TriageDecisionRearm {
+		t.Fatalf("carried = %+v, want the one re-arm carried out", carried)
+	}
+	want := publish.MergeRequest{Number: 92, HeadCommit: rearmedCommit, Method: mergeMethod}
+	if len(harness.forge.requested) != 1 || harness.forge.requested[0] != want {
+		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.requested, want)
+	}
+	if armed := harness.reload(t); !armed.PullRequest.MergeQueued || armed.PullRequest.MergeRearms != 1 {
+		t.Fatalf("recorded publication = %+v, want the merge queued and the decision spent", armed.PullRequest)
+	}
+
+	again, err := watch.CarryRearms(context.Background(), false)
+	if err != nil || len(again) != 0 || len(harness.forge.requested) != 1 {
+		t.Fatalf("a second pull carried %+v (%v) with requests %#v; want nothing left to carry out", again, err, harness.forge.requested)
+	}
+}
+
+// A re-arm the landing gates refuse is written onto the item where the
+// development manager reads it, naming the gate, and is not asked again on the
+// very next pull.
+func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
+	t.Parallel()
+
+	harness, checks, _ := newUnarmedHarness(t)
+	checks.reading = publish.CheckReading{HeadCommit: rearmedCommit, BehindBy: 2}
+	harness.decide(t)
+	watch := harness.carryOut(checks)
+
+	carried, err := watch.CarryRearms(context.Background(), false)
+	if err != nil {
+		t.Fatalf("CarryRearms() error = %v", err)
+	}
+	if len(carried) != 1 || carried[0].Carried || !strings.Contains(carried[0].Problem, "head-behind-target gate") {
+		t.Fatalf("carried = %+v, want the arming refused naming the gate", carried)
+	}
+	if len(harness.forge.requested) != 0 {
+		t.Fatalf("a refused arming asked the forge for %#v", harness.forge.requested)
+	}
+	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+	finding, found := counters.CarryOutOf(harness.state.RunID)
+	if !found || finding.Decision != runstate.TriageDecisionRearm || !strings.Contains(finding.Refusal, "head-behind-target gate") {
+		t.Fatalf("finding = %+v (found %v), want the refusal on the item's triage record", finding, found)
+	}
+	if again, _ := watch.CarryRearms(context.Background(), false); len(again) != 0 || checks.asked != 1 {
+		t.Fatalf("the next pull attempted %+v (checks read %d times); want the refusal left to cool", again, checks.asked)
+	}
+}
