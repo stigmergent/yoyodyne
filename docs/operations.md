@@ -1985,7 +1985,15 @@ behind. A registration a killed `git worktree add` never finished filling in is
 cleared on the same pass, and named — see
 [a registration a run never finished writing](#a-registration-a-run-never-finished-writing)
 for what that shape is and why nothing else clears it. A run still in flight is
-never a candidate — that is a live developer's checkout. Each retirement is taken under the run's own lease and written onto its
+never a candidate — that is a live developer's checkout. Neither is a run whose
+publication records a merge the forge still holds, for its checkout or for its
+branch, however far past the tail it is: until the forge's merge is confirmed
+or dropped, the kept branch and worktree are what a head that falls behind is
+replayed from, and retiring them would turn that replay into a drop handed to
+a person. They are removed by the settlement that confirms the merge, as
+[above](#recovering-interrupted-runs), and by nothing earlier —
+`TestConvergeNeverRetiresTheCheckoutOrBranchOfAnUnsettledQueuedMerge` in
+`internal/orchestrator` holds the sweep to that. Each retirement is taken under the run's own lease and written onto its
 record, and so is a checkout the sweep finds already gone — removed by you, or by
 an external `git worktree prune` — so `yoyo status` and the triage docket stop
 advertising a directory that is not there rather than sending you after it.

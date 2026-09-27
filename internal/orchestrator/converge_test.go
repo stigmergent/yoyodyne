@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -617,6 +618,105 @@ func TestConvergeRetiresSettledCheckoutsPastTheTail(t *testing.T) {
 	if registered := len(linkedWorktrees(t, repository)); registered != settledWorktreeTail {
 		t.Errorf("registered worktrees = %d after a second sweep, want the tail of %d", registered, settledWorktreeTail)
 	}
+}
+
+// A run whose merge the forge still holds on a protected target is over and not
+// settled: nothing proves its change is on the target, and its kept branch and
+// worktree are what a head that falls behind is replayed from. So however old
+// it is, the sweep never retires either while the merge is unsettled — the
+// settlement that confirms the merge is what removes them, and nothing earlier.
+func TestConvergeNeverRetiresTheCheckoutOrBranchOfAnUnsettledQueuedMerge(t *testing.T) {
+	t.Parallel()
+
+	fixture := newQueuedFixture(t)
+	protectBranch(t, fixture.remote, "main")
+	fixture.forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "branch protection"})
+	outcome := fixture.run(t)
+	if outcome.Integration == nil || !outcome.Integration.ThroughPullRequest {
+		t.Fatalf("integration = %#v, want a landing through the pull request", outcome.Integration)
+	}
+	queued := loadRun(t, fixture.store, pipelineRunID)
+	if queued.WorktreeRemoved || queued.BranchRemoved || queued.CompletedAt == nil {
+		t.Fatalf("queued run = %#v, want a finished run keeping its branch and worktree", queued)
+	}
+
+	// One settled run older than the queued one, and a full tail newer than it,
+	// so the queued run sits past the tail beside a run the sweep does retire.
+	worktrees := newSweepManager(t, fixture.repository, fixture.worktreeRoot)
+	settle := func(index int, at time.Time) runstate.State {
+		state := settledRunWithCheckout(t, worktrees, fixture.store, index)
+		state.StartedAt, state.UpdatedAt, state.CompletedAt = at, at, &at
+		if err := fixture.store.Save(state); err != nil {
+			t.Fatalf("Save() run %d error = %v", index, err)
+		}
+		return state
+	}
+	older := settle(0, queued.CompletedAt.Add(-time.Hour))
+	for index := 1; index <= settledWorktreeTail; index++ {
+		settle(index, queued.CompletedAt.Add(time.Duration(index)*time.Minute))
+	}
+	candidates := make([]string, 0)
+	for _, candidate := range sweepableWorktrees(mustRecorded(t, fixture.store)) {
+		candidates = append(candidates, candidate.RunID)
+	}
+	if len(candidates) != 1 || candidates[0] != older.RunID {
+		t.Fatalf("candidates = %v, want only the older settled run %s and never the queued merge", candidates, older.RunID)
+	}
+
+	convergence := fixture.converge(t)
+	for _, sweep := range convergence.Worktrees {
+		if sweep.RunID == pipelineRunID {
+			t.Fatalf("worktree sweep = %#v, want the unsettled queued merge's checkout left alone", sweep)
+		}
+	}
+	for _, sweep := range convergence.Branches {
+		if sweep.RunID == pipelineRunID {
+			t.Fatalf("branch sweep = %#v, want the unsettled queued merge's branch left alone", sweep)
+		}
+	}
+	if len(convergence.Worktrees) != 1 || convergence.Worktrees[0].RunID != older.RunID || !convergence.Worktrees[0].Removed {
+		t.Fatalf("worktree sweeps = %#v, want the older settled run retired beside it", convergence.Worktrees)
+	}
+	if _, err := os.Stat(outcome.WorktreePath); err != nil {
+		t.Errorf("queued merge's worktree %s: %v, want it standing while the merge is unsettled", outcome.WorktreePath, err)
+	}
+	if head := gitOutput(t, fixture.repository, "branch", "--list", outcome.Branch); strings.TrimSpace(head) == "" {
+		t.Errorf("queued merge's branch %s is gone, want it standing while the merge is unsettled", outcome.Branch)
+	}
+	if kept := loadRun(t, fixture.store, pipelineRunID); kept.WorktreeRemoved || kept.BranchRemoved {
+		t.Errorf("queued run = worktree removed %t, branch removed %t; want both recorded as standing", kept.WorktreeRemoved, kept.BranchRemoved)
+	}
+
+	// The forge merges, and the settlement that confirms it is what retires both.
+	fixture.forge.PerformQueuedMerge(t)
+	settled := false
+	for _, result := range fixture.reconcile(t) {
+		if result.RunID == pipelineRunID {
+			settled = result.Action == ActionCompleted && result.Failure == ""
+		}
+	}
+	if !settled {
+		t.Fatal("reconciliation did not settle the queued merge as completed")
+	}
+	fixture.converge(t)
+	if _, err := os.Stat(outcome.WorktreePath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("queued merge's worktree %s: %v, want it retired once the merge is confirmed", outcome.WorktreePath, err)
+	}
+	if head := gitOutput(t, fixture.repository, "branch", "--list", outcome.Branch); strings.TrimSpace(head) != "" {
+		t.Errorf("queued merge's branch %s is standing, want it retired once the merge is confirmed", outcome.Branch)
+	}
+	if retired := loadRun(t, fixture.store, pipelineRunID); !retired.WorktreeRemoved || !retired.BranchRemoved {
+		t.Errorf("settled run = worktree removed %t, branch removed %t; want both retired", retired.WorktreeRemoved, retired.BranchRemoved)
+	}
+}
+
+func mustRecorded(t *testing.T, store *runstate.Store) []runstate.State {
+	t.Helper()
+	recorded, err := store.Recorded()
+	if err != nil {
+		t.Fatalf("Recorded() error = %v", err)
+	}
+	return recorded
 }
 
 // settledRunWithCheckout creates a real worktree and records a settled run for
