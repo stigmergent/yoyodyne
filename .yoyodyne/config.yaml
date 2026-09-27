@@ -293,7 +293,7 @@ agents:
     model: fable
     instances: 1
     persona:
-      version: v1
+      version: v2
       path: personas/architect.md
   developer:
     role: developer
@@ -303,7 +303,7 @@ agents:
     # limit the instances cannot supply; three with max_concurrent_developers: 3.
     instances: 3
     persona:
-      version: v1
+      version: v2
       path: personas/developer.md
   # The first program manager, created on the operator's direction of
   # 2026-09-25: it owns the factory not getting stuck or halting on a person.
@@ -314,7 +314,7 @@ agents:
     model: fable
     instances: 1
     persona:
-      version: v1
+      version: v2
       path: personas/program-manager.md
     lane: factory-flow
     remit:
@@ -332,7 +332,7 @@ agents:
     model: fable
     instances: 1
     persona:
-      version: v1
+      version: v2
       path: personas/development-manager.md
   product-manager:
     role: product-manager
@@ -343,7 +343,7 @@ agents:
     model: fable
     instances: 1
     persona:
-      version: v1
+      version: v2
       path: personas/product-manager.md
   reviewer:
     role: reviewer
@@ -353,5 +353,5 @@ agents:
     # queue behind one instance when the slots fill (operator, 2026-09-04).
     instances: 2
     persona:
-      version: v1
+      version: v2
       path: personas/reviewer.md
