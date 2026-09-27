@@ -3791,6 +3791,11 @@ Five outcomes look similar in a listing and are not the same thing:
 - **A pass that produced no account** says so and names what stopped it — a
   turn the provider failed, a role that answered in prose without the block the
   harness reads. It is never shown as a quiet pass.
+- **A missed cadence** is shown the same way: a pass that took no turn, starting
+  when the task fell due and ending when the miss was noticed, and naming what
+  kept the task from firing. It is recorded once a task has gone a whole interval
+  unfired; see [recurring tasks](configuration.md#recurring-tasks) for which
+  causes are also reported to the operator.
 - **A pass stopped by its turn bound** is recorded as partial, naming the bound,
   so a truncated pass is never mistaken for a finished one.
 - **A firing that failed before its first turn** is recorded as a failed firing,
