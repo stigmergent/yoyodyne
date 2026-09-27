@@ -400,7 +400,7 @@ func are(count int) string {
 var passedOverClauses = map[runstate.PassedOverClass]string{
 	runstate.PassedOverCarriedInConversation: "carried in conversation",
 	runstate.PassedOverParked:                "parked, and no pull selects a parked item however far the queue drains",
-	runstate.PassedOverHeldForAPerson:        "held for a person, waiting on triage decisions",
+	runstate.PassedOverHeldForAPerson:        "stopped, waiting on the development manager's decision or the harness carrying it out",
 	runstate.PassedOverAwaitingDecision:      "awaiting the development manager's decision",
 	runstate.PassedOverAwaitingCarryOut:      "awaiting carry-out of decisions already recorded",
 	runstate.PassedOverWaitingOnOtherWork:    "waiting on work that has not landed yet",
@@ -434,9 +434,12 @@ func (c Cause) Whose() string {
 	return passedOverMoves[c.Class]
 }
 
-// passedOverMoves is whose move follows each class. The ones that name a person
+// passedOverMoves is whose move follows each class. The ones that name a role
 // are the ones that never clear on their own: a parking, a stoppage nobody has
 // decided about, and an item asking the tree for something nobody has put there.
+// Only the one that names the operator needs a human, so no sentence here says
+// "a person" of a role's move: on 2026-09-27 the dashboard said "held for a
+// person" over thirty-four items the development manager was moving.
 // Everything else clears as work lands, which is a wait rather than a move, and
 // saying otherwise would send somebody to release a queue that is releasing
 // itself.
@@ -449,7 +452,7 @@ func (c Cause) Whose() string {
 var passedOverMoves = map[runstate.PassedOverClass]string{
 	runstate.PassedOverCarriedInConversation: "the role that carries them, in conversation — no run will ever start them",
 	runstate.PassedOverParked:                "the Lead Product Manager's — a parked item is passed over at every pull until it is released",
-	runstate.PassedOverHeldForAPerson:        "the development manager's — nothing pulls work held for a person until triage decides what happens to it",
+	runstate.PassedOverHeldForAPerson:        "the development manager's, or the harness's where she has decided — nothing pulls a stopped item until her decision about it is made and carried out",
 	runstate.PassedOverAwaitingDecision:      "the development manager's — nothing pulls a stopped item until she decides what happens to it",
 	runstate.PassedOverAwaitingCarryOut:      "the harness's — the decisions are recorded, and what is outstanding is the harness acting on them",
 	runstate.PassedOverWaitingOnOtherWork:    "nobody's — the work they wait on lands or does not, and the queue is read again either way",

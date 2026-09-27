@@ -327,6 +327,7 @@ const pages = [
   { name: "quiet", token: "t", standing: ok(fixture("standing-quiet")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "busy", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "held", token: "t", standing: ok(fixture("standing-held")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
+  { name: "roles", token: "t", standing: ok(fixture("standing-roles")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")) },
   { name: "degraded", token: "t", standing: ok(fixture("standing-degraded")), throughput: ok(fixture("throughput-degraded")), spend: ok(fixture("spend-busy")) },
   { name: "unreadable", token: "t", standing: ok(fixture("standing-unreadable")), throughput: ok(fixture("throughput-unreadable")), spend: ok(fixture("spend-unreadable")) },
   { name: "throughput-pending", token: "t", standing: ok(fixture("standing-busy")), throughput: pending, spend: ok(fixture("spend-busy")) },

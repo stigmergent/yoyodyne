@@ -685,7 +685,9 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"cost unknown (its event log is gone)",
 			"approved, resuming integration",
 			"claude-code · claude-opus-5 · account pool-b",
-			"held for a person: 1 awaiting a decision, 1 awaiting carry-out (most)",
+			// The held pile names who moves it, counted by mover, and never "a person".
+			"held after a stopped run: 1 waiting on the development manager's decision, 1 waiting on the harness carrying out her decision (most)",
+			"waiting on: the development manager's decision, or the harness carrying out her decision",
 			// What waits on a person, counted per mover in the model's order: the
 			// operator's is the figure, and each role's and the harness's are
 			// beside it, out of the whole the terminal prints. The label opens
@@ -694,8 +696,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<span class="figure">2</span>`,
 			`<span class="unit">things waiting on the operator</span>`,
 			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1</span>`,
-			"Needs a human: 8 things waiting on a person — the operator's: 2, the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
+			"Needs a human: 2 things waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 			"22 runs reached the target branch",
+			// A stopped run is said as what it ended as, never as a wait it is
+			// still in.
+			"9 stopped on a blocker, 3 cancelled",
 			"at least $1,232.58 from 452 invocations",
 			"1 exchange record could not be read, so the cost is a floor",
 			`<span class="held-state">capacity-blocked</span>`,
@@ -705,11 +710,20 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"quiet":      {"The harness is idle", "Nothing is running, and no conversation has a turn in flight.", "The backlog is empty", "Nothing ran in the last 7 days", "Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.", "No run or conversation is waiting on provider capacity", `<p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>`},
 		"degraded":   {`<span class="figure">—</span>`, `<li class="stage stage-unreadable">`, "Could not be read: the admitted work could not be read", `<button class="grouping-open pile-label" type="button" data-grouping="stage:developing">developing</button>`},
 		"unreadable": {"Could not be read: the recorded runs could not be read: open runs: input/output error", "Could not be read: the spend could not be read: open streams: input/output error", "yoyo doctor says whether bd answers in this checkout"},
+		// Nothing waits on the operator and everything waits on a role or the
+		// harness: the commonest real case. The operator's figure is zero, and
+		// no role's count is said as his.
+		"roles": {
+			`<span class="figure">0</span>`,
+			`<span class="unit">things waiting on the operator</span>`,
+			`<span class="detail">of 6 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1</span>`,
+			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
+		},
 		"held": {
 			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "pullable, and nothing is choosing", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
 			// One thing waiting, and it is the operator's: the figure says so and
 			// there is no breakdown to give.
-			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on a person — the operator's: 1.",
+			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on the operator.",
 		},
 		// A failed poll backs the page off: it says when it asks again, later
 		// than its ordinary clock.
@@ -778,7 +792,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// The card over the grouping it was opened from: a stopped run with its
 		// change preserved, said as `yoyo status` says it.
 		"grouping-card": {
-			`<h2 id="grouping-heading" class="popup-title">Held back: held for a person (2 items)</h2>`,
+			`<h2 id="grouping-heading" class="popup-title">Held back: held after a stopped run (2 items)</h2>`,
 			"waiting on: the development manager", `data-item="yoyodyne-ifd.150"`,
 			`<h2 id="card-heading" class="popup-title">Triage names the phase a run stopped in</h2>`,
 			`<p class="card-run-preserved">preserved: stopped, reviewing — work preserved</p>`,
@@ -790,15 +804,15 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// words, with its kind and who it is waiting on, the operator's first, and
 		// each a button that opens its card.
 		"attention": {
-			`<h2 id="grouping-heading" class="popup-title">Needs a human (8 things)</h2>`,
+			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (8 things)</h2>`,
 			`<button class="item-open grouping-title" type="button" data-entry="directive:directive-4f2c">directive directive-4f2c is unresolved: which branch does this land on?</button>`,
 			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">run run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70 of yoyodyne-ifd.222 ended still owing a step</button>`,
 			`data-entry="amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c"`, `data-entry="amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d"`,
 			`data-entry="conversation-carried-item:yoyodyne-ifd.188"`, `data-entry="held-work:decision"`, `data-entry="held-work:carry-out"`, `data-entry="report:"`,
 			`<span class="item-id">amendment</span>`, `<span class="grouping-detail">the architect's — nothing reaches the document until they or the operator decide it</span>`, `<span class="grouping-detail">the harness's — the decision is made, and what is outstanding is the harness acting on it</span>`,
 		},
-		"attention-empty": {`<h2 id="grouping-heading" class="popup-title">Needs a human</h2>`, `<p id="grouping-empty" class="empty">Nothing waits on a person.</p>`},
-		"attention-error": {`<h2 id="grouping-heading" class="popup-title">Needs a human</h2>`, "Could not be read: the recorded directives could not be read: open directives: permission denied"},
+		"attention-empty": {`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom</h2>`, `<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`},
+		"attention-error": {`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom</h2>`, "Could not be read: the recorded directives could not be read: open directives: permission denied"},
 		// An amendment's card: the target document, the proposer, the proposed
 		// change, and why, whole, with the item the proposer was working on
 		// opening its own card.
@@ -832,7 +846,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"attention-carried-item-card": {`<h2 id="card-heading" class="popup-title">The goals document gains a legibility clause</h2>`, "<dd>Executor: conversation:product-manager.</dd>"},
 		// A poll after the card was opened finds the entry settled, and the
 		// list empty; and one that finds the line unreadable says so on both.
-		"attention-settled":    {`<p id="grouping-empty" class="empty">Nothing waits on a person.</p>`, "Nothing under owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70 is waiting on a person any more: it was settled since the page last read where the harness stands, at 14:15:09."},
+		"attention-settled":    {`<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`, "Nothing under owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70 is waiting any more: it was settled since the page last read where the harness stands, at 14:15:09."},
 		"attention-unreadable": {`<p id="grouping-problem" class="problem">Could not be read: the recorded directives could not be read`, `<p id="card-problem" class="problem">Could not be read: the recorded directives could not be read`},
 	} {
 		body := page(scenario)

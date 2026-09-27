@@ -651,7 +651,7 @@ func undecidedStoppage(escalation runstate.Escalation) string {
 		return "its stoppage is in front of the development manager and nothing has been decided about it yet"
 	case escalation.Attempts >= runstate.MaxEscalationAttempts:
 		return fmt.Sprintf(
-			"its stoppage could not be put in front of the development manager after %d attempt(s), so it needs a person",
+			"its stoppage could not be put in front of the development manager after %d attempt(s), so the harness has stopped asking her and it stays undecided on her docket until she decides it",
 			escalation.Attempts)
 	default:
 		return "its stoppage has not reached the development manager yet, so nobody has decided anything about it"

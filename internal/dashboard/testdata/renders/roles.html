@@ -15,12 +15,12 @@
       <p class="observed">
         observed
         <time id="observed-at" datetime="2026-09-19T14:05:09Z">14:05:09</time>
-        <span id="freshness" class="freshness freshness-stale">stale</span>
+        <span id="freshness" class="freshness">asks again every 10 s</span>
       </p>
     </header>
     <main id="page" data-state="ready">
       <div class="state state-ready">
-        <p id="stale" class="stale" role="status">The last reading failed for the standing — the dashboard could not be reached (Failed to fetch); the yoyo dashboard process may have stopped, and starting it again prints a new token unless services.dashboard.token names a stored one — so this is the reading from 14:05:09, and the page asks again in 20s, less often while the dashboard answers slowly or not at all.</p>
+        <p id="stale" class="stale" role="status" hidden></p>
         <p id="banner" class="banner" role="status" hidden></p>
         <section id="band" class="panel band" data-state="ready" aria-labelledby="band-heading">
           <div class="panel-head">
@@ -55,14 +55,14 @@
                   <span class="detail">of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1</span>
                 </dd>
               </div>
-              <div class="tile tile-attention">
+              <div class="tile">
                 <dt>
                   <button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>
                 </dt>
                 <dd>
-                  <span class="figure">2</span>
+                  <span class="figure">0</span>
                   <span class="unit">things waiting on the operator</span>
-                  <span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1</span>
+                  <span class="detail">of 6 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1</span>
                 </dd>
               </div>
               <div class="tile">
@@ -310,7 +310,7 @@
               </li>
             </ol>
             <ul id="pipeline-problems" class="degraded" hidden></ul>
-            <p id="pipeline-note" class="footnote">Needs a human: 2 things waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.</p>
+            <p id="pipeline-note" class="footnote">Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.</p>
           </div>
         </section>
         <section id="throughput" class="panel throughput" data-state="ready" aria-labelledby="throughput-heading">

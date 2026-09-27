@@ -219,7 +219,7 @@ func (w conversationWork) Backlog(ctx context.Context) (backlog.Queue, error) {
 	if w.store != nil {
 		held, err = readmodel.HeldForAPerson(ctx, w.store, w.store.Triage(), w.remains)
 		if err != nil {
-			return backlog.Queue{}, fmt.Errorf("read what the harness is holding for a person: %w", err)
+			return backlog.Queue{}, fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
 		}
 	}
 	return backlog.Order(admitted, pullable, held), nil

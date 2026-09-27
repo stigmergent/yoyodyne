@@ -511,8 +511,9 @@ Where each goes:
    The brake's message names the runs it counted; the release of any intake
    hold is said once, naming who lifted it. See
    [reporting](reporting.md#a-finding-that-needs-your-hand).
-2. **A named line under `Needs a human` on `yoyo status`**, ahead of the
-   undecided proposals and never folded into `and N things not named here`:
+2. **A named line under `Needs a human` on `yoyo status`**, printed wherever it
+   falls among the operator's entries and never folded into `and N things not
+   named here`:
    `report-… needs your hand: <what> (found by …; recorded in …)`,
    `yoyodyne-ifd.272 (<its title>) needs your hand: <the development manager's reason> (found
    by the development manager, escalating the stopped run to the operator;
@@ -614,12 +615,13 @@ held the line a second time over the one cause the first blocker had already
 put in front of a person.
 
 The hold's own record says where it stands, and every surface reads it from
-there: `yoyo status` names the hold on its "Needs a human" line with who it is
-waiting on — the development manager's while she decides, with when the probe
+there: `yoyo status` names the hold on its fourth line with who it is
+waiting on, under the head of whoever that is — `Waiting on the development
+manager` while she decides, with when the probe
 starts if she has not; the harness's while a probe runs, naming the probe;
 either of those with which summons-and-probe cycle it is and at what cycle the
 harness stops asking; and yours only once it is escalated, saying whether she
-did or the harness did — the watch log and the channel say the same,
+did or the harness did, and only then under `Needs a human` — the watch log and the channel say the same,
 `yoyo sweeps` shows the summoned pass as summoned, and the run the probe made
 records the brake as what chose it. `yoyo release` still lifts a brake
 hold sooner, and says what the harness was in the middle of when it did.
@@ -1746,8 +1748,9 @@ queue, pull requests 832 and 834 were each handed to a person as dropped while
 the queue was landing them.
 
 - **Checks passing, or still running.** The merge stays queued, and the reading
-  goes with it everywhere the merge is named: the sweep's line, the "Needs a
-  human" entry for the publication, and the docket entry once the request has
+  goes with it everywhere the merge is named: the sweep's line, the
+  publication's entry on `yoyo status`'s fourth line — under `Waiting on the
+  forge`, since a queued merge is the forge's to land — and the docket entry once the request has
   sat past `triage.stuck_merge_age`.
 - **A head behind its target whose failing checks name no file the change
   touches.** The failure is one the change met on a target that has moved on,
@@ -1798,7 +1801,7 @@ still open, and its head is behind the target with no failing check naming a
 file the change touches, the drop is the race a replay answers: the sweep puts
 the run back at its promotion exactly as above — with nothing to withdraw — and
 the change is brought up to date from the kept branch, checked, reviewed, and
-queued again. A drop is handed to a person only when the change cannot be
+queued again. A drop is handed back, to the development manager's docket, only when the change cannot be
 replayed: a local promotion, a run whose branch, worktree, approval, or
 sessions are gone, a request the forge closed, a head level with its target, or
 checks failing on the change itself. A reading of the checks the forge could
@@ -1812,7 +1815,7 @@ so, and writes nothing — a check state nobody read is not a red one. A merge
 nobody has read the checks of yet is docketed saying exactly that rather than
 as approved and queued with nothing beside it.
 
-Three settle-path outcomes leave a publication outstanding for a person, each
+Three settle-path outcomes leave a publication outstanding, each
 with its own line on the work item. A merge the forge **dropped**, where the
 change cannot be replayed onto its target, is the
 first: something the base branch required went unmet, the harness does not
@@ -1888,8 +1891,8 @@ forge and no amount of time changes it, and she decides it one of two ways:
 - **A re-run**, which hands the change back for a fresh run from the target
   branch. Once it is carried out, the prior run's record marks its publication
   handed back (`handed_back` on the pull request), and from then on nothing
-  names it: it is not docketed again, on its age or otherwise, the "Needs a
-  human" line drops it, and the heartbeat stops counting it as awaiting the
+  names it: it is not docketed again, on its age or otherwise, `yoyo status`'s
+  fourth line drops it from under `Waiting on the development manager`, and the heartbeat stops counting it as awaiting the
   forge. The old request is left open on the forge: nothing here closes it
   yet, and nothing reads it as work once it is marked.
 
@@ -2492,9 +2495,11 @@ Not startable (4 of 7 admitted items; 1 awaits the development manager's decisio
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
   yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
   yoyodyne-ifd.150 (The release gate commits the tracker's derived exports instead of refusing on them) — run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
-Needs a human (3):
+Needs a human (1):
   directive directive-4f2c… is unresolved: which branch does this land on? — the operator's — the work it affects waits until `yoyo directive resolve` settles it
+Waiting on the development manager (1):
   1 admitted item awaits the development manager's decision — the development manager's — nothing pulls a stopped item until she decides what happens to it
+Waiting on the harness (1):
   1 admitted item awaits carry-out of a decision already recorded — the harness's — the decision is made, and what is outstanding is the harness acting on it
 ```
 
@@ -2632,8 +2637,22 @@ has the rule.
   two the queue is full of. Reporting both as one thing is what cost 2026-09-07:
   thirty-three items read as a decision backlog for days while the development
   manager had decided every one of them and the gap was the carry-out.
-- **Needs a human** is always present, and says either `nothing` or the list with
-  who each one is waiting on: the operator's two switches — a held intake with who
+- **Needs a human** is always present, and says either `nothing` or the list of
+  what waits on the operator, the one human the line is named for. Everything
+  else that is waiting is printed under it, one line per mover — `Waiting on the
+  development manager (2):`, `Waiting on the harness (1):`, `Waiting on the
+  forge (1):` — in the order the Lead Product Manager, the architect, the
+  development manager, the developer, the reviewer, the harness, the forge, the
+  provider, nobody's move, then a role the harness cannot name, each head
+  counting its own entries and printed only where it has any. Those are not a
+  fifth line: they are the fourth line split by whose move it is, so that
+  nothing a role or the harness moves is said to need a human. Until
+  2026-09-27 every entry was listed under `Needs a human`, and on the dashboard
+  a pile of thirty-four items the development manager and the harness were
+  moving read as "held for a person". The brief rendering the channel's hourly
+  message carries keeps every one of those heads and drops the entries. Taken
+  together, the line and the heads under it list who each thing is waiting on:
+  the operator's two switches — a held intake with who
   it waits on, which for [a hold the brake placed](#pausing-everything-and-resuming-it)
   is the development manager's or the harness's rather than yours until she
   escalates it, and names the probe run while one is in flight — an unresolved
@@ -2652,7 +2671,7 @@ has the rule.
   oldest undecided entry has been waiting more than a week. A stall over an empty
   queue is not listed: it is a state of the machine rather than something waiting
   on you, and neither is a report pile that is being worked through — what is
-  listed is one that is not. The line names ten entries and counts the rest,
+  listed is one that is not. Each head names ten entries and counts the rest,
   except a finding that needs your hand and a hold the brake placed: those are
   named wherever they fall and never counted into `and N things not named
   here`, because a finding folded into a count is one that did not reach you. The unpublished promotions are the same set the
@@ -3252,7 +3271,7 @@ comes from a small fixed set:
 | word | what it means |
 | --- | --- |
 | `succeeded` | the work landed |
-| `stopped` | it ended on a durable blocker: the item carries it, a person decides what happens next, and nothing was discarded |
+| `stopped` | it ended on a durable blocker: the item carries it, the development manager decides what happens next, and nothing was discarded |
 | `cancelled` | something stopped it rather than judged it — the operator, or a killed process |
 | `timed out` | the harness stopped it on time; nothing judged the change, and only a check stage its bound stopped is acted on afterwards — [continued at its checks by the harness](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs), then the development manager's once those continuations are spent |
 | `failed` | it ended without succeeding and without leaving anybody a blocker |
@@ -3270,7 +3289,7 @@ discarded ones.
 A blocker outranks the run's own status, `succeeded` included. The last of those
 endings is the one where that shows: a run promotes its work, records it, and
 `yoyo reconcile` then finds the target does not carry the promotion, so the item
-goes back into a person's hands while the run's record keeps the status it wrote
+goes back to the development manager's docket while the run's record keeps the status it wrote
 for itself before anything contradicted it. `--json` shows both — a `status` of
 `succeeded` beside an `outcome` of `stopped` — and the outcome is what became of
 the work.
@@ -3564,15 +3583,15 @@ slowly or not at all`.
 1. **Where the harness stands** — a tile for each of the four lines: running
    developer runs, conversations with a turn in flight, admitted items nothing
    will pull (out of how many are admitted, and how many await a decision or
-   the carrying out of one), and what waits on a person, which says `nothing`
-   in words when it is nothing. That last tile counts per mover, in the read
+   the carrying out of one), and what waits on the operator, which says `nothing`
+   in words when nothing waits on the operator or anybody else. That last tile counts per mover, in the read
    model's own vocabulary for who each entry is waiting on: its figure is what
    waits on the operator, and beside it, out of the line's whole count — the
    figure the terminal prints — what waits on the Lead Product Manager, the
    architect, the development manager, and the harness, in the model's order
    and each named only where it is not zero. The tile asks for attention when
    something waits on the operator, not when sixty things wait on a role. Its
-   label is a button that opens [the list of what is waiting](#opening-what-waits-on-a-person),
+   label is a button that opens [the list of what is waiting](#opening-what-is-waiting-and-on-whom),
    each entry of which opens a card. Two
    more tiles carry what landed today and in the last seven days, and what was
    spent in the last twenty-four hours and the last seven days, the latter
@@ -3605,7 +3624,9 @@ slowly or not at all`.
    are recorded before it.
 4. **Where the work stands** — the pipeline, read left to right: admitted items;
    how many are held back, split into the piles the queue itself names — held
-   for a person (awaiting a decision or awaiting carry-out), paused by a
+   after a stopped run, its label counted by mover (`held after a stopped run:
+   20 waiting on the development manager's decision, 14 waiting on the harness
+   carrying out her decision`), paused by a
    directive, pullable with nothing choosing, parked, waiting on other work,
    covered by its own unfinished children,
    carried by a conversation rather than a run, and not offered for a reason
@@ -3613,14 +3634,17 @@ slowly or not at all`.
    `(most)`; how many are startable and next to be pulled — or, while a stall
    holds every pullable item, that the harness is choosing nothing and why;
    how many are running, by stage; and how many landed today and this week.
-   Under it, in words, how many things wait on a person, and then how many of
-   them wait on each mover, the operator's first. Every stage's label
+   Under it, in words, how many things wait on the operator, and then how
+   many wait on each other mover — `Needs a human: 1 thing waiting on the
+   operator; waiting on others: the development manager's: 30, the harness's:
+   4.` Nothing a role or the harness moves is said to need a person. Every stage's label
    and every pile's label is a button that opens [the list of the items in it](#opening-a-work-item).
 5. **Throughput** — two columns, today and the last seven days, each labeled
    with the local days it covers: how many runs landed their work on the target
-   branch; the other endings, in the run history's own words (stopped for a
-   person, cancelled, timed out, failed, and succeeded without promoting
-   anything); and how many runs started. What those days cost is in the spend
+   branch; the other endings, in the run history's own words (stopped on a
+   blocker, cancelled, timed out, failed, and succeeded without promoting
+   anything) — what each run ended as, never a wait it is still in, since a run
+   that stopped days ago may have been decided, re-run, or landed since; and how many runs started. What those days cost is in the spend
    box above rather than here: a page carrying "today" in one section and "the
    last 24 hours" in another is a page with two cost figures a reader has to
    reconcile, and with the money moved out this section needs no pricing at all,
@@ -3715,7 +3739,7 @@ in between.
 
 **A grouping's items.** In *Where the work stands*, the label of each stage —
 Admitted, Held back, Startable, Running, Landed — and of each pile under one
-(`held for a person`, `developing`, and the rest; the week's landed line is a
+(`held after a stopped run`, `developing`, and the rest; the week's landed line is a
 grouping of its own beside today's) ends in a chevron and opens a list of the
 work items in it, by title, with the id under each and the pipeline's own word
 for it beside: the refusal for a held-back item, the phase and elapsed time for
@@ -3756,10 +3780,12 @@ page last read the standing — which is a different answer from the item not
 being readable, and is said as one. Every value on it reaches the page as JSON
 and is written as text, under the same policy as the rest of the page.
 
-### Opening what waits on a person
+### Opening what is waiting, and on whom
 
-The **Needs a human** tile counts; its label opens the list of what it
-counted, and each entry of the list opens a card, in the same two pop-ups as
+The **Needs a human** tile counts; its label opens the list of everything the
+fourth line carries, the operator's and every other mover's, headed *What is
+waiting, and on whom* — not *Needs a human*, because most of what it lists is
+a role's or the harness's to move, and each entry of the list opens a card, in the same two pop-ups as
 above. Both are drawn from [the structured entries the standing
 carries](#where-the-harness-stands-the-four-lines) under
 `standing.needs_human` and from nothing else — the page never reads the
@@ -3773,7 +3799,7 @@ reaches the document until they or the operator decide it` — in the movers'
 order, the operator's first, so the list opens on what the tile's figure
 counted; within one mover the entries are in the terminal's order. It has the
 four states the grouping list has: **empty**
-saying `Nothing waits on a person.`, **error** with the reason the line could
+saying `Nothing waits on the operator or anybody else.`, **error** with the reason the line could
 not be read — the tile showing a dash still opens it, so the reason is
 readable in full — **loading** while the standing has not arrived, and
 **ready**. Each sentence is a button that opens the entry's card.
@@ -3844,7 +3870,7 @@ holds the page as its own script renders it from the fixtures under
 `internal/dashboard/testdata/fixtures` — the document as the script left it,
 keeping the one page state and the one state per section a browser would show
 and dropping the hidden ones — one file per scenario — `quiet`, `busy`,
-`held`, `degraded`, `unreadable`, `loading`, `throughput-pending`,
+`held`, `roles` (nothing waiting on the operator, everything on a role or the harness), `degraded`, `unreadable`, `loading`, `throughput-pending`,
 `throughput-refused`, `throughput-stale`, `spend-pending`, `spend-stale`,
 `refused`, `unreachable`,
 `wrong-token`, `stale`, `snapshot`, `snapshot-old`, `snapshot-failed`, and
@@ -3857,7 +3883,7 @@ behind the spend box, and `card`, `card-loading`,
 `attention`, `attention-empty`, `attention-error`, `attention-amendment`,
 `attention-owed-step`, `attention-carried-item`,
 `attention-carried-item-card`, `attention-settled`, `attention-unreadable`,
-and `attention-closed` for the list of what waits on a person and the cards
+and `attention-closed` for the list of what is waiting, and on whom, and the cards
 opened from it, and `report`, `report-blocked`, `report-unwritten`,
 `report-loading`, `report-missing`, `report-refused`, and `report-closed` for
 a program manager's report card, each opened by clicking what a reader would click on
@@ -4244,11 +4270,14 @@ decision those sweeps would have made waited a day; the only account was one
 line per firing here, and it was found by somebody reading the log. So from the
 second such firing in a row — counted back to the last firing that took a turn,
 with firings the provider refused neither counting nor resetting the count —
-the task is an entry on `yoyo status`'s "Needs a human" line naming the task,
-the cause, the latest refusal, and how many in a row:
+the task is an entry on `yoyo status`'s fourth line naming the task,
+the cause, the latest refusal, and how many in a row — under `Needs a human`
+where the operator's move ends it, and under `Waiting on the harness` where the
+harness's does:
 
 ```text
-Needs a human (1):
+Needs a human: nothing
+Waiting on the harness (1):
   the recurring task development-manager-sweep has failed before its first turn 2 times in a row since 2026-09-26T06:39:00Z: the harness refused the message it composed for the pass; latest: scheduled pass's message is 47768 bytes, limit is 32768; … — the harness's — the harness refuses what it composed for the pass, which is a defect in the harness rather than anything waiting it out will end; every firing meets the same refusal until the harness is fixed, and the first firing that takes a turn clears this
 ```
 
@@ -4259,7 +4288,7 @@ no agent fills, a conversation record that will not load, or a session somebody
 else is holding. `--json` carries the entry with kind `failing-task`, the task
 as its `id`, and the record under `failing_task`: the task, role, cause, latest
 problem, the count as `failures`, and `first_at`, `raised_at` (the second
-failure), and `latest_at`. The dashboard's list of what waits on a person opens
+failure), and `latest_at`. The dashboard's list of what is waiting, and on whom, opens
 the same record.
 
 [The channel](reporting.md#a-recurring-task-failing-before-its-first-turn) says

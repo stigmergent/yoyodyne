@@ -178,7 +178,8 @@ func MoverOf(role domain.AgentRole) Mover {
 
 // Movers is the whole vocabulary, in the order a surface lists them: the
 // operator first, because the line is called "needs a human" and his is the
-// count that says whether it needs him; then the roles in the hierarchy's
+// count that says whether it needs him, and his are the only entries that line
+// prints — every other mover's are printed under a line naming it; then the roles in the hierarchy's
 // order; then the movers that are not people.
 func Movers() []Mover {
 	return []Mover{
@@ -264,7 +265,33 @@ func (m Mover) Possessive() string {
 	}
 }
 
-// Attention is one thing waiting on a person: what kind of thing, which one,
+// WaitingOn is the head the fourth line prints over the entries a mover other
+// than the operator moves: "Waiting on the development manager", "Waiting on
+// the harness". It names the mover rather than a person, because none of these
+// movers is the operator, and the words "a person" and "a human" are kept for
+// what he moves.
+func (m Mover) WaitingOn() string {
+	switch m {
+	case MoverOperator:
+		return "Waiting on the operator"
+	case MoverHarness:
+		return "Waiting on the harness"
+	case MoverForge:
+		return "Waiting on the forge"
+	case MoverProvider:
+		return "Waiting on the provider"
+	case MoverNobody:
+		return "Waiting on nobody's move"
+	case MoverUnnamed:
+		return "Waiting on a role the harness cannot name"
+	}
+	if domain.AgentRole(m).Valid() {
+		return "Waiting on the " + domain.AgentRole(m).Title()
+	}
+	return "Waiting on " + string(m)
+}
+
+// Attention is one thing waiting on somebody: what kind of thing, which one,
 // whose move it is, and the record itself where there is one. The move is half
 // the fact — a thread that says something is waiting without saying who on is
 // the silence this whole surface exists to end — and the record is the other
@@ -557,7 +584,7 @@ func (a Attention) Whose() string {
 			case a.Publication.PullRequest.MergeQueued:
 				return a.Mover.Possessive() + " — it merges once the base branch's requirements are met, and `yoyo reconcile` settles the run when it does"
 			case a.Publication.MergeDrop != nil:
-				return a.Mover.Possessive() + " — the forge dropped the merge; `yoyo triage rearm` repeats it once, or a person merges the request by hand, and `yoyo reconcile` settles it once the forge records the merge"
+				return a.Mover.Possessive() + " — the forge dropped the merge; `yoyo triage rearm` repeats it once, or the request is merged by hand on the forge, and `yoyo reconcile` settles it once the forge records the merge"
 			case a.Publication.Unarmed && a.Publication.PullRequest.Closed():
 				return a.Mover.Possessive() + " — nothing ever asked the forge to merge the request and the forge has closed it, so there is nothing left to arm: it is on her docket, and a re-run hands the change back for a fresh run"
 			case a.Publication.Unarmed:

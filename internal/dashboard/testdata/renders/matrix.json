@@ -84,6 +84,23 @@
       "report": "closed"
     }
   },
+  "roles": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed"
+    }
+  },
   "degraded": {
     "page": "ready",
     "sections": {

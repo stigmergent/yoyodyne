@@ -951,8 +951,9 @@ forge has not published rides with the hourly line while any of them stands, and
 it is why a line with nothing at all ready still says something.
 
 Under that sentence it carries [the four lines](operations.md#where-the-harness-stands-the-four-lines)
-— Running, Working, Not startable, Needs a human — from the same derivation
-`yoyo status` prints them from, so the channel and the terminal answer one
+— Running, Working, Not startable, Needs a human, with the fourth line's head
+for each other mover under it, such as `Waiting on the development manager (30)` —
+from the same derivation `yoyo status` prints them from, so the channel and the terminal answer one
 question one way. It carries them counted rather than listed: nobody asked for
 this message, it arrives again every hour the state stands, and an enumerated
 queue under every line is a screen of detail in front of the one sentence that

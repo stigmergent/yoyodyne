@@ -48,6 +48,7 @@ var scenarios = map[string]scenario{
 	"quiet":      {standing: "standing-quiet", throughput: "throughput-quiet", spend: "spend-quiet"},
 	"busy":       {standing: "standing-busy", throughput: "throughput-busy", spend: "spend-busy"},
 	"held":       {standing: "standing-held", throughput: "throughput-busy", spend: "spend-busy"},
+	"roles":      {standing: "standing-roles", throughput: "throughput-busy", spend: "spend-busy"},
 	"degraded":   {standing: "standing-degraded", throughput: "throughput-degraded", spend: "spend-busy"},
 	"unreadable": {standing: "standing-unreadable", throughput: "throughput-unreadable", spend: "spend-unreadable"},
 	"loading":    {pending: true},

@@ -293,8 +293,8 @@ func TestAnIdleWatchNamesTheActorWhoCanActOnIt(t *testing.T) {
 // release it.
 func TestAStallPointsOutTheCauseAndClosesOnWhoeverReleasesIt(t *testing.T) {
 	topic := Product()
-	cause := "33 of the 47 admitted items are held for a person, waiting on triage decisions"
-	mover := "the development manager's — nothing pulls work held for a person until triage decides what happens to it"
+	cause := "33 of the 47 admitted items are stopped, waiting on the development manager's decision or the harness carrying it out"
+	mover := "the development manager's, or the harness's where she has decided — nothing pulls a stopped item until her decision about it is made and carried out"
 	for _, speaker := range speakers() {
 		event := fullyRecorded(KindStallNoticed)
 		event.Detail.Cause = cause
