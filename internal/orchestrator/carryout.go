@@ -504,14 +504,7 @@ func (c CarryOut) outstandingFor(workItemID string) outstandingItem {
 // counts; where the latest is one the harness does not carry out, taking it
 // offers nothing.
 func (i outstandingItem) latestDecision() (runstate.TriageDecision, bool) {
-	var latest runstate.TriageDecision
-	found := false
-	for _, decision := range i.counters.Decisions {
-		if !found || !decision.DecidedAt.Before(latest.DecidedAt) {
-			latest, found = decision, true
-		}
-	}
-	return latest, found
+	return i.counters.LatestDecision()
 }
 
 // onceRecorded reads every run the product has had, the first time somebody asks

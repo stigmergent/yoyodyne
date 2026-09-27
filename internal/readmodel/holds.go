@@ -130,7 +130,41 @@ func HeldForAPerson(ctx context.Context, stoppages Stoppages, decisions Decision
 	if err != nil {
 		return backlog.Holds{}, fmt.Errorf("read the escalated stoppages: %w", err)
 	}
-	return heldForAPerson(runs, escalated, standingDecisions(decisions), Looking(ctx, remains, nil)), nil
+	return heldStopping(runs, escalated, standingDecisions(decisions), standingStops(decisions), Looking(ctx, remains, nil)), nil
+}
+
+// latestStop is the stop an item's triage record stands at, where the decision
+// recorded last about any of its runs is a stop.
+type latestStop func(workItemID string) (runstate.TriageDecision, bool)
+
+// standingStops reads each item's triage record once for the stop it stands
+// at. A record that cannot be read holds nothing here: which item a stop
+// superseded it with is unknown, and every other hold on the item is still read
+// and still says what it could not.
+func standingStops(decisions Decisions) latestStop {
+	if decisions == nil {
+		return nil
+	}
+	read := make(map[string]*runstate.TriageDecision)
+	return func(workItemID string) (runstate.TriageDecision, bool) {
+		if stopped, seen := read[workItemID]; seen {
+			if stopped == nil {
+				return runstate.TriageDecision{}, false
+			}
+			return *stopped, true
+		}
+		read[workItemID] = nil
+		counters, err := decisions.Counters(workItemID)
+		if err != nil {
+			return runstate.TriageDecision{}, false
+		}
+		latest, found := counters.LatestDecision()
+		if !found || latest.Decision != runstate.TriageDecisionStop {
+			return runstate.TriageDecision{}, false
+		}
+		read[workItemID] = &latest
+		return latest, true
+	}
 }
 
 // standing is what triage has decided about one item's stoppage: whether a
@@ -198,6 +232,12 @@ func heldFor(account string, decided bool, problem string) backlog.Hold {
 // separate so the rule can be tested against run and escalation records without
 // a store behind them.
 func heldForAPerson(runs []runstate.State, escalated []runstate.Escalation, decided standing, look Look) backlog.Holds {
+	return heldStopping(runs, escalated, decided, nil, look)
+}
+
+// heldStopping is heldForAPerson with the stops the development manager decided
+// read as well; stopped may be nil, which reads none.
+func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decided standing, stopped latestStop, look Look) backlog.Holds {
 	reasons := make(map[string]backlog.Hold)
 	// The escalations first, so that an item that is both — a stoppage nobody
 	// answered whose change is also still preserved — reads as the preserved one.
@@ -287,7 +327,65 @@ func heldForAPerson(runs []runstate.State, escalated []runstate.Escalation, deci
 		carryOut, problem := decided(workItemID, run.RunID)
 		reasons[workItemID] = heldFor(mergedPublication(run), carryOut, problem)
 	}
+	// A stop the development manager decided, last, because it is only ever about
+	// the item's latest run and says the most about what to do with it. Such a run
+	// ends cancelled with no blocker, which is a shape none of the rules above
+	// hold, so without this the item went back to the queue the moment its run
+	// stopped: superseded work, pulled again beside the change she had it stop.
+	// It holds while that change is preserved, and it holds only where the stop is
+	// what the item's record stands at — a decision she records after it, about
+	// that run or any other, is what she has decided since.
+	for workItemID, hold := range supersededHolds(runs, stopped, look) {
+		reasons[workItemID] = hold
+	}
 	return backlog.ReadHolds(reasons).OnUnlandedParents(unlandedChanges(runs))
+}
+
+// supersededHolds is every item whose latest run the development manager
+// stopped in flight, whose record still stands at that stop, and whose run's
+// change the repository still holds.
+//
+// A run that passed its last boundary before the stop was read and stopped for
+// another reason is not one of these, whatever the record says: it ended on a
+// blocker or a death rather than cancelled, and the stoppage rules above hold it
+// as the undecided stoppage it is.
+func supersededHolds(runs []runstate.State, stopped latestStop, look Look) map[string]backlog.Hold {
+	if stopped == nil {
+		return nil
+	}
+	held := make(map[string]backlog.Hold)
+	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool { return run.WorkItemID != "" }) {
+		if run.Status != runstate.StatusCancelled || strings.TrimSpace(run.Blocker) != "" {
+			continue
+		}
+		decision, found := stopped(workItemID)
+		if !found || decision.RunID != run.RunID {
+			continue
+		}
+		preserved := look(run)
+		if !preserved.Holds() {
+			continue
+		}
+		held[workItemID] = backlog.Hold{Reason: supersededStop(run, decision, preserved)}
+	}
+	return held
+}
+
+// supersededStop says why an item the development manager stopped a run of is
+// not something to pull: the item is superseded, by what where she named it, and
+// the change the stopped run made is still there.
+func supersededStop(run runstate.State, decision runstate.TriageDecision, found triage.Found) string {
+	superseded := "she named no item doing its work instead"
+	if by := strings.TrimSpace(decision.SupersededBy); by != "" {
+		superseded = "it is superseded by " + by
+	}
+	what := whatWasFound(found)
+	if found.Unknown {
+		what = uncheckable(found)
+	}
+	return fmt.Sprintf(
+		"run %s was stopped in flight by the development manager's decision, %s, and %s; its change is preserved (%s), so it is not pulled while that change stands — closing or retiring the item, or her deciding about the run again, releases it",
+		run.RunID, decision.Cite(), superseded, what)
 }
 
 // unlandedChanges is every item whose own change the harness recorded and never

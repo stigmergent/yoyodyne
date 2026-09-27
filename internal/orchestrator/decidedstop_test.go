@@ -13,7 +13,9 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -155,6 +157,162 @@ func TestAStopTheDevelopmentManagerDecidedEndsTheRunInFlightAsDecided(t *testing
 	}
 	if len(built.Entries) != 0 || built.Closed != 1 {
 		t.Fatalf("docket build = %d open, %d closed; want the stop read as decided and nothing awaiting her", len(built.Entries), built.Closed)
+	}
+	// The entry says the item is superseded and by what, and the stop is what
+	// ended the run rather than a death nobody classified.
+	stop := entries[0].StopRequested
+	if stop == nil || !stop.Landed || stop.SupersededBy != "yoyodyne-ifd.398" || stop.By != decidedBy {
+		t.Fatalf("stop on the entry = %#v, want the stop that landed, naming the superseding item", stop)
+	}
+	rendered := entries[0].Render()
+	if !strings.Contains(rendered, "superseded by yoyodyne-ifd.398") || strings.Contains(rendered, "Died holding its change") {
+		t.Fatalf("rendered entry does not say the item is superseded and by what:\n%s", rendered)
+	}
+
+	// The hold: the item is not pulled while the stopped run's change stands,
+	// though the run ended cancelled with no blocker, and the hold says why.
+	held, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil)
+	if err != nil {
+		t.Fatalf("HeldForAPerson() error = %v", err)
+	}
+	holdReason, holding := held.Reason(docketedItem)
+	if !holding || !strings.Contains(holdReason, "superseded by yoyodyne-ifd.398") || !strings.Contains(holdReason, outcome.RunID) {
+		t.Fatalf("hold = %q (held=%t), want the superseded item held while its preserved change stands", holdReason, holding)
+	}
+	if held.Decided(docketedItem) {
+		t.Fatal("the hold names the harness as the next mover on a stop that leaves it nothing to carry out")
+	}
+}
+
+// A stop asked of a run that passed its last boundary before reading it decides
+// nothing about the stoppage the run reached instead. The request is written
+// while the reviewer is giving its last verdict, the verdict fails the run on
+// its repair budget, and what that leaves is a fresh, undecided entry naming both
+// the stop that was asked and the review that actually stopped the run.
+func TestAStopTheRunNeverReachedLeavesItsLaterStoppageUndecided(t *testing.T) {
+	t.Parallel()
+
+	const decidedBy = "the development manager in conversation chat-0123456789abcdef"
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: docketedItem, Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, repairVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 1
+	docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewDocketStore() error = %v", err)
+	}
+	pipeline.Docket = docketerOverStore(docket, store, pipeline.Config)
+
+	// The second review is the run's last provider call: the stop is decided and
+	// requested while it is streaming, so no boundary is left to read it at.
+	reviews := 0
+	respond := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer {
+			reviews++
+			if reviews == 2 {
+				if _, err := store.Triage().RecordDecision(context.Background(), docketedItem, runstate.TriageDecision{
+					Decision:     runstate.TriageDecisionStop,
+					RunID:        request.RunID,
+					Reason:       "superseded: the dashboard rewrite does this work",
+					SupersededBy: "yoyodyne-ifd.398",
+					DecidedBy:    "development manager",
+					Conversation: "chat-0123456789abcdef",
+					Turn:         7,
+				}, baseTime); err != nil {
+					return backend.RunResult{}, err
+				}
+				if err := store.RecordStop(runstate.StopRequest{
+					SchemaVersion: runstate.StopSchemaVersion,
+					ProductID:     "yoyodyne",
+					RunID:         request.RunID,
+					WorkItemID:    docketedItem,
+					RequestedAt:   baseTime,
+					Reason:        "superseded: the dashboard rewrite does this work (superseded by yoyodyne-ifd.398)",
+					RequestedBy:   decidedBy,
+					Decision:      runstate.TriageDecisionStop,
+				}); err != nil {
+					return backend.RunResult{}, err
+				}
+			}
+		}
+		return respond(request)
+	}
+
+	outcome, runErr := pipeline.Run(context.Background(), tracker.Item.ID)
+	if runErr == nil || !outcome.Blocked || outcome.Status == runstate.StatusCancelled {
+		t.Fatalf("Run() error = %v, blocked = %t, status = %q; want the failed review to have stopped the run", runErr, outcome.Blocked, outcome.Status)
+	}
+	if reviews != 2 {
+		t.Fatalf("reviews = %d, want the stop requested during the last one", reviews)
+	}
+
+	// The record: the stop stands on the item's triage record, and is not read
+	// as a decision about the stoppage the run reached.
+	counters, err := store.Triage().Counters(docketedItem)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+	if decided, found := counters.DecisionOf(outcome.RunID); !found || decided.Decision != runstate.TriageDecisionStop {
+		t.Fatalf("decision = %#v (found=%t), want the stop still on the record", decided, found)
+	}
+	if standing := counters.Standing(outcome.RunID); standing.Decided {
+		t.Fatalf("standing = %#v, want the stoppage read as undecided", standing)
+	}
+
+	// The docket: one fresh entry, open, naming the review that stopped the run
+	// and the stop that was asked and never reached.
+	entries, err := docket.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].RunID != outcome.RunID || entries[0].Class != triage.ClassStoppedRun {
+		t.Fatalf("docket = %#v, want the stopped run docketed once", entries)
+	}
+	entry := entries[0]
+	if entry.Closed != nil {
+		t.Fatalf("closure = %#v, want the stoppage undecided", entry.Closed)
+	}
+	if strings.TrimSpace(entry.Blocker) == "" || len(entry.Findings) == 0 {
+		t.Fatalf("entry = %#v, want the blocker and the reviewer's findings that stopped the run", entry)
+	}
+	stop := entry.StopRequested
+	if stop == nil || stop.Landed || stop.By != decidedBy || stop.Decision != runstate.TriageDecisionStop {
+		t.Fatalf("stop on the entry = %#v, want the stop that was asked and never reached", stop)
+	}
+	built, err := pipeline.Docket.Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(built.Entries) != 1 || built.Closed != 0 {
+		t.Fatalf("docket build = %d open, %d closed; want the later stoppage undecided", len(built.Entries), built.Closed)
+	}
+	listed := built.Entries[0]
+	if listed.Counters.Standing.Decided || listed.Counters.AwaitingCarryOut() {
+		t.Fatalf("standing = %#v, want nothing decided about the stoppage", listed.Counters.Standing)
+	}
+	rendered := listed.Render()
+	for _, want := range []string{"Blocker", "A stop was asked for and never reached", decidedBy, "decides nothing about this stoppage", "add the missing file"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered entry does not say %q:\n%s", want, rendered)
+		}
+	}
+
+	// The hold: the item is held for her decision about the stoppage rather than
+	// read as superseded or as a decision awaiting its carry-out.
+	held, err := readmodel.HeldForAPerson(context.Background(), store, store.Triage(), nil)
+	if err != nil {
+		t.Fatalf("HeldForAPerson() error = %v", err)
+	}
+	reason, holding := held.Reason(docketedItem)
+	if !holding || strings.Contains(reason, "superseded") || !strings.Contains(reason, "the development manager decides what happens to it") {
+		t.Fatalf("hold = %q (held=%t), want the stoppage held for her decision", reason, holding)
+	}
+	if held.Decided(docketedItem) {
+		t.Fatal("the hold reads the later stoppage as already decided")
 	}
 }
 

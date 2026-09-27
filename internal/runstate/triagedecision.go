@@ -233,14 +233,33 @@ func (c TriageCounters) DecisionOf(runID string) (TriageDecision, bool) {
 	return TriageDecision{}, false
 }
 
+// LatestDecision is the decision recorded last about any of the item's runs,
+// and whether there is one.
+func (c TriageCounters) LatestDecision() (TriageDecision, bool) {
+	var latest TriageDecision
+	found := false
+	for _, decision := range c.Decisions {
+		if !found || !decision.DecidedAt.Before(latest.DecidedAt) {
+			latest, found = decision, true
+		}
+	}
+	return latest, found
+}
+
 // Standing is what this record says about one stopped run, in the shape the
 // shared carry-out rule reads. It is the one place the ledger is reduced to that
 // shape, so the docket's copy of the counters and a surface reading the ledger
 // itself are reading the same facts rather than each deriving their own.
+//
+// A stop is not counted as deciding anything here. It is recorded against a run
+// in flight, and the stoppage it decides is the one it causes, which is docketed
+// already closed by it. A run that passed its last boundary before the stop was
+// read and then stopped for another reason reached a stoppage the stop was never
+// about, and that one is undecided whatever the record says about the run.
 func (c TriageCounters) Standing(runID string) triage.Standing {
 	decision, decided := c.DecisionOf(runID)
 	return triage.Standing{
-		Decided:          decided,
+		Decided:          decided && decision.Decision != TriageDecisionStop,
 		Spends:           decision.Spends(),
 		Repair:           decision.Decision == TriageDecisionRepair,
 		GrantOutstanding: c.GrantOutstanding(),

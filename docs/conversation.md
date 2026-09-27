@@ -1753,7 +1753,14 @@ instead as `superseded_by` where there is one, and the harness asks that run to
 stop as it is recorded — the request your `/stop` writes, made in her name. The
 run ends cancelled at its next boundary with its change preserved and its slot
 freed, and it is docketed already closed by her decision, so it never reaches her
-as a question. A `stop` naming a run that has already ended is refused. The decision
+as a question. The entry says the item is superseded and by what, and the item is
+not pulled again while the stop is its latest decision and the stopped run's
+change is preserved. A `stop` naming a run that has already ended is refused.
+**A stop decides one stoppage**, the one it causes. A run that passes its last
+boundary before it reads the request, and then stops for another reason — a
+failed review, say — reached a stoppage the stop never reached: it is docketed as
+an undecided entry naming both the stop she asked for and what actually stopped
+the run, and it waits on her decision like any other. The decision
 lands in the item's notes, so the next reader of a run that stopped finds the
 reasoning beside the evidence rather than deciding it a second time, and it
 closes the entry it settled — a repair, a re-run, or a re-scope closes the

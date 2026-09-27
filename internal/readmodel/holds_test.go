@@ -763,3 +763,66 @@ func TestAStoppedRunWithARecordedContinuationIsHeldWithNothingSurviving(t *testi
 		t.Errorf("with nothing decided and nothing surviving the item is held for %q, want nothing holding it", reason)
 	}
 }
+
+// A run the development manager stopped in flight ends cancelled with no
+// blocker, which no stoppage rule holds. Its item is held while the change stays
+// preserved and the stop is what the item's record stands at, and released once
+// the change is gone or she has decided something since.
+func TestAnItemADecidedStopSupersededIsHeldWhileItsChangeStands(t *testing.T) {
+	t.Parallel()
+
+	stoppedAt := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
+	stopped := runstate.State{
+		RunID:        "run-5705a1b2",
+		WorkItemID:   "yoyodyne-ifd.428.34",
+		Status:       runstate.StatusCancelled,
+		Phase:        runstate.PhaseDeveloping,
+		UpdatedAt:    stoppedAt,
+		CompletedAt:  &stoppedAt,
+		Branch:       "yoyodyne/yoyodyne-ifd-428-34/5705a1b2",
+		WorktreePath: "/state/worktrees/run-5705a1b2",
+		Failure:      "the development manager stopped this run",
+	}
+	stop := runstate.TriageDecision{
+		Decision:     runstate.TriageDecisionStop,
+		RunID:        stopped.RunID,
+		Reason:       "superseded",
+		SupersededBy: "yoyodyne-ifd.398",
+		DecidedBy:    "development manager",
+		Conversation: "chat-0123456789abcdef",
+		Turn:         7,
+		DecidedAt:    stoppedAt.Add(-time.Minute),
+	}
+	record := recordedDecisions{stopped.WorkItemID: {WorkItemID: stopped.WorkItemID, Decisions: []runstate.TriageDecision{stop}}}
+
+	held := heldStopping([]runstate.State{stopped}, nil, standingDecisions(record), standingStops(record), asRecorded)
+	reason := heldReason(t, held, stopped.WorkItemID)
+	for _, want := range []string{stopped.RunID, "superseded by yoyodyne-ifd.398", "change is preserved"} {
+		if !strings.Contains(reason, want) {
+			t.Fatalf("the hold says %q, want %q in it", reason, want)
+		}
+	}
+	if held.Decided(stopped.WorkItemID) {
+		t.Fatal("the hold names the harness as the next mover on a stop that leaves it nothing to carry out")
+	}
+
+	// The change gone: nothing is left to redo the work beside.
+	gone := stopped
+	gone.BranchRemoved, gone.WorktreeRemoved = true, true
+	if reason, holding := heldStopping([]runstate.State{gone}, nil, standingDecisions(record), standingStops(record), asRecorded).Reason(stopped.WorkItemID); holding {
+		t.Fatalf("an item whose stopped change is gone is held: %q", reason)
+	}
+
+	// A decision recorded since: the stop is no longer what the item stands at.
+	since := stop
+	since.Decision, since.SupersededBy, since.DecidedAt = runstate.TriageDecisionRescope, "", stoppedAt.Add(time.Hour)
+	moved := recordedDecisions{stopped.WorkItemID: {WorkItemID: stopped.WorkItemID, Decisions: []runstate.TriageDecision{since}}}
+	if reason, holding := heldStopping([]runstate.State{stopped}, nil, standingDecisions(moved), standingStops(moved), asRecorded).Reason(stopped.WorkItemID); holding {
+		t.Fatalf("an item decided about since its stop is held as superseded: %q", reason)
+	}
+
+	// An operator's stop leaves no decision, and holds nothing, as it always has.
+	if reason, holding := heldStopping([]runstate.State{stopped}, nil, nothingDecided, standingStops(recordedDecisions{}), asRecorded).Reason(stopped.WorkItemID); holding {
+		t.Fatalf("an operator's stop held its item: %q", reason)
+	}
+}
