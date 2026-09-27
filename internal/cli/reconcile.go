@@ -922,6 +922,14 @@ state on the forge: each target branch is caught up onto its remote counterpart,
 and the leftover branches of settled runs whose work the target already carries
 are removed. Both are fast-forward-or-nothing and safe to repeat.
 
+A run somebody asked to stop -- the operator, or the development manager's
+decided stop -- that no live process holds is stopped here, as the run would
+have stopped itself: cancelled, its branch and worktree left as they are, the
+item told who stopped it and why, and its developer slot freed. A paused run
+has no process to read the request, so without this it would hold its slot
+until whatever it waits on is done. A run that recorded a promotion is not
+stopped this way; whether its change landed is settled on the evidence.
+
 It also retires the leftover checkouts, so the worktree registrations a machine
 carries are live runs plus a bounded tail rather than growing with the harness's
 history until a command in the next worktree cannot spawn. Settled runs past the

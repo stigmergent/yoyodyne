@@ -82,6 +82,11 @@ type ReconcileStore interface {
 	Outstanding() ([]runstate.State, error)
 	AdoptRun(ctx context.Context, runID string) (runstate.State, *runstate.Lease, error)
 	Save(state runstate.State) error
+	// StopRequested reads the stop somebody asked of one run. The sweep reads it
+	// under the run's lease, which is the one moment the answer is the sweep's to
+	// act on: a live process would be holding that lease and honoring the request
+	// itself at its next boundary.
+	StopRequested(runID string) (runstate.StopRequest, bool, error)
 	// Recorded is every run the harness holds, whatever became of it. Settling a
 	// run reads only the outstanding ones; converging local state reads all of
 	// them, because the branches and targets a finished run left behind are
@@ -217,6 +222,10 @@ const (
 	// request or drops the queued merge, so the run is left outstanding and the
 	// next sweep asks again.
 	ActionQueued ReconcileAction = "queued"
+	// ActionStopped reports a run somebody asked to stop that no live process was
+	// left to stop, ended by the sweep as the run would have ended itself:
+	// cancelled, its change preserved, and who asked and why on its record.
+	ActionStopped ReconcileAction = "stopped"
 )
 
 // Reconciliation is what happened to one run. Failure records that
@@ -343,6 +352,27 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// it. The run itself is left exactly as it recorded itself.
 	if state.Status.Terminal() && state.LandingChecks != nil && !state.LandingChecks.Finished() {
 		return r.settleInterruptedLandingChecks(ctx, state)
+	}
+	// A run somebody asked to stop is stopped here when no process is left to do
+	// it, and this is asked ahead of every reading below because every one of
+	// them says "resumable" of a paused run and walks away. A stop is read only by
+	// the process serving the run, at its next provider-call boundary or as a
+	// later process re-enters it — and a paused run has neither. A run paused on
+	// a dependency returned to its caller when it recorded the pause, so nothing
+	// serves it; and `yoyo run` on its item turns back at the dependency before it
+	// adopts the run, so nothing re-enters it while the link stands. On
+	// 2026-09-27 that held run-3b94404c for yoyodyne-ifd.428.34 in a developer
+	// slot for more than four hours after the development manager asked it to
+	// stop as superseded, and for fourteen before that on the pause alone, with
+	// every sweep reporting it resumable. The lease this sweep holds is the
+	// evidence that no process will ever honor the request, so the sweep honors
+	// it.
+	request, requested, err := r.stopToHonor(state)
+	if err != nil {
+		return reconciliationOf(state, ActionUnsettled), err
+	}
+	if requested {
+		return r.settleStopRequest(ctx, state, request)
 	}
 	// A run whose provider the harness stopped on time is owed the rest of the
 	// attempt it was making, for the length of the grace and no longer. Nothing
@@ -1330,6 +1360,152 @@ func vanishedReason(state runstate.State, grace time.Duration) string {
 	return fmt.Sprintf(
 		"the run was recorded as running in the %s phase with no live process behind it: the harness stopped its provider at %s because %s, no ending was ever recorded, and nothing continued the run within %s of that, so the harness settled it as an environmental stop. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them",
 		nonEmpty(string(state.Phase), "unrecorded"), state.UpdatedAt.UTC().Format(time.RFC3339), describeProviderStop(state.ProviderStop), grace)
+}
+
+// stopToHonor reports the stop somebody asked of a run this sweep may carry out
+// itself: one in flight, whose record says nothing was promoted.
+//
+// A run that already ended is not asked about. Its request is left beside it as
+// the evidence of what was asked, and what the run ended as is its own account.
+//
+// A run that recorded an integration, or was interrupted inside its integrating
+// phase, is not honored here either, and deliberately. Whether its change
+// already landed is a fact only the repository and the forge hold, and the
+// readings below settle it on that evidence: "cancelled" written over a change
+// that is on its target branch would be a record that lies about the one thing
+// a reader of it most needs to know. A stop arrives there too late to stop
+// anything, which is also what the run's own process would have found.
+//
+// A request that cannot be read fails the settlement rather than being passed
+// over. The run's own process treats it the same way — it fails rather than
+// carrying on — and the sweep that reads past it would report resumable a run
+// somebody may have asked to stop, which is the failure this exists to end. The
+// run is left exactly as it is, and the next sweep reads the request again.
+func (r Reconciler) stopToHonor(state runstate.State) (runstate.StopRequest, bool, error) {
+	if !state.Status.InFlight() || state.Integration != nil || state.Phase == runstate.PhaseIntegrating {
+		return runstate.StopRequest{}, false, nil
+	}
+	request, requested, err := r.Store.StopRequested(state.RunID)
+	if err != nil {
+		return runstate.StopRequest{}, false, fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
+	}
+	return request, requested, nil
+}
+
+// settleStopRequest ends a run that was asked to stop and that no process is
+// left to stop, as the run would have ended itself had its process reached a
+// boundary: cancelled, with who asked and why as the reason it ended, its
+// branch and worktree left exactly where they are, and the item told. It is the
+// ending activeRun.stop gives an operatorStop, written from outside because the
+// process that would have written it is gone.
+//
+// Nothing is judged and nothing is removed. A stop is somebody's decision that
+// this run should not go on, not a verdict on the change, so the change stays
+// where the development manager or the operator can reuse it, and the sweep's
+// ordinary retirement of unintegrated artifacts is what settles them
+// afterwards, exactly as it does for a run that stopped itself.
+//
+// A stop the development manager decided is docketed with her decision closing
+// it, so it reads as decided rather than as one more stoppage put back to the
+// person who already answered it; an operator's stop hands nobody a decision,
+// and dockets whatever a cancelled run with its change preserved dockets
+// anywhere else.
+func (r Reconciler) settleStopRequest(ctx context.Context, state runstate.State, request runstate.StopRequest) (Reconciliation, error) {
+	observation, err := r.observeArtifacts(ctx, state)
+	if err != nil {
+		return reconciliationOf(state, ActionUnsettled), err
+	}
+	// The run's own words for a stop, so the record, the item, and the docket
+	// entry say it exactly as they would had the run stopped itself — every
+	// reader that looks for who stopped a run looks for this sentence — with what
+	// the sweep observed after it.
+	reason := operatorStop{request: request}.Error() +
+		"; no live process held the run to honor the stop, so the reconcile sweep ended it. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them"
+	// The item is told before the run is closed out, for the reason a blocker is
+	// recorded first: an interruption between the two leaves the run in flight
+	// for the next sweep to settle again, rather than a run settled that nobody
+	// was told about.
+	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderReconciledStopNotes(state, observation, reason)); err != nil {
+		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the stop of run %s on its item: %w", state.RunID, err)
+	}
+	settled, err := r.saveStopped(state, reason)
+	result := reconciliationOf(settled, ActionStopped)
+	result.Detail = reason
+	if err != nil {
+		result.Action = ActionUnsettled
+		return result, err
+	}
+	result.DocketProblem = r.docketStop(settled, request)
+	return result, nil
+}
+
+// saveStopped writes the terminal record of a run the sweep stopped. Every
+// instruction to continue later is cleared, because the record refuses to carry
+// one on a terminal run and because each would promise a continuation nothing
+// will make: the six activeRun.fail clears, for the same reason.
+func (r Reconciler) saveStopped(state runstate.State, reason string) (runstate.State, error) {
+	completedAt := r.clock().Now()
+	state.UsageLimitResetsAt = nil
+	state.UsageLimitPausedSince = nil
+	state.UsageLimitResetUnknown = false
+	state.PauseCause = ""
+	state.ProviderStop = ""
+	state.DirectivePause = nil
+	state.DependencyPause = nil
+	state.TrackerPause = nil
+	state.OperatorHeldSince = nil
+	state.Status = runstate.StatusCancelled
+	// When the run last moved is kept, for the reason every settlement keeps it:
+	// the end this writes is when the sweep noticed, not when the run stopped
+	// holding its slot.
+	state.SettledQuietSince = settledQuietSince(state, completedAt)
+	state.UpdatedAt = completedAt
+	state.CompletedAt = &completedAt
+	state.Failure = runstate.RecordFailure(reason)
+	// A check stage the run's record says is still running is closed as
+	// interrupted, as every settlement closes one, so the record does not go on
+	// saying the checks are running under a run that has ended.
+	state.CheckStage.CloseInterrupted(completedAt)
+	r.noteUnfinishedObservation(&state)
+	if err := r.Store.Save(state); err != nil {
+		return state, fmt.Errorf("save stopped run state for %s: %w", state.RunID, err)
+	}
+	return state, nil
+}
+
+// docketStop puts the stopped run on the docket as the run's own stop would
+// have, and never fails the settlement, for the reason docketStoppedRun never
+// does: the run is settled and the item told by the time this runs.
+func (r Reconciler) docketStop(state runstate.State, request runstate.StopRequest) string {
+	if r.Docket == nil {
+		return ""
+	}
+	problem := r.docketStoppedRun(state)
+	if strings.TrimSpace(request.Decision) == "" {
+		return problem
+	}
+	if err := r.Docket.RecordDecidedStop(state, request); err != nil {
+		decided := fmt.Errorf("docket the stop the development manager decided about run %s: %w", state.RunID, err).Error()
+		if problem == "" {
+			return decided
+		}
+		return problem + "; " + decided
+	}
+	return problem
+}
+
+// renderReconciledStopNotes tells a work item that the run made for it was
+// stopped as somebody asked, by the sweep rather than by the run. It names the
+// artifacts that were actually observed, as every note the sweep leaves does, so
+// nobody is sent after a worktree or a branch that is no longer there.
+func renderReconciledStopNotes(state runstate.State, observation gitworktree.Observation, reason string) string {
+	lines := []string{
+		"Yoyodyne stopped this item's run as it was asked to, while reconciling: no live process held the run, so nothing else would have. No developer was restarted for it.",
+		"Reason: " + reason,
+		"Run: " + state.RunID,
+		"Phase when stopped: " + nonEmpty(string(state.Phase), "unrecorded"),
+	}
+	return strings.Join(append(lines, renderObservedArtifacts(state, observation)...), "\n")
 }
 
 // abandonFor is abandon with the reason the caller has, for the one settlement
