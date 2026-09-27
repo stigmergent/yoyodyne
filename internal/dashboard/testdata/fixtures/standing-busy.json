@@ -124,13 +124,15 @@
       "work_item_id": "yoyodyne-ifd.153",
       "title": "Triage names the phase a run stopped in",
       "reason": "run run-5035c832 stopped on it and its change is preserved, so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has",
-      "kind": "held"
+      "kind": "held",
+      "held_since": "2026-09-10T08:00:00Z"
     },
     {
       "work_item_id": "yoyodyne-ifd.150",
       "title": "A blocked status carries the account of what moved it",
       "reason": "run run-a17c9b40 stopped on it and its change is preserved, so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision",
-      "kind": "held"
+      "kind": "held",
+      "held_since": "2026-09-19T11:05:00Z"
     },
     {
       "work_item_id": "yoyodyne-ifd.188",

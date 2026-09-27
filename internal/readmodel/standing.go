@@ -403,6 +403,12 @@ type Refused struct {
 	// work accumulates, so that surface counts the piles from the reading that
 	// worded the refusals rather than from a second parse of them.
 	Kind backlog.HoldKind `json:"kind"`
+	// HeldSince is when an item held after a stopped run came to be held, read
+	// from the record that holds it — the run's stop, the stoppage's docketing,
+	// or the decision that stopped it — and nil for every other kind and for a
+	// record that names no moment. It is what lets a reader tell a hold from
+	// yesterday from one three weeks old, which the reason alone does not say.
+	HeldSince *time.Time `json:"held_since,omitempty"`
 }
 
 // WorkItemRef names one admitted work item, by id and title, for a surface that
@@ -1119,7 +1125,12 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 		case !entry.Ready:
 			waits.count(entry)
 			waits.countCarryOuts(sources.Decisions, entry)
-			refused = append(refused, Refused{WorkItemID: entry.ID, Title: entry.Title, Reason: entry.Hold(), Kind: entry.HoldKind()})
+			kind := entry.HoldKind()
+			held := Refused{WorkItemID: entry.ID, Title: entry.Title, Reason: entry.Hold(), Kind: kind}
+			if kind == backlog.HeldForAPerson {
+				held.HeldSince = entry.AwaitingSince
+			}
+			refused = append(refused, held)
 		case len(covering) > 0:
 			// A covered item is not stalled and never will be: nothing is holding it
 			// back that clearing a switch or freeing a slot would release, so the
@@ -1142,10 +1153,43 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	if !stalled {
 		stopped = Stall{}
 	}
+	oldestHoldFirst(refused)
 	if len(held.problems) > 0 {
 		problem = joinProblems(problem, strings.Join(held.problems, "; "))
 	}
 	return refused, waits, queue, stopped, problem
+}
+
+// oldestHoldFirst orders the items held after a stopped run by how long each has
+// been held, oldest first, in the places those items already take in the list;
+// every other refusal keeps its place in the product manager's order. The held
+// items are the ones somebody has to act on, and a reader scanning thirty of them
+// wants the one that has waited longest at the top, not wherever its priority
+// put it. One whose moment is unknown goes after those whose moment is known,
+// in the order it arrived.
+func oldestHoldFirst(refused []Refused) {
+	var places []int
+	var held []Refused
+	for place, item := range refused {
+		if item.Kind == backlog.HeldForAPerson {
+			places = append(places, place)
+			held = append(held, item)
+		}
+	}
+	sort.SliceStable(held, func(first, second int) bool {
+		one, other := held[first].HeldSince, held[second].HeldSince
+		switch {
+		case one == nil:
+			return false
+		case other == nil:
+			return true
+		default:
+			return one.Before(*other)
+		}
+	})
+	for index, place := range places {
+		refused[place] = held[index]
+	}
 }
 
 // heldWork is how much of a reading's not-startable work is held, split by whose

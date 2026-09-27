@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -72,6 +73,12 @@ type Hold struct {
 	// false where what was decided could not be read — the reason says which,
 	// because a record nobody could open is not a decision nobody made.
 	Decided bool
+	// Since is when the item came to be held, read from the record that holds
+	// it: the run's stop, the stoppage's docketing, or the decision that stopped
+	// it. It is zero where that record names no moment. It is carried so a
+	// surface can say how long a hold has stood, which is what tells a stoppage
+	// from yesterday apart from one three weeks old.
+	Since time.Time
 }
 
 // Holds is the admitted work somebody has to release before anything pulls it,
@@ -280,6 +287,10 @@ type Entry struct {
 	// are one queue entry apiece and different people to go to, which is the
 	// distinction a single "held for a person" hid for days.
 	AwaitingCarryOut bool `json:"awaiting_carry_out,omitempty"`
+	// AwaitingSince is when the hold Awaiting names began, from the record that
+	// holds the item, and is nil where nothing is holding it or that record names
+	// no moment. Like AwaitingCarryOut it is a fact about the wait.
+	AwaitingSince *time.Time `json:"awaiting_since,omitempty"`
 	// AwaitingLanding reports a held item whose hold is its parent's change
 	// landing rather than anybody's decision: a child that says it builds on a
 	// change the harness recorded and never saw reach the target branch. It is a
@@ -382,6 +393,11 @@ func Order(items []beads.WorkItem, ready []string, held Holds) Queue {
 			awaiting, landing = held.substrate(item, unfinished)
 		}
 		waiting := waitingOn(item, unfinished)
+		var since *time.Time
+		if awaiting != "" && !landing && !holding.Since.IsZero() {
+			began := holding.Since
+			since = &began
+		}
 		queue.Entries = append(queue.Entries, Entry{
 			Position: position + 1,
 			ID:       item.ID,
@@ -397,6 +413,7 @@ func Order(items []beads.WorkItem, ready []string, held Holds) Queue {
 			// carrying it here would put an item on the held count that no hold is on.
 			AwaitingCarryOut: awaiting != "" && holding.Decided && !landing,
 			AwaitingLanding:  landing,
+			AwaitingSince:    since,
 			// An item whose execution is not a developer run is never the next thing
 			// to pull, however clear the dependency answer about it is, and neither is
 			// one somebody parked or one somebody is holding. All three are a

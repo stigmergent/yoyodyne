@@ -794,6 +794,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"grouping-card": {
 			`<h2 id="grouping-heading" class="popup-title">Held back: held after a stopped run (2 items)</h2>`,
 			"waiting on: the development manager", `data-item="yoyodyne-ifd.150"`,
+			// Each held item says since when, in the reader's zone — the renders are
+			// drawn in UTC — and how long before the reading that was, oldest first
+			// as the model ordered them.
+			"held since 2026-09-10 08:00 UTC, 9 days ago; run run-5035c832 stopped on it",
+			"held since 2026-09-19 11:05 UTC, 3 hours ago; run run-a17c9b40 stopped on it",
 			`<h2 id="card-heading" class="popup-title">Triage names the phase a run stopped in</h2>`,
 			`<p class="card-run-preserved">preserved: stopped, reviewing — work preserved</p>`,
 			"reason: the reviewer asked for repair 3 times",
@@ -855,6 +860,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 				t.Errorf("the %s render lacks %q", scenario, expected)
 			}
 		}
+	}
+	// The held pile lists its items oldest hold first, in the order the model
+	// gave them.
+	if held := page("grouping-card"); strings.Index(held, "held since 2026-09-10") > strings.Index(held, "held since 2026-09-19") {
+		t.Errorf("the held pile does not list the oldest hold first")
 	}
 	if strings.Contains(page("degraded"), `<span class="figure">0</span>`) {
 		t.Errorf("the degraded render counts an unreadable line as zero")

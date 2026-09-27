@@ -205,6 +205,53 @@
     return when.getFullYear() + "-" + pad(when.getMonth() + 1) + "-" + pad(when.getDate()) + " " + clock(iso);
   }
 
+  // zoneOf is the short name of the reader's zone at a moment — PDT, UTC — so a
+  // time said on the page says which clock it is on.
+  function zoneOf(when) {
+    var parts = when.toLocaleTimeString("en-US", { timeZoneName: "short" }).split(" ");
+    return parts[parts.length - 1];
+  }
+
+  // localMoment is a moment as `yoyo status` says one: the day and the minute
+  // in the reader's own zone, with the zone named.
+  function localMoment(iso) {
+    var when = new Date(iso);
+    if (isNaN(when.getTime())) {
+      return iso;
+    }
+    return when.getFullYear() + "-" + pad(when.getMonth() + 1) + "-" + pad(when.getDate()) + " " + pad(when.getHours()) + ":" + pad(when.getMinutes()) + " " + zoneOf(when);
+  }
+
+  // agoSaid is how long ago something happened, in the words `yoyo status`
+  // uses for it: a hold is read for whether it has sat for hours or for weeks.
+  function agoSaid(milliseconds) {
+    var minutes = Math.floor(milliseconds / 60000);
+    if (milliseconds < 0) {
+      return "a moment stamped ahead of this reading";
+    }
+    if (minutes < 1) {
+      return "less than a minute ago";
+    }
+    if (minutes < 60) {
+      return count(minutes, "minute") + " ago";
+    }
+    var hours = Math.floor(minutes / 60);
+    if (hours < 48) {
+      return count(hours, "hour") + " ago";
+    }
+    return count(Math.floor(hours / 24), "day") + " ago";
+  }
+
+  // heldSince opens a held item's line with when it was held and how long
+  // before the reading that was, as the terminal does, and is empty for an
+  // item the model names no moment for.
+  function heldSince(item, standing) {
+    if (!named(item.held_since)) {
+      return "";
+    }
+    return "held since " + localMoment(item.held_since) + ", " + agoSaid(new Date(standing.observed_at) - new Date(item.held_since)) + "; ";
+  }
+
   // A run with no process behind it is still in flight and still holds its
   // slot, but the phase is only what the dead process last wrote, so the card
   // says it is not running rather than printing that phase as work under way.
@@ -1335,7 +1382,7 @@
       );
     }
     var refused = standing.not_startable_problem ? [] : standing.not_startable;
-    var withReason = function (item) { return { id: item.work_item_id, title: item.title, detail: item.reason }; };
+    var withReason = function (item) { return { id: item.work_item_id, title: item.title, detail: heldSince(item, standing) + item.reason }; };
     switch (kind) {
       case "admitted":
         return listing("Admitted", "every admitted item, in the Lead Product Manager's order", standing.not_startable_problem, whatToDoAboutTheQueue(), "No work item is admitted.",

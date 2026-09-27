@@ -2493,8 +2493,8 @@ Working (1 conversation):
 Not startable (4 of 7 admitted items; 1 awaits the development manager's decision, 1 awaits the harness carrying out a decision already recorded):
   yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
-  yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
-  yoyodyne-ifd.150 (The release gate commits the tracker's derived exports instead of refusing on them) — run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
+  yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
+  yoyodyne-ifd.150 (The release gate commits the tracker's derived exports instead of refusing on them) — held since 2026-09-15 07:05 PDT, 5 hours ago; run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
 Needs a human (1):
   directive directive-4f2c… is unresolved: which branch does this land on? — the operator's — the work it affects waits until `yoyo directive resolve` settles it
 Waiting on the development manager (1):
@@ -2616,6 +2616,20 @@ has the rule.
   a status says the same word about a stoppage nobody has answered and about work
   whose every blocker closed months ago — and reading that word as a refusal is
   what hid two-thirds of the backlog on 2026-09-04.
+
+  **Each held item says since when it has been held, and the held items are
+  listed oldest hold first.** The entry opens with the moment, in this
+  machine's local zone with the zone named, and how long before the reading
+  that was in words — `held since 2026-09-12 09:40 PDT, 3 days ago;` — read
+  from the record that holds it: the run's stop, the moment its stoppage was
+  put on the development manager's docket, or her decision that stopped it.
+  The held items take the places in the list they already had, reordered among
+  themselves so the one that has waited longest comes first; every other entry
+  keeps its place in the Lead Product Manager's order. Until 2026-09-27 the
+  list said nothing of when, and a stoppage from yesterday read exactly like
+  one from three weeks ago. `--json` carries the moment on each held entry as
+  `held_since`, and an entry whose record names no moment carries none and says
+  none.
 
   A held item says which of two waits it is in, because they are two different
   people to go to. **Awaiting a decision** is a stoppage the development manager
@@ -3742,7 +3756,10 @@ Admitted, Held back, Startable, Running, Landed — and of each pile under one
 (`held after a stopped run`, `developing`, and the rest; the week's landed line is a
 grouping of its own beside today's) ends in a chevron and opens a list of the
 work items in it, by title, with the id under each and the pipeline's own word
-for it beside: the refusal for a held-back item, the phase and elapsed time for
+for it beside: the refusal for a held-back item — for one held after a stopped
+run, opened by since when it has been held and how long ago that was, in the
+reader's zone, as `yoyo status` says it, and listed oldest hold first — the
+phase and elapsed time for
 a running one, when it landed for a landed one. The list is read from the
 readings the page already holds — the standing names the admitted, startable,
 and refused items and the throughput names the landed runs, so it is what the
