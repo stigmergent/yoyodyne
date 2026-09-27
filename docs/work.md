@@ -870,6 +870,19 @@ getting one each. A run that loses the race for the last free slot is reported a
 declined and the pass exits zero: that is two schedulers doing exactly what they
 should, not a failure.
 
+**A freed slot is refilled at the next poll**, whatever else is still in flight.
+A watching session with every slot taken waits for one of its runs to end,
+because nothing else can change its answer; one with a slot free waits for
+whichever comes first of one of its runs ending and `execution.work_poll`, and
+reads the queue again either way. On 2026-09-26 it did not: two of three runs
+ended early, the pulls they woke found nothing they could start at that moment,
+and the session then waited only on the third run — so two slots stood empty for
+over an hour beside twenty-nine ready items. Every poll that starts work says in
+the watch log how many slots it filled, of how many it found free, and how many
+of the session's own runs were already in flight beside them — `filled 2 of 2
+free developer slots, beside 1 run this session already had in flight` — so a
+slot left empty is visible there rather than inferred from the silence.
+
 Eleven things keep an item out of a pass, and the pass accounts for them at two
 different grains. The first eight are named against the item, because nothing
 else would report that this particular item was passed over; the last three are

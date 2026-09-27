@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1197,6 +1198,117 @@ func TestWatchingPullsWorkAdmittedWhileItWasWaiting(t *testing.T) {
 	}
 	if reason := sessions.said(runstate.WatchIdle); !strings.Contains(reason, "backlog is empty") {
 		t.Fatalf("idle reason = %q, want it to say what the session found", reason)
+	}
+}
+
+// The 2026-09-26 stall, replayed: three developer slots, three runs started,
+// two of them ending early, and the third going on for over an hour. The pulls
+// the two endings woke found nothing they could start at that moment, and the
+// session then waited on the third run's completion rather than on its poll
+// interval — so work that became ready behind it sat unstarted beside two empty
+// slots until the long run ended.
+//
+// A free slot is refilled at the next poll, whatever else is still in flight:
+// the work ready at the first poll after the two endings is started there,
+// with the long run still going, and the watch log says how many slots each
+// filling poll filled.
+func TestAFreedSlotIsRefilledAtTheNextPollWhileAnotherRunIsStillGoing(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two", "yoyodyne-three")...)
+	harness.capacity = 3
+	sessions := &recordedSessions{}
+	// hold keeps the long runs going until the last of the refills has started.
+	// The bound is only what stops the old behaviour hanging the test: a session
+	// that waits on the long run's completion reaches the admitted work after it,
+	// and fails below rather than here.
+	hold := make(chan struct{})
+	var (
+		longRunEnded    bool
+		longRunGoing    bool
+		releaseLongRuns sync.Once
+		ticks           int
+	)
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		switch id {
+		case "yoyodyne-one", "yoyodyne-two":
+			// The two that end early.
+			return h.complete(id), nil
+		case "yoyodyne-five":
+			h.mu.Lock()
+			longRunGoing = !longRunEnded
+			h.mu.Unlock()
+			releaseLongRuns.Do(func() { close(hold) })
+			return h.complete(id), nil
+		}
+		select {
+		case <-hold:
+		case <-time.After(5 * time.Second):
+		}
+		if id == "yoyodyne-three" {
+			h.mu.Lock()
+			longRunEnded = true
+			h.mu.Unlock()
+		}
+		return h.complete(id), nil
+	}
+	// The first interval the session waits on beside the long run is the one work
+	// becomes ready in, and it elapses at once. No later interval elapses, so
+	// anything else the session does waits on a run ending.
+	interval := func(time.Duration) <-chan time.Time {
+		ticks++
+		if ticks > 1 {
+			return nil
+		}
+		harness.admit(readyItems("yoyodyne-four", "yoyodyne-five")...)
+		elapsed := make(chan time.Time, 1)
+		elapsed <- time.Time{}
+		return elapsed
+	}
+	// With nothing of its own going, the session sleeps; the first such sleep is
+	// after everything has ended, which is where the operator stops it.
+	harness.onSleep = func(*scheduleHarness, int) bool { return false }
+
+	schedule, err := Scheduler{
+		Open: harness.open, Watching: true, Sleep: harness.sleep, Interval: interval, Sessions: sessions,
+	}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	got := harness.pullOrder()
+	slices.Sort(got)
+	want := []string{"yoyodyne-five", "yoyodyne-four", "yoyodyne-one", "yoyodyne-three", "yoyodyne-two"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pulled %v, want %v: the work ready at the poll after the two endings pulled into the slots they freed", harness.pullOrder(), want)
+	}
+	if !longRunGoing {
+		t.Fatal("the freed slots were refilled only after the long run ended, want them refilled while it was still going")
+	}
+	if ticks < 1 {
+		t.Fatal("the session never waited on its poll interval beside the long run")
+	}
+	// Every filling poll says how many slots it filled: three at the first, and
+	// the two the early endings freed at the poll after the work became ready.
+	filled := 0
+	var lines []string
+	for _, transition := range sessions.recorded() {
+		var count, free int
+		if _, err := fmt.Sscanf(transition.reason, "filled %d of %d", &count, &free); err == nil {
+			filled += count
+			lines = append(lines, transition.reason)
+		}
+	}
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "filled 3 of 3 free developer slots; 3 item(s) pulled") {
+		t.Fatalf("filling lines = %q, want the first poll to say it filled all three slots", lines)
+	}
+	if filled != 5 {
+		t.Fatalf("filling lines = %q account for %d slot(s) filled, want 5", lines, filled)
+	}
+	if !strings.Contains(strings.Join(lines[1:], "\n"), "this session already had in flight") {
+		t.Fatalf("filling lines = %q, want the refills said beside the runs already in flight", lines)
+	}
+	if len(schedule.Started) != 5 {
+		t.Fatalf("started = %d run(s), want 5", len(schedule.Started))
 	}
 }
 
