@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -311,5 +313,36 @@ func TestAPullDoesNotContinueAPausedRunSomebodyStopped(t *testing.T) {
 	}
 	if !pausedForDependency(left) {
 		t.Fatalf("run = %#v, want it left paused for the sweep to end", left)
+	}
+
+	// And the sweep ends it at once, as the stop asked: the dependency case left
+	// the park-settlement rule, and the stop is read ahead of that rule.
+	sweep := Reconciler{Tracker: harness, Worktrees: newObserver(t, harness.repository, harness.worktreeRoot), Store: harness.store}
+	results, err := sweep.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].RunID != paused.RunID || results[0].Action != ActionCancelled {
+		t.Fatalf("reconciliation = %#v, want the stopped paused run ended cancelled", results)
+	}
+	ended, err := harness.store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if ended.Status != runstate.StatusCancelled || ended.DependencyPause != nil {
+		t.Fatalf("run after the sweep = %#v, want it cancelled with its pause cleared", ended)
+	}
+	if _, err := os.Stat(filepath.Join(ended.WorktreePath, "yoyodyne-task.txt")); err != nil {
+		t.Fatalf("the stopped run's change is not where it was left: %v", err)
+	}
+}
+
+// A paused run the pass could not read for continuing is said on the pass,
+// not only in its JSON.
+func TestAContinuationProblemIsSaidOnThePass(t *testing.T) {
+	t.Parallel()
+	rendered := Schedule{ContinuationProblem: "read what yoyodyne-task waits on: the tracker did not answer"}.Render()
+	if !strings.Contains(rendered, "was not continued: read what yoyodyne-task waits on") {
+		t.Fatalf("the pass reads:\n%s\nwant the continuation problem said", rendered)
 	}
 }

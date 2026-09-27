@@ -4920,6 +4920,12 @@ func (s Schedule) Render() string {
 	if s.CarryOutReadProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.CarryOutReadProblem)
 	}
+	// A paused run the pass could not read for continuing is said beside the
+	// decisions, for the same reason: a continuation that quietly never happens
+	// is the stall it exists to end.
+	if s.ContinuationProblem != "" {
+		fmt.Fprintf(&rendered, "a run paused on work its item waits on was not continued: %s\n", s.ContinuationProblem)
+	}
 	// And what the pass woke on a cadence, said beside both: a session that spent
 	// turns on a sweep is a session that did something, and the whole account of
 	// it is in the durable report `yoyo sweeps` reads.
