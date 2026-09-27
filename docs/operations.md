@@ -511,8 +511,9 @@ Where each goes:
    The brake's message names the runs it counted; the release of any intake
    hold is said once, naming who lifted it. See
    [reporting](reporting.md#a-finding-that-needs-your-hand).
-2. **A named line under `Needs a human` on `yoyo status`**, ahead of the
-   undecided proposals and never folded into `and N things not named here`:
+2. **A named line under `Needs a human` on `yoyo status`**, printed wherever it
+   falls among the operator's entries and never folded into `and N things not
+   named here`:
    `report-… needs your hand: <what> (found by …; recorded in …)`,
    `yoyodyne-ifd.272 (<its title>) needs your hand: <the development manager's reason> (found
    by the development manager, escalating the stopped run to the operator;
@@ -1747,8 +1748,9 @@ queue, pull requests 832 and 834 were each handed to a person as dropped while
 the queue was landing them.
 
 - **Checks passing, or still running.** The merge stays queued, and the reading
-  goes with it everywhere the merge is named: the sweep's line, the "Needs a
-  human" entry for the publication, and the docket entry once the request has
+  goes with it everywhere the merge is named: the sweep's line, the
+  publication's entry on `yoyo status`'s fourth line — under `Waiting on the
+  forge`, since a queued merge is the forge's to land — and the docket entry once the request has
   sat past `triage.stuck_merge_age`.
 - **A head behind its target whose failing checks name no file the change
   touches.** The failure is one the change met on a target that has moved on,
@@ -1889,8 +1891,8 @@ forge and no amount of time changes it, and she decides it one of two ways:
 - **A re-run**, which hands the change back for a fresh run from the target
   branch. Once it is carried out, the prior run's record marks its publication
   handed back (`handed_back` on the pull request), and from then on nothing
-  names it: it is not docketed again, on its age or otherwise, the "Needs a
-  human" line drops it, and the heartbeat stops counting it as awaiting the
+  names it: it is not docketed again, on its age or otherwise, `yoyo status`'s
+  fourth line drops it from under `Waiting on the development manager`, and the heartbeat stops counting it as awaiting the
   forge. The old request is left open on the forge: nothing here closes it
   yet, and nothing reads it as work once it is marked.
 
