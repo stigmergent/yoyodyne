@@ -61,14 +61,24 @@ type DecidedStop struct {
 	RequestedBy string
 }
 
-// carryOutStop records a stop decision and asks the run it names to stop.
+// carryOutStop asks the run a stop names to stop, and records the decision.
 //
 // The run is asked about first, because a stop recorded against a run that has
-// already ended would read as a decided stoppage the run never had. The decision
-// is then written to the item's durable triage record, the request after it, and
-// the note onto the tracker last — the order every decision here keeps, so a
-// process that dies partway has recorded more than it did rather than done more
-// than it recorded.
+// already ended would read as a decided stoppage the run never had.
+//
+// The request is written before the decision, which is the opposite of the order
+// the other decisions keep, and for the reason that order exists: whichever write
+// fails must leave the record saying no more than happened. A decision recorded
+// and then not carried out would stand on the item's triage record against a run
+// that goes on, and whatever stoppage that run later reached would read as
+// already decided. Nor can it be taken back afterwards, because recording it
+// supersedes whatever stood about the run before — a repair grant being
+// re-entered, with the rounds it reserved released — and removing the stop would
+// not put that back. The request does not have that problem in either
+// direction: a request that could not be written leaves nothing recorded and the
+// same decision can simply be recorded again, and a request that was written
+// carries her decision to the docket by itself, so a decision the triage record
+// then refused still reaches the stoppage as decided.
 func (s *Session) carryOutStop(ctx context.Context, outcome *TrackerOutcome, workItemID, runID string) {
 	action := outcome.Action
 	if s.options.Stops == nil {
@@ -80,18 +90,6 @@ func (s *Session) carryOutStop(ctx context.Context, outcome *TrackerOutcome, wor
 		return
 	}
 	superseded := strings.TrimSpace(action.SupersededBy)
-	if _, err := s.recordTriageDecision(ctx, workItemID, runstate.TriageDecision{
-		Decision:     decisionStop,
-		RunID:        runID,
-		Reason:       action.Reason,
-		SupersededBy: superseded,
-		DecidedBy:    RoleTitle(s.state.Role),
-		Conversation: s.state.ConversationID,
-		Turn:         s.state.Turns,
-	}); err != nil {
-		outcome.refused(err)
-		return
-	}
 	reason := stopDecisionReason(action.Reason, superseded)
 	if err := s.options.Stops.Stop(ctx, DecidedStop{
 		RunID:      runID,
@@ -101,11 +99,24 @@ func (s *Session) carryOutStop(ctx context.Context, outcome *TrackerOutcome, wor
 		// run's record, the docket, and the item's notes name one answerable thing.
 		RequestedBy: fmt.Sprintf("the %s in conversation %s", RoleTitle(s.state.Role), s.state.ConversationID),
 	}); err != nil {
-		outcome.fail(fmt.Errorf("run %s on %s could not be asked to stop, and goes on; recording the same decision again asks it again: %w",
+		outcome.fail(fmt.Errorf("run %s on %s could not be asked to stop, so nothing was recorded and the run goes on; recording the same decision again asks it again: %w",
 			runID, workItemID, err))
 		return
 	}
-	outcome.noteLanded("run %s is asked to stop, and stops at its next boundary with its change preserved", runID)
+	outcome.noteLanded("run %s is asked to stop, and stops at its next boundary with its change preserved; the request carries this decision to the docket", runID)
+	if _, err := s.recordTriageDecision(ctx, workItemID, runstate.TriageDecision{
+		Decision:     decisionStop,
+		RunID:        runID,
+		Reason:       action.Reason,
+		SupersededBy: superseded,
+		DecidedBy:    RoleTitle(s.state.Role),
+		Conversation: s.state.ConversationID,
+		Turn:         s.state.Turns,
+	}); err != nil {
+		outcome.fail(fmt.Errorf("the stop was not recorded on %s's triage record, though run %s is asked to stop; recording the same decision again while the run is still in flight records it: %w",
+			workItemID, runID, err))
+		return
+	}
 	note := s.trackerProvenance(triageVerbs[decisionStop]+", run "+runID, reason)
 	if _, err := s.options.Tracker.Update(ctx, workItemID, beads.WorkItemChange{AppendNotes: note}); err != nil {
 		outcome.fail(err)

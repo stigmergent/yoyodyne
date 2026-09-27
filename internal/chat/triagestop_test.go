@@ -153,23 +153,85 @@ func TestAStopIsRefusedWhereNothingCanCarryItOut(t *testing.T) {
 	}
 }
 
-// A request the harness could not write leaves the run going, and she is told
-// so rather than told it stopped.
-func TestAStopThatCouldNotBeAskedSaysTheRunGoesOn(t *testing.T) {
+// A request the harness could not write leaves the run going and nothing on the
+// item's triage record, so no decision stands against a run that goes on, and
+// recording the same decision again is what asks again. Both halves are read
+// from the real triage record: a retry that the record refused would be a stop
+// she has no way to re-issue.
+func TestAStopThatCouldNotBeAskedRecordsNothingAndCanBeAskedAgain(t *testing.T) {
 	t.Parallel()
 
+	budgets := newTriageBudgetGate(t, runstate.TriageCaps{ReviewRounds: 4, RepairGrants: 1, Reruns: 1, MergeRearms: 1}, 2)
 	stops := &fakeDecidedStops{inFlight: map[string]bool{stoppedRun: true}, err: errors.New("the state root is read-only")}
 	tracker := supersededItem()
-	reply := triageSend(t, stopOptions(t, tracker, nil, stops, stopAction))
+	reply := triageSend(t, stopOptions(t, tracker, budgets, stops, stopAction))
 
 	if len(reply.Actions) != 1 || reply.Actions[0].Applied {
 		t.Fatalf("actions = %#v, want the stop reported as failed", reply.Actions)
 	}
-	if !strings.Contains(reply.Actions[0].Failure, "could not be asked to stop, and goes on") {
-		t.Fatalf("failure = %q", reply.Actions[0].Failure)
+	if failure := reply.Actions[0].Failure; !strings.Contains(failure, "could not be asked to stop, so nothing was recorded and the run goes on") ||
+		!strings.Contains(failure, "recording the same decision again asks it again") {
+		t.Fatalf("failure = %q", failure)
+	}
+	if _, found := budgets.counters(t, "yoyodyne-ifd.428.34").DecisionOf(stoppedRun); found {
+		t.Fatal("a stop that was never asked for stands on the triage record against a run that goes on")
 	}
 	if len(tracker.updates) != 0 {
 		t.Fatalf("an unmade stop was noted on the item: %#v", tracker.updates)
+	}
+
+	// The same decision recorded again, once the request can be written, asks
+	// the run and records the stop.
+	stops.err = nil
+	retried := triageSend(t, stopOptions(t, tracker, budgets, stops, stopAction))
+	if len(retried.Actions) != 1 || !retried.Actions[0].Applied {
+		t.Fatalf("retried actions = %#v, want the stop asked again", retried.Actions)
+	}
+	if len(stops.stops) != 1 || stops.stops[0].RunID != stoppedRun {
+		t.Fatalf("stops = %#v, want the retry to have asked the run", stops.stops)
+	}
+	if decided, found := budgets.counters(t, "yoyodyne-ifd.428.34").DecisionOf(stoppedRun); !found || decided.Decision != runstate.TriageDecisionStop {
+		t.Fatalf("decision = %#v (found=%t), want the retried stop recorded", decided, found)
+	}
+
+	// And recording it a second time about a run still in flight is not
+	// refused: it re-asks, and the later decision supersedes the earlier one.
+	again := triageSend(t, stopOptions(t, tracker, budgets, stops, stopAction))
+	if len(again.Actions) != 1 || !again.Actions[0].Applied || len(stops.stops) != 2 {
+		t.Fatalf("a repeated stop = %#v (stops %d), want it asked again", again.Actions, len(stops.stops))
+	}
+}
+
+// refusingDecisions is a triage record that will not take a decision, which is
+// the one failure left after the request is written.
+type refusingDecisions struct{ *triageBudgetGate }
+
+func (refusingDecisions) RecordDecision(context.Context, string, runstate.TriageDecision) (runstate.TriageCounters, error) {
+	return runstate.TriageCounters{}, errors.New("the triage record is locked")
+}
+
+// A request written and a decision the record then refused is said as exactly
+// that: the run is asked to stop, and what is missing is the record.
+func TestAStopTheRecordRefusedSaysTheRunIsStillAskedToStop(t *testing.T) {
+	t.Parallel()
+
+	budgets := refusingDecisions{newTriageBudgetGate(t, runstate.TriageCaps{ReviewRounds: 4, RepairGrants: 1, Reruns: 1, MergeRearms: 1}, 2)}
+	stops := &fakeDecidedStops{inFlight: map[string]bool{stoppedRun: true}}
+	tracker := supersededItem()
+	reply := triageSend(t, stopOptions(t, tracker, budgets, stops, stopAction))
+
+	if len(reply.Actions) != 1 || reply.Actions[0].Applied {
+		t.Fatalf("actions = %#v, want the failure reported", reply.Actions)
+	}
+	outcome := reply.Actions[0]
+	if !strings.Contains(outcome.Failure, "was not recorded on yoyodyne-ifd.428.34's triage record, though run "+stoppedRun+" is asked to stop") {
+		t.Fatalf("failure = %q", outcome.Failure)
+	}
+	if len(stops.stops) != 1 {
+		t.Fatalf("stops = %#v, want the request written", stops.stops)
+	}
+	if len(outcome.Landed) == 0 || !strings.Contains(outcome.Landed[0], "is asked to stop") {
+		t.Fatalf("landed = %#v, want the request named as having landed", outcome.Landed)
 	}
 }
 
