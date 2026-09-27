@@ -27,9 +27,11 @@
 //     renders as text; everything the read model says reaches the page through
 //     JSON and is written by the page's script as text.
 //   - Every failure fails closed. A missing or wrong token, a foreign Host, a
-//     foreign Origin, and durable state that cannot be read each produce a
-//     refusal that carries no part of the read model, never a page with a
-//     quarter of the answer on it.
+//     foreign Origin, a polled reading no build has ever produced, and a work
+//     item or report that cannot be read each produce a refusal that carries
+//     no part of the read model, never a page with a quarter of the answer on
+//     it. A polled reading whose later build failed is served whole as the
+//     last good one, with the failure beside its age.
 //
 // What is served without a token is the page shell and its own script and
 // style: static text compiled into the binary, with nothing of the read model

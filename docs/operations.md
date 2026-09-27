@@ -3767,7 +3767,8 @@ and dropping the hidden ones — one file per scenario — `quiet`, `busy`,
 `held`, `degraded`, `unreadable`, `loading`, `throughput-pending`,
 `throughput-refused`, `throughput-stale`, `spend-pending`, `spend-stale`,
 `refused`, `unreachable`,
-`wrong-token`, `stale`, and `signin` for the page, `spend-days`,
+`wrong-token`, `stale`, `snapshot`, `snapshot-old`, `snapshot-failed`, and
+`signin` for the page, `spend-days`,
 `spend-days-empty`, `spend-days-error`, and `spend-days-loading` for the month
 behind the spend box, and `card`, `card-loading`,
 `card-missing`, `card-refused`, `grouping`, `grouping-landed`,
@@ -3842,10 +3843,16 @@ plane, and work is still directed from the conversation and the commands above.
   the read model says — work-item titles, an item's description and notes,
   refusals, the reason a source could not be read — reaches the page as JSON
   and is written by the page as text.
-- **Every failure is a refusal, never part of an answer.** No token, the wrong
-  token, a foreign `Host` or `Origin`, and durable state that cannot be read
-  each get a status and a one-line reason, and nothing of the read model beside
-  it; the page shows that reason in its error state and keeps asking. What the
+- **Every failure is a refusal or said beside the last good answer, never a
+  partial one.** No token, the wrong token, a foreign `Host` or `Origin`, a
+  standing, throughput, or spend no build has ever produced, and a work item or
+  program manager report that cannot be read each get a status and a one-line
+  reason, and nothing of the read model beside it; the page shows that reason
+  in its error state and keeps asking. A build of the standing, the throughput,
+  or the spend that fails after one succeeded is not a refusal: the answer is
+  the last good reading, whole, with the failure and when it happened under
+  `snapshot.failure` and `snapshot.failed_at` beside that reading's age, and
+  the page marks itself **stale** and names the failure. What the
   read model could read with one source missing is a different thing, and is
   said inside the answer line by line — the page says that line could not be
   read in place of its count, as the terminal does, and lists the reason under
