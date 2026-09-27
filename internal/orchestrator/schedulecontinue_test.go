@@ -12,40 +12,57 @@ import (
 )
 
 // harnessContinuations is what a pull continues a paused run through, over the
-// real harness: its tracker for the item, its store for a stop, and the notes
-// each continuation writes, kept so the test can read them.
+// real harness: its tracker for the item and its store for a stop.
 type harnessContinuations struct {
 	harness *realScheduleHarness
-	mu      sync.Mutex
-	notes   []string
 }
 
-func (c *harnessContinuations) Show(ctx context.Context, id string) (beads.WorkItem, error) {
+func (c harnessContinuations) Show(ctx context.Context, id string) (beads.WorkItem, error) {
 	return c.harness.Show(ctx, id)
 }
 
-func (c *harnessContinuations) StopRequested(runID string) (runstate.StopRequest, bool, error) {
+func (c harnessContinuations) StopRequested(runID string) (runstate.StopRequest, bool, error) {
 	return c.harness.store.StopRequested(runID)
 }
 
-func (c *harnessContinuations) RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error) {
-	c.mu.Lock()
-	c.notes = append(c.notes, notes)
-	c.mu.Unlock()
-	return c.harness.RecordOutcome(ctx, id, notes)
+// continuationFixture is one item whose run paused on a dependency, over the
+// real harness, with the starts the pulls make counted and, where a test asks,
+// refused the way a full harness refuses one.
+type continuationFixture struct {
+	harness   *realScheduleHarness
+	scheduler Scheduler
+	paused    runstate.State
+
+	mu      sync.Mutex
+	starts  int
+	refuse  int
+	refused int
 }
 
-func (c *harnessContinuations) recorded() []string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]string(nil), c.notes...)
+func (f *continuationFixture) start(ctx context.Context, workItemID string, selection runstate.Selection) (Outcome, error) {
+	f.mu.Lock()
+	f.starts++
+	refuse := f.refused < f.refuse
+	if refuse {
+		f.refused++
+	}
+	f.mu.Unlock()
+	if refuse {
+		return Outcome{}, runstate.CapacityError{Limit: 1, Active: 1}
+	}
+	return f.harness.start(ctx, workItemID, selection)
+}
+
+func (f *continuationFixture) startsMade() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.starts
 }
 
 // pausedOnADependency runs one item through a pull whose developer links it
 // behind unfinished work, so the run pauses at the gate with its change in its
-// worktree, its item claimed, and no process behind it. It returns the harness,
-// the continuations the pulls read, the scheduler, and the paused run.
-func pausedOnADependency(t *testing.T) (*realScheduleHarness, *harnessContinuations, Scheduler, runstate.State) {
+// worktree, its item claimed, and no process behind it.
+func pausedOnADependency(t *testing.T) *continuationFixture {
 	t.Helper()
 	harness := newRealScheduleHarness(t, 1, "yoyodyne-task")
 	developed := 0
@@ -62,14 +79,15 @@ func pausedOnADependency(t *testing.T) (*realScheduleHarness, *harnessContinuati
 		}
 		return develop(workItemID, worktree)
 	}
-	continuations := &harnessContinuations{harness: harness}
-	scheduler := Scheduler{Open: func(ctx context.Context) (Pull, error) {
+	fixture := &continuationFixture{harness: harness}
+	fixture.scheduler = Scheduler{Open: func(ctx context.Context) (Pull, error) {
 		pull, err := harness.open(ctx)
-		pull.Continuations = continuations
+		pull.Continuations = harnessContinuations{harness: harness}
+		pull.Start = fixture.start
 		return pull, err
 	}}
 
-	schedule, err := scheduler.Schedule(context.Background())
+	schedule, err := fixture.scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
@@ -87,7 +105,9 @@ func pausedOnADependency(t *testing.T) (*realScheduleHarness, *harnessContinuati
 	if !deferredSaying(schedule, "yoyodyne-task", "waits on unfinished work: yoyodyne-blocker") {
 		t.Fatalf("first pass = %#v, want the paused run passed over naming what it waits on", schedule.Deferred)
 	}
-	return harness, continuations, scheduler, paused
+	fixture.paused = paused
+	fixture.starts = 0
+	return fixture
 }
 
 func deferredSaying(schedule Schedule, workItemID, says string) bool {
@@ -112,17 +132,30 @@ func closeBlocker(harness *realScheduleHarness, workItemID string) {
 	}
 }
 
+// continuedNotes is the notes a run wrote saying its dependency pause lifted.
+func continuedNotes(harness *realScheduleHarness) []string {
+	var continued []string
+	for _, note := range harness.recordedNotes() {
+		if strings.HasPrefix(note, "Continued ") {
+			continued = append(continued, note)
+		}
+	}
+	return continued
+}
+
 // A run paused on work its item waits on is continued by the next pull once
 // that work has closed, in its own worktree and session, with nobody typing
 // `yoyo run`. Its item stays claimed while it waits, so no queue ever offers
-// it again, and before yoyodyne-ifd.428.51 that is where it stayed.
+// it again, and before the watch came to continue these runs
+// (yoyodyne-ifd.428.51) that is where it stayed.
 func TestAPullContinuesARunPausedOnADependencyOnceItCloses(t *testing.T) {
 	t.Parallel()
 
-	harness, continuations, scheduler, paused := pausedOnADependency(t)
+	fixture := pausedOnADependency(t)
+	harness, paused := fixture.harness, fixture.paused
 
 	// While the work it waits on is open, a pull passes it over and leaves it.
-	waiting, err := scheduler.Schedule(context.Background())
+	waiting, err := fixture.scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() while waiting error = %v", err)
 	}
@@ -131,7 +164,7 @@ func TestAPullContinuesARunPausedOnADependencyOnceItCloses(t *testing.T) {
 	}
 
 	closeBlocker(harness, "yoyodyne-task")
-	schedule, err := scheduler.Schedule(context.Background())
+	schedule, err := fixture.scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
@@ -152,9 +185,9 @@ func TestAPullContinuesARunPausedOnADependencyOnceItCloses(t *testing.T) {
 	if err != nil || item.Status != "closed" {
 		t.Fatalf("item after the continued run = %#v, %v; want it closed", item, err)
 	}
-	notes := continuations.recorded()
+	notes := continuedNotes(harness)
 	if len(notes) != 1 || !strings.Contains(notes[0], "Continued by the harness") || !strings.Contains(notes[0], paused.RunID) {
-		t.Fatalf("notes recorded = %q, want the continuation recorded on the item naming the run", notes)
+		t.Fatalf("continuation notes = %q, want the continuation recorded on the item once, naming the run", notes)
 	}
 	finished, err := harness.store.Load(paused.RunID)
 	if err != nil {
@@ -165,13 +198,86 @@ func TestAPullContinuesARunPausedOnADependencyOnceItCloses(t *testing.T) {
 	}
 }
 
+// A continuation the start refuses writes nothing on the item and is not
+// attempted again at the next poll: the session remembers it and leaves it for
+// the retry interval. Before, every poll re-dispatched it and re-noted the item.
+func TestARefusedContinuationIsNotRetriedAtEveryPull(t *testing.T) {
+	t.Parallel()
+
+	fixture := pausedOnADependency(t)
+	closeBlocker(fixture.harness, "yoyodyne-task")
+	fixture.refuse = 1
+
+	now := time.Date(2026, 9, 27, 18, 0, 0, 0, time.UTC)
+	scheduler := fixture.scheduler
+	scheduler.Now = func() time.Time { return now }
+	// A drain reads again after every run it collects, so a continuation nothing
+	// paced would be dispatched over and over within this one pass.
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if starts := fixture.startsMade(); starts != 1 {
+		t.Fatalf("starts = %d (%s), want the refused continuation attempted once", starts, schedule.Render())
+	}
+	if len(schedule.Started) != 1 || schedule.Started[0].Declined == "" {
+		t.Fatalf("pass = %s, want the one continuation recorded as declined", schedule.Render())
+	}
+	if !deferredSaying(schedule, "yoyodyne-task", "is attempted again from 2026-09-27T18:15:00Z") {
+		t.Fatalf("deferred = %#v, want the refusal and when it is retried named", schedule.Deferred)
+	}
+	if notes := continuedNotes(fixture.harness); len(notes) != 0 {
+		t.Fatalf("continuation notes = %q, want nothing written for a continuation that never went on", notes)
+	}
+	left, err := fixture.harness.store.Load(fixture.paused.RunID)
+	if err != nil || !pausedForDependency(left) {
+		t.Fatalf("run = %#v, %v; want it still paused", left, err)
+	}
+
+	// A later session with nothing refusing continues it.
+	again, err := fixture.scheduler.Schedule(context.Background())
+	if err != nil || len(again.Started) != 1 || again.Started[0].Outcome.Integration == nil {
+		t.Fatalf("later pass = %s, %v; want the run continued", again.Render(), err)
+	}
+}
+
+// Picking a paused run back up is the harness choosing what to spend a slot
+// on, so a held intake stops it exactly as it stops a recorded repair, and the
+// first pull after the hold lifts continues it.
+func TestAHeldIntakeHoldsAContinuationUntilItLifts(t *testing.T) {
+	t.Parallel()
+
+	fixture := pausedOnADependency(t)
+	closeBlocker(fixture.harness, "yoyodyne-task")
+	if _, err := fixture.harness.intake.Hold(runstate.IntakeHolderOperator, "looking at the line", time.Now().UTC()); err != nil {
+		t.Fatalf("Hold() error = %v", err)
+	}
+
+	held, err := fixture.scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() under the hold error = %v", err)
+	}
+	if len(held.Started) != 0 || fixture.startsMade() != 0 {
+		t.Fatalf("pass under the hold = %s, want nothing continued", held.Render())
+	}
+
+	if _, _, err := fixture.harness.intake.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	released, err := fixture.scheduler.Schedule(context.Background())
+	if err != nil || len(released.Started) != 1 || released.Started[0].Outcome.RunID != fixture.paused.RunID || released.Started[0].Outcome.Integration == nil {
+		t.Fatalf("pass after the hold lifted = %s, %v; want the paused run continued", released.Render(), err)
+	}
+}
+
 // A stop somebody recorded on the paused run is honoured before any
 // continuation: the pull does not pick the run up again even once the work it
 // waited on has closed, and leaves it for the sweep to end.
 func TestAPullDoesNotContinueAPausedRunSomebodyStopped(t *testing.T) {
 	t.Parallel()
 
-	harness, continuations, scheduler, paused := pausedOnADependency(t)
+	fixture := pausedOnADependency(t)
+	harness, paused := fixture.harness, fixture.paused
 	if err := harness.store.RecordStop(runstate.StopRequest{
 		SchemaVersion: runstate.StopSchemaVersion,
 		ProductID:     "yoyodyne",
@@ -186,18 +292,18 @@ func TestAPullDoesNotContinueAPausedRunSomebodyStopped(t *testing.T) {
 	}
 	closeBlocker(harness, "yoyodyne-task")
 
-	schedule, err := scheduler.Schedule(context.Background())
+	schedule, err := fixture.scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
-	if len(schedule.Started) != 0 {
+	if len(schedule.Started) != 0 || fixture.startsMade() != 0 {
 		t.Fatalf("pass = %s, want the stopped run not continued", schedule.Render())
 	}
 	if !deferredSaying(schedule, "yoyodyne-task", "the development manager asked for it to stop") {
 		t.Fatalf("deferred = %#v, want the stop named", schedule.Deferred)
 	}
-	if notes := continuations.recorded(); len(notes) != 0 {
-		t.Fatalf("notes recorded = %q, want no continuation recorded", notes)
+	if notes := continuedNotes(harness); len(notes) != 0 {
+		t.Fatalf("continuation notes = %q, want no continuation recorded", notes)
 	}
 	left, err := harness.store.Load(paused.RunID)
 	if err != nil {

@@ -1289,11 +1289,27 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// from one that had died — and the watchdog said exactly that.
 	var window providerWindow
 	running := 0
+	// continuing is the started entries that are continuations of a run paused on
+	// work its item waited on, against that run, and refusedContinuations is the
+	// continuations this session attempted that did not get the run going, so a
+	// pull leaves each for continuationRetry rather than attempting it every poll.
+	continuing := map[int]string{}
+	refusedContinuations := map[string]refusedContinuation{}
 
 	// settle takes one finished run into the schedule: what became of it, what it
 	// cost, and what it does to the storm the brake is counting.
 	settle := func(done completed) {
 		started := &schedule.Started[done.index]
+		if runID, continuation := continuing[done.index]; continuation {
+			delete(continuing, done.index)
+			record := *started
+			record.record(done)
+			if why, refused := continuationRefused(done, record); refused {
+				refusedContinuations[runID] = refusedContinuation{at: s.now(), why: why}
+			} else {
+				delete(refusedContinuations, runID)
+			}
+		}
 		// A carry-out of the development manager's decision accounts for itself
 		// before anything else is decided about it, because whether it is a run at
 		// all is what it answers. One that fired is a run like any other from here
@@ -1956,22 +1972,22 @@ pulling:
 		// is claimed rather than pullable, so nothing below would ever reach it, and
 		// before this the only thing that did was somebody typing `yoyo run`. It is
 		// not attempted under the operator's pause, which the continued run would
-		// only meet again at its first step; an intake hold does not stop it,
-		// because continuing a run already under way is not choosing new work.
-		if !paused {
-			continuations, err := s.nextContinuations(ctx, pull, occupied, mine, free, len(schedule.Started), passOver)
+		// only meet again at its first step, nor while intake is held: picking a
+		// paused run back up is the harness choosing what to spend a slot on, as
+		// carrying out a decision is, so it waits for the hold to lift exactly as a
+		// recorded repair does.
+		if !paused && !held {
+			continuations, err := s.nextContinuations(ctx, pull, occupied, mine, refusedContinuations, free, len(schedule.Started), passOver)
 			if err != nil {
 				schedule.ContinuationProblem = err.Error()
 			} else {
 				schedule.ContinuationProblem = ""
 			}
 			for _, continuation := range continuations {
-				if err := recordContinuation(ctx, pull, continuation, s.now()); err != nil {
-					schedule.ContinuationProblem = err.Error()
-				}
 				workItemID := continuation.state.WorkItemID
 				delete(deferred, workItemID)
 				index := len(schedule.Started)
+				continuing[index] = continuation.state.RunID
 				selection := runstate.Selection{By: runstate.SelectedByScheduler, Reason: continuation.reason}
 				schedule.Started = append(schedule.Started, Started{WorkItemID: workItemID, Reason: selection.Reason})
 				occupied[workItemID] = continuation.state

@@ -23,14 +23,46 @@ import (
 )
 
 // ScheduleContinuations is what a pull reads to continue runs paused on work
-// their items wait on: the item as the tracker holds it now, a stop somebody
-// recorded on the run, and the item's notes, where each continuation is
-// recorded. It is optional, and a pull wired without one continues nothing,
-// leaving such a run to `yoyo run` as before.
+// their items wait on: the item as the tracker holds it now, and a stop somebody
+// recorded on the run. It is optional, and a pull wired without one continues
+// nothing, leaving such a run to `yoyo run` as before. The continuation is
+// recorded on the item by the run itself, where its pause is actually lifted,
+// so a continuation refused before it got that far writes nothing there.
 type ScheduleContinuations interface {
 	Show(ctx context.Context, id string) (beads.WorkItem, error)
 	StopRequested(runID string) (runstate.StopRequest, bool, error)
-	RecordOutcome(ctx context.Context, id, notes string) (beads.WorkItem, error)
+}
+
+// continuationRetry is how long a continuation that came back without the run
+// going on — declined, failed before the run was adopted, or paused again — is
+// left before a pull attempts it again. It is the carry-out's own pacing for a
+// gate shut for one item, and for the same reason: an unpaced retry would take
+// a developer slot at every poll for as long as the cause stood, and crowd out
+// everything behind it.
+const continuationRetry = 15 * time.Minute
+
+// refusedContinuation is what a session remembers of a continuation that did
+// not go on: when it came back, and what it said.
+type refusedContinuation struct {
+	at  time.Time
+	why string
+}
+
+// continuationRefused reads a finished continuation for whether the run went on,
+// and says why not where it did not. A run that was adopted and then ended —
+// integrated, stopped, or failed — is no longer paused, so no pull would read it
+// again whatever this says; what is left is the continuation that never got the
+// run going, and the one that brought it back paused.
+func continuationRefused(done completed, started Started) (string, bool) {
+	switch {
+	case started.Declined != "":
+		return started.Declined, true
+	case done.err != nil:
+		return done.err.Error(), true
+	case done.outcome.Paused:
+		return "it came back paused rather than going on", true
+	}
+	return "", false
 }
 
 // pausedContinuation is one paused run a pull continues: the run as its record
@@ -56,7 +88,7 @@ type pausedContinuation struct {
 //
 // free and started are this pull's free slots and how many runs the session has
 // started; both are what the carry-outs above left of them.
-func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, free, started int, passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
+func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied map[string]runstate.State, mine map[string]int, refused map[string]refusedContinuation, free, started int, passOver func(workItemID, reason string)) ([]pausedContinuation, error) {
 	if pull.Continuations == nil || pull.Runs == nil {
 		return nil, nil
 	}
@@ -86,6 +118,14 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 	})
 	var continuing []pausedContinuation
 	for _, state := range paused {
+		if last, tried := refused[state.RunID]; tried {
+			again := last.at.Add(continuationRetry)
+			if s.now().Before(again) {
+				passOver(state.WorkItemID, fmt.Sprintf("continuing run %s was refused at %s: %s; it is attempted again from %s",
+					state.RunID, last.at.UTC().Format(time.RFC3339), last.why, again.UTC().Format(time.RFC3339)))
+				continue
+			}
+		}
 		request, stopped, err := pull.Continuations.StopRequested(state.RunID)
 		if err != nil {
 			return continuing, fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
@@ -124,17 +164,4 @@ func (s Scheduler) nextContinuations(ctx context.Context, pull Pull, occupied ma
 		})
 	}
 	return continuing, nil
-}
-
-// recordContinuation writes the continuation onto the item's notes before the
-// run is continued, so the item says who picked its run up again and why
-// rather than showing a run that came back to life with nobody named. A note
-// that cannot be written stops nothing: the run's own record and the pass's
-// schedule both carry the same account.
-func recordContinuation(ctx context.Context, pull Pull, continuation pausedContinuation, at time.Time) error {
-	note := fmt.Sprintf("Continued by the harness at %s: %s.", at.UTC().Format(time.RFC3339), continuation.reason)
-	if _, err := pull.Continuations.RecordOutcome(ctx, continuation.state.WorkItemID, note); err != nil {
-		return fmt.Errorf("record on %s that its paused run is being continued: %w", continuation.state.WorkItemID, err)
-	}
-	return nil
 }

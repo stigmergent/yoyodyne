@@ -3465,6 +3465,9 @@ type realScheduleHarness struct {
 	directives   *runstate.DirectiveStore
 	holds        *runstate.OperatorHoldStore
 	intake       *runstate.IntakeHoldStore
+	// notes is every note a run appended to an item, which a test about what a
+	// run records on its item reads.
+	notes []string
 	// develop is what each run's developer writes into its worktree. The default
 	// gives every item a file of its own, which is the ordinary case; a test
 	// about what happens when two changes collide points them at one path.
@@ -3560,10 +3563,18 @@ func (h *realScheduleHarness) Claim(_ context.Context, id string) (beads.WorkIte
 	return item, nil, err
 }
 
-func (h *realScheduleHarness) RecordOutcome(_ context.Context, id, _ string) (beads.WorkItem, error) {
+func (h *realScheduleHarness) RecordOutcome(_ context.Context, id, notes string) (beads.WorkItem, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.notes = append(h.notes, notes)
 	return h.itemLocked(id)
+}
+
+// recordedNotes is every note the runs appended to an item, in order.
+func (h *realScheduleHarness) recordedNotes() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.notes...)
 }
 
 func (h *realScheduleHarness) Block(_ context.Context, id, _ string) (beads.WorkItem, error) {

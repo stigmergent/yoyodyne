@@ -46,18 +46,25 @@ those boundaries exactly as an unresolved directive does, keeping its claim, its
 branch, its worktree, and its developer session, and it carries on when the work
 it waits on is closed or the link is removed. **Nobody has to type anything for
 it to carry on: a watching `yoyo work` session continues it.** Its item stays
-claimed while it waits, so no queue ever offers it again, and until
-yoyodyne-ifd.428.51 the only thing that continued it was somebody typing `yoyo
-run` on the item. Now every pull reads the runs paused this way, oldest pause
-first, and asks the tracker what each item still waits on. One whose work is
-all closed is continued in its own worktree and developer session, against a
-developer slot and under a session's `--limit` exactly as a recorded repair is
-fired, and the item's notes say the harness continued it and why. One whose
-work is still open is passed over naming what it waits on, and the sweep leaves
-it alone however long that lasts, rather than settling it after half an hour as
-it does a park nothing continues. A stop recorded on such a run is honoured
-before any continuation: the pull does not pick it up, and the next `yoyo
-reconcile` ends it as the stop asked. That matters because a development
+claimed while it waits, so no queue ever offers it again, and until the watch
+came to continue these runs (yoyodyne-ifd.428.51) the only thing that continued
+one was somebody typing `yoyo run` on the item. Now every pull reads the runs
+paused this way, oldest pause first, and asks the tracker what each item still
+waits on. One whose work is all closed is continued in its own worktree and
+developer session, against a developer slot and under a session's `--limit`
+exactly as a recorded repair is fired, and under the same two switches: your
+pause and a held intake both leave it paused, and the first pull after either
+lifts continues it. The run writes on the item that it was continued, by whom
+and why, at the moment its pause is lifted — so a continuation refused before
+it got that far writes nothing there. A continuation that comes back without
+the run going on — declined for want of a slot, refused, or paused again — is
+said on the pass and left for a quarter of an hour before a pull attempts it
+again, rather than being tried at every poll. One whose work is still open is
+passed over naming what it waits on, and the sweep leaves it alone however long
+that lasts, rather than settling it after half an hour as it does a park
+nothing continues. A stop recorded on such a run is honoured before any
+continuation: the pull does not pick it up, and the next `yoyo reconcile` ends
+it as the stop asked. That matters because a development
 manager linking a dependency onto work already moving is precisely how a gate
 gets added late, and a run that answered from selection-time state would develop
 straight through the gate filed to stop it — and spend review rounds on a change
@@ -1513,7 +1520,10 @@ wakes a role to put its own refused block right, so
 `yoyo pause` is the switch for stopping what a quiet session spends. It does stop
 the fourth: carrying out a decision is the harness choosing work, so a held intake
 leaves the decision standing and the docket entry says the hold is what it is
-waiting on, and the first pull after you release it carries the decision out.
+waiting on, and the first pull after you release it carries the decision out. It stops
+continuing a run paused on work its item waited on for the same reason: picking
+that run back up is the harness choosing what to spend a slot on, so it stays
+paused under the hold and the first pull after you release it continues it.
 Nor does it stop the claim audit, which is read before it for the same reason
 the first three are: the brake that holds intake is placed exactly when runs are
 failing one after another, which is when a claim is most likely to have just
