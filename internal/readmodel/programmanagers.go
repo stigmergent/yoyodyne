@@ -127,6 +127,32 @@ type ProgramManagerClaim struct {
 	Reason    string `json:"reason"`
 }
 
+// ProgramManagerMiss is one missed pass of an instance, as its sweep record
+// says it.
+type ProgramManagerMiss struct {
+	// Trigger is what owed the pass and How whether no pass followed it or the
+	// pass was cancelled before it completed, in the sweep record's own words.
+	Trigger runstate.PassTrigger `json:"trigger"`
+	How     runstate.MissKind    `json:"how"`
+	// At is when the pass fell due, or was taken where it was cancelled, and
+	// RecordedAt when the harness recorded it missed.
+	At         time.Time `json:"at"`
+	RecordedAt time.Time `json:"recorded_at"`
+	// Says is the record's account, the cause among it where one is known.
+	Says string `json:"says"`
+	// WaitingOn is whose move ends it: the harness's, whose next pass does.
+	WaitingOn Mover `json:"waiting_on"`
+}
+
+// sentence is the miss as the instance's line says it.
+func (m ProgramManagerMiss) sentence() string {
+	what := "missed its " + m.Trigger.Describe()
+	if m.How == runstate.MissCancelled {
+		what = "its " + m.Trigger.Describe() + " was cancelled before it completed"
+	}
+	return fmt.Sprintf("%s at %s — the %s's — %s", what, m.At.UTC().Format(time.RFC3339), m.WaitingOn, m.Says)
+}
+
 // ProgramManager is one program manager instance as the read model carries it.
 type ProgramManager struct {
 	// Agent is the instance: the configured agent's name.
@@ -145,6 +171,13 @@ type ProgramManager struct {
 	// LastCompletedPassAt is when the instance's latest completed pass ended,
 	// and absent where none has.
 	LastCompletedPassAt *time.Time `json:"last_completed_pass_at,omitempty"`
+	// MissedPass is the latest pass the instance's triggers owed it that the
+	// sweep log records as missed since its last completed pass — one no pull
+	// took, or one cancelled before it completed — and absent where none is.
+	// It is the harness's to clear, by taking the next pass, and it does not
+	// change the word: a missed pass is why an instance goes on to read stale,
+	// and is said beside whatever word it reads.
+	MissedPass *ProgramManagerMiss `json:"missed_pass,omitempty"`
 	// Blockers are the report's blockers that resolved to an open record of the
 	// instance's own, and Claims the ones that did not, each with its reason.
 	// Both are empty rather than absent.
@@ -342,6 +375,9 @@ func deriveProgramManager(sources Sources, instance ProgramManagerInstance, reco
 	if completed {
 		derived.LastCompletedPassAt = &last
 	}
+	if missed, found := passes.missed[instance.Agent]; found && (!completed || !last.After(missed.At)) {
+		derived.MissedPass = &missed
+	}
 	derived.Stale, derived.StaleSays = staleness(instance, last, completed, passes.activated[instance.Agent], passes.readable, now)
 
 	switch {
@@ -400,7 +436,11 @@ type activation struct {
 
 // completedPasses is every instance's last completed pass and first trace.
 type completedPasses struct {
-	last      map[string]time.Time
+	last map[string]time.Time
+	// missed is each instance's latest missed pass. A miss is read by the task
+	// it was recorded under, which is the instance's name, because a pass that
+	// was never taken happened in no conversation.
+	missed    map[string]ProgramManagerMiss
 	activated map[string]activation
 	// readable is whether both the pass log and the conversations were read, so
 	// that the absence of a pass means none was recorded.
@@ -414,7 +454,7 @@ type completedPasses struct {
 // backstop rejected, and a pass that answered without the block all end with
 // none, and all look the same here, which is the point.
 func readCompletedPasses(sources Sources) completedPasses {
-	passes := completedPasses{last: map[string]time.Time{}, activated: map[string]activation{}, readable: true}
+	passes := completedPasses{last: map[string]time.Time{}, missed: map[string]ProgramManagerMiss{}, activated: map[string]activation{}, readable: true}
 	if sources.FirstSeen != nil {
 		seen, err := sources.FirstSeen.FirstSeen()
 		if err != nil {
@@ -456,6 +496,19 @@ func readCompletedPasses(sources Sources) completedPasses {
 		passes.problems = append(passes.problems, fmt.Sprintf("%d pass record(s) could not be read, so a program manager's last completed pass may be later than is said", len(unreadable)))
 	}
 	for _, pass := range recorded {
+		if pass.Missed != nil && pass.Role == domain.RoleProgramManager {
+			if earlier, seen := passes.missed[pass.Task]; !seen || pass.StartedAt.After(earlier.At) {
+				passes.missed[pass.Task] = ProgramManagerMiss{
+					Trigger:    pass.Missed.Trigger,
+					How:        pass.Missed.How,
+					At:         pass.StartedAt,
+					RecordedAt: pass.EndedAt,
+					Says:       pass.Problem,
+					WaitingOn:  MoverHarness,
+				}
+			}
+			continue
+		}
 		agent, known := agentOf[pass.ConversationID]
 		if !known || pass.Result == nil {
 			continue

@@ -202,14 +202,17 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 			return Fired{}, false, nil
 		}
 	}
+	// A pass that was claimed and never ended is recorded as missed before the
+	// next one is claimed over it.
+	unfinished := t.unfinished(ctx, agent)
 	now := t.now()
 	wake, err := t.readWake(ctx, agent, triggers, now)
 	if err != nil {
-		return Fired{}, false, err
+		return Fired{}, false, errors.Join(unfinished, err)
 	}
-	var readProblem error
+	readProblem := unfinished
 	if len(wake.problems) > 0 {
-		readProblem = errors.New(strings.Join(wake.problems, "; "))
+		readProblem = errors.Join(readProblem, errors.New(strings.Join(wake.problems, "; ")))
 	}
 
 	var claimed runstate.SweepClaim
@@ -246,13 +249,26 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 		Every:   triggers.Every,
 		Enabled: true,
 	}
+	// A pass taken is reported rather than an error, so what stopped the last
+	// pass's miss being recorded rides on this one's problem.
+	var unrecorded string
+	if unfinished != nil {
+		unrecorded = unfinished.Error()
+	}
 	if away {
-		return t.refuse(ctx, agent, task, outage), true, nil
+		fired := t.refuse(ctx, agent, task, outage)
+		fired.Problem = appendProblem(fired.Problem, unrecorded)
+		return fired, true, nil
+	}
+	trigger := runstate.PassTriggerSchedule
+	if !due {
+		trigger = runstate.PassTriggerEvents
 	}
 	fired := t.run(ctx, firing{
 		name:    agent,
 		pass:    passName(claimed),
 		task:    task,
+		trigger: trigger,
 		message: instanceMessage(agent, instance, due, wake),
 		agent:   agent,
 		events:  wake.counts(),
@@ -262,6 +278,7 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 			return boundedProblem(problems)
 		},
 	})
+	fired.Problem = appendProblem(fired.Problem, unrecorded)
 	return fired, true, nil
 }
 
@@ -272,14 +289,7 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 // every run and item the product has ever recorded.
 func (t Trigger) readWake(ctx context.Context, agent string, triggers config.Triggers, now time.Time) (passWake, error) {
 	wake := passWake{cursor: map[string]time.Time{}, positions: map[string]time.Time{}, carried: map[string]map[string]time.Time{}}
-	watched := map[string]map[config.TriggerEvent]bool{}
-	for _, class := range triggers.On {
-		stream := passStreamOf(class)
-		if watched[stream] == nil {
-			watched[stream] = map[config.TriggerEvent]bool{}
-		}
-		watched[stream][class] = true
-	}
+	watched := watchedStreams(triggers)
 	if len(watched) == 0 {
 		return wake, nil
 	}
@@ -308,18 +318,7 @@ func (t Trigger) readWake(ctx context.Context, agent string, triggers config.Tri
 			continue
 		}
 		carried := map[string]time.Time{}
-		for _, event := range events {
-			if !watched[stream][event.Class] {
-				continue
-			}
-			// Read again from inside the reach behind the cursor: what a completed
-			// pass carried is not handed again, and what arrived since is.
-			if event.Key != "" && cursor.WasCarried(stream, event.Key) {
-				continue
-			}
-			if !event.At.After(after) && event.Key == "" {
-				continue
-			}
+		for _, event := range unreadEvents(cursor, stream, after, watched[stream], events) {
 			wake.events = append(wake.events, event)
 			if event.Key != "" {
 				carried[event.Key] = event.At
@@ -337,6 +336,107 @@ func (t Trigger) readWake(ctx context.Context, agent string, triggers config.Tri
 		return wake.events[first].At.Before(wake.events[second].At)
 	})
 	return wake, nil
+}
+
+// watchedStreams is the classes an instance watches, by the stream each is read
+// from.
+func watchedStreams(triggers config.Triggers) map[string]map[config.TriggerEvent]bool {
+	watched := map[string]map[config.TriggerEvent]bool{}
+	for _, class := range triggers.On {
+		stream := passStreamOf(class)
+		if watched[stream] == nil {
+			watched[stream] = map[config.TriggerEvent]bool{}
+		}
+		watched[stream][class] = true
+	}
+	return watched
+}
+
+// unreadEvents is what of one stream's events a pass taken now would carry:
+// the classes watched, past the cursor, and not already carried by a completed
+// pass. The stream is read again from inside the reach behind the cursor, so
+// what a completed pass carried is not handed again and what arrived late is.
+func unreadEvents(cursor runstate.PassCursor, stream string, after time.Time, watched map[config.TriggerEvent]bool, events []PassEvent) []PassEvent {
+	var unread []PassEvent
+	for _, event := range events {
+		if !watched[event.Class] {
+			continue
+		}
+		if event.Key != "" && cursor.WasCarried(stream, event.Key) {
+			continue
+		}
+		if !event.At.After(after) && event.Key == "" {
+			continue
+		}
+		unread = append(unread, event)
+	}
+	return unread
+}
+
+// UnfinishedPassGrace is how long a pass may stand claimed with nothing
+// recording its ending, and no turn in flight on the instance's conversation,
+// before it is taken to have been cancelled. It is the recurring minimum,
+// because no later pass of the instance is claimed sooner than that after the
+// last, so the pass that would overwrite the claim always meets it first.
+const UnfinishedPassGrace = config.MinRecurringInterval
+
+// unfinished records the instance's last pass as missed where it was claimed
+// and nothing ever recorded how it ended: the process carrying it stopped
+// mid-pass — a watch session killed under it — and wrote neither its account
+// nor its failure. Nothing else would say so: the next pass is claimed over the
+// same record and the cadence runs on, which is how the factory-flow
+// instance's first pass on 2026-09-26 was lost with nothing saying it.
+//
+// It needs the instance's conversation to be readable, because a claim with no
+// ending is also a pass another process is carrying; the caller has already
+// found no turn in flight there. It reports what stopped it recording, and
+// never stops the pass being considered.
+func (t Trigger) unfinished(ctx context.Context, agent string) error {
+	if t.Conversations == nil {
+		return nil
+	}
+	claimed, found, err := t.Claims.Find(agent)
+	if err != nil || !found || claimed.Settled() {
+		return nil
+	}
+	now := t.now()
+	if now.Sub(claimed.FiredAt) < UnfinishedPassGrace {
+		return nil
+	}
+	recorded, _, err := t.Reports.List()
+	if err != nil {
+		return fmt.Errorf("read whether the last pass of the program manager instance %s recorded its ending: %w", agent, err)
+	}
+	for _, earlier := range recorded {
+		if earlier.Task == agent && !earlier.StartedAt.Before(claimed.FiredAt) {
+			return nil
+		}
+	}
+	trigger := runstate.PassTriggerSchedule
+	if claimed.Summoned {
+		trigger = runstate.PassTriggerEvents
+	}
+	problem := boundedProblem([]string{fmt.Sprintf(
+		"the %s of the program manager instance %s, taken at %s, was cancelled before it completed: nothing recorded how it ended, and no turn is in flight on its conversation, so the process carrying it stopped mid-pass — a watch session stopped or killed under it is the usual cause; nothing it would have looked at was looked at, and its events wait past its cursor for the next pass",
+		trigger.Describe(), agent, claimed.FiredAt.UTC().Format(time.RFC3339))})
+	write, stopWriting := recordContext(ctx)
+	defer stopWriting()
+	var problems []error
+	if err := t.Reports.Append(runstate.Sweep{
+		Task:      agent,
+		Role:      domain.RoleProgramManager,
+		StartedAt: claimed.FiredAt,
+		EndedAt:   now,
+		Problem:   problem,
+		Missed:    &runstate.MissedPass{Trigger: trigger, How: runstate.MissCancelled},
+	}); err != nil {
+		problems = append(problems, fmt.Errorf("record the cancelled pass of the program manager instance %s: %w", agent, err))
+	}
+	// Settled, so the claim reads as ended and the next pull does not look again.
+	if _, err := t.Claims.Settle(write, agent, problem); err != nil {
+		problems = append(problems, fmt.Errorf("settle the cancelled pass of the program manager instance %s: %w", agent, err))
+	}
+	return errors.Join(problems...)
 }
 
 // advance moves the instance's cursor once its pass is over: to the moment the

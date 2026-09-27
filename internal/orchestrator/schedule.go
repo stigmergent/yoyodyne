@@ -3269,8 +3269,9 @@ type recurringWatch struct {
 	// newest wins, and cleared by a pass that reached the schedule and found
 	// nothing in its way.
 	held recurringHold
-	// missed is each task's due time already recorded as missed, so one gap is
-	// recorded once however many passes find it standing.
+	// missed is each task's due time already recorded as missed, keyed by the
+	// task and the trigger that owed it, so one gap is recorded once however many
+	// passes find it standing.
 	missed map[string]time.Time
 }
 
@@ -3354,10 +3355,10 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 		if due.At.IsZero() || due.Every <= 0 || now.Before(due.At.Add(due.Every)) {
 			continue
 		}
-		if recorded, found := watch.missed[due.Task]; found && recorded.Equal(due.At) {
+		if recorded, found := watch.missed[due.key()]; found && recorded.Equal(due.At) {
 			continue
 		}
-		miss := RecurringMiss{Task: due.Task, Role: due.Role, Every: due.Every, Due: due.At}
+		miss := RecurringMiss{Task: due.Task, Role: due.Role, Every: due.Every, Due: due.At, Trigger: due.Trigger, Instance: due.Instance}
 		// A hold this session found at or after the task fell due is what kept it,
 		// even where the session opened after that: a session that opened late and
 		// then could not fire for hours was kept by that, not by the gap before it.
@@ -3381,7 +3382,7 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 		}
 		// Marked before it is written, so a record that failed is said once on the
 		// pass rather than attempted again at every poll of a gap still standing.
-		watch.missed[due.Task] = due.At
+		watch.missed[due.key()] = due.At
 		if err := cadence.Missed(ctx, miss); err != nil {
 			problems = append(problems, err.Error())
 		}

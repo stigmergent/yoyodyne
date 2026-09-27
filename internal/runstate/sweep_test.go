@@ -555,3 +555,46 @@ func TestASettledProblemIsCutOnARuneBoundary(t *testing.T) {
 			len(settled.Problem), utf8.ValidString(settled.Problem), settled.Problem[len(settled.Problem)-8:], MaxSweepTextBytes)
 	}
 }
+
+// A missed pass is marked with the trigger that owed it and how it was missed,
+// both from their vocabularies, and carries no account: a pass that ended in
+// one completed. A summoned claim says so until the cadence claims again, and
+// a claim reads as settled only once its ending is written.
+func TestAMissedPassIsMarkedAndItsClaimSaysHowItWasTaken(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)
+	missed := Sweep{
+		SchemaVersion: SweepSchemaVersion, ProductID: "example", Task: "reliability-pm", Role: "program-manager",
+		StartedAt: start, EndedAt: start.Add(time.Hour), Problem: "cancelled before it completed",
+		Missed: &MissedPass{Trigger: PassTriggerEvents, How: MissCancelled},
+	}
+	if err := missed.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	for name, spoil := range map[string]func(*Sweep){
+		"unknown trigger": func(s *Sweep) { s.Missed = &MissedPass{Trigger: "whim", How: MissUnfired} },
+		"unknown how":     func(s *Sweep) { s.Missed = &MissedPass{Trigger: PassTriggerSchedule, How: "lost"} },
+		"an account":      func(s *Sweep) { s.Result = &sweep.Result{Status: sweep.StatusComplete, Summary: "done"} },
+	} {
+		spoiled := missed
+		spoil(&spoiled)
+		if err := spoiled.Validate(); err == nil {
+			t.Errorf("%s: Validate() = nil, want the missed pass refused", name)
+		}
+	}
+
+	store := newSweepStore(t)
+	summoned, err := store.Summon(context.Background(), "reliability-pm", start)
+	if err != nil || !summoned.Summoned || summoned.Settled() {
+		t.Fatalf("Summon() = %+v, %v; want an unsettled summoned claim", summoned, err)
+	}
+	settled, err := store.Settle(context.Background(), "reliability-pm", "")
+	if err != nil || !settled.Settled() {
+		t.Fatalf("Settle() = %+v, %v; want the claim settled", settled, err)
+	}
+	claimed, err := store.Claim(context.Background(), "reliability-pm", time.Hour, start.Add(time.Hour))
+	if err != nil || claimed.Summoned {
+		t.Fatalf("Claim() = %+v, %v; want the cadence's claim not summoned", claimed, err)
+	}
+}

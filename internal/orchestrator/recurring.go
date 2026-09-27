@@ -327,12 +327,33 @@ type RecurringBreakage interface {
 
 // RecurringDue is when one enabled task is next due, as the claim that paces it
 // says. At is zero for a task that has never fired, which is due at once.
+//
+// A program manager instance is due once per trigger it has: its schedule, as a
+// task's is, and its events, from the moment a wake past its cursor could first
+// have been taken. Task is then the instance's name, Instance is set, and
+// Trigger says which; Every is the interval a miss is measured against — the
+// schedule's own, or PassEventMissAfter for the events.
 type RecurringDue struct {
-	Task  string
-	Role  domain.AgentRole
-	Every time.Duration
-	At    time.Time
+	Task     string
+	Role     domain.AgentRole
+	Every    time.Duration
+	At       time.Time
+	Trigger  runstate.PassTrigger
+	Instance bool
 }
+
+// key is what a miss is recorded once under: the task, or the instance and the
+// trigger that owed the pass.
+func (d RecurringDue) key() string {
+	return d.Task + "/" + string(d.Trigger)
+}
+
+// PassEventMissAfter is how long an instance's events wake may stand takeable
+// with no pass following it before the pass is recorded as missed. It is the
+// events' counterpart of a schedule's whole interval: a wake is taken at the
+// first pull after its streams settle, so one standing half an hour is one no
+// pull reached.
+const PassEventMissAfter = 30 * time.Minute
 
 // RecurringMiss is a task that went a whole interval past the time it fell due
 // without firing, and what kept it from firing.
@@ -340,6 +361,10 @@ type RecurringMiss struct {
 	Task  string
 	Role  domain.AgentRole
 	Every time.Duration
+	// Trigger is what owed the pass, and Instance marks a program manager
+	// instance's rather than a configured task's.
+	Trigger  runstate.PassTrigger
+	Instance bool
 	// Due is when the task fell due, and Why is what the session that noticed
 	// the miss knows kept it: the harness itself, the operator's pause, or no
 	// session running at all.
@@ -373,7 +398,7 @@ type recurringFinder interface {
 
 // Cadence reports when each enabled task is next due. It claims nothing, so a
 // session that reads it and then fires still meets the claim as the due check.
-func (t Trigger) Cadence(context.Context) ([]RecurringDue, error) {
+func (t Trigger) Cadence(ctx context.Context) ([]RecurringDue, error) {
 	finder, readable := t.Claims.(recurringFinder)
 	if !readable {
 		return nil, nil
@@ -385,7 +410,7 @@ func (t Trigger) Cadence(context.Context) ([]RecurringDue, error) {
 		if !task.Enabled {
 			continue
 		}
-		due := RecurringDue{Task: name, Role: task.Role, Every: task.Every.Duration()}
+		due := RecurringDue{Task: name, Role: task.Role, Every: task.Every.Duration(), Trigger: runstate.PassTriggerSchedule}
 		claimed, found, err := finder.Find(name)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("read when the recurring task %s is due: %w", name, err))
@@ -396,6 +421,78 @@ func (t Trigger) Cadence(context.Context) ([]RecurringDue, error) {
 		}
 		dues = append(dues, due)
 	}
+	for _, agent := range t.instanceNames() {
+		instanceDues, err := t.instanceCadence(ctx, finder, agent, t.Instances[agent].Triggers)
+		if err != nil {
+			problems = append(problems, err)
+		}
+		dues = append(dues, instanceDues...)
+	}
+	return dues, errors.Join(problems...)
+}
+
+// instanceCadence is when an instance's triggers owe it a pass. Its schedule is
+// due as a task's is, from the claim both of its triggers share. Its events are
+// due only while a wake stands past its cursor, from the moment that wake could
+// first have been taken: once its streams had settled, and not sooner than the
+// recurring minimum after its last pass. It reads the streams and claims and
+// moves nothing, so a stream the instance has not begun watching owes nothing.
+func (t Trigger) instanceCadence(ctx context.Context, finder recurringFinder, agent string, triggers config.Triggers) ([]RecurringDue, error) {
+	if !triggers.Defined() {
+		return nil, nil
+	}
+	claimed, found, err := finder.Find(agent)
+	if err != nil {
+		return nil, fmt.Errorf("read when the program manager instance %s is due: %w", agent, err)
+	}
+	fired := found && !claimed.FiredAt.IsZero()
+	var dues []RecurringDue
+	if every := triggers.Every.Duration(); every > 0 {
+		due := RecurringDue{Task: agent, Role: domain.RoleProgramManager, Every: every, Trigger: runstate.PassTriggerSchedule, Instance: true}
+		if fired {
+			due.At = claimed.NextDue(every)
+		}
+		dues = append(dues, due)
+	}
+	if len(triggers.On) == 0 || t.Cursors == nil || t.Events == nil {
+		return dues, nil
+	}
+	cursor, positioned, err := t.Cursors.Load(agent)
+	if err != nil || !positioned {
+		if err != nil {
+			err = fmt.Errorf("read where the program manager instance %s has read its streams up to, so whether its events owe it a pass is not known: %w", agent, err)
+		}
+		return dues, err
+	}
+	now := t.now()
+	var newest time.Time
+	var problems []error
+	for stream, watched := range watchedStreams(triggers) {
+		after, begun := cursor.Streams[stream]
+		if !begun {
+			continue
+		}
+		events, err := t.Events.Events(ctx, stream, cursor.ReadFrom(stream), now)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("the %s stream could not be read for the program manager instance %s, so whether its events owe it a pass is not known: %w", stream, agent, err))
+			continue
+		}
+		for _, event := range unreadEvents(cursor, stream, after, watched, events) {
+			if event.At.After(newest) {
+				newest = event.At
+			}
+		}
+	}
+	if newest.IsZero() {
+		return dues, errors.Join(problems...)
+	}
+	at := newest.Add(PassSettleWindow)
+	if fired {
+		if earliest := claimed.FiredAt.Add(config.MinRecurringInterval); earliest.After(at) {
+			at = earliest
+		}
+	}
+	dues = append(dues, RecurringDue{Task: agent, Role: domain.RoleProgramManager, Every: PassEventMissAfter, At: at, Trigger: runstate.PassTriggerEvents, Instance: true})
 	return dues, errors.Join(problems...)
 }
 
@@ -417,18 +514,23 @@ func (t Trigger) Missed(ctx context.Context, missed RecurringMiss) error {
 	// and one that failed before its first turn says so.
 	recorded, _, err := t.Reports.List()
 	if err != nil {
-		return fmt.Errorf("read whether the missed cadence of the recurring task %s is already recorded: %w", missed.Task, err)
+		return fmt.Errorf("read whether the missed %s is already recorded: %w", missed.subject(), err)
 	}
 	for _, earlier := range recorded {
-		if earlier.Task == missed.Task && earlier.Turns == 0 && earlier.Result == nil && earlier.NotStarted == "" && earlier.StartedAt.Equal(missed.Due) {
+		if earlier.Task != missed.Task || !earlier.StartedAt.Equal(missed.Due) {
+			continue
+		}
+		if earlier.Missed != nil && earlier.Missed.How == runstate.MissUnfired && earlier.Missed.Trigger == missed.trigger() {
+			return nil
+		}
+		// A miss recorded before misses were marked is read by its shape, and only
+		// ever was a schedule's.
+		if earlier.Missed == nil && missed.trigger() == runstate.PassTriggerSchedule && earlier.Turns == 0 && earlier.Result == nil && earlier.NotStarted == "" {
 			return nil
 		}
 	}
 	now := t.now()
-	late := now.Sub(missed.Due)
-	problem := boundedProblem([]string{fmt.Sprintf(
-		"the recurring task %s, due every %s, fell due at %s and had not fired %s later, so its %s's standing look was not taken: %s; nothing was asked, and it fires at the first pass that reaches it once that clears",
-		missed.Task, missed.Every, missed.Due.UTC().Format(time.RFC3339), late.Round(time.Minute), missed.Role, missed.Why)})
+	problem := boundedProblem([]string{missed.says(now)})
 	var problems []error
 	if err := t.Reports.Append(runstate.Sweep{
 		Task:      missed.Task,
@@ -436,15 +538,53 @@ func (t Trigger) Missed(ctx context.Context, missed RecurringMiss) error {
 		StartedAt: missed.Due,
 		EndedAt:   now,
 		Problem:   problem,
+		Missed:    &runstate.MissedPass{Trigger: missed.trigger(), How: runstate.MissUnfired},
 	}); err != nil {
-		problems = append(problems, fmt.Errorf("record the missed cadence of the recurring task %s: %w", missed.Task, err))
+		problems = append(problems, fmt.Errorf("record the missed %s: %w", missed.subject(), err))
 	}
 	if missed.Severity != "" && t.Breakage != nil {
 		if err := t.reportMiss(missed, now); err != nil {
-			problems = append(problems, fmt.Errorf("report the missed cadence of the recurring task %s: %w", missed.Task, err))
+			problems = append(problems, fmt.Errorf("report the missed %s: %w", missed.subject(), err))
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// trigger is what owed the missed pass: the schedule, where the miss names
+// none, which is every configured task's.
+func (m RecurringMiss) trigger() runstate.PassTrigger {
+	if m.Trigger == "" {
+		return runstate.PassTriggerSchedule
+	}
+	return m.Trigger
+}
+
+// subject names what was missed, for a sentence about failing to record it.
+func (m RecurringMiss) subject() string {
+	if m.Instance {
+		return fmt.Sprintf("%s of the program manager instance %s", m.trigger().Describe(), m.Task)
+	}
+	return "cadence of the recurring task " + m.Task
+}
+
+// says is the sweep record's account of the miss: what fell due, when, how long
+// it has stood, and what kept it.
+func (m RecurringMiss) says(now time.Time) string {
+	late := now.Sub(m.Due).Round(time.Minute)
+	due := m.Due.UTC().Format(time.RFC3339)
+	if !m.Instance {
+		return fmt.Sprintf(
+			"the recurring task %s, due every %s, fell due at %s and had not fired %s later, so its %s's standing look was not taken: %s; nothing was asked, and it fires at the first pass that reaches it once that clears",
+			m.Task, m.Every, due, late, m.Role, m.Why)
+	}
+	if m.trigger() == runstate.PassTriggerEvents {
+		return fmt.Sprintf(
+			"a missed pass of the program manager instance %s: events it watches woke it, the wake could be taken from %s, and no pass had been taken %s later: %s; nothing was asked, the events wait past its cursor, and the next pass carries them",
+			m.Task, due, late, m.Why)
+	}
+	return fmt.Sprintf(
+		"a missed pass of the program manager instance %s: its schedule, every %s, fell due at %s and no pass had been taken %s later: %s; nothing was asked, and it passes at the first pull that reaches it once that clears",
+		m.Task, m.Every, due, late, m.Why)
 }
 
 // reportMiss files the miss as the harness's own report. It names the task and
@@ -481,6 +621,11 @@ func missedReportMessage(missed RecurringMiss, now time.Time) string {
 			cut--
 		}
 		why = why[:cut] + " […]"
+	}
+	if missed.Instance {
+		return fmt.Sprintf("The program manager instance %s has not taken its %s since it fell due at %s, %s ago: %s. "+
+			"Its lane is not being looked at while it stands, and the pass is taken on its own at the first pull that reaches it once that clears.",
+			missed.Task, missed.trigger().Describe(), missed.Due.UTC().Format(time.RFC3339), now.Sub(missed.Due).Round(time.Minute), why)
 	}
 	return fmt.Sprintf("The recurring task %s has not fired since it fell due at %s, %s ago: %s. "+
 		"The %s's standing look is not being taken while it stands, and the task fires on its own at the first pass that reaches it once that clears.",
@@ -553,7 +698,7 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 			fired := t.refuse(ctx, name, task, outage)
 			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
 		}
-		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, message: wakeMessage(name, task, t.docketFor(task))})
+		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, t.docketFor(task))})
 		return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
 	}
 	// The program manager instances come after the tasks and share their bound:
@@ -635,7 +780,7 @@ func (t Trigger) Summon(ctx context.Context, summons BrakeSummons) (Fired, error
 		return Fired{}, fmt.Errorf("claim the summoned firing of the recurring task %s: %w", name, err)
 	}
 	summoned := summonedBy(summons.Hold)
-	fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, message: summonsMessage(name, task, summons.Hold, t.docketFor(task)), summoned: summoned})
+	fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSummons, message: summonsMessage(name, task, summons.Hold, t.docketFor(task)), summoned: summoned})
 	return fired, nil
 }
 
@@ -731,6 +876,9 @@ type firing struct {
 	task     config.RecurringTask
 	message  string
 	summoned string
+	// trigger is what fired the pass, which a pass cancelled before it
+	// completed is recorded as missed under.
+	trigger runstate.PassTrigger
 	// agent is the instance a program manager's pass wakes, and empty for a
 	// recurring task.
 	agent string
@@ -848,6 +996,16 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// turns, so what the role said is intact and what the harness noticed is
 	// stated beside it.
 	problems = append(problems, t.noticeForge(ctx, task, &recorded))
+	// A pass whose own context was cancelled under it — the session carrying it
+	// stopped — did not fail on its own terms: it was stopped before it
+	// completed, and is recorded as a missed pass of the trigger that took it,
+	// so it counts as a pass owed rather than as one the role got wrong.
+	if cancelled := ctx.Err(); failed && recorded.Result == nil && recorded.NotStarted == "" && cancelled != nil && f.trigger.Valid() {
+		recorded.Missed = &runstate.MissedPass{Trigger: f.trigger, How: runstate.MissCancelled}
+		problems = append([]string{fmt.Sprintf(
+			"the %s of %s was cancelled before it completed (%v): the session carrying it stopped under it, so it is recorded as a missed pass and what it would have looked at waits for the next",
+			f.trigger.Describe(), name, cancelled)}, problems...)
+	}
 	// Bounded, because the record's own bound on this prose refuses a record that
 	// carries too much of it — and every one of these sentences ends with a
 	// provider's error message, whose length nothing here controls. Losing a whole

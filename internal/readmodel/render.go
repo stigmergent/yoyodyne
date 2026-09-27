@@ -416,7 +416,8 @@ func age(elapsed time.Duration) string {
 // RenderProgramManagers is one line per program manager instance, printed under
 // the four lines rather than as a fifth: nothing on it waits on a person, and
 // the operator reads an instance when he chooses. Each line names the instance,
-// its lane, and its status word, and says why where the word is not working.
+// its lane, and its status word, and says why where the word is not working
+// or where the instance has missed a pass.
 // It is empty where no instance is configured and none has asked for anything,
 // and says so where the instances were listed but something behind them could
 // not be read.
@@ -442,9 +443,11 @@ func (s Standing) RenderProgramManagers() string {
 }
 
 // why is what follows an instance's status word: the reason it is stale, how
-// many open asks of its own block it, and how many of its report's blockers the
-// record does not bear out. Both halves are said where both hold, because stale
-// outranks blocked in the word and the reader should still see the second.
+// many open asks of its own block it, how many of its report's blockers the
+// record does not bear out, and the pass it missed since its last completed
+// one. Both halves are said where both hold, because stale outranks blocked in
+// the word and the reader should still see the second; a missed pass is said
+// under any word, because it is the stall before the instance reads stale.
 func (p ProgramManager) why() string {
 	var parts []string
 	if p.Stale {
@@ -459,6 +462,9 @@ func (p ProgramManager) why() string {
 	}
 	if len(p.Claims) > 0 {
 		parts = append(parts, fmt.Sprintf("%s its report names that the record does not bear out", count(len(p.Claims), "blocker")))
+	}
+	if p.MissedPass != nil {
+		parts = append(parts, p.MissedPass.sentence())
 	}
 	if len(parts) == 0 {
 		return ""
