@@ -60,9 +60,10 @@ type PullRequest struct {
 	// question be answered before anything is asked of the forge.
 	HeadCommit string `json:"head_commit,omitempty"`
 	// AutoMerge reports a merge the forge is holding for this request: it will
-	// perform it once the base branch's requirements are met. It is what tells a
-	// queued merge that has not landed yet from one the forge dropped, which is
-	// otherwise the same observation — an open, unmerged request.
+	// perform it once the base branch's requirements are met, or its merge queue
+	// has taken the request and will land it. It is what tells a queued merge
+	// that has not landed yet from one the forge dropped, which is otherwise the
+	// same observation — an open, unmerged request.
 	AutoMerge bool `json:"auto_merge,omitempty"`
 	// MergeCommit is the commit the forge recorded as the merge of this request,
 	// and is empty on a request the forge has not merged or answered about
@@ -571,6 +572,22 @@ func (g GitHub) State(ctx context.Context, head string) (PullRequest, error) {
 	if !exists {
 		return PullRequest{}, fmt.Errorf("no pull request exists for branch %s", head)
 	}
+	// A request the forge's merge queue has taken is still one the forge holds a
+	// merge for, and the listing cannot say so: the queue consumes the request's
+	// auto-merge as it takes the request, and the request stays open until the
+	// queue lands it. Read from the listing alone, that is an open request with
+	// no merge held, which is exactly what a dropped merge looks like — and on
+	// 2026-09-27 pull requests 832 and 834 were each handed to a person as
+	// dropped while main's merge queue was landing them. So an open request with
+	// no auto-merge is asked about the queue before it is reported, and a
+	// question the forge does not answer is an error rather than a drop.
+	if !found.Merged && !found.AutoMerge && strings.EqualFold(found.State, "OPEN") {
+		queued, err := g.inMergeQueue(ctx, found.Number)
+		if err != nil {
+			return PullRequest{}, err
+		}
+		found.AutoMerge = queued
+	}
 	return found, nil
 }
 
@@ -854,6 +871,62 @@ func (g GitHub) find(ctx context.Context, head string) (PullRequest, bool, error
 		found.MergeCommit = strings.TrimSpace(one.MergeCommit.OID)
 	}
 	return found, true, nil
+}
+
+// mergeQueueQuery asks whether a pull request is in its base branch's merge
+// queue. The listing verbs carry no field for it, so it is asked of the forge's
+// GraphQL API, with the repository named by the placeholders the API verb fills
+// from GH_REPO.
+const mergeQueueQuery = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { isInMergeQueue } }
+}`
+
+// inMergeQueue reports whether the forge's merge queue holds a pull request.
+func (g GitHub) inMergeQueue(ctx context.Context, number int) (bool, error) {
+	url, err := g.remoteURL(ctx, g.remoteName())
+	if err != nil {
+		return false, err
+	}
+	repository, err := remoteRepository(url)
+	if err != nil {
+		return false, fmt.Errorf("resolve the repository of remote %s: %w", g.remoteName(), err)
+	}
+	result, err := g.Runner.Run(ctx, execution.Command{
+		Name: g.binary(),
+		Args: []string{"api", "graphql",
+			"-f", "query=" + mergeQueueQuery,
+			"-F", "owner={owner}",
+			"-F", "name={repo}",
+			"-F", "number=" + strconv.Itoa(number)},
+		Dir:      g.Dir,
+		Env:      append(execution.ForgeEnvironment(nil), "GH_REPO="+repository),
+		Timeout:  g.timeout(),
+		Redactor: execution.NewRedactor(g.RedactValues...),
+	}, nil)
+	if err != nil {
+		return false, fmt.Errorf("ask the forge whether pull request %d is in the merge queue: %w", number, err)
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return false, fmt.Errorf("ask the forge whether pull request %d is in the merge queue: exit code %d: %s",
+			number, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+	}
+	var answered struct {
+		Data struct {
+			Repository struct {
+				PullRequest *struct {
+					IsInMergeQueue *bool `json:"isInMergeQueue"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &answered); err != nil {
+		return false, fmt.Errorf("decode whether pull request %d is in the merge queue: %w", number, err)
+	}
+	pull := answered.Data.Repository.PullRequest
+	if pull == nil || pull.IsInMergeQueue == nil {
+		return false, fmt.Errorf("the forge's answer about pull request %d does not say whether it is in the merge queue", number)
+	}
+	return *pull.IsInMergeQueue, nil
 }
 
 // repoArgs scopes a forge command to the configured remote's repository. It

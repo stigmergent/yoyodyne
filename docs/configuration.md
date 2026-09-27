@@ -3292,7 +3292,11 @@ With both on, a run works like this:
    which is the authoritative one (on a
    [protected target](#a-protected-target-lands-through-its-pull-request) it is
    not, and nothing local moves until the forge merges), and the run branch stays on the remote
-   because that is what the forge still has to merge. The work item is the one
+   because that is what the forge still has to merge. On a protected target the
+   run's local branch and worktree stay too, until the forge's merge is
+   confirmed, because nothing proves the change is on the target before then.
+   A request the forge's merge queue has taken is read as a merge the forge
+   still holds, not as one it dropped. The work item is the one
    thing the run does **not** settle — it stays open, with the queued merge named
    on it, because closing it as integrated would record a publication that has
    not happened and may not. `yoyo reconcile` settles both afterwards: it asks
@@ -3304,7 +3308,11 @@ With both on, a run works like this:
    onto the forge's merge commit, with the branch the merge consumed deleted
    afterwards as hygiene that cannot hold the closure up) — or, if the forge dropped the queued merge
    because something it required went unmet, records an outstanding publication
-   and hands the item back to you with a blocker rather than closing it. It never
+   and hands the item back to you with a blocker rather than closing it. A drop
+   on a protected target whose head fell behind, failing nothing the change
+   touches, is not handed back: the change is brought up to date from the kept
+   branch, checked and reviewed again, and queued again, as a queued head behind
+   its target is. It never
    merges anything itself: a requirement that stopped the forge is yours to
    satisfy, and re-arming a dropped merge is a bounded triage decision — one per
    publication, carried out by `yoyo triage rearm` — rather than something a sweep

@@ -678,6 +678,12 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 	state.PullRequest = &published
 
 	if !observed.Merged {
+		// A landing the forge stopped holding is a change on its kept branch and
+		// on no target, and a head that fell behind is the lost race a replay
+		// answers — so that is asked before the drop is handed to anybody.
+		if replayed, decided, err := r.replayDroppedLanding(ctx, state, observed); decided {
+			return replayed, err
+		}
 		state.PublishFailure = droppedMerge(published, strings.ToLower(nonEmpty(observed.State, "in an unreported state")), state.Integration.TargetBranch)
 		// The moment the drop was found out, written down rather than left to be
 		// worked out again by whoever next reads the record. It is the one thing a
@@ -865,10 +871,19 @@ func (r Reconciler) settleDroppedMerge(ctx context.Context, state runstate.State
 		result.Detail = reason
 		return result, err
 	}
+	// The blocker says what the repository shows of the run's branch and
+	// worktree rather than what an empty observation implies. A queued landing
+	// keeps both until the forge's merge is confirmed, and until 2026-09-27 this
+	// note said they were gone over artifacts standing exactly where the run left
+	// them — which read as the change having nothing left to replay.
+	observation, err := r.observeArtifacts(ctx, state)
+	if err != nil {
+		return reconciliationOf(state, ActionUnsettled), err
+	}
 	// The blocker reaches the item before the record is disturbed, so an
 	// interruption here leaves the merge still queued durably and takes the whole
 	// settlement up again rather than settling a run nobody was told about.
-	notes, err := r.recordBlocker(ctx, state, itemStatus, gitworktree.Observation{}, reason)
+	notes, err := r.recordBlocker(ctx, state, itemStatus, observation, reason)
 	if err != nil {
 		return reconciliationOf(state, ActionBlocked), err
 	}
@@ -983,7 +998,11 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 		if err != nil {
 			return reconciliationOf(state, ActionBlocked), err
 		}
-		notes, err := r.recordBlocker(ctx, state, itemStatus, gitworktree.Observation{}, reason)
+		observation, err := r.observeArtifacts(ctx, state)
+		if err != nil {
+			return reconciliationOf(state, ActionUnsettled), err
+		}
+		notes, err := r.recordBlocker(ctx, state, itemStatus, observation, reason)
 		if err != nil {
 			return reconciliationOf(state, ActionBlocked), err
 		}
@@ -1397,6 +1416,20 @@ func (r Reconciler) recordBlocker(ctx context.Context, state runstate.State, ite
 	return notes, nil
 }
 
+// observeArtifacts looks at what the repository holds of a run's branch and
+// worktree, for a blocker that has to name them. A run that recorded no
+// worktree has nothing to look at, and says so in the note.
+func (r Reconciler) observeArtifacts(ctx context.Context, state runstate.State) (gitworktree.Observation, error) {
+	if state.WorktreePath == "" {
+		return gitworktree.Observation{}, nil
+	}
+	observation, err := r.Worktrees.Observe(ctx, worktreeOf(state))
+	if err != nil {
+		return gitworktree.Observation{}, fmt.Errorf("observe run %s artifacts: %w", state.RunID, err)
+	}
+	return observation, nil
+}
+
 // recordTerminalFailure makes an unfinishable run durably terminal in the phase
 // it stopped in, so the record still says where it got to. A run that is already
 // terminal carries its own record of how it ended and is left exactly as it is.
@@ -1634,9 +1667,15 @@ func renderQueuedMergeNotes(state runstate.State, detail string, catchup *gitwor
 		lines = append(lines, fmt.Sprintf("Remote target commit: %s (the forge's merge commit above the promoted commit)", state.PullRequest.MergeCommit))
 	}
 	if state.PublishFailure != "" {
-		lines = append(lines,
-			"Publication outstanding: "+state.PublishFailure,
-			"The change is integrated into the local target branch, which is the authoritative one; only its publication is unfinished.")
+		standing := "The change is integrated into the local target branch, which is the authoritative one; only its publication is unfinished."
+		// A protected target's local branch was never moved, so saying the change
+		// is integrated there, and that the local branch is authoritative, is the
+		// wording that read as main having been moved ahead of the forge.
+		if state.Integration.ThroughPullRequest {
+			standing = fmt.Sprintf("The local %s was not moved: its target is protected, so the change lands only by the forge merging its pull request. The run's branch and worktree are kept until that merge is confirmed.",
+				state.Integration.TargetBranch)
+		}
+		lines = append(lines, "Publication outstanding: "+state.PublishFailure, standing)
 	}
 	return strings.Join(append(lines, renderCatchupNotes(catchup)...), "\n")
 }
@@ -1660,6 +1699,10 @@ func renderLeftoverBranchNotes(state runstate.State, failure string) string {
 // it: the promotion its own run made and reviewed, and the forge merge that run
 // asked for and could not wait out.
 func settledMergeCompletionReason(state runstate.State) string {
+	if state.Integration.ThroughPullRequest {
+		return fmt.Sprintf("Reviewed by Yoyodyne run %s, then merged by the forge into %s through pull request %d at %s",
+			state.RunID, state.Integration.TargetBranch, state.PullRequest.Number, nonEmpty(state.PullRequest.MergeCommit, "a merge commit the forge did not name"))
+	}
 	return fmt.Sprintf("Reviewed and integrated by Yoyodyne run %s, then merged by the forge: %s is at %s",
 		state.RunID, state.Integration.TargetBranch, state.Integration.TargetCommit)
 }
@@ -1678,6 +1721,17 @@ func renderReconcileBlockerNotes(state runstate.State, observation gitworktree.O
 		"Reason: " + reason,
 		"Run: " + state.RunID,
 		"Phase when interrupted: " + nonEmpty(string(state.Phase), "unrecorded"),
+	}
+	// A run that finished with its merge queued was not interrupted: it ended,
+	// and what the sweep settled is the forge's answer. Said as an interruption,
+	// its cleaning_up phase read as a clean-up somebody cut short.
+	if state.Status.Terminal() && state.MergeDrop != nil {
+		lines[0] = "Yoyodyne stopped this item while settling the merge its finished run left queued with the forge. No developer was restarted for it."
+		lines[3] = "Phase: " + nonEmpty(string(state.Phase), "unrecorded") + ", where the finished run was waiting on the forge's merge"
+	}
+	if state.Integration != nil && state.Integration.ThroughPullRequest {
+		lines = append(lines, fmt.Sprintf("The local %s was not moved: its target is protected, so the change lands only by the forge merging its pull request, and until then it is on its pull request and its branch and on no target branch.",
+			state.Integration.TargetBranch))
 	}
 	if state.RepairAttempts > 0 {
 		lines = append(lines, "Repair attempts already spent: "+strconv.Itoa(state.RepairAttempts))

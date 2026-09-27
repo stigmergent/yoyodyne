@@ -1627,7 +1627,15 @@ publication — merge commit recorded and your local target branch caught up ont
 the remote target, which carries the forge's merge and whatever landed after it
 — and settles the work item, which the run
 deliberately left open because a queued merge is a
-publication nothing has confirmed. Where it goes is what the run's own landing
+publication nothing has confirmed. On a target the forge protects, the run
+moved nothing locally, so it also left its branch and worktree exactly where
+they were: nothing proves the change is on the target until the forge's merge
+is confirmed, and the kept branch is what a head that falls behind is brought
+up to date from, below. They are removed by the settlement that confirms the
+merge and by nothing earlier, and a blocker written while they stand names them
+as preserved. The run's notes on such a target say the change is to land on the
+target by the forge's merge and that the local target is not moved until then —
+never that it is integrated into the local branch. Where it goes is what the run's own landing
 says: closed where the landing discharged the item, back in the backlog parked
 or waiting where it did not. Settling a merge
 is complete on its own that way rather than leaning on the sweep below, so a
@@ -1648,7 +1656,15 @@ its change never touched while the development manager waited on it because the
 record said the merge was queued. So every sweep that finds a merge still queued
 also asks the forge for the head's checks — which failed, the files each failing
 check's annotations name, and how many commits the target has that the head
-does not — writes that onto the run's publication record, and decides on it:
+does not — writes that onto the run's publication record, and decides on it.
+A request the forge's merge queue has taken counts as a merge the forge still
+holds: the queue consumes the request's auto-merge as it takes it, and the
+request stays open until the queue lands it, so the harness asks the forge
+whether the request is in the queue before it reads an open request with no
+auto-merge as dropped, and a forge that does not answer that leaves the merge
+queued for the next sweep. On 2026-09-27, the morning after main gained a merge
+queue, pull requests 832 and 834 were each handed to a person as dropped while
+the queue was landing them.
 
 - **Checks passing, or still running.** The merge stays queued, and the reading
   goes with it everywhere the merge is named: the sweep's line, the "Needs a
@@ -1682,6 +1698,18 @@ does not — writes that onto the run's publication record, and decides on it:
   worktree or branch is gone, cannot be replayed, and is handed back the same way
   when its head falls behind.
 
+A merge the forge has stopped holding is read the same way before it is handed
+to anybody. Where the change landed through its pull request, the request is
+still open, and its head is behind the target with no failing check naming a
+file the change touches, the drop is the race a replay answers: the sweep puts
+the run back at its promotion exactly as above — with nothing to withdraw — and
+the change is brought up to date from the kept branch, checked, reviewed, and
+queued again. A drop is handed to a person only when the change cannot be
+replayed: a local promotion, a run whose branch, worktree, approval, or
+sessions are gone, a request the forge closed, a head level with its target, or
+checks failing on the change itself. A reading of the checks the forge could
+not give leaves the record as it stands for the next sweep.
+
 A check that annotates no file says nothing about whose failure it is, and is
 not read as the change's: a head behind its target failing only such checks is
 brought up to date, and if it still fails once level with its target it is
@@ -1691,7 +1719,8 @@ nobody has read the checks of yet is docketed saying exactly that rather than
 as approved and queued with nothing beside it.
 
 Three settle-path outcomes leave a publication outstanding for a person, each
-with its own line on the work item. A merge the forge **dropped** is the
+with its own line on the work item. A merge the forge **dropped**, where the
+change cannot be replayed onto its target, is the
 first: something the base branch required went unmet, the harness does not
 merge past a requirement, and nothing about that publication is confirmed — so
 the item is handed back to you with a blocker rather than closed as integrated,
@@ -1715,8 +1744,10 @@ branch already caught up, and what is left is a branch on the forge. It says so
 in a second line on the item naming the branch.
 
 All three are on that docket, and all three hold their item out of the pull for
-as long as they stand — which is the point: the promotion has already put the
-change on your local target branch, which is the authoritative one, so an item
+as long as they stand — which is the point: the change is already reviewed and
+either on your local target branch (a target the forge does not protect, where
+the local branch is the authoritative one) or on its kept branch and pull
+request (a protected target, whose local branch was never moved), so an item
 whose only outstanding state is a publication is not implementable work and a
 run started against one can only rediscover that. What holds it says which of
 the three it is, because they are not the same thing to act on: a confirmed
