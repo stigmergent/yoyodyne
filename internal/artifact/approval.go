@@ -15,8 +15,10 @@ package artifact
 // So an approval names the revision it was given for, the revision log is
 // append-only, and an index into it always means the same change. An artifact
 // amended after its approval is therefore distinguishable from one still
-// approved, by arithmetic rather than by judgement: the approved revision is no
-// longer the last one.
+// approved, by arithmetic rather than by judgement: a revision that changed what
+// the document says was recorded after the approved one. A revision that only
+// gave its goals identifiers is not one of those (see identity.go), because it
+// changed nothing the operator was asked to agree to.
 //
 // # What this deliberately does not do
 //
@@ -145,29 +147,40 @@ func (a Artifact) LatestApproval() (Approval, bool) {
 
 // ApprovalState reports whether the document as it now stands is what the
 // operator approved.
+//
+// A revision that changed only goal identities does not count against the
+// approval. It changed no goal's words, so the intent the operator agreed to is
+// the intent the document still states, and reading it as amended-since would
+// put every admission under the document back to the operator over a change to
+// nothing they were asked about.
 func (a Artifact) ApprovalState() ApprovalState {
-	latest, approved := a.LatestApproval()
-	switch {
-	case !approved:
+	if _, approved := a.LatestApproval(); !approved {
 		return ApprovalUnapproved
-	case latest.Revision >= len(a.Revisions)-1:
-		return ApprovalApproved
-	default:
-		return ApprovalAmended
 	}
+	if a.RevisionsSinceApproval() == 0 {
+		return ApprovalApproved
+	}
+	return ApprovalAmended
 }
 
-// RevisionsSinceApproval counts the revisions recorded after the approved one,
-// which is how much of the document has moved since the operator saw it. It is
-// zero for an artifact that is approved as it stands and for one that was never
-// approved, because in neither case is there an approval something has drifted
-// from.
+// RevisionsSinceApproval counts the revisions recorded after the approved one
+// that changed what the document says, which is how much of it has moved since
+// the operator saw it. Identity revisions are not counted, for the reason
+// ApprovalState gives. It is zero for an artifact that is approved as it stands
+// and for one that was never approved, because in neither case is there an
+// approval something has drifted from.
 func (a Artifact) RevisionsSinceApproval() int {
-	if a.ApprovalState() != ApprovalAmended {
+	latest, approved := a.LatestApproval()
+	if !approved {
 		return 0
 	}
-	latest, _ := a.LatestApproval()
-	return len(a.Revisions) - 1 - latest.Revision
+	count := 0
+	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
+		if a.Revisions[index].Action != ActionIdentified {
+			count++
+		}
+	}
+	return count
 }
 
 // approvalProblems reports what makes a recorded approval unusable: one that
@@ -265,7 +278,7 @@ func (s Store) Approve(id, reason string, now time.Time) (Artifact, error) {
 		return Artifact{}, fmt.Errorf("approving artifact %q needs a reason saying how the approval was given; this record speaks for a person, and one that cannot be traced back to them is a claim made on their behalf", id)
 	}
 	revision := len(existing.Revisions) - 1
-	if latest, approved := existing.LatestApproval(); approved && latest.Revision >= revision {
+	if latest, approved := existing.LatestApproval(); approved && existing.ApprovalState() == ApprovalApproved {
 		return Artifact{}, fmt.Errorf("artifact %q is already approved as it stands, at revision %d on %s: %s",
 			id, latest.Revision, latest.At.Format(time.RFC3339), latest.Reason)
 	}

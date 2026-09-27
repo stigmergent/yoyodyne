@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
 const goalsHome = "docs/product"
@@ -1606,6 +1608,54 @@ id: v1-goals
 	gap := unapprovedSet.Attribute("Run development nearly autonomously.").ApprovalGap()
 	if !strings.Contains(gap, "records no approval") || !strings.Contains(gap, "v1-goals") {
 		t.Fatalf("gap = %q, want it to name the unapproved document", gap)
+	}
+}
+
+// Giving an approved goals document's goals identifiers is not an amendment of
+// what the operator approved, so work serving those goals is admitted exactly as
+// it was before: named by the words it always named, or by the identity the
+// document now states. yoyodyne-ifd.344's identifiers waited on the operator
+// because the harness read this as a change of intent.
+func TestIdentifiersAddedToAnApprovedGoalsDocumentLeaveAdmissionUnaffected(t *testing.T) {
+	t.Parallel()
+
+	root := newRepository(t)
+	store := artifact.Store{RepositoryRoot: root, Homes: []string{goalsHome}}
+	moment := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	if _, err := store.Create(domain.RoleProductManager, artifact.Draft{
+		ID: "v1-goals", Kind: artifact.KindGoals, Title: "V1 goals",
+		Directory: goalsHome + "/goals", Body: goalsDocument("Run development nearly autonomously."),
+		Reason: "the goals",
+	}, moment); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := store.Approve("v1-goals", "approved in conversation", moment.Add(time.Hour)); err != nil {
+		t.Fatalf("Approve() error = %v", err)
+	}
+	if _, err := store.Identify(domain.RoleProductManager, "v1-goals",
+		goalsDocument("[run-development-nearly-autonomously] Run development nearly autonomously."),
+		"yoyodyne-ifd.344 - goal identifiers recorded", moment.Add(2*time.Hour)); err != nil {
+		t.Fatalf("Identify() error = %v", err)
+	}
+	artifacts, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	set := Collect(root, artifacts)
+	if len(set.Goals) != 1 || set.Goals[0].Identity != "run-development-nearly-autonomously" {
+		t.Fatalf("goals = %#v", set.Goals)
+	}
+	if set.Goals[0].Approval != artifact.ApprovalApproved {
+		t.Fatalf("approval = %q, want the document still approved as it stands", set.Goals[0].Approval)
+	}
+	for _, named := range []string{
+		"Run development nearly autonomously.",
+		"[run-development-nearly-autonomously] Run development nearly autonomously.",
+	} {
+		if gap := set.Attribute(named).ApprovalGap(); gap != "" {
+			t.Fatalf("admission naming %q is put to the operator: %q", named, gap)
+		}
 	}
 }
 

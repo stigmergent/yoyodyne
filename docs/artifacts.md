@@ -30,7 +30,31 @@ everything downstream, instead of two identical documents whose difference lived
 in a chat log. Because the approval names a revision and the revision log is
 append-only, a document amended after you approved it reads as
 approved-and-amended-since rather than as approved — the approval still stands
-for what you gave it for, and the document as it now reads is not that. What is
+for what you gave it for, and the document as it now reads is not that.
+
+**An identity revision is not an amendment.** Giving a goals document's goals
+[identifiers](#goals-and-what-work-serves-them) — adding the bracketed name an
+entry opens with, or changing one — changes no goal's words, so it is recorded
+as an `identified` revision rather than an `amended` one. Your approval stands
+through it, admissions against its goals are exactly what they were, and
+[`yoyo stale`](#what-a-change-upstream-leaves-stale) reports nothing for it. It
+is the owning role's write and needs nothing from you:
+
+```sh
+./bin/yoyo artifact identify v1-goals --body-file v1-goals-body.md \
+  --reason "yoyodyne-ifd.344 - goal identifiers recorded"
+```
+
+The body is the document below its frontmatter as it should now read, and it is
+refused unless the only difference is those identifiers — one changed word, one
+added line, and it is an amendment, which this will not record. It acts with the
+authority of the role that owns the document, as `yoyo invariant` acts with the
+architect's, and like an approval the write lands in your checkout uncommitted.
+A document edited by hand can record `identified` itself, as it can record any
+revision; what the command adds is that its path to the action is one that
+checks.
+
+What is
 asked of you is your configuration's to say: `approvals.brief` and
 `approvals.goals` are `human`, `approvals.designs` is `automatic`, and a decision
 record is an account of how something was decided rather than a statement of
@@ -45,7 +69,9 @@ is [`approvals.work_items`](configuration.md#what-reaches-the-queue) to say:
 it is `human` until you set it otherwise, and every item is put to you. Set it to
 `automatic` and your approval of the goals document is what lets work serving
 those goals into the queue — so a goals document nobody approved, and one amended
-since you approved it, are documents nothing is admitted under. Everywhere else
+since you approved it, are documents nothing is admitted under — an identity
+revision is not an amendment for this, so recording identifiers puts nothing
+back to you. Everywhere else
 an amendment after approval changes what is reported about a document rather than
 what is allowed. The
 [configuration guide](configuration.md#approving-a-document) has the schema
@@ -309,7 +335,10 @@ stale` says it:
 
 An artifact is reported when something it traces to upstream — the goal a design
 serves, the brief a goal serves, through as many links as the chain runs —
-recorded a change after that artifact was itself last revised. An admitted work
+recorded a change after that artifact was itself last revised. An identity
+revision — goals given identifiers, no words changed — counts on neither side:
+it is not a change anything downstream was built on, and it is not the record
+that the document's owner went over one. An admitted work
 item is reported when the goals document stating the goal it serves, or anything
 upstream of that, changed after the item was admitted. Each one names what
 changed, when, under whose authority, and the reason that change recorded, which

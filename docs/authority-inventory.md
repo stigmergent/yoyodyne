@@ -139,6 +139,7 @@ could ask for.
 | artifact.unauthorized-revisions | every role | `internal/artifact/ownership.go` | `UnauthorizedRevisions` | Reports rather than refuses: a revision log entry recorded under a role that does not own the document. The log is append-only, so this is a named problem instead of a document that can neither load nor be lawfully corrected. |
 | artifact.create | every role | `internal/artifact/store.go` | `(Store).Create` | A creation the owner did not make; the authority is checked before anything reaches the filesystem. |
 | artifact.amend | every role | `internal/artifact/store.go` | `(Store).Amend` | An amendment the owner did not make. |
+| artifact.identify | every role | `internal/artifact/identity.go` | `(Store).Identify` | An identity revision of a goals document the owner did not make; also refused is a body that changes anything but the identifiers goal entries open with. |
 | artifact.supersede-or-retire | every role | `internal/artifact/store.go` | `(Store).end` | The half `Supersede` and `Retire` share: ending a document under a role that does not own it. |
 | invariant.authorize | every role | `internal/invariant/invariant.go` | `Authorize` | Creating, amending, or retiring an architectural invariant by any role but the architect. |
 | invariant.unauthorized-error | every role | `internal/invariant/invariant.go` | `ErrUnauthorized` | What every refused invariant mutation returns. |

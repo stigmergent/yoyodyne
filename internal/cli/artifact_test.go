@@ -529,3 +529,52 @@ func writeArtifact(t *testing.T, project, relative, content string) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 }
+
+// Recording goal identifiers is the owning role's write and asks the operator
+// for nothing: an approved goals document stays approved as it stands, and a
+// body that changed a goal's words is refused without touching the file.
+func TestIdentifyingGoalsLeavesTheApprovalStandingAndRefusesAnyOtherChange(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeConfig(t, validConfig)
+	project := filepath.Dir(configPath)
+	writeArtifact(t, project, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil))
+	writeArtifact(t, project, "docs/product/goals/v1-goals.md",
+		strings.TrimSuffix(artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"}), "---\n")+
+			"approvals:\n    - revision: 0\n      by: operator\n      at: 2026-08-17T13:00:00Z\n      reason: approved in conversation\n"+
+			"---\n\n## Goals\n\n- Maintain a traceable chain.\n")
+	body := filepath.Join(t.TempDir(), "v1-goals.md")
+	if err := os.WriteFile(body, []byte("## Goals\n\n- Maintain an auditable chain.\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	document := filepath.Join(project, "docs/product/goals/v1-goals.md")
+	before, err := os.ReadFile(document)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if _, stderr, code := runCLI(t, "artifact", "identify", "--config", configPath, "v1-goals",
+		"--body-file", body, "--reason", "identifiers"); code != 1 || !strings.Contains(stderr, "is an amendment") {
+		t.Fatalf("identify code = %d, stderr = %q", code, stderr)
+	}
+	if after, _ := os.ReadFile(document); string(after) != string(before) {
+		t.Fatalf("a refused identity revision wrote to the document: %q", after)
+	}
+
+	if err := os.WriteFile(body, []byte("## Goals\n\n- [traceable-chain] Maintain a traceable chain.\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	stdout, stderr, code := runCLI(t, "artifact", "identify", "--config", configPath, "v1-goals",
+		"--body-file", body, "--reason", "yoyodyne-ifd.344 - goal identifiers recorded")
+	if code != 0 {
+		t.Fatalf("identify code = %d, stderr = %q", code, stderr)
+	}
+	for _, want := range []string{"identity revision by the product-manager", "approval: approved as it stands", "uncommitted change"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("identify stdout = %q, want it to contain %q", stdout, want)
+		}
+	}
+	if after, _ := os.ReadFile(document); !strings.Contains(string(after), "action: identified") ||
+		!strings.Contains(string(after), "- [traceable-chain] Maintain a traceable chain.") {
+		t.Fatalf("document = %q", after)
+	}
+}

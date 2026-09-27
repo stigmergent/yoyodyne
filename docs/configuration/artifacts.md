@@ -424,7 +424,10 @@ by a developer run whose change carries a forged approval in
 revision log above it. The log is append-only, so that index means one change
 forever, and the arithmetic that follows is the point: an approval of the last
 revision is a document approved as it stands, and an approval of an earlier one
-is a document that has been amended since you saw it. `yoyo artifact list` and
+is a document that has been amended since you saw it. A revision that only gives
+a goals document's goals identifiers — the bracketed name an entry opens with —
+is not counted: it is recorded as `identified` rather than `amended`, changes no
+goal's words, and leaves the document approved as it stands. `yoyo artifact list` and
 `show` say which:
 
 ```

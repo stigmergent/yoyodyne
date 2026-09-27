@@ -250,7 +250,9 @@ func upstream(recorded map[string]artifact.Artifact, start artifact.Artifact) []
 // its creation. A document that did not exist yet cannot be what anybody was
 // working from, so creating one changes nothing downstream; amending,
 // superseding, and retiring one each change what everything downstream was
-// built on.
+// built on. An identity revision is none of those: it gave the document's goals
+// identifiers and changed no goal's words, so nothing downstream was built on
+// anything it moved, and it is not reported.
 func recordedChanges(recorded artifact.Artifact) []Change {
 	changes := make([]Change, 0, len(recorded.Revisions))
 	for _, revision := range recorded.Revisions {
@@ -298,10 +300,15 @@ func after(changes []Change, moment time.Time) []Change {
 
 // lastRevised is when a document last recorded anything about itself, which is
 // the moment it last spoke. Its creation counts: a document written after a
-// change upstream was written knowing it.
+// change upstream was written knowing it. An identity revision does not: giving a
+// document's goals identifiers says nothing about whether its owner read what
+// changed upstream, so it is not the record that somebody looked.
 func lastRevised(recorded artifact.Artifact) time.Time {
 	var latest time.Time
 	for _, revision := range recorded.Revisions {
+		if revision.Action == artifact.ActionIdentified {
+			continue
+		}
 		if revision.At.After(latest) {
 			latest = revision.At.UTC()
 		}

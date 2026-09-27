@@ -20,6 +20,15 @@ package cli
 // exposing them needs an answer to how a document's prose reaches a command,
 // which is not how anybody writes prose today.
 //
+// `identify` is the one role mutation exposed, because it needs no such answer:
+// what it writes is identifiers rather than prose. It takes the goals document as
+// it should now read, and the store refuses it unless the only difference is the
+// bracketed identifiers the goal entries open with — so no prose reaches the
+// document through it, and what is recorded is an identity revision, which leaves
+// the operator's approval standing. It acts with the authority of the role that
+// owns the document, the way the invariant commands act with the architect's, and
+// records that it did.
+//
 // `approve` is here for the opposite reason, and is the one thing these commands
 // write. An approval is the operator's, the operator is who runs a command, and
 // what it records is a fact about them rather than prose about the product — so
@@ -35,6 +44,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -88,6 +98,8 @@ func runArtifact(args []string, stdout, stderr io.Writer) int {
 		return showArtifact(args[1:], stdout, stderr)
 	case "approve":
 		return approveArtifact(args[1:], stdout, stderr)
+	case "identify":
+		return identifyArtifact(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown artifact command %q\n\n", args[0])
 		printArtifactUsage(stderr)
@@ -250,6 +262,61 @@ func approveArtifact(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// identifyArtifact records a goals document's goals being given identifiers,
+// under the authority of the role that owns the document. The operator's approval
+// is neither asked for nor moved, and the command says so, because that is the
+// whole of why the verb exists: an identifier changes no goal's words.
+func identifyArtifact(args []string, stdout, stderr io.Writer) int {
+	flags := newArtifactFlags("artifact identify", stderr)
+	bodyFile := flags.set.String("body-file", "", "the document below its frontmatter as it should now read, identifiers added; required")
+	reason := flags.set.String("reason", "", "why the identifiers are being recorded; required")
+	if code, ok := flags.parse(args, 1); !ok {
+		return code
+	}
+	if strings.TrimSpace(*bodyFile) == "" {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput, fmt.Errorf("artifact identify requires --body-file, the document as it should now read"))
+	}
+	body, err := os.ReadFile(*bodyFile)
+	if err != nil {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput, fmt.Errorf("read --body-file: %w", err))
+	}
+	store, policy, code := flags.store(stderr)
+	if code != 0 {
+		return code
+	}
+	set, err := store.Load()
+	if err != nil {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput, err)
+	}
+	found, ok := set.Find(flags.id())
+	if !ok {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput,
+			fmt.Errorf("no artifact %q is recorded in %s", flags.id(), strings.Join(set.Homes, ", ")))
+	}
+	owner, owned := artifact.Owner(found.Kind)
+	if !owned {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput, fmt.Errorf("no role owns a %s artifact", found.Kind))
+	}
+	identified, err := store.Identify(owner, found.ID, string(body), *reason, time.Now())
+	if err != nil {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput, err)
+	}
+	listed := []artifact.Artifact{identified}
+	if *flags.jsonOutput {
+		return writeJSON(stdout, stderr, artifactOutput{
+			Artifacts:     listed,
+			Approvals:     artifactApprovals(listed, policy),
+			PendingCommit: artifact.PendingCommit(store.RepositoryRoot, identified.Path),
+		})
+	}
+	fmt.Fprintf(stdout, "%s [%s, %s] %s\n", identified.ID, identified.Kind, identified.Status, identified.Title)
+	fmt.Fprintf(stdout, "file: %s\n", identified.Path)
+	fmt.Fprintf(stdout, "recorded as an identity revision by the %s; no goal's words changed\n", owner)
+	fmt.Fprintf(stdout, "approval: %s\n", renderArtifactApproval(identified, policy))
+	fmt.Fprintln(stdout, artifact.PendingCommit(store.RepositoryRoot, identified.Path))
+	return 0
+}
+
 // artifactFlags is the flag set every artifact command shares: which
 // configuration to read the homes from, and how to report the result.
 type artifactFlags struct {
@@ -408,7 +475,7 @@ func artifactApprovals(artifacts []artifact.Artifact, policy artifact.Policy) ma
 }
 
 func printArtifactUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo artifact <list|show|approve> [options]
+	fmt.Fprintln(writer, `Usage: yoyo artifact <list|show|approve|identify> [options]
 
 The canonical documents upstream of a work item -- the product brief, the goals,
 the designs and specifications, and the decision records -- each carry a stable
@@ -435,7 +502,10 @@ it reads as approved-and-amended-since rather than as approved. What needs your
 approval is your configuration's to say: approvals.brief and approvals.goals
 default to human, approvals.designs to automatic, and a decision record is the
 architect's account of a decision rather than a statement of intent, so nothing
-asks you to approve one.
+asks you to approve one. A revision that only gives a goals document's goals
+identifiers -- the bracketed name an entry opens with -- changes no goal's words,
+so it is recorded as an identity revision rather than an amendment and leaves
+your approval standing.
 
 An unapproved document still loads, still governs what is downstream of it, and
 stops nothing that reads it; approving writes nothing but the approval, and the
@@ -454,6 +524,8 @@ agent's shell, marked by YOYODYNE_AGENT_ROLE -- is refused it and told so.
   list [--kind <kind>]   list the recorded artifacts, and name what is not one
   show <id>              print one artifact and its recorded revisions
   approve <id>           record your approval of a document as it now stands
+  identify <id>          record a goals document's goals being given identifiers,
+                         as the role that owns it; refused if any words change
 
 Options:
   --config <path>       configuration file (default: the nearest .yoyodyne/config.yaml)
@@ -463,5 +535,9 @@ list options:
   --kind <kind>         brief, goals, non-goals, design, specification, or decision
 
 approve options:
-  --reason <text>       how the approval was given and what it covered; required`)
+  --reason <text>       how the approval was given and what it covered; required
+
+identify options:
+  --body-file <path>    the document below its frontmatter as it should now read
+  --reason <text>       why the identifiers are being recorded; required`)
 }

@@ -180,6 +180,44 @@ func TestWorkAdmittedBeforeTheGoalMovedIsReportedAndWorkAdmittedAfterIsNot(t *te
 	}
 }
 
+// Giving a goals document's goals identifiers changes no goal's words, so it is
+// not a change anything downstream was built on: the design serving the goals and
+// the work admitted under them are reported for none of it. Nor is it the record
+// that the goals document's owner went over a change upstream, so a goals
+// document that was stale stays stale through one.
+func TestAnIdentityRevisionIsNotAChangeUpstream(t *testing.T) {
+	t.Parallel()
+
+	artifacts := set(
+		document("brief", artifact.KindBrief, nil,
+			created("2026-08-01T00:00:00Z"),
+			amended("2026-08-04T00:00:00Z", "who the product is for")),
+		document("v1-goals", artifact.KindGoals, []string{"brief"},
+			created("2026-08-02T00:00:00Z"),
+			identified("2026-08-10T00:00:00Z", "yoyodyne-ifd.344 - goal identifiers recorded")),
+		document("v1-harness", artifact.KindDesign, []string{"v1-goals"}, created("2026-08-05T00:00:00Z")),
+	)
+	items := []beads.WorkItem{admitted("ifd.1", "Work", "2026-08-03T00:00:00Z", "Maintain a traceable chain.")}
+
+	report := Survey(artifacts, statedGoals("Maintain a traceable chain."), items)
+	stale := documentsByID(report)
+	if _, reported := stale["v1-harness"]; reported {
+		t.Fatalf("the design was reported stale over an identity revision: %#v", stale["v1-harness"])
+	}
+	goals, reported := stale["v1-goals"]
+	if !reported || len(goals.Changes) != 1 || goals.Changes[0].ArtifactID != "brief" {
+		t.Fatalf("v1-goals = %#v, want the brief's amendment still unanswered", goals)
+	}
+	if len(report.WorkItems) != 1 || len(report.WorkItems[0].Changes) != 1 || report.WorkItems[0].Changes[0].ArtifactID != "brief" {
+		t.Fatalf("stale work = %#v, want only the brief's amendment", report.WorkItems)
+	}
+	for _, change := range report.WorkItems[0].Changes {
+		if change.Action == artifact.ActionIdentified {
+			t.Fatalf("an identity revision was reported as a change: %#v", change)
+		}
+	}
+}
+
 func TestWorkIsStaleWhenAnythingUpstreamOfItsGoalsDocumentChanges(t *testing.T) {
 	t.Parallel()
 
@@ -290,6 +328,10 @@ func created(at string) artifact.Revision {
 
 func amended(at, reason string) artifact.Revision {
 	return artifact.Revision{Action: artifact.ActionAmended, By: domain.RoleProductManager, At: moment(at), Reason: reason}
+}
+
+func identified(at, reason string) artifact.Revision {
+	return artifact.Revision{Action: artifact.ActionIdentified, By: domain.RoleProductManager, At: moment(at), Reason: reason}
 }
 
 func moment(at string) time.Time {

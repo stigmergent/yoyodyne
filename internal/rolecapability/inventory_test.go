@@ -271,6 +271,10 @@ var expresses = map[string]expression{
 		question: "does the amending role hold the capability the kind belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
 	},
+	"artifact.identify": {
+		question: "does the role recording goal identities hold the capability a goals document belongs to?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate},
+	},
 	"artifact.supersede-or-retire": {
 		question: "does the ending role hold the capability the kind belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
