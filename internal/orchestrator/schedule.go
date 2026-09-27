@@ -812,6 +812,11 @@ type Scheduler struct {
 	// first. It is injected so a test does not have to spend real seconds, and
 	// defaults to a timer.
 	Sleep func(ctx context.Context, interval time.Duration) bool
+	// Interval is the poll interval a watching session with a developer slot free
+	// waits on beside a run of its own, which a completion may cut short. It is
+	// injected apart from Sleep because it is raced against the run rather than
+	// waited out whole, and defaults to a timer.
+	Interval func(interval time.Duration) <-chan time.Time
 	// Now stamps the recorded transitions. It defaults to the wall clock.
 	Now func() time.Time
 }
@@ -1396,6 +1401,42 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		return s.sleep(ctx, pull.Poll)
 	}
 
+	// refill is the wait of a watching session with a developer slot free that
+	// this poll could not fill. With no run of its own going it is wait. With one
+	// going it is whichever comes first of that run ending and the poll interval
+	// this pull read: a run ending still wakes the pass at once, because it frees
+	// a slot and may close what something else was waiting on, and the interval
+	// wakes it whether or not anything has ended. It reports false when the
+	// context ended, which is the operator stopping the session.
+	//
+	// wait above collects a completion and nothing else whenever a run of this
+	// session is going, and that is the wait that idled two of three slots for
+	// over an hour on 2026-09-26: two runs ended early, the pulls they woke found
+	// nothing they could start just then, and the session went back to waiting on
+	// the third run's completion while the queue behind it stood ready. Nothing
+	// about a slot that is free waits on a run that is not in it, so a free slot
+	// is refilled at the next poll, whatever else is still in flight. A session
+	// whose slots are all taken still waits on a completion, because a run ending
+	// is then the only thing that can change the answer.
+	refill := func(pull Pull, said account) bool {
+		if running == 0 {
+			return wait(pull, runstate.WatchIdle, said)
+		}
+		session.enter(runstate.WatchIdle, said)
+		select {
+		case done := <-completions:
+			running--
+			delete(mine, schedule.Started[done.index].WorkItemID)
+			settle(done)
+			return true
+		case <-s.interval(pull.Poll):
+			schedule.Polls++
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
 	// awaitProvider waits out one interval of the provider answering nobody. It
 	// differs from wait in one way: a run of this session ending mid-wait is
 	// collected and the interval is waited out regardless, rather than the run
@@ -1716,6 +1757,10 @@ pulling:
 			}
 		}
 		free := pull.Capacity - len(occupied)
+		// freeAtPoll and filledByCarryOut are what the line a filling poll writes
+		// says about the slots: how many this poll found free, and how many of them
+		// a carried-out decision took before the queue was read.
+		freeAtPoll, filledByCarryOut := max(free, 0), 0
 
 		// A decision the development manager recorded is fired here, against the same
 		// capacity the queue's own work is chosen against and before any of it: a
@@ -1777,6 +1822,7 @@ pulling:
 			// harness does not have.
 			if free > 0 {
 				free--
+				filledByCarryOut++
 			}
 			carrying = true
 			go func(task CarryOutTask) {
@@ -2152,12 +2198,19 @@ pulling:
 			// that started work, and it says which: the item it took is not in the
 			// backlog counts beside it, so a line about the queue alone would report a
 			// session that pulled nothing while a run of its own was starting.
+			//
+			// Every poll that fills a slot says how many it filled, of how many it
+			// found free, and how many of its own runs were already going. That is
+			// said on every such poll rather than only the first after a wait,
+			// because a slot left empty beside a run in flight is what a reader of
+			// this log has to be able to see.
+			slots := filledLine(filledByCarryOut+started, freeAtPoll, running-len(tasks)-started)
 			if started == 0 {
-				session.resume(fmt.Sprintf("a triage decision the development manager recorded was carried out; nothing was pulled from a backlog of %d admitted, %d of them ready",
-					len(queue.Entries), queue.Ready()))
+				session.filled(fmt.Sprintf("%s; a triage decision the development manager recorded was carried out; nothing was pulled from a backlog of %d admitted, %d of them ready",
+					slots, len(queue.Entries), queue.Ready()))
 				continue
 			}
-			session.resume(fmt.Sprintf("%d item(s) pulled from a backlog of %d admitted, %d of them ready", started, len(queue.Entries), queue.Ready()))
+			session.filled(fmt.Sprintf("%s; %d item(s) pulled from a backlog of %d admitted, %d of them ready", slots, started, len(queue.Entries), queue.Ready()))
 			continue
 		}
 		// Nothing was startable this pull. With runs of ours still going, one of
@@ -2188,7 +2241,19 @@ pulling:
 			said.window = window
 			said.reason = windowReason(window, said.reason)
 		}
-		if !wait(pull, runstate.WatchIdle, said) {
+		// A slot is free here — the pull got past the capacity check — so a watch
+		// waits on the interval rather than on a run of its own: work that becomes
+		// startable while that run goes, admitted, released, or no longer racing
+		// anything, is started at the next poll. A drain waits on the completion,
+		// because it is a command somebody is waiting on and a run ending is the
+		// only thing that ends it.
+		var waited bool
+		if s.Watching {
+			waited = refill(pull, said)
+		} else {
+			waited = wait(pull, runstate.WatchIdle, said)
+		}
+		if !waited {
 			schedule.Stopped = ScheduleCancelled
 			break
 		}
@@ -3704,6 +3769,15 @@ func (s Scheduler) sleep(ctx context.Context, interval time.Duration) bool {
 	}
 }
 
+// interval is the tick a free slot is refilled on while a run of this session
+// goes on beside it.
+func (s Scheduler) interval(interval time.Duration) <-chan time.Time {
+	if s.Interval != nil {
+		return s.Interval(interval)
+	}
+	return time.After(interval)
+}
+
 func (s Scheduler) now() time.Time {
 	if s.Now != nil {
 		return s.Now()
@@ -3902,6 +3976,34 @@ func (w *watchSession) resume(reason string) {
 	}
 	w.state, w.said = runstate.WatchWatching, account{reason: reason}
 	w.record(SessionState{State: runstate.WatchResumed, Reason: reason})
+}
+
+// filled records a poll that started work. After a wait it is the session
+// choosing again, said exactly as resume says it; while the session is already
+// choosing it is one more line in the same state, because what each filling
+// poll found and took is the account of the slots, and a session that said it
+// only on the first poll after a wait would hide every refill that followed.
+func (w *watchSession) filled(reason string) {
+	if w.to == nil {
+		return
+	}
+	if w.state != runstate.WatchWatching {
+		w.resume(reason)
+		return
+	}
+	w.said = account{reason: reason}
+	w.record(SessionState{State: runstate.WatchWatching, Reason: reason})
+}
+
+// filledLine is what a filling poll says about the developer slots: how many it
+// filled of those it found free, and how many runs of this session were
+// already going beside them.
+func filledLine(filled, free, alreadyRunning int) string {
+	line := fmt.Sprintf("filled %d of %s", filled, plural(free, "free developer slot", "free developer slots"))
+	if alreadyRunning > 0 {
+		line += fmt.Sprintf(", beside %s this session already had in flight", plural(alreadyRunning, "run", "runs"))
+	}
+	return line
 }
 
 // dispatching is the context a dispatch this session starts runs under, carrying
