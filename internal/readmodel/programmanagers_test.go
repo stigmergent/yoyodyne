@@ -648,3 +648,57 @@ func TestAReportRewrittenWhileItIsReadIsReadAgain(t *testing.T) {
 		t.Fatalf("ReadProgramManagerReport() = %+v, %v; want no text and the reason", answer, err)
 	}
 }
+
+// A missed pass recorded since the instance's last completed pass is carried
+// on the instance and said on its line, naming the trigger, the cause, and the
+// harness as the mover, under whatever word the instance reads; a pass that
+// completes after it clears it.
+func TestAnInstancesMissedPassIsOnItsLineUntilAPassCompletes(t *testing.T) {
+	t.Parallel()
+
+	sources := programManagerSources()
+	cancelled := runstate.Sweep{
+		Task: "factory-pgm", Role: domain.RoleProgramManager,
+		StartedAt: moment.Add(-20 * time.Minute), EndedAt: moment.Add(-5 * time.Minute),
+		Problem: "the scheduled pass of the program manager instance factory-pgm was cancelled before it completed: the watch session carrying it stopped",
+		Missed:  &runstate.MissedPass{Trigger: runstate.PassTriggerSchedule, How: runstate.MissCancelled},
+	}
+	// A recurring task's miss is not an instance's.
+	task := runstate.Sweep{
+		Task: "writing-pgm", Role: domain.RoleDevelopmentManager,
+		StartedAt: moment.Add(-20 * time.Minute), EndedAt: moment, Problem: "missed",
+		Missed: &runstate.MissedPass{Trigger: runstate.PassTriggerSchedule, How: runstate.MissUnfired},
+	}
+	sources.Passes = fakePasses{passes: []runstate.Sweep{
+		completedPass(factoryConversation, moment.Add(-30*time.Minute)),
+		completedPass(writingConversation, moment.Add(-30*time.Minute)),
+		cancelled, task,
+	}}
+
+	factory := instanceNamed(t, sources, "factory-pgm")
+	if factory.MissedPass == nil || factory.MissedPass.How != runstate.MissCancelled || factory.MissedPass.Trigger != runstate.PassTriggerSchedule ||
+		factory.MissedPass.WaitingOn != MoverHarness || !factory.MissedPass.At.Equal(moment.Add(-20*time.Minute)) {
+		t.Fatalf("MissedPass = %+v, want the cancelled scheduled pass, the harness's to clear", factory.MissedPass)
+	}
+	if factory.Status != ProgramManagerWorking {
+		t.Errorf("status = %s, want the word left to staleness", factory.Status)
+	}
+	if writing := instanceNamed(t, sources, "writing-pgm"); writing.MissedPass != nil {
+		t.Errorf("writing-pgm MissedPass = %+v, want a recurring task's miss not read as an instance's", writing.MissedPass)
+	}
+	rendered := Standing{ProgramManagers: []ProgramManager{factory}}.RenderProgramManagers()
+	for _, want := range []string{"factory-pgm — lane reliability — working: its scheduled pass was cancelled before it completed at 2026-08-30T11:40:00Z — the harness's — ", "the watch session carrying it stopped"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered = %q, want %q", rendered, want)
+		}
+	}
+	encoded, err := json.Marshal(factory)
+	if err != nil || !strings.Contains(string(encoded), `"missed_pass":{"trigger":"schedule","how":"cancelled"`) {
+		t.Errorf("json = %s, %v; want the miss carried under missed_pass", encoded, err)
+	}
+
+	sources.Passes = fakePasses{passes: []runstate.Sweep{cancelled, completedPass(factoryConversation, moment.Add(-time.Minute))}}
+	if cleared := instanceNamed(t, sources, "factory-pgm"); cleared.MissedPass != nil {
+		t.Errorf("MissedPass = %+v, want a completed pass to clear it", cleared.MissedPass)
+	}
+}

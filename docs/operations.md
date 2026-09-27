@@ -2509,7 +2509,8 @@ Program managers (2):
 
 It is not a fifth line, and nothing on it waits on you: you read an instance
 when you choose. Each instance says its name, its lane, and one word — **blocked**,
-**stale**, or **working** — and, where the word is not `working`, why. The word
+**stale**, or **working** — and, where the word is not `working` or a pass was
+missed, why. The word
 is derived by the read model, and nothing an instance writes sets it:
 
 - **Blocked** is a blocker in the instance's latest
@@ -2544,9 +2545,25 @@ is derived by the read model, and nothing an instance writes sets it:
 - **Working** is neither. Stale outranks blocked in the word, and both are
   carried.
 
+**A pass the instance missed is said on its line under any of the three
+words**, since its last completed pass: the
+[missed pass](#reading-what-the-recurring-tasks-found) its sweep record holds —
+which trigger owed it, whether no pass followed or the pass was cancelled
+before it completed, when, and the record's own account of the cause — as the
+harness's move, which the next completed pass ends:
+
+```text
+  factory-pgm — lane reliability — working: its scheduled pass was cancelled before it completed at 2026-09-26T19:04:00Z — the harness's — the scheduled pass of the program manager instance factory-pgm, taken at 2026-09-26T19:04:00Z, was cancelled before it completed: nothing recorded how it ended, …
+```
+
+It does not change the word: a missed pass is the stall before the instance
+reads stale, named while it stands rather than two schedules later.
+
 `--json` carries each instance under `standing.program_managers`: its `agent`,
 `lane`, `status`, `stale` and `blocked` separately, `stale_says`,
-`last_completed_pass_at`, the `blockers` each with its mover (`waiting_on`),
+`last_completed_pass_at`, the `missed_pass` where one stands — its `trigger`,
+`how`, `at`, `recorded_at`, what it `says`, and its mover under `waiting_on`,
+always `harness` — the `blockers` each with its mover (`waiting_on`),
 its citation, and the kind of record it resolved to, the `claims` each with its
 `reason`, the report's `report_path` and `report_written_at`, and its open
 `restart_requests`. A record behind them that could not be read is said under
@@ -3888,9 +3905,26 @@ Five outcomes look similar in a listing and are not the same thing:
   harness reads. It is never shown as a quiet pass.
 - **A missed cadence** is shown the same way: a pass that took no turn, starting
   when the task fell due and ending when the miss was noticed, and naming what
-  kept the task from firing. It is recorded once a task has gone a whole interval
+  kept the task from firing, under a `MISSED PASS` line naming the trigger that
+  owed it. It is recorded once a task has gone a whole interval
   unfired; see [recurring tasks](configuration.md#recurring-tasks) for which
-  causes are also reported to the operator.
+  causes are also reported to the operator. **A program manager instance's
+  passes are covered by the same detection**, keyed by the instance and the
+  trigger: its schedule is missed once it has gone a whole `every` unfired, as a
+  task's is, and its events once a wake past its cursor has stood takeable for
+  half an hour with no pass taken — both recorded under the instance's name,
+  with the same causes, reported the same way. So is a pass that was **taken and
+  cancelled before it completed**: one whose session was stopped under its turn
+  is recorded as a missed pass at once, and one whose process died carrying it —
+  a watch session killed mid-pass, which writes nothing at all, as the
+  factory-flow instance's first pass was on 2026-09-26 — is found by the next
+  pull that considers the instance, once the claim has stood five minutes with
+  no ending and no turn in flight, and recorded then, starting when the pass was
+  taken. `--json` marks each with `missed`, carrying the `trigger` (`schedule`,
+  `events`, or `summons`) and `how` (`unfired` or `cancelled`). The latest
+  missed pass since an instance's last completed one is also on its line in
+  `yoyo status`, as the harness's move — see [the program managers'
+  lines](#where-the-harness-stands-the-four-lines).
 - **A pass stopped by its turn bound** is recorded as partial, naming the bound,
   so a truncated pass is never mistaken for a finished one.
 - **A firing that failed before its first turn** is recorded as a failed firing,

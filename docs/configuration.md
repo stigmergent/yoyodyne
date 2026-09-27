@@ -6234,6 +6234,19 @@ problem names the cause. Each cause is also reported differently:
 The cadence is not moved by a miss. The task is still due, and fires on its own at
 the first pull that reaches it once the cause clears.
 
+**A program manager instance's passes are covered by the same detection**,
+keyed by the instance and the trigger that owed the pass. Its `triggers.every`
+is missed exactly as a task's interval is; its `triggers.on` events are missed
+once a wake past its cursor has stood takeable — its streams settled, and the
+recurring minimum passed since its last pass — for half an hour with no pass
+taken. The causes and their severities are the ones above. A pass that was
+taken and cancelled before it completed is a missed pass too: one whose session
+was stopped under its turn is recorded as one at once, and one whose process
+died carrying it, which records nothing, is recorded by the next pull that
+considers the instance once the claim has stood five minutes with no ending and
+no turn in flight on its conversation. See
+[reading what the recurring tasks found](operations.md#reading-what-the-recurring-tasks-found).
+
 **The intake brake summons a development manager's task out of its cadence.**
 The first enabled task whose role is `development-manager` is the one the
 [failure-storm brake](#watching-instead-of-draining) fires the moment it trips,

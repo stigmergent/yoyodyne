@@ -113,6 +113,19 @@ type SweepClaim struct {
 	// which is a state somebody has to be able to find without reading a log of
 	// reports that were never written.
 	Problem string `json:"problem,omitempty"`
+	// Summoned marks a firing claimed out of its cadence — the brake's summons
+	// of the development manager's sweep, or an event wake of a program manager
+	// instance — and is cleared by a firing the cadence claimed. It is what says
+	// which trigger a firing that never recorded its ending was taken by.
+	Summoned bool `json:"summoned,omitempty"`
+}
+
+// Settled reports a firing whose ending has been written against its claim.
+// A claim is written stamped with the moment it fired and settling stamps it
+// again later, so a claim still carrying its firing's own stamp is one nothing
+// settled: a firing still in flight, or one whose process stopped mid-pass.
+func (c SweepClaim) Settled() bool {
+	return c.UpdatedAt.After(c.FiredAt)
 }
 
 // Due reports a task whose interval has passed. A task that has never fired is
@@ -231,6 +244,77 @@ type Sweep struct {
 	// reads as one pass carrying the burst rather than as a pass nobody can
 	// account for.
 	Events map[string]int `json:"events,omitempty"`
+	// Missed marks a record that is a missed pass rather than a pass: a trigger
+	// fired and no pass followed it, or a pass was taken and cancelled before it
+	// completed. It names which trigger and which of the two, and Problem says
+	// the cause where one is known. It is absent on every pass that completed or
+	// failed on its own terms, and on the misses recorded before it existed,
+	// which are read by their shape instead.
+	Missed *MissedPass `json:"missed,omitempty"`
+}
+
+// PassTrigger is what fires a pass: the cadence, the events a program manager
+// instance watches, or the intake brake's summons.
+type PassTrigger string
+
+const (
+	PassTriggerSchedule PassTrigger = "schedule"
+	PassTriggerEvents   PassTrigger = "events"
+	PassTriggerSummons  PassTrigger = "summons"
+)
+
+// Valid reports whether a trigger is one of the vocabulary's.
+func (t PassTrigger) Valid() bool {
+	switch t {
+	case PassTriggerSchedule, PassTriggerEvents, PassTriggerSummons:
+		return true
+	}
+	return false
+}
+
+// Describe is the trigger in the words a sentence about a pass uses.
+func (t PassTrigger) Describe() string {
+	switch t {
+	case PassTriggerSchedule:
+		return "scheduled pass"
+	case PassTriggerEvents:
+		return "pass its events woke"
+	case PassTriggerSummons:
+		return "summoned pass"
+	default:
+		return "pass"
+	}
+}
+
+// MissKind is how a pass was missed.
+type MissKind string
+
+const (
+	// MissUnfired is a trigger that fired with no pass following it for a whole
+	// interval.
+	MissUnfired MissKind = "unfired"
+	// MissCancelled is a pass that was taken and stopped before it completed:
+	// its process cancelled it, or died carrying it and recorded nothing.
+	MissCancelled MissKind = "cancelled"
+)
+
+// Valid reports whether a kind is one of the vocabulary's.
+func (k MissKind) Valid() bool {
+	return k == MissUnfired || k == MissCancelled
+}
+
+// MissedPass is which trigger a missed pass was owed by, and how it was missed.
+type MissedPass struct {
+	Trigger PassTrigger `json:"trigger"`
+	How     MissKind    `json:"how"`
+}
+
+// IsMiss reports a record marked as a missed pass. A miss recorded before the
+// mark existed is not one of these: its shape — no turn, no account, starting
+// when the task fell due — is shared with a firing the provider refused, so
+// nothing reading the log can tell it apart, which is why the mark was added.
+func (s Sweep) IsMiss() bool {
+	return s.Missed != nil
 }
 
 // PreTurnCause is why a recurring task's firing failed before its first turn.
@@ -436,6 +520,18 @@ func (s Sweep) Validate() error {
 			problems = append(problems, errors.New("a firing that failed before its first turn must say what stopped it"))
 		}
 	}
+	if s.Missed != nil {
+		if !s.Missed.Trigger.Valid() {
+			problems = append(problems, fmt.Errorf("missed trigger %q is not one this harness has", s.Missed.Trigger))
+		}
+		if !s.Missed.How.Valid() {
+			problems = append(problems, fmt.Errorf("missed how %q is not one this harness has", s.Missed.How))
+		}
+		// A pass that ended in an account completed, whatever else happened to it.
+		if s.Result != nil {
+			problems = append(problems, errors.New("a missed pass carries no account"))
+		}
+	}
 	// A noticed request is stated as a finding, so a record naming requests and
 	// carrying no account would be one whose findings are nowhere to be read.
 	if len(s.PullRequests) > 0 && s.Result == nil {
@@ -564,6 +660,7 @@ func (s *SweepStore) Claim(ctx context.Context, task string, every time.Duration
 	// problem is always the most recent firing's and never one left behind by a
 	// firing two cadences ago.
 	claimed.Problem = ""
+	claimed.Summoned = false
 	if err := claimed.Validate(); err != nil {
 		return SweepClaim{}, err
 	}
@@ -610,6 +707,7 @@ func (s *SweepStore) Summon(ctx context.Context, task string, now time.Time) (Sw
 	claimed.FiredAt = at
 	claimed.UpdatedAt = at
 	claimed.Problem = ""
+	claimed.Summoned = true
 	if err := claimed.Validate(); err != nil {
 		return SweepClaim{}, err
 	}

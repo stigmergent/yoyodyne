@@ -10,6 +10,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -433,5 +434,157 @@ func TestAnEventThatArrivesLateIsCarriedByTheNextPass(t *testing.T) {
 	}
 	if again := h.fire(t, recurringNow.Add(40*time.Minute)); len(again.Fired) != 0 {
 		t.Errorf("fired = %+v, want nothing carried a second time", again.Fired)
+	}
+}
+
+// cancellingRole is a session stopped under a pass: the turn is cancelled
+// while it is being asked.
+type cancellingRole struct{ cancel context.CancelFunc }
+
+func (r cancellingRole) Wake(ctx context.Context, _ domain.AgentRole, _, _, _, _ string) (Turn, error) {
+	r.cancel()
+	return Turn{ConversationID: "chat-1"}, ctx.Err()
+}
+
+// A pass cancelled under its turn — the watch session carrying it stopped — is
+// recorded as a missed pass of the trigger that took it, with the cause, and
+// not as a turn the role failed.
+func TestAnInstancePassCancelledBeforeItCompletesIsRecordedAsMissed(t *testing.T) {
+	t.Parallel()
+
+	h := newPassHarness(t, instance(time.Hour))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.trigger.Roles = cancellingRole{cancel: cancel}
+	h.clock.now = recurringNow
+	fired, err := h.trigger.Fire(ctx)
+	if err != nil {
+		t.Fatalf("Fire() error = %v", err)
+	}
+	if len(fired.Fired) != 1 {
+		t.Fatalf("fired = %+v, want the instance's scheduled pass taken", fired.Fired)
+	}
+	recorded := h.recorded(t)
+	if len(recorded) != 1 {
+		t.Fatalf("recorded = %+v, want the cancelled pass recorded", recorded)
+	}
+	missed := recorded[0]
+	if missed.Task != instanceName || missed.Missed == nil || missed.Missed.Trigger != runstate.PassTriggerSchedule || missed.Missed.How != runstate.MissCancelled {
+		t.Fatalf("recorded = %+v, want a scheduled pass of the instance recorded missed as cancelled", missed)
+	}
+	if !strings.Contains(missed.Problem, "cancelled before it completed") || !strings.Contains(missed.Problem, "context canceled") {
+		t.Errorf("problem = %q, want the cancellation and its cause", missed.Problem)
+	}
+}
+
+// A pass whose process died carrying it records nothing at all; the next pull
+// that considers the instance finds the claim with no ending and records the
+// pass as cancelled — once — before it claims the next.
+func TestAnInstancePassClaimedAndNeverEndedIsRecordedAsCancelled(t *testing.T) {
+	t.Parallel()
+
+	h := newPassHarness(t, instance(time.Hour, config.TriggerLandings))
+	h.trigger.Conversations = busyConversations{}
+	// The killed session's claim: taken by an event wake, and nothing after it.
+	if _, err := h.sweeps.Summon(context.Background(), instanceName, recurringNow); err != nil {
+		t.Fatalf("Summon() error = %v", err)
+	}
+
+	// Inside the grace a claim with no ending may still be a pass being carried.
+	h.fire(t, recurringNow.Add(time.Minute))
+	if recorded := h.recorded(t); len(recorded) != 0 {
+		t.Fatalf("recorded = %+v, want nothing inside the grace", recorded)
+	}
+
+	h.role.answers = []scriptedTurn{{result: complete("looked")}}
+	h.fire(t, recurringNow.Add(time.Hour))
+	recorded := h.recorded(t)
+	if len(recorded) != 2 {
+		t.Fatalf("recorded = %+v, want the cancelled pass and then the scheduled one", recorded)
+	}
+	missed := recorded[0]
+	if missed.Missed == nil || missed.Missed.Trigger != runstate.PassTriggerEvents || missed.Missed.How != runstate.MissCancelled || !missed.StartedAt.Equal(recurringNow) {
+		t.Fatalf("recorded = %+v, want the event wake's pass taken at %s recorded cancelled", missed, recurringNow)
+	}
+	if !strings.Contains(missed.Problem, "nothing recorded how it ended") {
+		t.Errorf("problem = %q, want the cause", missed.Problem)
+	}
+	if recorded[1].Result == nil || recorded[1].Missed != nil {
+		t.Errorf("recorded = %+v, want the next pass taken as usual", recorded[1])
+	}
+
+	h.fire(t, recurringNow.Add(2*time.Hour+10*time.Minute))
+	cancelled := 0
+	for _, entry := range h.recorded(t) {
+		if entry.Missed != nil {
+			cancelled++
+		}
+	}
+	if cancelled != 1 {
+		t.Errorf("recorded %d cancelled passes, want the one", cancelled)
+	}
+}
+
+// An instance's triggers are read with the recurring tasks, keyed by instance
+// and trigger: its schedule as a task's is, and its events from when a wake
+// past its cursor could first be taken. A miss of either is recorded as the
+// instance's missed pass under the trigger that owed it, and said as the
+// harness's report.
+func TestAnInstancesTriggersAreCoveredByTheMissedCadence(t *testing.T) {
+	t.Parallel()
+
+	h := newPassHarness(t, instance(time.Hour, config.TriggerLandings))
+	filed := &filedReports{}
+	h.trigger.Breakage = filed
+	h.trigger.Attribution = report.Attribution{ProductID: "example", RepositoryID: "example"}
+	h.role.answers = []scriptedTurn{{result: complete("first")}}
+	h.fire(t, recurringNow)
+	h.events.land(recurringNow.Add(10*time.Minute), "yoyodyne-ifd.1")
+
+	h.clock.now = recurringNow.Add(20 * time.Minute)
+	dues, err := h.trigger.Cadence(context.Background())
+	if err != nil {
+		t.Fatalf("Cadence() error = %v", err)
+	}
+	byTrigger := map[runstate.PassTrigger]RecurringDue{}
+	for _, due := range dues {
+		if !due.Instance || due.Task != instanceName {
+			t.Fatalf("due = %+v, want only the instance's", due)
+		}
+		byTrigger[due.Trigger] = due
+	}
+	if schedule := byTrigger[runstate.PassTriggerSchedule]; !schedule.At.Equal(recurringNow.Add(time.Hour)) || schedule.Every != time.Hour {
+		t.Errorf("schedule due = %+v, want an hour after the last pass", schedule)
+	}
+	events := byTrigger[runstate.PassTriggerEvents]
+	if !events.At.Equal(recurringNow.Add(10*time.Minute+PassSettleWindow)) || events.Every != PassEventMissAfter {
+		t.Fatalf("events due = %+v, want from when the landing had settled", events)
+	}
+
+	h.clock.now = recurringNow.Add(2 * time.Hour)
+	for _, due := range []RecurringDue{byTrigger[runstate.PassTriggerSchedule], events} {
+		if err := h.trigger.Missed(context.Background(), RecurringMiss{
+			Task: due.Task, Role: due.Role, Every: due.Every, Due: due.At, Trigger: due.Trigger, Instance: due.Instance,
+			Why: "no watch session was running to fire it", Severity: report.SeverityWarning,
+		}); err != nil {
+			t.Fatalf("Missed() error = %v", err)
+		}
+	}
+	var misses []runstate.Sweep
+	for _, entry := range h.recorded(t) {
+		if entry.Missed != nil {
+			misses = append(misses, entry)
+		}
+	}
+	if len(misses) != 2 || misses[0].Missed.Trigger != runstate.PassTriggerSchedule || misses[1].Missed.Trigger != runstate.PassTriggerEvents {
+		t.Fatalf("misses = %+v, want one per trigger", misses)
+	}
+	for _, missed := range misses {
+		if missed.Missed.How != runstate.MissUnfired || !strings.Contains(missed.Problem, "missed pass of the program manager instance "+instanceName) || !strings.Contains(missed.Problem, "no watch session was running") {
+			t.Errorf("miss = %+v, want the instance's unfired pass with its cause", missed)
+		}
+	}
+	if len(filed.filed) != 2 || !strings.Contains(filed.filed[0].Message, "program manager instance "+instanceName) {
+		t.Errorf("filed = %+v, want each miss said as the harness's report", filed.filed)
 	}
 }

@@ -542,6 +542,15 @@ func renderSweep(recorded runstate.Sweep) string {
 	if recorded.NotStarted != "" {
 		fmt.Fprintf(&rendered, "  FAILED FIRING: it failed before its first turn — %s\n", recorded.NotStarted.Describe())
 	}
+	// A missed pass is said as one, naming the trigger that owed it, so a gap
+	// reads as a pass owed rather than as a quiet one.
+	if recorded.Missed != nil {
+		how := "no pass followed it"
+		if recorded.Missed.How == runstate.MissCancelled {
+			how = "cancelled before it completed"
+		}
+		fmt.Fprintf(&rendered, "  MISSED PASS: its %s — %s\n", recorded.Missed.Trigger.Describe(), how)
+	}
 	// A program manager's pass says what it was handed, so a burst that woke the
 	// instance once reads as one pass carrying the burst.
 	if carried := describeCarried(recorded.Events); carried != "" {
@@ -632,6 +641,10 @@ refused, a conversation that would not open, a turn that would not assemble --
 is marked FAILED FIRING with its cause. A task that fails that way twice in a
 row is also on "yoyo status"'s needs-a-human line and said in the channel, and
 the first firing that takes a turn clears it.
+
+A missed pass is marked MISSED PASS with the trigger that owed it: a schedule
+or an instance's events that no pull took for a whole interval, or a pass
+cancelled before it completed because the session carrying it stopped.
 
 A program manager instance's passes are listed under the instance's name, and
 a pass its events woke -- landings, admissions, stoppages since its last pass
