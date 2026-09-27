@@ -48,7 +48,7 @@ func (s Standing) Render() string {
 	if s.Paused == "" {
 		return s.RenderLines()
 	}
-	return s.Paused + "\n" + s.RenderLines()
+	return s.Titles.Cite(s.Paused) + "\n" + s.RenderLines()
 }
 
 // RenderLines is the four lines without the banner, for the one caller that has
@@ -62,7 +62,7 @@ func (s Standing) RenderLines() string {
 	rendered.WriteString(s.renderWorking())
 	rendered.WriteString(s.renderNotStartable())
 	rendered.WriteString(s.renderNeedsHuman())
-	return rendered.String()
+	return s.Titles.Cite(rendered.String())
 }
 
 // RenderBrief is the same four lines with the queues counted and not listed, and
@@ -87,7 +87,7 @@ func (s Standing) RenderBrief() string {
 	if s.Paused == "" {
 		return s.RenderBriefLines()
 	}
-	return s.Paused + "\n" + s.RenderBriefLines()
+	return s.Titles.Cite(s.Paused) + "\n" + s.RenderBriefLines()
 }
 
 // RenderBriefLines is the brief four lines without the banner, for the caller
@@ -100,7 +100,7 @@ func (s Standing) RenderBriefLines() string {
 	rendered.WriteString(brief(s.renderWorking()))
 	rendered.WriteString(brief(s.renderNotStartable()))
 	rendered.WriteString(brief(s.renderNeedsHuman()))
-	return rendered.String()
+	return s.Titles.Cite(rendered.String())
 }
 
 // brief is one rendered line with the entries under it dropped. It reads the
@@ -274,7 +274,7 @@ func (s Standing) renderNeedsHuman() string {
 				}
 				listed++
 			}
-			fmt.Fprintf(&rendered, "  %s — %s\n", waiting.What(), waiting.Whose())
+			fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.CitedWhose())
 		}
 		rendered.WriteString(remainder(further, "thing waiting on somebody"))
 	}
@@ -439,7 +439,7 @@ func (s Standing) RenderProgramManagers() string {
 	if s.ProgramManagersProblem != "" {
 		rendered.WriteString(partialRead + s.ProgramManagersProblem + "\n")
 	}
-	return rendered.String()
+	return s.Titles.Cite(rendered.String())
 }
 
 // why is what follows an instance's status word: the reason it is stale, how

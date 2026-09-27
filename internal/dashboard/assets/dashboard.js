@@ -1148,6 +1148,17 @@
   // it and found again on the next poll: its kind and the id of the record it
   // is about, or, for the two kinds about a set rather than a record, which
   // set — held work is one entry per wait, and the report pile is one.
+  // saidWhat and saidWhose are an attention entry's two sentences as a person
+  // reads them: with every work item beside its title, where the read model
+  // could say one, and the derived sentence otherwise.
+  function saidWhat(entry) {
+    return entry.said_what || entry.what;
+  }
+
+  function saidWhose(entry) {
+    return entry.said_whose || entry.whose;
+  }
+
   function entryKey(entry) {
     if (entry.kind === "held-work") {
       return entry.kind + ":" + (entry.held_work ? entry.held_work.awaiting : "");
@@ -1319,7 +1330,7 @@
     return listing("Needs a human", "what waits on a person, the operator's first, each with its kind and who it is waiting on; each opens its card",
       standing.needs_human_problem, whatToDoAboutTheStanding(), "Nothing waits on a person.",
       entries.map(function (each) {
-        return { entry: entryKey(each.entry), kind: each.entry.kind, title: each.entry.what, detail: each.entry.whose };
+        return { entry: entryKey(each.entry), kind: each.entry.kind, title: saidWhat(each.entry), detail: saidWhose(each.entry) };
       }), "thing");
   }
 
@@ -1535,8 +1546,8 @@
       row.appendChild(body);
       fields.appendChild(row);
     };
-    add("What", entry.what, "card-field-prose");
-    add("Waiting on", entry.whose, "card-field-prose");
+    add("What", saidWhat(entry), "card-field-prose");
+    add("Waiting on", saidWhose(entry), "card-field-prose");
     add("Kind", entry.kind);
     add("Mover", moverLabel(entry.mover));
     switch (entry.kind) {

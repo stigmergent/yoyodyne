@@ -30,6 +30,7 @@ package readmodel
 // in internal/watchdog holds both derivations to that.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -316,9 +317,18 @@ func ReadProgramManagerReport(sources Sources, agent string) (ProgramManagerRepo
 		if !current.RecordedAt.Equal(*instance.ReportWrittenAt) {
 			continue
 		}
+		// The report is the role's own words, and a role that named work by its
+		// number alone is read here with each item's title beside it: the card is
+		// the surface a person reads it on.
+		titles, _ := ReadWorkItemTitles(context.Background(), sources)
+		answer.Instance = citeProgramManager(answer.Instance, titles)
+		remaining := make([]string, 0, len(current.Report.Remaining))
+		for _, entry := range current.Report.Remaining {
+			remaining = append(remaining, titles.Cite(entry))
+		}
 		answer.Report = &LaneReportText{
-			Summary:        current.Report.Summary,
-			Remaining:      append([]string{}, current.Report.Remaining...),
+			Summary:        titles.Cite(current.Report.Summary),
+			Remaining:      remaining,
 			Version:        current.Version,
 			Pass:           current.Stamp.Pass,
 			ConversationID: current.Stamp.ConversationID,
@@ -329,6 +339,26 @@ func ReadProgramManagerReport(sources Sources, agent string) (ProgramManagerRepo
 	}
 	answer.Problem = joinProblems(answer.Problem, fmt.Sprintf("the %s lane report was rewritten twice while it was being read, so its text is not shown beside blockers from another version; ask again", agent))
 	return answer, nil
+}
+
+// citeProgramManager is an instance with every work item its report's
+// blockers name shown beside its title.
+func citeProgramManager(instance ProgramManager, titles *WorkItemTitles) ProgramManager {
+	if titles == nil {
+		return instance
+	}
+	blockers := make([]ProgramManagerBlocker, 0, len(instance.Blockers))
+	for _, blocker := range instance.Blockers {
+		blocker.What = titles.Cite(blocker.What)
+		blockers = append(blockers, blocker)
+	}
+	claims := make([]ProgramManagerClaim, 0, len(instance.Claims))
+	for _, claim := range instance.Claims {
+		claim.What = titles.Cite(claim.What)
+		claims = append(claims, claim)
+	}
+	instance.Blockers, instance.Claims = blockers, claims
+	return instance
 }
 
 func deriveProgramManager(sources Sources, instance ProgramManagerInstance, records citable, passes completedPasses, now time.Time) (ProgramManager, string) {

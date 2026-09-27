@@ -238,6 +238,10 @@ type Sink struct {
 	// goroutine, which is what makes it safe to sit above the divide with the rest
 	// of what New wrote once.
 	sources *readmodel.Sources
+	// citing is what every post's text is read through on its way out, so each
+	// work item it names is beside its title. It is nil on a sink with no tracker
+	// to list, which posts text as it was written.
+	citing *titleIndex
 	// pace is what keeps a catch-up from being posted faster than Slack will
 	// carry it. Every post goes through it, including the message that opens a
 	// thread: what the workspace counts is messages, not what they are for.
@@ -333,6 +337,9 @@ func New(options Options) (*Sink, error) {
 			dial: options.Dial,
 			log:  log,
 		},
+	}
+	if read := sourcesTitles(options.Standing); read != nil {
+		sink.citing = &titleIndex{read: read, now: options.Now}
 	}
 	// A sink with somewhere to record a directive steers, and one with the durable
 	// conversation behind it carries what somebody says to the product manager;
@@ -858,6 +865,7 @@ func (s *Sink) post(ctx context.Context, message Message) (string, error) {
 	if err := s.pace.wait(ctx); err != nil {
 		return "", err
 	}
+	message.Text = s.citing.cite(ctx, message.Text)
 	return s.api.Post(ctx, message)
 }
 

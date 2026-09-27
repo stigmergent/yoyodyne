@@ -411,6 +411,51 @@ are redirecting is the one running. It never changes the item's status: saying
 what to do differently is not deciding that the work is done or blocked. Start
 it again with `/work` when you want it retried.
 
+## Every work item beside its title
+
+A work item's identifier is always shown with its title. Wherever the harness
+puts text in front of a person — the four lines of `yoyo status` and the
+needs-a-human line among them, a program manager's lane report and the card the
+dashboard opens on it, a pass's account in `yoyo sweeps`, the report pile a
+program manager's digest is filed into (`yoyo reports` and `/reports`), and
+every message the Slack sink posts — each identifier in it is shown beside the
+item's title, in plain words:
+
+```text
+Blocked on 434.9 (Price a resumed session at what it moved by) and 434.3 (Say the provider's reset in local time).
+```
+
+That holds whoever wrote the text. On 2026-09-26 a lane report named work as
+"434.9 and 434.3", with nothing saying what either was. The roles are told to
+name an item by what it is, and a surface that printed whatever a role wrote
+would still let the next bare number through, so the titles are put in by the
+read model as the text is shown rather than trusted to the writer.
+
+An identifier the tracker holds nothing under is shown as `(unknown to the
+tracker)` rather than dropped or left bare. That applies to anything shaped
+like one of this tracker's identifiers — `yoyodyne-ifd.434.9`, or `ifd.434.9`
+where one root carries that hash. A bare dotted number like `434.9` is read as
+an item only where the tracker holds exactly one item it could name, because a
+dotted number is also a version, a price, a duration, or an address: `3.5 hours`
+and `$27.93` are left alone, and so is anything in a path, a link, or between
+backticks, where a title put into the middle would break what somebody is meant
+to type.
+
+An item is titled once per piece of text: text that already says the title is
+left as written, and a later mention of an item already titled is left bare. The
+title is cut to a line where it runs longer. Where the tracker cannot be listed
+the text is shown as it was written, because calling every number unknown over
+a listing that failed would be false. The Slack sink lists the tracker at most
+once a minute rather than once a message, so an item admitted in the last minute
+can reach the channel by its number until the next listing.
+
+The records themselves are not changed. A lane report, a report, and a pass's
+account are kept exactly as their author wrote them, and `yoyo reports --json`
+and `yoyo sweeps --json` carry them that way. What the read model hands a
+surface is titled: a program manager's blockers in `yoyo status --json` and the
+lane report the dashboard's card reads, and the attention entries, which carry
+the titled sentences beside the derived ones as `said_what` and `said_whose`.
+
 ## What agents report, and where it reaches you
 
 An agent used to be able to reach you only by failing. A spent repair budget

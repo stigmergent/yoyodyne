@@ -393,7 +393,9 @@ func TestTheEntryCardsAreHeadedByTheModelsKinds(t *testing.T) {
 	// The card is drawn from the entries the standing carries, and from
 	// nothing the page fetches: the tracker and the amendment store are never
 	// read for it.
-	for _, expected := range []string{"standing.needs_human.filter", "entry.amendment", "entry.owed_step", "entry.executor"} {
+	// The sentences it shows are the ones the model titled, each work item
+	// beside its title, where the model could title one.
+	for _, expected := range []string{"standing.needs_human.filter", "entry.amendment", "entry.owed_step", "entry.executor", "entry.said_what", "entry.said_whose"} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("the script does not read %q from the standing:\n%s", expected, script)
 		}

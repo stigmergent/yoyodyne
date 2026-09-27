@@ -2613,11 +2613,14 @@ proposer was working on — names it under `work_item_id` as well; a carried
 item carries its `executor` marker rather than a record of its own. Two kinds
 carry no `id`, because each is about a set rather than a record: `report` is
 the pile, and `held-work` is how many items are in one of the two waits. The
-`what` and `whose` the terminal prints are there beside them, and they are
+`what` and `whose` sentences are there beside them, and they are
 derived from those fields at the moment the answer is written rather than
 stored, so a record and the line about it cannot disagree; a document whose
 `what` says something its fields do not, or whose `kind` or `mover` is outside
-its vocabulary, is refused when the model reads it back.
+its vocabulary, is refused when the model reads it back. `said_what` and
+`said_whose` are the same two sentences as the terminal prints them, with
+[every work item beside its title](reporting.md#every-work-item-beside-its-title),
+and are present only where that changes something; the dashboard shows those.
 
 One thing is carried there that the four lines do not print: what is parked or
 held on provider capacity, one run and one conversation at a time, under

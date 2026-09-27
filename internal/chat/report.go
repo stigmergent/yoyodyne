@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -493,7 +494,11 @@ func reportedOn(subject report.Report) string {
 // is not, which is the second thing this listing is saying: a report somebody
 // has already decided about no longer needs the reader's eye, whatever it was
 // filed at, and the plain line under a loud one says exactly that.
-func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, gauge *report.Gauge, now time.Time) string {
+//
+// A report is a role's own words, a program manager's digest among them, so
+// each is read with every work item it names beside its title: an item the
+// report named by number alone reaches the operator named.
+func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, now time.Time) string {
 	if len(reports) == 0 {
 		return "reports: nothing has been reported.\n"
 	}
@@ -519,15 +524,30 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 		fmt.Fprintf(&rendered, "  %d earlier report(s) are not listed here.\n", len(reports)-len(listed))
 	}
 	for _, reported := range listed {
-		rendered.WriteString(theme.Severity(console.Severity(reported.Severity), reported.RenderAgainst(gauge)))
+		text := titles.Cite(reported.RenderAgainst(gauge))
+		rendered.WriteString(theme.Severity(console.Severity(reported.Severity), text))
 		if handling, done := handled[reported.ID]; done {
-			rendered.WriteString(handling.Render())
+			rendered.WriteString(titles.CiteAfter(text, handling.Render()))
 		}
 	}
 	if problem := gauge.Problem(); problem != "" {
 		fmt.Fprintf(&rendered, "%s\n", problem)
 	}
 	return rendered.String()
+}
+
+// workItemTitles is what the tracker calls every item, for a listing a person
+// reads, or nil where this conversation has no tracker or it could not be
+// listed — in which case the listing names items as they were written.
+func (s *Session) workItemTitles() *readmodel.WorkItemTitles {
+	if s.options.Tracker == nil {
+		return nil
+	}
+	items, err := s.options.Tracker.List(context.Background(), "")
+	if err != nil {
+		return nil
+	}
+	return readmodel.NewWorkItemTitles(items)
 }
 
 // buildGauge counts the builds of the reports one listing or one turn shows

@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -98,7 +100,7 @@ func recordedSweep(task string, at time.Time, result *sweep.Result, problem stri
 func TestSweepListingOfAnUnsweptProjectSaysSo(t *testing.T) {
 	t.Parallel()
 
-	if rendered := renderSweeps(nil, nil, defaultRenderedSweeps); !strings.Contains(rendered, "no recurring task has recorded a sweep") {
+	if rendered := renderSweeps(nil, nil, defaultRenderedSweeps, nil); !strings.Contains(rendered, "no recurring task has recorded a sweep") {
 		t.Errorf("rendered = %q, want it to say nothing has swept yet", rendered)
 	}
 }
@@ -199,7 +201,7 @@ func TestSweepListingShowsTheMostRecentFirst(t *testing.T) {
 // renderSweepsAtDefault is the listing as an operator gets it with no flags, which
 // is what these tests are about.
 func renderSweepsAtDefault(recorded []runstate.Sweep) string {
-	return renderSweeps(recorded, nil, defaultRenderedSweeps)
+	return renderSweeps(recorded, nil, defaultRenderedSweeps, nil)
 }
 
 // The default bound is what fits a terminal, not what the log holds. At the
@@ -220,7 +222,7 @@ func TestSweepListingReadsPastItsDefaultBound(t *testing.T) {
 	}
 	oldest := "pass 0\n"
 
-	bounded := renderSweeps(recorded, nil, defaultRenderedSweeps)
+	bounded := renderSweeps(recorded, nil, defaultRenderedSweeps, nil)
 	if strings.Contains(bounded, oldest) {
 		t.Errorf("the default listing reaches the whole week, so the bound says nothing:\n%s", bounded)
 	}
@@ -230,7 +232,7 @@ func TestSweepListingReadsPastItsDefaultBound(t *testing.T) {
 		t.Errorf("rendered = %q, want it to name the flag that reads further back", bounded)
 	}
 
-	whole := renderSweeps(recorded, nil, 0)
+	whole := renderSweeps(recorded, nil, 0, nil)
 	if !strings.Contains(whole, oldest) {
 		t.Errorf("--limit 0 does not reach the oldest pass of the week:\n%s", whole[:200])
 	}
@@ -238,7 +240,7 @@ func TestSweepListingReadsPastItsDefaultBound(t *testing.T) {
 		t.Errorf("an unbounded listing still says it is showing part of the pile:\n%s", whole[:200])
 	}
 
-	if widened := renderSweeps(recorded, nil, week); !strings.Contains(widened, oldest) {
+	if widened := renderSweeps(recorded, nil, week, nil); !strings.Contains(widened, oldest) {
 		t.Errorf("--limit %d does not reach the oldest pass of the week", week)
 	}
 }
@@ -257,6 +259,7 @@ func TestSweepListingNamesALineItCouldNotReadAndShowsTheRest(t *testing.T) {
 		}, "")},
 		[]runstate.UnreadableSweep{{Line: 4, Problem: "unexpected end of JSON input"}},
 		defaultRenderedSweeps,
+		nil,
 	)
 	if !strings.Contains(rendered, "line 4 of the sweep log could not be read") {
 		t.Errorf("rendered = %q, want the unreadable line named", rendered)
@@ -297,5 +300,37 @@ func TestReadSweepRecordsTheLastOfSeveralBlocksAndSaysSo(t *testing.T) {
 	result, problem = readSweep(domain.RoleProductManager, more+"```yoyodyne-sweep\nnot json\n```\n")
 	if result != nil || !strings.Contains(problem, "cannot read") {
 		t.Errorf("an unreadable block: result = %+v, problem = %q; want no account and the problem", result, problem)
+	}
+}
+
+// A pass's account is the role's own words, and a role that named work by its
+// number alone is read with each item's title beside it, in every pass that
+// names it.
+func TestASweepSummaryShowsEveryItemBesideItsTitle(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
+	titles := readmodel.NewWorkItemTitles([]beads.WorkItem{
+		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by"},
+	})
+	rendered := renderSweeps([]runstate.Sweep{
+		recordedSweep("a-sweep", at, &sweep.Result{
+			Status:  sweep.StatusComplete,
+			Summary: "434.9 is blocked",
+			Findings: []sweep.Finding{{
+				Issue: "a stuck delivery", Disposition: sweep.DispositionFixed,
+				Filed: []string{"yoyodyne-ifd.999.1"},
+			}},
+		}, ""),
+		recordedSweep("a-sweep", at.Add(time.Hour), &sweep.Result{
+			Status:  sweep.StatusComplete,
+			Summary: "434.9 is still blocked",
+		}, ""),
+	}, nil, defaultRenderedSweeps, titles)
+	if got := strings.Count(rendered, "434.9 (Price a resumed session at what it moved by)"); got != 2 {
+		t.Errorf("renderSweeps() = %q, want the item titled in each of the two passes, got %d", rendered, got)
+	}
+	if !strings.Contains(rendered, "yoyodyne-ifd.999.1 (unknown to the tracker)") {
+		t.Errorf("renderSweeps() = %q, want the filed item the tracker does not hold said to be unknown", rendered)
 	}
 }

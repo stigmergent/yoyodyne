@@ -26,9 +26,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -129,10 +131,15 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 	// the shared derivation rather than arithmetic done here, so this number and
 	// the one the channel says cannot come apart.
 	fmt.Fprintf(stdout, "reports: %s\n", report.SummarizeHandled(collected, handled, time.Now()).Describe())
+	// A report is a role's own words, a program manager's digest among them, so
+	// each is printed with every work item it names beside its title. A tracker
+	// that cannot be listed costs the titles and nothing else.
+	titles := reportTitles(*configPath)
 	for _, reported := range collected {
-		fmt.Fprint(stdout, theme.Severity(console.Severity(reported.Severity), reported.RenderAgainst(gauge)))
+		text := titles.Cite(reported.RenderAgainst(gauge))
+		fmt.Fprint(stdout, theme.Severity(console.Severity(reported.Severity), text))
 		if handling, done := handled[reported.ID]; done {
-			fmt.Fprint(stdout, handling.Render())
+			fmt.Fprint(stdout, titles.CiteAfter(text, handling.Render()))
 		}
 	}
 	// Why the counts are missing is said once, under the listing, rather than
@@ -170,6 +177,22 @@ func reportBuilds(configPath string) (report.Builds, error) {
 		runner:     execution.OSProcessRunner{},
 		timeout:    chatTrackerTimeout,
 	}, nil
+}
+
+// reportTitles is what the product's tracker calls every item, or nil where the
+// tracker cannot be found or listed.
+func reportTitles(configPath string) *readmodel.WorkItemTitles {
+	resolved, err := loadConfiguration(configPath)
+	if err != nil {
+		return nil
+	}
+	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
+	if err != nil {
+		return nil
+	}
+	tracker := beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}
+	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: tracker, TrackerTimeout: chatTrackerTimeout})
+	return titles
 }
 
 // reportStore resolves the same product-scoped pile every run appends to and

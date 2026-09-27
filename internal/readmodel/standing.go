@@ -517,6 +517,12 @@ type Standing struct {
 	// instance is configured and none has asked for anything.
 	ProgramManagers        []ProgramManager `json:"program_managers,omitempty"`
 	ProgramManagersProblem string           `json:"program_managers_problem,omitempty"`
+
+	// Titles is what the tracker calls every item it holds, which is what the
+	// rendered lines put beside each number they carry. It is nil where the
+	// tracker could not be listed, and the lines then carry the numbers as the
+	// records wrote them rather than calling every one unknown.
+	Titles *WorkItemTitles `json:"-"`
 }
 
 // maxUndecidedReportAge is how long the oldest report nobody has decided about
@@ -693,6 +699,16 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// the line is what a person reads, and a failure only the script can see is
 	// one nobody sees.
 	standing.NeedsHumanProblem = joinProblems(needsProblem, standing.ReportsProblem)
+	// Every number a person reads here is read beside its item's title. A
+	// tracker that cannot be listed costs the titles and nothing else: the lines
+	// above are all still true without them.
+	standing.Titles, _ = ReadWorkItemTitles(ctx, sources)
+	for index := range standing.NeedsHuman {
+		standing.NeedsHuman[index].titles = standing.Titles
+	}
+	for index := range standing.ProgramManagers {
+		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)
+	}
 	return standing
 }
 

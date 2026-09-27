@@ -323,6 +323,23 @@ type Attention struct {
 	// OperatorAction is the finding whole, on an AttentionOperatorAction entry;
 	// its key is the ID.
 	OperatorAction *OperatorAction `json:"operator_action,omitempty"`
+
+	// titles is what the tracker calls each item, set by the reading that
+	// assembled the entry, so the line a person reads names every item beside
+	// its title. It is not a field of the record: What and Whose are derived
+	// from the fields alone, and the titled sentences are carried beside them.
+	titles *WorkItemTitles
+}
+
+// CitedWhat is What with every work item it names shown beside its title.
+func (a Attention) CitedWhat() string {
+	return a.titles.Cite(a.What())
+}
+
+// CitedWhose is Whose with every work item it names shown beside its title,
+// read after What, so an item the line has already titled is not titled twice.
+func (a Attention) CitedWhose() string {
+	return a.titles.CiteAfter(a.CitedWhat(), a.Whose())
 }
 
 // Named reports an entry the attention line prints by name wherever it falls
@@ -564,6 +581,12 @@ type attentionWire struct {
 	attentionFields
 	What  string `json:"what"`
 	Whose string `json:"whose"`
+	// SaidWhat and SaidWhose are the two sentences as a person reads them, with
+	// each work item beside its title, and absent where that changes nothing.
+	// They are what the dashboard shows; What and Whose stay the derivation, so
+	// a document read back is still held to its fields.
+	SaidWhat  string `json:"said_what,omitempty"`
+	SaidWhose string `json:"said_whose,omitempty"`
 }
 
 // MarshalJSON writes the fields and, beside them, the two sentences derived
@@ -572,7 +595,14 @@ type attentionWire struct {
 // disagrees with the other, because the sentences are never taken from
 // anywhere but the fields.
 func (a Attention) MarshalJSON() ([]byte, error) {
-	return json.Marshal(attentionWire{attentionFields: attentionFields(a), What: a.What(), Whose: a.Whose()})
+	wire := attentionWire{attentionFields: attentionFields(a), What: a.What(), Whose: a.Whose()}
+	if said := a.CitedWhat(); said != wire.What {
+		wire.SaidWhat = said
+	}
+	if said := a.CitedWhose(); said != wire.Whose {
+		wire.SaidWhose = said
+	}
+	return json.Marshal(wire)
 }
 
 // UnmarshalJSON reads the fields back and refuses an entry outside the shape:
