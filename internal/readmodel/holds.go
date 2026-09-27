@@ -62,6 +62,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -217,15 +218,39 @@ const (
 // move follows. A reading that could not say which of the two it is says so in
 // the reason and reports the decision as unmade, which is where the answer went
 // before the two were told apart.
-func heldFor(account string, decided bool, problem string) backlog.Hold {
+//
+// since is when the item came to be held, which is the run's stop for every
+// hold this closes.
+func heldFor(account string, decided bool, problem string, since time.Time) backlog.Hold {
 	switch {
 	case problem != "":
-		return backlog.Hold{Reason: account + "; " + problem + ", so this is stated as a stoppage nobody has decided about"}
+		return backlog.Hold{Reason: account + "; " + problem + ", so this is stated as a stoppage nobody has decided about", Since: since}
 	case decided:
-		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true}
+		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since}
 	default:
-		return backlog.Hold{Reason: account + "; " + awaitingDecisionClause}
+		return backlog.Hold{Reason: account + "; " + awaitingDecisionClause, Since: since}
 	}
+}
+
+// stoppedAt is when a run stopped, which is when the item it was carrying came
+// to be held: the moment its record says it completed, or the moment the record
+// last moved where it says none.
+func stoppedAt(run runstate.State) time.Time {
+	if run.CompletedAt != nil && !run.CompletedAt.IsZero() {
+		return *run.CompletedAt
+	}
+	return run.UpdatedAt
+}
+
+// raisedAt is when a stoppage was put on the development manager's docket,
+// which is when an item nobody has decided about came to be held: the
+// docketing where the record kept it, and the first attempt to put it in front
+// of her where it did not.
+func raisedAt(escalation runstate.Escalation) time.Time {
+	if !escalation.DocketedAt.IsZero() {
+		return escalation.DocketedAt
+	}
+	return escalation.FirstAttemptedAt
 }
 
 // heldForAPerson is the derivation itself, over records already read. It is
@@ -251,7 +276,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		// Never a carry-out: an escalation with nothing recorded against it is by
 		// construction one nobody has decided, so what it waits on is the decision
 		// itself however much triage has decided about the item's other stoppages.
-		reasons[escalation.WorkItemID] = backlog.Hold{Reason: undecidedStoppage(escalation)}
+		reasons[escalation.WorkItemID] = backlog.Hold{Reason: undecidedStoppage(escalation), Since: raisedAt(escalation)}
 	}
 	// A publication the forge never merged next. It holds the item for the same
 	// reason the merged one below does — the work is on the target branch and a
@@ -263,7 +288,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		return outstandingPublication(run) && !mergeConfirmed(run)
 	}) {
 		carryOut, problem := decided(workItemID, run.RunID)
-		reasons[workItemID] = heldFor(unmergedPublication(run), carryOut, problem)
+		reasons[workItemID] = heldFor(unmergedPublication(run), carryOut, problem, stoppedAt(run))
 	}
 	// The stoppages, each looked at rather than read: a run whose change the
 	// repository still holds, a run whose change nothing could look for, and a run
@@ -303,19 +328,19 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		// that is — with the re-run named as the way on rather than a verb that
 		// would refuse.
 		if run.IntegrationStop != nil && StoppageMover(run, &found, false) == MoverHarness {
-			reasons[workItemID] = backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true}
+			reasons[workItemID] = backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true, Since: stoppedAt(run)}
 			continue
 		}
 		carryOut, problem := decided(workItemID, run.RunID)
 		if run.IntegrationStop != nil {
-			reasons[workItemID] = heldFor(triage.IntegrationGoneSays(run.RunID, found.Describe()), carryOut, problem)
+			reasons[workItemID] = heldFor(triage.IntegrationGoneSays(run.RunID, found.Describe()), carryOut, problem, stoppedAt(run))
 			continue
 		}
 		if !preserved {
-			reasons[workItemID] = heldFor(continuedStoppage(run), carryOut, problem)
+			reasons[workItemID] = heldFor(continuedStoppage(run), carryOut, problem, stoppedAt(run))
 			continue
 		}
-		reasons[workItemID] = heldFor(preservedChange(run, found), carryOut, problem)
+		reasons[workItemID] = heldFor(preservedChange(run, found), carryOut, problem, stoppedAt(run))
 	}
 	// The merged publications last. Only these know the change reached everywhere
 	// it was going, so only these may say there is nothing left to do about it —
@@ -325,7 +350,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		return outstandingPublication(run) && mergeConfirmed(run)
 	}) {
 		carryOut, problem := decided(workItemID, run.RunID)
-		reasons[workItemID] = heldFor(mergedPublication(run), carryOut, problem)
+		reasons[workItemID] = heldFor(mergedPublication(run), carryOut, problem, stoppedAt(run))
 	}
 	// A stop the development manager decided, last, because it is only ever about
 	// the item's latest run and says the most about what to do with it. Such a run
@@ -366,7 +391,7 @@ func supersededHolds(runs []runstate.State, stopped latestStop, look Look) map[s
 		if !preserved.Holds() {
 			continue
 		}
-		held[workItemID] = backlog.Hold{Reason: supersededStop(run, decision, preserved)}
+		held[workItemID] = backlog.Hold{Reason: supersededStop(run, decision, preserved), Since: decision.DecidedAt}
 	}
 	return held
 }

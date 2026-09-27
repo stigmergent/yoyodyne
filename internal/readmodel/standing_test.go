@@ -554,7 +554,9 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 		// The whole line, because docs/operations.md prints it as the example an
 		// operator reads: a wording change has to break the document and the test
 		// together rather than leaving the two saying different things.
-		"  yoyodyne-ifd.201 — run run-b stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has\n",
+		// It opens with when the item was held, in the machine's own zone, and how
+		// long ago that was, read from the run's stop.
+		"  yoyodyne-ifd.201 — held since " + localMoment(moment.Add(-24*time.Hour)) + ", 24 hours ago; run run-b stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has\n",
 		// Only the operator's entry is under the line named for a human; the
 		// development manager's is under a line naming her.
 		"Needs a human (1):\n  intake is held, since 2026-08-30T10:00:00Z: the operator placed it — the overnight looked wrong — the operator's",

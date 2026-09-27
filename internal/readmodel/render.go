@@ -270,7 +270,7 @@ func (s Standing) renderNotStartable() string {
 			len(s.NotStartable), count(s.Admitted, "admitted item"), s.heldSplit())
 		listed, further := bound(len(s.NotStartable))
 		for _, refused := range s.NotStartable[:listed] {
-			fmt.Fprintf(&rendered, "  %s — %s\n", refused.WorkItemID, refused.Reason)
+			fmt.Fprintf(&rendered, "  %s — %s%s\n", refused.WorkItemID, heldSince(refused.HeldSince, s.ObservedAt), refused.Reason)
 		}
 		rendered.WriteString(remainder(further, "refused item"))
 	}
@@ -467,6 +467,41 @@ func remainder(further int, noun string) string {
 		return ""
 	}
 	return fmt.Sprintf("  and %s not named here\n", count(further, noun))
+}
+
+// heldSince opens a held item's entry with when it was held and how long ago
+// that was, in the reader's own zone, so a stoppage from yesterday and one from
+// three weeks ago do not read alike. It is empty for an entry that names no
+// moment.
+func heldSince(since *time.Time, now time.Time) string {
+	if since == nil || since.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf("held since %s, %s; ", localMoment(*since), agoSaid(now.Sub(*since)))
+}
+
+// localMoment is a moment as a person reads one: the day and the minute in the
+// machine's local zone, with the zone named.
+func localMoment(moment time.Time) string {
+	return moment.Local().Format("2006-01-02 15:04 MST")
+}
+
+// agoSaid is how long ago something happened, in words rather than in the
+// compact form the running line uses: a hold is read for whether it has sat for
+// hours or for weeks, and "3 days ago" says that without being decoded.
+func agoSaid(elapsed time.Duration) string {
+	switch {
+	case elapsed < 0:
+		return "a moment stamped ahead of this reading"
+	case elapsed < time.Minute:
+		return "less than a minute ago"
+	case elapsed < time.Hour:
+		return count(int(elapsed.Minutes()), "minute") + " ago"
+	case elapsed < 48*time.Hour:
+		return count(int(elapsed.Hours()), "hour") + " ago"
+	default:
+		return count(int(elapsed.Hours())/24, "day") + " ago"
+	}
 }
 
 // age is an elapsed time as somebody says one. It is coarse on purpose: what a
