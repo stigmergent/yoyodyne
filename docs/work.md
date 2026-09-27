@@ -1344,7 +1344,19 @@ stoppage is decided about rather than stopped. Only her conversation can make it
 — the `stop` decision is a triage action, which no other role holds, and the
 hand that writes the request is wired into her conversation alone. What becomes
 of the item and the preserved change afterwards is a separate decision, and
-retiring the item is the Lead Product Manager's.
+retiring the item is the Lead Product Manager's. Until then the item is not
+pulled again: while the stop is the latest decision on the item's triage record
+and the stopped run's branch or worktree is still there, the pull holds it,
+saying which run she stopped, which decision, and which item supersedes it.
+Closing or retiring the item, the change going, or a later decision of hers
+releases it.
+
+A stop decides the stoppage it causes and no other. A run that passed its last
+boundary before the request was read, and then stopped for another reason — a
+failed review, say — reached a stoppage the stop never reached, and it is
+docketed and held like any undecided one: her decision, not the harness's
+carry-out, is what it waits on, and the entry names the stop she asked for
+beside what actually stopped the run.
 
 **A pass also fires whichever [recurring task](configuration.md#recurring-tasks)
 is due**, where a project has configured any — a role woken on a cadence to look

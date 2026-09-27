@@ -348,6 +348,49 @@ type Environmental struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// RequestedStop is a stop somebody asked of a run, as the entry about that
+// run's stoppage carries it.
+//
+// It is on the entry for two stoppages that read alike and are not. One is the
+// stop landing: the run honored it at its next boundary, and where the
+// development manager decided it the entry is settled by that decision, with the
+// item doing the work instead named. The other is the stop never landing: the
+// run passed its last boundary before the request was read and stopped for some
+// other reason, a failed review say. That stoppage is a question of its own, and
+// the stop decides nothing about it. A development manager who reads that she
+// asked for a stop owes the entry a decision all the same, and one who is not
+// told she asked would decide it without knowing she had already said the work
+// should not go on.
+//
+// It is declared here rather than imported from the run record for the reason
+// Finding is.
+type RequestedStop struct {
+	// By is who asked, in the words the run's record and the item's notes use.
+	By string    `json:"by"`
+	At time.Time `json:"at"`
+	// Reason is the stop's own reasoning, with the superseding item named where
+	// there is one.
+	Reason string `json:"reason,omitempty"`
+	// Decision is the triage decision the stop carried out, and is set only on a
+	// stop the development manager decided.
+	Decision string `json:"decision,omitempty"`
+	// Landed reports the stop being what ended the run. It is false on the entry
+	// about a stoppage the run reached some other way after the stop was asked.
+	Landed bool `json:"landed,omitempty"`
+	// SupersededBy is the work item the development manager named as doing this
+	// run's work instead, on a stop she decided.
+	SupersededBy string `json:"superseded_by,omitempty"`
+}
+
+// Says is the stop in one sentence: who asked, when, and why.
+func (s RequestedStop) Says() string {
+	said := fmt.Sprintf("%s asked this run to stop at %s", strings.TrimSpace(s.By), s.At.UTC().Format(time.RFC3339))
+	if reason := strings.TrimSpace(s.Reason); reason != "" {
+		said += ": " + reason
+	}
+	return said
+}
+
 // IntegrationStop is the environment having stopped an approved change short
 // of its promotion: the reviewer approved it, nothing was integrated, and what
 // ended the run is a cause the environment answers for. It is the one stoppage
@@ -1094,7 +1137,12 @@ type Entry struct {
 	// stand together: they are the two classifications of one stop after an
 	// approval, and an entry carrying both would name two next movers.
 	ReplayConflict *ReplayConflict `json:"replay_conflict,omitempty"`
-	Counters       Counters        `json:"counters"`
+	// StopRequested is a stop somebody asked of this run before it stopped:
+	// the one that ended it, or one it never reached. See RequestedStop. Like the
+	// integration stop it is written into the entry, because the request is made
+	// before the run stops and so before the entry exists.
+	StopRequested *RequestedStop `json:"stop_requested,omitempty"`
+	Counters      Counters       `json:"counters"`
 	// Rerun is the re-run already claimed against this entry's own stoppage, when
 	// there is one. It is joined to the entry where the docket is read rather
 	// than written into the log: an entry is recorded once as the work stops, and
@@ -1438,6 +1486,20 @@ func (e Entry) Validate() error {
 			problems = append(problems, errors.New("replay_conflict: a conflict is a person's and an integration stop is the harness's, so one stop is never both"))
 		}
 	}
+	if e.StopRequested != nil {
+		if strings.TrimSpace(e.StopRequested.By) == "" {
+			problems = append(problems, errors.New("stop_requested: who asked is required, because a stop nobody is named for is one nobody can answer for"))
+		}
+		if e.StopRequested.At.IsZero() {
+			problems = append(problems, errors.New("stop_requested: when it was asked is required"))
+		}
+		if len(e.StopRequested.By) > MaxMessageBytes || len(e.StopRequested.Reason) > MaxMessageBytes || len(e.StopRequested.SupersededBy) > MaxMessageBytes {
+			problems = append(problems, fmt.Errorf("stop_requested: each field is limited to %d bytes", MaxMessageBytes))
+		}
+		if e.Class != ClassStoppedRun {
+			problems = append(problems, fmt.Errorf("stop_requested: only a stopped run was asked to stop, and this entry is a %s", e.Class))
+		}
+	}
 	// Each class is held to the evidence that makes it the thing it claims to
 	// be. An entry that cannot say what stopped is an entry nobody can act on,
 	// which is worse than no entry: it looks like coverage.
@@ -1624,9 +1686,11 @@ func (e Entry) Render() string {
 	//
 	// The two unstarted classes say the same field in their own words above,
 	// because "died holding its change" is exactly what did not happen to either.
-	if e.Blocker == "" && e.Failure != "" && e.Class != ClassUnstartedRun && e.Class != ClassUnstartedAttempt {
+	stoppedByRequest := e.StopRequested != nil && e.StopRequested.Landed
+	if e.Blocker == "" && e.Failure != "" && e.Class != ClassUnstartedRun && e.Class != ClassUnstartedAttempt && !stoppedByRequest {
 		rendered.WriteString(indented("Died holding its change; the work item carries no blocker for it", e.Failure))
 	}
+	rendered.WriteString(e.renderStopRequested())
 	if e.CheckStageStop != "" {
 		rendered.WriteString(indented("Check stage stopped by load", e.CheckStageStop))
 		if e.CheckStageFailure != "" {
@@ -1665,6 +1729,30 @@ func (e Entry) Render() string {
 	rendered.WriteString(e.renderDecisions())
 	rendered.WriteString(e.renderEarlier())
 	return rendered.String()
+}
+
+// renderStopRequested says what became of a stop asked of this run. A stop that
+// landed is what ended the run, and where it was decided it names the item that
+// supersedes this one. A stop that did not land is said beside what actually
+// stopped the run, and says outright that it decides nothing about this
+// stoppage, because the stop was recorded against a run in flight and this is a
+// stoppage it never reached.
+func (e Entry) renderStopRequested() string {
+	stop := e.StopRequested
+	if stop == nil {
+		return ""
+	}
+	if stop.Landed {
+		var rendered strings.Builder
+		rendered.WriteString(indented("Stopped in flight", stop.Says()))
+		if superseded := strings.TrimSpace(stop.SupersededBy); superseded != "" {
+			rendered.WriteString(indented("Superseded", fmt.Sprintf(
+				"%s is superseded by %s, so it is not pulled again while this run's change is preserved", e.item(), superseded)))
+		}
+		return rendered.String()
+	}
+	return indented("A stop was asked for and never reached", stop.Says()+
+		"; the run passed its last boundary before the request was read and stopped for the reason above instead, so the stop decides nothing about this stoppage and it is a question of its own")
 }
 
 // renderEarlier puts every earlier docketing of the same run beneath everything

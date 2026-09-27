@@ -166,6 +166,13 @@ type DocketReruns interface {
 	Claimed(workItemID string) ([]runstate.Rerun, error)
 }
 
+// DocketStops is the stops asked of runs, which a stopped run's entry carries
+// where one was asked and the run stopped for some other reason before reading
+// it. It is satisfied by *runstate.Store.
+type DocketStops interface {
+	StopRequested(runID string) (runstate.StopRequest, bool, error)
+}
+
 // Docketer makes and reads the triage docket. It has no tracker, no worktree
 // access, and no forge access, and that is the point: docketing is a statement
 // that work stopped, assembled from evidence somebody already recorded. What to
@@ -184,6 +191,11 @@ type Docketer struct {
 	// one whose decision is still waiting are opposite answers to the question the
 	// development manager is about to ask.
 	Reruns DocketReruns
+	// Stops is where a stop asked of a run is read, so a run that stopped for
+	// another reason after one was asked says so on its entry. Optional: a
+	// docketer with none dockets such a stoppage without the stop beside it, which
+	// is still an undecided stoppage, only one missing half of its account.
+	Stops DocketStops
 	// Caps are the ceilings the guards refuse against, as the caller assembled
 	// them for every other reader of the same record. They are reported beside
 	// what has been spent, because a count with no ceiling beside it says nothing
@@ -648,6 +660,17 @@ func (d Docketer) RecordDecidedStop(state runstate.State, request runstate.StopR
 	if err != nil {
 		return err
 	}
+	// The stop that ended the run, with the item doing its work instead where she
+	// named one: that is what says the item is superseded and by what, which is
+	// why the pull holds it while this run's change is preserved.
+	entry.StopRequested = &triage.RequestedStop{
+		By:           singleLine(request.StoppedBy(), triage.MaxMessageBytes),
+		At:           request.RequestedAt.UTC(),
+		Reason:       singleLine(strings.TrimSpace(request.Reason), triage.MaxMessageBytes),
+		Decision:     strings.TrimSpace(request.Decision),
+		Landed:       true,
+		SupersededBy: d.supersededBy(state),
+	}
 	if _, err := d.Docket.RecordOnce(entry); err != nil {
 		return err
 	}
@@ -663,6 +686,22 @@ func (d Docketer) RecordDecidedStop(state runstate.State, request runstate.StopR
 		ClosedAt:      at.UTC(),
 	})
 	return err
+}
+
+// supersededBy is the item a stop decision about this run named as doing its
+// work instead, read off the item's triage record, and empty where there is no
+// such decision or the record cannot be read: the stop is docketed either way,
+// and the reason it carries still names the superseding item where she gave one.
+func (d Docketer) supersededBy(state runstate.State) string {
+	counters, err := d.Decisions.Counters(state.WorkItemID)
+	if err != nil {
+		return ""
+	}
+	decision, decided := counters.DecisionOf(state.RunID)
+	if !decided || decision.Decision != runstate.TriageDecisionStop {
+		return ""
+	}
+	return strings.TrimSpace(decision.SupersededBy)
 }
 
 // settledPublicationDecision is the word a closure the harness makes carries, so
@@ -1505,7 +1544,45 @@ func stoppedAt(state runstate.State) time.Time {
 }
 
 func (d Docketer) stoppedRunEntry(state runstate.State, now time.Time, found triage.Found) (triage.Entry, error) {
-	return d.stoppedRunEntryCarrying(state, now, found, docketFailure(state, found))
+	entry, err := d.stoppedRunEntryCarrying(state, now, found, docketFailure(state, found))
+	if err != nil {
+		return triage.Entry{}, err
+	}
+	entry.StopRequested = d.requestedStop(state)
+	return entry, nil
+}
+
+// requestedStop is a stop asked of a run whose stoppage this entry records, and
+// whether that stop is what ended it.
+//
+// Two stoppages carry one. A run that honored the stop ends cancelled — an
+// operator's `/stop` does, and is then settled into a durable blocker and
+// docketed here — and the stop landed. A run that passed its last boundary
+// before the request was read ended some other way, a failed review or a check,
+// and the stop never reached it: the entry carries it beside what actually
+// stopped the run, so whoever decides the stoppage knows the stop was asked, and
+// knows it decides nothing here. Cancelled is what a stop that landed leaves, and
+// a run that failed or was blocked on its own account is not cancelled, so the
+// status is what tells the two apart.
+//
+// A request that cannot be read is left off rather than failing the entry: the
+// stoppage is undecided either way, and an entry refused over the half of its
+// account that could not be read is a stoppage nobody is shown.
+func (d Docketer) requestedStop(state runstate.State) *triage.RequestedStop {
+	if d.Stops == nil {
+		return nil
+	}
+	request, requested, err := d.Stops.StopRequested(state.RunID)
+	if err != nil || !requested {
+		return nil
+	}
+	return &triage.RequestedStop{
+		By:       singleLine(request.StoppedBy(), triage.MaxMessageBytes),
+		At:       request.RequestedAt.UTC(),
+		Reason:   singleLine(strings.TrimSpace(request.Reason), triage.MaxMessageBytes),
+		Decision: strings.TrimSpace(request.Decision),
+		Landed:   state.Status == runstate.StatusCancelled,
+	}
 }
 
 // stoppedRunEntryCarrying is stoppedRunEntry with the failure the entry carries

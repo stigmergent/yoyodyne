@@ -589,6 +589,9 @@ func docketerFrom(parts components) *orchestrator.Docketer {
 		// guard would enforce is never one the docket shows as absent.
 		Decisions: parts.store.Triage(),
 		Reruns:    parts.store.Reruns(),
+		// The stops asked of runs, so a run that stopped for another reason after
+		// one was asked is docketed saying so, as a stoppage the stop did not decide.
+		Stops: parts.store,
 		// The same caps the conversation's budgets spend against, assembled once,
 		// so what an entry says an item has left and what refuses the next
 		// decision about it are one set of numbers.

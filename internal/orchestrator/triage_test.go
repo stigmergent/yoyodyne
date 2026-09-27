@@ -233,6 +233,7 @@ func docketerOverStore(docket Docket, store *runstate.Store, cfg config.Config) 
 		Runs:      store,
 		Decisions: store.Triage(),
 		Reruns:    store.Reruns(),
+		Stops:     store,
 		Caps:      TriageCaps(cfg.Execution, cfg.Triage),
 		Triage:    cfg.Triage,
 	}

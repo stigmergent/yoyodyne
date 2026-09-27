@@ -70,8 +70,9 @@ type DecidedStop struct {
 // the other decisions keep, and for the reason that order exists: whichever write
 // fails must leave the record saying no more than happened. A decision recorded
 // and then not carried out would stand on the item's triage record against a run
-// that goes on, and whatever stoppage that run later reached would read as
-// already decided. Nor can it be taken back afterwards, because recording it
+// that goes on, as the item's latest decision, for a stop that never happened.
+// (Whatever stoppage that run later reached is still read as undecided: a stop
+// decides only the stoppage it causes.) Nor can it be taken back afterwards, because recording it
 // supersedes whatever stood about the run before — a repair grant being
 // re-entered, with the rounds it reserved released — and removing the stop would
 // not put that back. The request does not have that problem in either
