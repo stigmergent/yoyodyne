@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 const (
@@ -1499,6 +1500,19 @@ func TestTheContractOffersTheOutOfScopeDispositionBesideTheSeverity(t *testing.T
 			if !strings.Contains(contract, want) {
 				t.Errorf("the %v contract is missing %q", scope, want)
 			}
+		}
+	}
+}
+
+// Both review scopes carry the rule that a decision the role's authority covers
+// is made and reported afterwards rather than put to the operator for approval:
+// a verdict is the reviewer's decision, and a persona can drop what it says.
+func TestTheContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
+	t.Parallel()
+
+	for _, scope := range []Scope{ScopeWorkItem, ScopeBranch} {
+		if !strings.Contains(reviewSystemPrompt(scope, ""), terms.DecideAndReport) {
+			t.Errorf("the %v contract does not carry the rule against routing approvals to the operator", scope)
 		}
 	}
 }

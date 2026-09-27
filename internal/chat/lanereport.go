@@ -244,7 +244,9 @@ You keep one report on your lane: an executive summary of its progress, what rem
 
 All three fields are required; an empty list says nothing remains or nothing is blocking. "waiting_on" is who has to move: ` + quotedLaneReportMovers() + `. "cites" is the identifier of a record you already raised about the blocker — a blocker you have asked nobody about is not yet a blocker, so raise it first. The whole report is held to 16 KiB and redacted before it is written, and a block that is malformed, too large, missing a field, or naming anybody else as a mover is refused whole: nothing is written, the report before it stands, and you are told why on your next turn. Never put a secret in it.
 
-The report is read by people who do not know your lane's items by number. ` + terms.ItemNaming
+The report is read by people who do not know your lane's items by number. ` + terms.ItemNaming + `
+
+A blocker waiting on the operator for an approval is not a blocker to carry from pass to pass: it is a defect in this system, and you report it as one. ` + terms.DecideAndReport
 
 // quotedLaneReportMovers names the movers a blocker may wait on, as the contract
 // says them.

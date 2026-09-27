@@ -491,7 +491,11 @@ func TestEveryContractNamesWorkItemsByWhatTheyAre(t *testing.T) {
 // made by the role and reported afterwards, that an approval routed to the
 // operator is a defect, and how to tell the one decision that is theirs. It is
 // in the contract rather than left to the persona because a project's own
-// persona can drop it.
+// persona can drop it. The program manager's lane report contract states it
+// again, because a blocker waiting on the operator's approval is exactly what
+// the report would otherwise carry from pass to pass. The developer and
+// reviewer run contracts are held to it in their own packages, and the sweep
+// contract every recurring task and pass ends on in its own.
 func TestEveryContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
 	t.Parallel()
 
@@ -500,5 +504,8 @@ func TestEveryContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) 
 		if !strings.Contains(authority.Contract, terms.DecideAndReport) {
 			t.Errorf("%s contract does not carry the rule against routing approvals to the operator", role)
 		}
+	}
+	if !strings.Contains(laneReportContract, terms.DecideAndReport) {
+		t.Error("the lane report contract does not carry the rule against routing approvals to the operator")
 	}
 }
