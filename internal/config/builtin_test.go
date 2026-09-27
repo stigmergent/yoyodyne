@@ -176,3 +176,49 @@ func namesWorkItemsByWhatTheyAre(text string) bool {
 	return strings.Contains(flat, "by what it is, with its identifier after it") &&
 		strings.Contains(flat, "an identifier alone is a defect")
 }
+
+// Every shipped persona tells its role that a decision its authority covers is
+// made by the role and reported to the operator afterwards, that an approval
+// routed to the operator is a defect, and the test that tells the one decision
+// that is the operator's -- a change of fundamental intent -- from everything
+// else. The operator's rule of 2026-09-26 is that asking him to approve
+// something, or approving it on his behalf, is a bug; a persona silent on it is
+// how the next role routes the next approval to him.
+func TestEveryShippedPersonaDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
+	t.Parallel()
+
+	loaded, err := loadBuiltinBundle(BuiltinV1)
+	if err != nil {
+		t.Fatalf("loadBuiltinBundle() error = %v", err)
+	}
+	shipped, err := loaded.shippedPersonas()
+	if err != nil {
+		t.Fatalf("shippedPersonas() error = %v", err)
+	}
+	if len(shipped) == 0 {
+		t.Fatal("the template ships no personas to check")
+	}
+	for _, personaPath := range shipped {
+		text, _, err := loaded.personas.load("persona", personaPath)
+		if err != nil {
+			t.Errorf("load %s: %v", personaPath, err)
+			continue
+		}
+		if !decidesAndReports(text) {
+			t.Errorf("%s does not say that a decision the role can make is made and reported afterwards, that an approval routed to the operator is a defect, and how to tell a change of fundamental intent", personaPath)
+		}
+	}
+}
+
+// decidesAndReports reports whether text states the rule that a role makes the
+// decisions its authority covers and reports them afterwards, and the test for
+// the one decision that is the operator's, however its lines are wrapped.
+func decidesAndReports(text string) bool {
+	flat := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	return strings.Contains(flat, "report it") &&
+		strings.Contains(flat, "afterwards") &&
+		strings.Contains(flat, "an approval routed to") &&
+		strings.Contains(flat, "is a defect") &&
+		strings.Contains(flat, "fundamental intent") &&
+		strings.Contains(flat, "admit any work they refused before, or refuse any work they admitted")
+}

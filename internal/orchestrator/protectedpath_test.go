@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // trackerExport is the path `yoyo run` declares as the export a worktree is
@@ -852,5 +853,17 @@ func TestAResumedRunIsHandedBackTheRefusalItWasRecordedWith(t *testing.T) {
 	}
 	if state.PathRefusal != nil {
 		t.Fatalf("integrated run kept the refusal it repaired: %#v", state.PathRefusal)
+	}
+}
+
+// The developer run's own contract carries the rule that a decision the role's
+// authority covers is made and reported afterwards rather than put to the
+// operator for approval: it is the contract a developer actually works under,
+// and a project's persona can drop what the persona says.
+func TestTheDeveloperContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(developerContract(scratchForTest, nil), terms.DecideAndReport) {
+		t.Fatal("the developer contract does not carry the rule against routing approvals to the operator")
 	}
 }

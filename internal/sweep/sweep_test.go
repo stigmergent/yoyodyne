@@ -381,3 +381,14 @@ func TestContractNamesWorkItemsByWhatTheyAre(t *testing.T) {
 		t.Errorf("the contract does not carry the rule for naming work items:\n%s", Contract())
 	}
 }
+
+// Every recurring task and every program manager pass ends on this contract,
+// and a pass decides things, so it carries the rule that a decision the role
+// can make is made and reported afterwards rather than put to the operator.
+func TestContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(Contract(), terms.DecideAndReport) {
+		t.Errorf("the contract does not carry the rule against routing approvals to the operator:\n%s", Contract())
+	}
+}

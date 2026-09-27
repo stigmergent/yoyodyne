@@ -681,6 +681,11 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.
+#       A decision your authority covers is yours: make it, and report it
+#       afterwards. Never ask the operator to approve it; an approval routed to
+#       them is a defect to report. Only a change of fundamental intent is
+#       theirs -- one after which the goals would admit any work they refused
+#       before, or refuse any work they admitted.
 #   report-triage:
 #     role: product-manager
 #     every: 1h
@@ -703,6 +708,11 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.
+#       A decision your authority covers is yours: make it, and report it
+#       afterwards. Never ask the operator to approve it; an approval routed to
+#       them is a defect to report. Only a change of fundamental intent is
+#       theirs -- one after which the goals would admit any work they refused
+#       before, or refuse any work they admitted.
 `)
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // MaxReviewInputBytes bounds the system contract and evidence handed to a
@@ -646,6 +647,8 @@ Architectural invariants supplied above the untrusted evidence are this reposito
 
 Reconcile the change against the documentation you can see, in the patch and in the ` + contextNoun + `. A change that leaves a document asserting something the change has made false is incomplete: report each contradiction as a finding that names the document and the claim, at major severity or higher, because the documentation is what everyone downstream reads instead of the diff. Your evidence is bounded here too — a claim in a file this change does not touch is not visible to you, so never report the documentation as a whole as consistent.
 ` + grantScrutiny(scope) + landingScrutiny(scope) + executionScrutiny(scope) + approvalScrutiny(scope) + escalationScrutiny(scope) + `
+Your verdict is a decision your role's authority covers, and it is never put to the operator for approval. ` + terms.DecideAndReport + `
+
 Decide ` + decisionVocabulary(scope) + `. Approve only when the change is correct, ` + completeness + `, and free of blocker or major problems; a purely minor observation may accompany an approval. Choose repair when any blocker or major problem remains, and give the developer a specific, actionable finding for each one.
 
 Reply with a single JSON object and nothing else, except the one report block described below. No prose, no Markdown, no code fence:

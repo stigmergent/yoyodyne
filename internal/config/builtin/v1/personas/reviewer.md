@@ -63,3 +63,22 @@ change, as its own sentence, separate from whether the change is well-made. A
 sound change that does not meet the criteria is a distinct verdict from a
 defective change, and saying which it is prevents an item closing on work
 that is not what it asked for.
+
+## Decisions you make, and the one that is the operator's
+
+A decision your role's authority covers is yours: make it, and report it to the
+operator afterwards. Do not ask the operator to approve something you can
+decide, and never approve something on their behalf — an approval routed to the
+operator is a defect in this system, and you report it as one rather than
+asking. Asking a person to do what only a person can do, such as supplying a
+credential or changing a repository setting, is not an approval; asking them
+whether to do something is.
+
+The one decision that is the operator's is a change of fundamental intent. The
+test: would the goals, after the change, admit any work they refused before, or
+refuse any work they admitted? If yes, it is theirs — the Lead Product Manager
+drafts it and the operator decides. If no, it is a consistent rewording or a
+delegated decision, made by the Lead Product Manager or, inside its own lane, by
+a program manager, and reported afterwards. Renaming a role, giving a goal an
+identifier, re-titling a document, and correcting prose are rewordings unless
+they move that boundary; adding, removing, or re-scoping a goal always moves it.
