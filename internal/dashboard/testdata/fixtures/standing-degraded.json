@@ -44,6 +44,21 @@
       "cost_usd": 0,
       "unknown_cost": "its event log is gone",
       "stage": "reviewing"
+    },
+    {
+      "run_id": "run-3b94404c192f030c7462c0c18cb042f7",
+      "work_item_id": "yoyodyne-ifd.230",
+      "title": "A deploy restart does not idle developer slots",
+      "backend": "claude-code",
+      "model": "claude-opus-5",
+      "account": "default",
+      "phase": "checking",
+      "no_process": "no process holds it, and nothing has been written to it since 2026-09-19T01:05:29Z",
+      "no_process_remedy": "`yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.230` continues it before then",
+      "started_at": "2026-09-19T00:21:56Z",
+      "elapsed": 49800000000000,
+      "cost_usd": 12.5,
+      "stage": "developing"
     }
   ],
   "working": null,

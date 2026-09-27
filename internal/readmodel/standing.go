@@ -94,6 +94,16 @@ type Runs interface {
 	Price(workItemID string) (runstate.ItemPrice, error)
 }
 
+// RunPresence is whether a process can be found behind a run in flight, asked
+// without taking anything. It is an optional capability of Runs rather than a
+// member of it: every store the harness wires satisfies it, and a reading over
+// runs that cannot answer it reads every run as having a process, which is what
+// every reading did before it could be asked. It is satisfied by
+// *runstate.Store.
+type RunPresence interface {
+	Presence(state runstate.State, quiet time.Duration, now time.Time) (runstate.RunPresence, error)
+}
+
 // Conversations is the durable conversation state, and the observation that
 // says whether a turn is in flight. Both are needed and neither is enough: the
 // record says what the conversation is and how many turns it has had, and only
@@ -322,10 +332,22 @@ type RunningRun struct {
 	// because a run "checking" for forty minutes and a run fourteen minutes into
 	// a thirty-minute stage are the same phase and different facts, and the
 	// second is the one an operator watching a slow stage is reading for.
-	Checks    string        `json:"checks,omitempty"`
-	StartedAt time.Time     `json:"started_at"`
-	Elapsed   time.Duration `json:"elapsed"`
-	CostUSD   float64       `json:"cost_usd"`
+	Checks string `json:"checks,omitempty"`
+	// NoProcess says why no process can be found behind the run, and is empty
+	// where one can. A run's record says "running" until something writes its
+	// ending, and a process that dies writes nothing, so a run with no process is
+	// still in flight, still holding its slot, and still listed here — but the line
+	// says it is not running rather than printing the phase the dead process last
+	// wrote. It is read without taking the run's lease, from the holder stamp the
+	// lease keeps; see runstate.Store.Presence.
+	NoProcess string `json:"no_process,omitempty"`
+	// NoProcessRemedy is what ends such a run, which is not the same for every
+	// park: runstate.DeadRunRemedy, from the sweep's own rules. It is set exactly
+	// where NoProcess is.
+	NoProcessRemedy string        `json:"no_process_remedy,omitempty"`
+	StartedAt       time.Time     `json:"started_at"`
+	Elapsed         time.Duration `json:"elapsed"`
+	CostUSD         float64       `json:"cost_usd"`
 	// UnknownCost says why there is no figure rather than reporting one of zero: a
 	// run whose evidence cannot be read has not cost nothing.
 	UnknownCost string `json:"unknown_cost,omitempty"`
@@ -764,6 +786,15 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, string) {
 			// A run nothing has priced yet is stated as unpriced rather than as free.
 			// It is overwritten below by whatever the ledger actually says.
 			UnknownCost: "no priced invocation is recorded for it yet",
+		}
+		if presence, ok := sources.Runs.(RunPresence); ok {
+			// A reading that could not be made says nothing: the line then reads as it
+			// did before this could be asked, rather than calling a run dead on the
+			// strength of a stamp nobody could read.
+			if found, err := presence.Presence(state, DefaultDeadClaimThreshold, now); err == nil && !found.Found {
+				run.NoProcess = found.Says
+				run.NoProcessRemedy = runstate.DeadRunRemedy(state, DefaultDeadClaimThreshold)
+			}
 		}
 		price, err := sources.Runs.Price(state.WorkItemID)
 		if err != nil {

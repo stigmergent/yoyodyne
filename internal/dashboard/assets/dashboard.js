@@ -205,7 +205,13 @@
     return when.getFullYear() + "-" + pad(when.getMonth() + 1) + "-" + pad(when.getDate()) + " " + clock(iso);
   }
 
+  // A run with no process behind it is still in flight and still holds its
+  // slot, but the phase is only what the dead process last wrote, so the card
+  // says it is not running rather than printing that phase as work under way.
   function phaseOf(run) {
+    if (run.no_process) {
+      return "no process behind it, recorded as " + (run.phase || "no phase");
+    }
     if (run.resuming_integration) {
       return "approved, resuming integration";
     }
@@ -659,7 +665,7 @@
   // ---- section 3: the runs and conversations in flight ---------------------
 
   function runCard(run) {
-    var card = el("li", "card card-run");
+    var card = el("li", run.no_process ? "card card-run card-run-no-process" : "card card-run");
     var head = el("div", "card-head");
     head.appendChild(el("span", "card-kind", "developer run"));
     head.appendChild(el("span", "phase", phaseOf(run)));
@@ -676,6 +682,9 @@
     meta.appendChild(el("span", "sep", " · "));
     meta.appendChild(el("span", run.unknown_cost ? "spend spend-unknown" : "spend", spendOf(run)));
     card.appendChild(meta);
+    if (run.no_process) {
+      card.appendChild(el("p", "problem", "No process can be found behind this run: " + run.no_process + (run.no_process_remedy ? "; " + run.no_process_remedy : "") + "."));
+    }
     var where = provenance(run);
     if (where) {
       card.appendChild(el("p", "card-provenance", where));

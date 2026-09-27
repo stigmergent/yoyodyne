@@ -1901,7 +1901,8 @@ func TestAVanishedProcessThatDeliveredNothingReturnsItsGrant(t *testing.T) {
 		}},
 	}
 	clean := gitworktree.Observation{WorktreePresent: true, BranchExists: true, BranchCommit: "base"}
-	refusal := vanishedRefusal(&state, clean, now)
+	park := recordedPark{says: "the harness stopped its provider because it stalled", since: state.UpdatedAt}
+	refusal := vanishedRefusal(&state, clean, park, now)
 	if err := refusal.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -1918,7 +1919,7 @@ func TestAVanishedProcessThatDeliveredNothingReturnsItsGrant(t *testing.T) {
 	// A branch that moved past the base is a delivery, however clean the
 	// worktree is: the harness commits what a developer leaves before it advances.
 	committed := runstate.State{RunID: state.RunID, WorktreePath: state.WorktreePath, BaseCommit: "base", ProviderStop: runstate.ProviderStopStalled, UpdatedAt: state.UpdatedAt}
-	delivered := vanishedRefusal(&committed, gitworktree.Observation{WorktreePresent: true, BranchExists: true, BranchCommit: "ahead"}, now)
+	delivered := vanishedRefusal(&committed, gitworktree.Observation{WorktreePresent: true, BranchExists: true, BranchCommit: "ahead"}, park, now)
 	if delivered.Refused || delivered.GrantReturned {
 		t.Fatalf("refusal = %#v, want a round that delivered left spent", delivered)
 	}

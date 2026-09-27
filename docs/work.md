@@ -1391,7 +1391,13 @@ pass: the harness writes beside the run the same request your
 and the run honors it at its next provider-call boundary exactly as it honors
 yours — an invocation already streaming finishes first — ending cancelled with
 its branch and worktree preserved, and its developer slot free as its record
-goes terminal. The run's record, its ending on the item's notes, and the triage
+goes terminal. A run with no process behind it — parked on a dependency, say,
+with the process that parked it long gone — reaches no boundary, so the next
+[`yoyo reconcile`](operations.md#recovering-interrupted-runs) honours the stop
+in its place, at once, and ends the run exactly as it would have ended itself.
+Until the sweep honoured a dead run's stop (yoyodyne-ifd.428.49), nothing did: on 2026-09-27 her stop of run-3b94404c
+stood unread for most of a day over a run that had been dead since the evening
+before. The run's record, its ending on the item's notes, and the triage
 note her decision leaves all say who stopped it and why. What differs from your
 stop is the docket: yours hands nobody a decision and is docketed nowhere, while
 hers is docketed as the stopped run it is and closed by her decision in the same

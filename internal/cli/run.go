@@ -652,6 +652,10 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// leaves the merge queued.
 		Intake:   parts.intake,
 		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		// The operator's pause, read before a run parked on it is settled: while
+		// it stands the park is theirs, and only a lifted one nothing continued is
+		// settled as a run with no process behind it.
+		Holds: parts.holds,
 		// A run this sweep stops is docketed as it is settled, so a stoppage the
 		// process that made it never got to record still reaches the development
 		// manager.
