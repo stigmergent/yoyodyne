@@ -637,7 +637,9 @@ func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (Carr
 	if c.CheckStages == nil || !entry.HarnessContinuesChecks {
 		return CarryOutTask{}, false, nil
 	}
-	if _, decided := item.counters.DecisionOf(entry.RunID); decided {
+	// A stop or a decision to let the run finish was made about the run in
+	// flight, and decides nothing about the stoppage the bound later made.
+	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() {
 		return CarryOutTask{}, false, nil
 	}
 	due, err := c.CheckStages.Due(entry.RunID)

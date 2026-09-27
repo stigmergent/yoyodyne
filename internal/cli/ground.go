@@ -396,6 +396,63 @@ func conversationStops(parts components, role domain.AgentRole) chat.DecidedStop
 	return conversationDecidedStops{store: parts.store, productID: parts.config.Product.ID, clock: execution.RealClock{}}
 }
 
+// conversationInFlight wires the hand that dockets the Lead Product Manager's
+// decision about an item whose run is in flight, for her conversation and for no
+// other. The run is found from the harness's own records rather than taken from
+// anything she typed, and the entry is written to the same docket the
+// development manager's context is built from.
+func conversationInFlight(parts components, role domain.AgentRole) chat.InFlightDecisions {
+	if role != domain.RoleProductManager || parts.store == nil || parts.docket == nil {
+		return nil
+	}
+	return conversationInFlightDecisions{
+		store:    parts.store,
+		docketer: orchestrator.ProductDecisionDocketer{Docket: parts.docket, Clock: execution.RealClock{}},
+	}
+}
+
+// conversationInFlightDecisions finds an item's run in flight and dockets a
+// decision about it.
+type conversationInFlightDecisions struct {
+	store    *runstate.Store
+	docketer orchestrator.ProductDecisionDocketer
+}
+
+// InFlightRun reports the item's run in flight. Capacity lets one item have at
+// most one, since a pull never starts an item that has a run already in flight;
+// were there two, the one started last is the one named.
+func (d conversationInFlightDecisions) InFlightRun(_ context.Context, workItemID string) (string, bool, error) {
+	running, err := d.store.Incomplete()
+	if err != nil {
+		return "", false, fmt.Errorf("read the runs in flight: %w", err)
+	}
+	var latest *runstate.State
+	for index := range running {
+		state := &running[index]
+		if state.WorkItemID != workItemID {
+			continue
+		}
+		if latest == nil || state.StartedAt.After(latest.StartedAt) {
+			latest = state
+		}
+	}
+	if latest == nil {
+		return "", false, nil
+	}
+	return latest.RunID, true, nil
+}
+
+func (d conversationInFlightDecisions) Docket(_ context.Context, decision chat.InFlightDecision) (bool, error) {
+	state, err := d.store.Read(decision.RunID)
+	if err != nil {
+		return false, fmt.Errorf("read run %s: %w", decision.RunID, err)
+	}
+	if state.WorkItemID != decision.WorkItemID {
+		return false, fmt.Errorf("run %s was made for %s, not %s", decision.RunID, state.WorkItemID, decision.WorkItemID)
+	}
+	return d.docketer.RecordProductDecision(state, decision.Decision)
+}
+
 // conversationDecidedStops asks a run in flight to stop on the development
 // manager's behalf. Like the operator's stop it never adopts the run and never
 // takes its lease: the process working on the run is the only thing entitled to

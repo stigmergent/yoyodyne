@@ -443,6 +443,9 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		IntakeHolds:   intake,
 		Sessions:      watch,
 		Reports:       reports,
+		// The triage docket, so the channel names an unanswered product decision
+		// about a run in flight exactly as the terminal does.
+		Docket: slackDocket(stateRoot, resolved.Config.Product.ID),
 		// The refusal log and the agents' configuration, read together for whether
 		// the provider is holding every role at once. The feed says that hold again
 		// while it stands, through these same sources, and the lines carry it as
@@ -1049,4 +1052,15 @@ Options:
                      `+"`yoyo work --watch`"+` as it polls, and `+"`yoyo reconcile`"+` on every
                      sweep -- and each takes the threshold under this name. The
                      sink says what they record and no longer decides it.`)
+}
+
+// slackDocket is the triage docket the sink's standing reads, or none where it
+// cannot be opened: a reading without one names no product decision rather than
+// refusing the whole standing.
+func slackDocket(stateRoot string, productID domain.ProductID) readmodel.Docket {
+	store, err := runstate.NewDocketStore(stateRoot, productID)
+	if err != nil {
+		return nil
+	}
+	return store
 }

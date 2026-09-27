@@ -32,6 +32,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // AttentionKind is what sort of record one attention entry is about. The set
@@ -81,6 +82,11 @@ const (
 	// or a stopped run the development manager escalated to him. It is always
 	// named and never counted into the remainder; see Named.
 	AttentionOperatorAction AttentionKind = "operator-action"
+	// AttentionProductDecision is the Lead Product Manager's decision that an
+	// item whose run is in flight is superseded, narrowed, or to be retired,
+	// which the development manager has not yet answered by stopping the run or
+	// letting it finish.
+	AttentionProductDecision AttentionKind = "product-decision"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -100,6 +106,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionStall,
 		AttentionHeldWork,
 		AttentionOperatorAction,
+		AttentionProductDecision,
 	}
 }
 
@@ -323,6 +330,10 @@ type Attention struct {
 	// OperatorAction is the finding whole, on an AttentionOperatorAction entry;
 	// its key is the ID.
 	OperatorAction *OperatorAction `json:"operator_action,omitempty"`
+	// ProductDecision is the Lead Product Manager's decision whole, on an
+	// AttentionProductDecision entry; the run it is about is the ID and its item
+	// is WorkItemID.
+	ProductDecision *triage.ProductDecision `json:"product_decision,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -499,6 +510,11 @@ func (a Attention) What() string {
 		if a.OperatorAction != nil {
 			return a.OperatorAction.Says()
 		}
+	case AttentionProductDecision:
+		if a.ProductDecision != nil {
+			return fmt.Sprintf("%s while run %s is in flight, decided by %s: %s",
+				a.ProductDecision.Says(a.WorkItemID), a.ID, a.ProductDecision.DecidedBy, singleLine(a.ProductDecision.Reason, maxRefusalBytes))
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -576,6 +592,8 @@ func (a Attention) Whose() string {
 		if a.OperatorAction != nil {
 			return a.Mover.Possessive() + " — only a person can act on this; " + a.OperatorAction.Ends
 		}
+	case AttentionProductDecision:
+		return a.Mover.Possessive() + " — it is on her docket: \"stop\" stops the run with its change preserved and \"proceed\" lets it finish, and the run goes on until she records one"
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }
@@ -740,6 +758,19 @@ func heldWorkAttention(awaiting HeldWait, items int) Attention {
 		mover = MoverHarness
 	}
 	return Attention{Kind: AttentionHeldWork, Mover: mover, HeldWork: &HeldWork{Awaiting: awaiting, Count: items}}
+}
+
+// productDecisionAttention is a product decision about a run in flight nobody
+// has answered, as the attention line carries it.
+func productDecisionAttention(entry triage.Entry) Attention {
+	decided := *entry.ProductDecision
+	return Attention{
+		Kind:            AttentionProductDecision,
+		ID:              entry.RunID,
+		Mover:           MoverDevelopmentManager,
+		WorkItemID:      entry.WorkItemID,
+		ProductDecision: &decided,
+	}
 }
 
 // carriedItemAttention is an admitted item marked for a conversation, as the

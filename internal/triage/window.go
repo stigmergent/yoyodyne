@@ -172,9 +172,11 @@ func (e Entry) CarryOutStopped() bool {
 // Critical reports an entry that must not wait its turn in the walk: a role
 // having said the item cannot be met as it stands, which parks the item until the
 // development manager decides, and a decision of hers the harness was stopped
-// carrying out by a gate that will not clear on its own.
+// carrying out by a gate that will not clear on its own. A product decision about
+// a run in flight is the third: the run spends for as long as the question waits,
+// so it is not left behind older stoppages that spend nothing while they wait.
 func (e Entry) Critical() bool {
-	if e.Class == ClassEscalation {
+	if e.Class == ClassEscalation || e.Class == ClassProductDecision {
 		return true
 	}
 	return e.CarryOutStopped() && !e.CarryOut.Waiting

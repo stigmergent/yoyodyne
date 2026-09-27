@@ -231,6 +231,7 @@ var trackerActionArguments = map[string][]string{
 	actionClose:        {},
 	actionRetire:       {},
 	actionTriage:       {"run", "decision", "budget", "superseded_by"},
+	actionInFlight:     {"decision", "superseded_by"},
 	actionHandle:       {"report", "requests", "needs"},
 	actionBrake:        {"decision"},
 }
@@ -271,7 +272,11 @@ var trackerCapabilities = map[string]capability.Capability{
 	actionClose:        capability.BacklogAdmit,
 	actionRetire:       capability.BacklogAdmit,
 	actionTriage:       capability.WorkTriage,
-	actionHandle:       capability.BacklogAdmit,
+	// Deciding that admitted work is superseded, narrowed, or to be retired is
+	// admission run backwards, as closing and retiring are; what it decides about
+	// the run in flight is nothing, which is the development manager's.
+	actionInFlight: capability.BacklogAdmit,
+	actionHandle:   capability.BacklogAdmit,
 	// Deciding the brake's hold is deciding what becomes of work that stopped
 	// moving, one level up: the same authority, held by the same role.
 	actionBrake: capability.WorkTriage,
@@ -305,7 +310,7 @@ var laneCapabilities = map[string]capability.Capability{
 var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
-	actionClose, actionRetire, actionTriage, actionHandle, actionBrake,
+	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -450,7 +455,10 @@ type TrackerAction struct {
 	// Decision is what triage decided, from the fixed vocabulary in triage.go. It
 	// is a named decision rather than prose because the harness acts on it — a
 	// repair, a re-run, and a re-arm each spend a budget, and an escalation
-	// blocks the item — and prose is what "reason" carries beside it.
+	// blocks the item — and prose is what "reason" carries beside it. On an
+	// "inflight" it is the Lead Product Manager's decision about the item, from
+	// triage.ProductDecisionVocabulary, and on a "brake" the decision about the
+	// hold.
 	Decision string `json:"decision,omitempty"`
 	// Budget is the cap a crossing decision crosses, named in the vocabulary the
 	// refusal names. It is taken by that decision and by nothing else: a cap is
@@ -458,9 +466,10 @@ type TrackerAction struct {
 	// decision would be a budget raised by whoever asked to spend it.
 	Budget string `json:"budget,omitempty"`
 	// SupersededBy is the work item doing the work instead, on a stop decision
-	// whose run was superseded. It is taken by that decision and by nothing else,
-	// and it is optional there: a run narrowed or launched by mistake was not
-	// superseded by anything.
+	// whose run was superseded and on the Lead Product Manager's decision about
+	// work in flight. It is optional on the stop and on a narrowing or a
+	// retirement, since a run narrowed or launched by mistake was not superseded
+	// by anything, and required on a supersession.
 	SupersededBy string `json:"superseded_by,omitempty"`
 	// Reason is why this is being done. It is required on everything that
 	// changes something: the operator reads the queue afterwards and is owed the
@@ -1063,6 +1072,8 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, a.repairProblems()...)
 	case actionTriage:
 		problems = append(problems, a.triageProblems()...)
+	case actionInFlight:
+		problems = append(problems, a.inFlightProblems()...)
 	case actionHandle:
 		switch reported := strings.TrimSpace(a.Report); {
 		case reported == "":
@@ -1582,6 +1593,8 @@ func refuseWhenClosed(action, id, status string) string {
 		// nobody asked for. A note about what was learned is still worth writing,
 		// which is what "update" is for.
 		return fmt.Sprintf("%s is closed, so what becomes of the work that stopped is no longer a decision; nothing was recorded, and a note about it is what \"update\" is for", id)
+	case actionInFlight:
+		return fmt.Sprintf("%s is closed and has left the backlog, so there is no work in flight on it to decide about; nothing was recorded", id)
 	default:
 		return ""
 	}
@@ -1930,6 +1943,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.carryOutRepair(ctx, outcome)
 	case actionTriage:
 		s.carryOutTriage(ctx, outcome)
+	case actionInFlight:
+		s.carryOutInFlightDecision(ctx, outcome)
 	case actionHandle:
 		s.recordReportHandling(ctx, outcome)
 	case actionBrake:

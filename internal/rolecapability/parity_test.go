@@ -198,8 +198,16 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // sets one. A label is one of the item's own fields, so it is held under the
 // same capability as updating the item, which is why the development manager
 // has it too.
+//
+// The product manager's `inflight` hands the development manager her decision
+// that an item whose run is in flight is superseded, narrowed, or to be retired.
+// It is the operator's 2026-09-26 rule that a hand step routed to a person is a
+// defect, applied to the relay the operator's assistant made by hand on
+// 2026-09-27 (yoyodyne-ifd.428.40). It decides nothing about the run, which
+// stays the development manager's, and is held under the same capability as
+// retiring, which is admission run backwards.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label"},
+	domain.RoleProductManager:     {"repair", "label", "inflight"},
 	domain.RoleDevelopmentManager: {"brake", "label"},
 }
 

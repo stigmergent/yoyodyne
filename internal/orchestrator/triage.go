@@ -307,6 +307,16 @@ func (d Docketer) Build() (DocketBuild, error) {
 			}
 		}
 	}
+	byID := make(map[string]runstate.State, len(recorded))
+	for _, state := range recorded {
+		byID[state.RunID] = state
+	}
+	// A product decision whose run has ended with nothing else docketed about it
+	// has no run left to stop, so it is settled before the docket is read for
+	// somebody to decide from. See productdecision.go.
+	if _, err := d.settleEndedProductDecisions(byID, now); err != nil {
+		problems = append(problems, err)
+	}
 	entries, err := d.Docket.List()
 	if err != nil {
 		problems = append(problems, fmt.Errorf("read the triage docket: %w", err))
@@ -334,6 +344,9 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// docketed again tomorrow folds the same way.
 	live := triage.Fold(open)
 	d.lookAgain(live, recorded)
+	// Where a run a product decision is about stands now, which is what she
+	// decides between stopping it and letting it finish from.
+	joinProductDecisions(live, byID, now)
 	return DocketBuild{Entries: live, Added: added, Closed: closed + unlisted, Folded: len(open) - len(live)}, errors.Join(problems...)
 }
 

@@ -597,6 +597,11 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewReportStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Reports = store
 	}
+	// The triage docket, for the Lead Product Manager's decisions about runs in
+	// flight that the development manager has not yet answered.
+	if store, err := runstate.NewDocketStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.Docket = store
+	}
 	if store, err := runstate.NewUsageLimitStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.UsageLimits = store
 	}

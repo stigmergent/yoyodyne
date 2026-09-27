@@ -124,8 +124,49 @@ func (s *Session) carryOutStop(ctx context.Context, outcome *TrackerOutcome, wor
 		s.settleTrackerNote(ctx, outcome, workItemID, note, "the stop recorded on the item")
 		return
 	}
-	outcome.applied("asked run %s on %s to stop; it stops at its next boundary with its branch and worktree preserved, frees its developer slot as it ends, and is docketed as a stoppage you have already decided",
-		runID, workItemID)
+	outcome.applied("asked run %s on %s to stop; it stops at its next boundary with its branch and worktree preserved, frees its developer slot as it ends, and is docketed as a stoppage you have already decided%s",
+		runID, workItemID, s.closeDocketEntry(ctx, decisionStop, runID, action.Reason))
+}
+
+// carryOutProceed records that a run in flight is to finish, which is the other
+// answer to the Lead Product Manager's decision about its item. Nothing is asked
+// of the run: it goes on exactly as it would have, and what the decision leaves
+// is the record that she looked and chose not to stop it — on the item's triage
+// record, in its notes, and as the closure of the docket entry that put the
+// question to her.
+//
+// The run has to be in flight, for the reason a stop's has: letting a run that
+// has already ended finish would record a decision about a run that no longer
+// exists, over whatever stoppage it left.
+func (s *Session) carryOutProceed(ctx context.Context, outcome *TrackerOutcome, workItemID, runID string) {
+	action := outcome.Action
+	if s.options.Stops == nil {
+		outcome.fail(errors.New("no way to read whether a run is in flight is wired to this conversation, so nothing was recorded"))
+		return
+	}
+	if err := s.options.Stops.Stoppable(ctx, runID); err != nil {
+		outcome.refused(err)
+		return
+	}
+	if _, err := s.recordTriageDecision(ctx, workItemID, runstate.TriageDecision{
+		Decision:     decisionProceed,
+		RunID:        runID,
+		Reason:       action.Reason,
+		DecidedBy:    RoleTitle(s.state.Role),
+		Conversation: s.state.ConversationID,
+		Turn:         s.state.Turns,
+	}); err != nil {
+		outcome.fail(fmt.Errorf("that run %s on %s is to finish was not recorded on the item's triage record, and the run goes on either way: %w", runID, workItemID, err))
+		return
+	}
+	note := s.trackerProvenance(triageVerbs[decisionProceed]+", run "+runID, action.Reason)
+	if _, err := s.options.Tracker.Update(ctx, workItemID, beads.WorkItemChange{AppendNotes: note}); err != nil {
+		outcome.fail(err)
+		s.settleTrackerNote(ctx, outcome, workItemID, note, "the decision recorded on the item")
+		return
+	}
+	outcome.applied("recorded that run %s on %s is to finish; nothing is asked of it, and it is reviewed and promoted as it would have been%s",
+		runID, workItemID, s.closeDocketEntry(ctx, decisionProceed, runID, action.Reason))
 }
 
 // stopDecisionReason is the reasoning a stop carries to the run, with the item

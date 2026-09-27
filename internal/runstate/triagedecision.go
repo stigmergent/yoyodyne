@@ -59,6 +59,12 @@ const (
 	// exactly as the operator's stop does, at its next boundary with its change
 	// preserved, and the stoppage that leaves is already decided.
 	TriageDecisionStop = "stop"
+	// TriageDecisionProceed lets a run in flight finish. It answers the Lead
+	// Product Manager's decision that the run's item is superseded, narrowed, or
+	// to be retired, where the development manager judges the run worth finishing
+	// anyway: nothing is asked of the run, and the decision is the record that she
+	// looked and chose not to stop it. Like a stop, it decides no stoppage.
+	TriageDecisionProceed = "proceed"
 )
 
 // TriageDecisionVocabulary lists the decisions in the order the development
@@ -67,7 +73,7 @@ func TriageDecisionVocabulary() []string {
 	return []string{
 		TriageDecisionRepair, TriageDecisionRerun, TriageDecisionRescope,
 		TriageDecisionRearm, TriageDecisionWait, TriageDecisionEscalate,
-		TriageDecisionStop,
+		TriageDecisionStop, TriageDecisionProceed,
 	}
 }
 
@@ -192,7 +198,7 @@ func (d TriageDecision) Cite() string {
 
 // Describe says what one decision was, for whoever is reading an item's record.
 func (d TriageDecision) Describe() string {
-	if d.Decision == TriageDecisionStop {
+	if d.InFlight() {
 		described := fmt.Sprintf("%q of run %s in flight, %s: %s",
 			d.Decision, d.RunID, d.Cite(), strings.TrimSpace(d.Reason))
 		if superseded := strings.TrimSpace(d.SupersededBy); superseded != "" {
@@ -202,6 +208,15 @@ func (d TriageDecision) Describe() string {
 	}
 	return fmt.Sprintf("%q on the stopped work of run %s, %s: %s",
 		d.Decision, d.RunID, d.Cite(), strings.TrimSpace(d.Reason))
+}
+
+// InFlight reports a decision made about a run that had not stopped: a stop, or
+// letting the run finish. Neither decides a stoppage, because neither was made
+// about one: a stop decides only the stoppage it causes, which is docketed
+// already closed by it, and a run let finish that stops anyway reached a
+// stoppage nobody has looked at.
+func (d TriageDecision) InFlight() bool {
+	return d.Decision == TriageDecisionStop || d.Decision == TriageDecisionProceed
 }
 
 // Spends reports a decision that buys another attempt at work that already
@@ -251,7 +266,8 @@ func (c TriageCounters) LatestDecision() (TriageDecision, bool) {
 // shape, so the docket's copy of the counters and a surface reading the ledger
 // itself are reading the same facts rather than each deriving their own.
 //
-// A stop is not counted as deciding anything here. It is recorded against a run
+// A stop, or a decision to let a run finish, is not counted as deciding anything
+// here. A stop is recorded against a run
 // in flight, and the stoppage it decides is the one it causes, which is docketed
 // already closed by it. A run that passed its last boundary before the stop was
 // read and then stopped for another reason reached a stoppage the stop was never
@@ -259,7 +275,7 @@ func (c TriageCounters) LatestDecision() (TriageDecision, bool) {
 func (c TriageCounters) Standing(runID string) triage.Standing {
 	decision, decided := c.DecisionOf(runID)
 	return triage.Standing{
-		Decided:          decided && decision.Decision != TriageDecisionStop,
+		Decided:          decided && !decision.InFlight(),
 		Spends:           decision.Spends(),
 		Repair:           decision.Decision == TriageDecisionRepair,
 		GrantOutstanding: c.GrantOutstanding(),
@@ -364,7 +380,7 @@ func validTriageDecision(decision string) error {
 	switch decision {
 	case TriageDecisionRepair, TriageDecisionRerun, TriageDecisionRescope,
 		TriageDecisionRearm, TriageDecisionWait, TriageDecisionEscalate,
-		TriageDecisionStop:
+		TriageDecisionStop, TriageDecisionProceed:
 		return nil
 	default:
 		return fmt.Errorf("%q is not a triage decision; the decisions are %s",

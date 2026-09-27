@@ -124,6 +124,10 @@ const (
 	// narrowed, or mis-launched, with its change preserved. It names a run that
 	// has not stopped, which is the one way it differs from every decision above.
 	decisionStop = runstate.TriageDecisionStop
+	// decisionProceed lets a run in flight finish, answering the Lead Product
+	// Manager's decision that its item is superseded, narrowed, or to be retired
+	// where the run is worth finishing anyway. It asks nothing of the run.
+	decisionProceed = runstate.TriageDecisionProceed
 	// decisionCross raises one of the item's caps to just past what the item has
 	// spent against it, on this role's own delegated authority, so a decision the
 	// cap refused becomes one that can be recorded. It buys no attempt and spends
@@ -175,6 +179,10 @@ var triageSettles = map[string]triageSettlement{
 	decisionRearm:    {classes: []triage.Class{triage.ClassPublication}},
 	decisionWait:     {classes: []triage.Class{triage.ClassPublication}, revisit: true},
 	decisionEscalate: {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
+	// The two decisions about a run in flight answer the Lead Product Manager's
+	// decision about it, which is the one entry a run has before it stops.
+	decisionStop:    {classes: []triage.Class{triage.ClassProductDecision}},
+	decisionProceed: {classes: []triage.Class{triage.ClassProductDecision}},
 }
 
 // runEntryClasses are the docket entries a decision about a run answers: what a
@@ -205,6 +213,7 @@ var triageVerbs = map[string]string{
 	decisionWait:     "Triaged: waiting, because the forge still has it",
 	decisionEscalate: "Escalated to the operator by triage",
 	decisionStop:     "Triaged: stopped in flight, with its change preserved",
+	decisionProceed:  "Triaged: left to finish in flight",
 	// The crossing's own sentence is built where it is recorded rather than taken
 	// from here, because which cap was crossed and which of the five crossings this
 	// was are the whole of what makes the note answerable. This is the fallback
@@ -560,6 +569,10 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	}
 	if decision == decisionStop {
 		s.carryOutStop(ctx, outcome, id, run)
+		return
+	}
+	if decision == decisionProceed {
+		s.carryOutProceed(ctx, outcome, id, run)
 		return
 	}
 	spent, err := s.recordTriageDecision(ctx, id, runstate.TriageDecision{
