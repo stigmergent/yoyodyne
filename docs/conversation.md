@@ -2131,7 +2131,9 @@ held to two more, read from the forge's checks under the promotion lease: the
 request's head has to be level with its target, and no check on its head may be
 failing. Each refusal names its gate, and a reading of the checks that could
 not be made refuses too. A `rerun` decision is the other answer, and hands the
-change back for a fresh run. A watching `yoyo work` session carries the re-arm
+change back for a fresh run; once it is carried out the prior run's publication
+is marked handed back and nothing names it as waiting any more. A request the
+forge has closed unmerged is offered the re-run alone. A watching `yoyo work` session carries the re-arm
 out itself on its next pull, and a refusal is written onto the item naming the
 gate and asked again only once it has cooled; `yoyo triage rearm` makes it now
 rather than at the next pull. Before yoyodyne-ifd.429.31 nothing armed this

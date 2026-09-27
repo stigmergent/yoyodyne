@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -184,30 +186,101 @@ func TestArmingAnUnaskedPublicationIsRefusedAtTheLandingGates(t *testing.T) {
 	}
 }
 
-// The other decision is a re-run, which hands the change back for a fresh run:
-// the re-run finds the publication's entry and the run's record admits it, so a
-// re-run decided about it is not refused for want of a stoppage.
-func TestAnUnaskedPublicationCanBeHandedBackForAFreshRun(t *testing.T) {
+// The other decision is a re-run, which hands the change back for a fresh run.
+// The watch carries it out off the publication's own entry, and once it has, the
+// publication stops standing: its record says it was handed back, a docket built
+// afresh over the records puts it to nobody, the status line no longer names it
+// as waiting on her decision, and the heartbeat no longer counts it as awaiting
+// the forge.
+func TestTheWatchHandsAnUnaskedPublicationBackForAFreshRun(t *testing.T) {
 	t.Parallel()
 
-	harness, _, _ := newUnarmedHarness(t)
-	entry, err := Rerunner{Docket: harness.docket}.entry(harness.state.RunID)
+	armed, _, _ := newUnarmedHarness(t)
+	root := t.TempDir()
+	intake, err := runstate.NewIntakeHoldStore(root, "yoyodyne")
 	if err != nil {
-		t.Fatalf("entry() error = %v", err)
+		t.Fatalf("runstate.NewIntakeHoldStore() error = %v", err)
 	}
-	if entry.Class != triage.ClassPublication || entry.Key != harness.publication() {
-		t.Fatalf("entry = %+v, want the publication's entry", entry)
+	recordRerunDecision(t, armed.runs, armed.state.WorkItemID, armed.state.RunID)
+	rerun := &rerunHarness{
+		docket:   armed.docket,
+		runs:     armed.runs,
+		intake:   intake,
+		reruns:   armed.runs.Reruns(),
+		item:     beads.WorkItem{ID: armed.state.WorkItemID, Title: armed.state.WorkItemTitle, Status: "open"},
+		capacity: 2,
+		outcome:  Outcome{RunID: "run-fedcba9876543210fedcba9876543210", WorkItemID: armed.state.WorkItemID, Status: runstate.StatusSucceeded},
 	}
-	if err := stoppageIsOver(harness.state); err != nil {
-		t.Fatalf("stoppageIsOver() = %v, want an unarmed publication admitted to a re-run", err)
+	watch := CarryOut{
+		Docket:    armed.docket,
+		Decisions: armed.runs.Triage(),
+		Reruns:    armed.runs.Reruns(),
+		Runs:      armed.runs,
+		Rerunner:  rerun.rerunner(),
+		Clock:     docketClock{},
 	}
-	// A publication something did ask the forge about is not admitted this way.
-	queued := harness.state
-	published := *queued.PullRequest
-	published.MergeQueued = true
-	queued.PullRequest = &published
-	if err := stoppageIsOver(queued); err == nil {
-		t.Fatal("stoppageIsOver() admitted a queued merge to a re-run")
+
+	tasks, err := watch.Outstanding()
+	if err != nil {
+		t.Fatalf("Outstanding() error = %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].RunID != armed.state.RunID || tasks[0].Decision != runstate.TriageDecisionRerun || tasks[0].DocketKey != armed.publication() {
+		t.Fatalf("outstanding = %+v, want the re-run offered off the publication's entry", tasks)
+	}
+	carried, _, err := watch.Carry(context.Background(), tasks[0])
+	if err != nil || !carried.Carried {
+		t.Fatalf("Carry() = %+v, %v; want the re-run carried out", carried, err)
+	}
+	if len(rerun.started) != 1 || rerun.started[0].workItemID != armed.state.WorkItemID {
+		t.Fatalf("started = %#v, want one fresh run of the item", rerun.started)
+	}
+
+	handedBack := armed.reload(t)
+	if handedBack.PullRequest.HandedBack == nil || handedBack.PullRequest.HandedBack.DocketKey != armed.publication() {
+		t.Fatalf("recorded publication = %+v, want it marked handed back against its entry", handedBack.PullRequest)
+	}
+	if handedBack.PublicationUnasked() || handedBack.AwaitingForge() {
+		t.Fatal("the handed-back publication still reads as unasked or as awaiting the forge")
+	}
+	if stuckPublication(handedBack, docketedNow.Add(30*24*time.Hour), docketedTriage.StuckMergeAge.Duration()) {
+		t.Fatal("the handed-back publication would be docketed again on its age")
+	}
+	rebuilt, err := docketerOverStore(&memoryDocket{}, armed.runs, rearmConfig()).Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(rebuilt.Entries) != 0 {
+		t.Fatalf("a docket built afresh = %+v, want the handed-back publication put to nobody", rebuilt.Entries)
+	}
+	if awaiting := readmodel.AwaitingForge([]runstate.State{handedBack}); len(awaiting) != 0 {
+		t.Fatalf("awaiting the forge = %+v, want the handed-back publication off the needs-a-human line", awaiting)
+	}
+	if again, err := watch.Outstanding(); err != nil || len(again) != 0 {
+		t.Fatalf("a later pull offers %+v (%v), want nothing left to carry out", again, err)
+	}
+}
+
+// A request the forge has closed has nothing left to arm: it is still put to the
+// development manager, for a re-run, and neither the watch nor the verb arms it.
+func TestAClosedUnaskedPublicationIsOfferedOnlyTheRerun(t *testing.T) {
+	t.Parallel()
+
+	closed := unarmedPublicationRun()
+	closed.PullRequest.State = "CLOSED"
+	if closed.PublicationUnarmed() || !closed.PublicationUnasked() {
+		t.Fatalf("a closed request reads unarmed %v, unasked %v; want only the second", closed.PublicationUnarmed(), closed.PublicationUnasked())
+	}
+	if !stuckPublication(closed, docketedNow, docketedTriage.StuckMergeAge.Duration()) {
+		t.Fatal("a closed request nothing asked the forge to merge is not docketed")
+	}
+	if message := publicationMessage(closed); !strings.Contains(message, "closed it unmerged") || strings.Contains(message, "re-arm") {
+		t.Fatalf("docket message = %q, want the re-run alone offered", message)
+	}
+	if err := stoppageIsOver(closed); err != nil {
+		t.Fatalf("stoppageIsOver() = %v, want a closed request admitted to a re-run", err)
+	}
+	if _, _, err := rearmablePublication(closed); err == nil {
+		t.Fatal("a closed request with no merge method is rearmable")
 	}
 }
 

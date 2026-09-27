@@ -1852,7 +1852,16 @@ forge and no amount of time changes it, and she decides it one of two ways:
   check on its head is failing, the forge's merge state names something only a
   person can supply, or the checks could not be read.
 - **A re-run**, which hands the change back for a fresh run from the target
-  branch.
+  branch. Once it is carried out, the prior run's record marks its publication
+  handed back (`handed_back` on the pull request), and from then on nothing
+  names it: it is not docketed again, on its age or otherwise, the "Needs a
+  human" line drops it, and the heartbeat stops counting it as awaiting the
+  forge. The old request is left open on the forge: nothing here closes it
+  yet, and nothing reads it as work once it is marked.
+
+A request the forge has closed unmerged is docketed the same way, with nothing
+left to arm: a re-run is the one decision offered for it, and the watch never
+arms it.
 
 Neither waits on anybody typing a verb. A watching `yoyo work` session carries
 the re-arm out itself on its next pull — outside the developer slots, since it

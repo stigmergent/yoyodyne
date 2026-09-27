@@ -377,8 +377,9 @@ type Publication struct {
 	PullRequest  *runstate.PullRequest `json:"pull_request,omitempty"`
 	MergeDrop    *runstate.MergeDrop   `json:"merge_drop,omitempty"`
 	// Unarmed is a request nothing ever asked the forge to merge
-	// (runstate.State.PublicationUnarmed), which is the development manager's to
-	// decide rather than a person's to merge by hand.
+	// (runstate.State.PublicationUnasked), which is the development manager's to
+	// decide rather than a person's to merge by hand. One the forge has closed
+	// is offered only the re-run.
 	Unarmed bool `json:"unarmed,omitempty"`
 }
 
@@ -541,6 +542,8 @@ func (a Attention) Whose() string {
 				return a.Mover.Possessive() + " — it merges once the base branch's requirements are met, and `yoyo reconcile` settles the run when it does"
 			case a.Publication.MergeDrop != nil:
 				return a.Mover.Possessive() + " — the forge dropped the merge; `yoyo triage rearm` repeats it once, or a person merges the request by hand, and `yoyo reconcile` settles it once the forge records the merge"
+			case a.Publication.Unarmed && a.Publication.PullRequest.Closed():
+				return a.Mover.Possessive() + " — nothing ever asked the forge to merge the request and the forge has closed it, so there is nothing left to arm: it is on her docket, and a re-run hands the change back for a fresh run"
 			case a.Publication.Unarmed:
 				return a.Mover.Possessive() + " — nothing ever asked the forge to merge the request, and it is on her docket: a re-arm has the harness arm it under the same landing checks the run's merge makes, a re-run hands the change back for a fresh run, and `yoyo reconcile` settles it once the forge records the merge"
 			default:

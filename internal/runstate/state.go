@@ -1210,6 +1210,25 @@ type PullRequest struct {
 	// still queued. It is what says whether a queued merge is going to land at
 	// all, and it is absent until a sweep has read it.
 	Checks *PullRequestChecks `json:"checks,omitempty"`
+	// HandedBack is the development manager's re-run of a publication nothing
+	// ever asked the forge to merge having been carried out: the change was
+	// handed back for a fresh run, so this request is no longer a publication
+	// anybody is waiting on or has to decide. Absent on every other publication.
+	HandedBack *PublicationHandBack `json:"handed_back,omitempty"`
+}
+
+// PublicationHandBack records a publication handed back for a fresh run: when,
+// the docket entry the re-run was carried out against, and the reason the
+// fresh run records as why it exists.
+type PublicationHandBack struct {
+	At        time.Time `json:"at"`
+	DocketKey string    `json:"docket_key,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+}
+
+// Closed reports a request the forge closed without merging it.
+func (p PullRequest) Closed() bool {
+	return !p.Merged && strings.EqualFold(strings.TrimSpace(p.State), "closed")
 }
 
 // MergeDrop is the moment a promoted change stopped being something the forge
@@ -1651,6 +1670,12 @@ func (s *State) recordedTexts() []recordedText {
 		for index := range s.PullRequest.Checks.Failing {
 			nested("pull_request.checks.failing[].name", at("pull_request.checks.failing", index, "name"), &s.PullRequest.Checks.Failing[index].Name, maxCheckNameBytes)
 		}
+	}
+	// A hand-back carries the re-run's own reason, which is the selection
+	// reason's sentence, and the docket key it was carried out against.
+	if s.PullRequest != nil && s.PullRequest.HandedBack != nil {
+		unstated("pull_request.handed_back.reason", "pull_request.handed_back.reason", &s.PullRequest.HandedBack.Reason, MaxRecordedTextBytes)
+		unstated("pull_request.handed_back.docket_key", "pull_request.handed_back.docket_key", &s.PullRequest.HandedBack.DocketKey, MaxRecordedTextBytes)
 	}
 	own("publish_failure", &s.PublishFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	// The drop's reason is the publication failure's sentence kept beside the
@@ -3545,6 +3570,11 @@ func (s State) AwaitingForge() bool {
 	if s.PullRequest == nil {
 		return s.PublicationUnrecorded()
 	}
+	// A publication handed back for a fresh run is not awaited: the change is
+	// the fresh run's to land, and nothing is waiting on this request.
+	if s.PullRequest.HandedBack != nil {
+		return false
+	}
 	return !s.PullRequest.Merged
 }
 
@@ -3596,7 +3626,19 @@ func (s State) PublicationUnrecorded() bool {
 // puts to the development manager at once, what the re-arm verb arms on her
 // decision, and what a re-run may hand back for a fresh run; this predicate is
 // the one reading all three, and the status line, take of it.
+//
+// A request the forge has closed is excluded: there is nothing left on the forge
+// to arm, so the one answer is a re-run, and PublicationUnasked is what says so.
 func (s State) PublicationUnarmed() bool {
+	return s.PublicationUnasked() && !s.PullRequest.Closed()
+}
+
+// PublicationUnasked is PublicationUnarmed with a request the forge closed kept
+// in: a promotion whose request nothing ever asked the forge to merge, and that
+// nobody has yet handed back for a fresh run. It is what the docket puts to the
+// development manager and what a re-run may hand back; whether a re-arm is also
+// offered is PublicationUnarmed's.
+func (s State) PublicationUnasked() bool {
 	if !s.Status.Terminal() || s.Integration == nil || s.PullRequest == nil {
 		return false
 	}
@@ -3604,6 +3646,7 @@ func (s State) PublicationUnarmed() bool {
 	return s.ReviewDecision == ReviewApprove &&
 		!published.Merged &&
 		!published.MergeQueued &&
+		published.HandedBack == nil &&
 		s.MergeDrop == nil &&
 		strings.TrimSpace(s.PublishFailure) == ""
 }

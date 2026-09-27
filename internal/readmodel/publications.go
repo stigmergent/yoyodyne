@@ -73,7 +73,7 @@ func awaitingForgeAttention(state runstate.State) Attention {
 			mover = MoverForge
 		case publication.MergeDrop != nil:
 			mover = MoverDevelopmentManager
-		case state.PublicationUnarmed():
+		case state.PublicationUnasked():
 			publication.Unarmed = true
 			mover = MoverDevelopmentManager
 		default:

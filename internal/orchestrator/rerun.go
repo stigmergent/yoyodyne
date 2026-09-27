@@ -480,8 +480,45 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 		return r.withdrawEnvironmental(ctx, entry, outcome, result), runErr
 	}
 	result.Outcome = outcome
+	// A publication nothing ever asked the forge to merge is handed back by this
+	// re-run, whatever the fresh run came to: the decision has been carried out,
+	// so the request stops being something anybody waits on or decides.
+	if prior.PublicationUnasked() {
+		result.note(r.handBackPublication(ctx, entry, prior.RunID, result.Reason))
+	}
 	result.Preserved = r.settle(ctx, entry, prior, outcome, &result)
 	return result, runErr
+}
+
+// handBackPublication records on the prior run that its publication — a request
+// nothing ever asked the forge to merge — was handed back for a fresh run, and
+// reports what it could not record.
+//
+// It is written onto the run's own record, under that run's lease, because that
+// record is what every reading of the publication starts from: the docket, the
+// status line's attention entry, and the heartbeat's count of what awaits the
+// forge all stop naming it once it is marked. The request itself is left open on
+// the forge; it is closed by nothing here, and what keeps it from being mistaken
+// for work still waiting is the mark.
+func (r Rerunner) handBackPublication(ctx context.Context, entry triage.Entry, runID, reason string) string {
+	write, stopWriting := recordContext(ctx)
+	defer stopWriting()
+	state, lease, err := r.Runs.AdoptRun(write, runID)
+	if err != nil {
+		return fmt.Sprintf("the publication of run %s was handed back for a fresh run and its record could not be taken to say so, so it may still be named as waiting on a decision: %v", runID, err)
+	}
+	defer func() { _ = lease.Release() }()
+	if !state.PublicationUnasked() {
+		return ""
+	}
+	published := *state.PullRequest
+	published.HandedBack = &runstate.PublicationHandBack{At: r.now(), DocketKey: entry.Key, Reason: reason}
+	state.PullRequest = &published
+	state.UpdatedAt = r.now()
+	if err := r.Runs.Save(state); err != nil {
+		return fmt.Sprintf("the publication of run %s was handed back for a fresh run and its record could not be saved saying so, so it may still be named as waiting on a decision: %v", runID, err)
+	}
+	return ""
 }
 
 // entry finds the docketed stoppage a decision is about. A run that is not on
@@ -545,7 +582,7 @@ func stoppageIsOver(prior runstate.State) error {
 		return fmt.Errorf("run %s is recorded as %s rather than ended, so it is owed a continuation rather than a fresh run; a re-run is refused while anything of it is resumable",
 			prior.RunID, prior.Status)
 	}
-	if strings.TrimSpace(prior.Blocker) == "" && !preservedDeath(prior) && !prior.PublicationUnarmed() {
+	if strings.TrimSpace(prior.Blocker) == "" && !preservedDeath(prior) && !prior.PublicationUnasked() {
 		return fmt.Errorf("run %s ended carrying no durable blocker and left no change behind, so nothing about it stopped for a person to decide", prior.RunID)
 	}
 	return nil

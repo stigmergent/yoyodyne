@@ -1494,6 +1494,12 @@ func stuckPublication(state runstate.State, now time.Time, stuckMergeAge time.Du
 	if !state.Status.Terminal() {
 		return false
 	}
+	// A publication handed back for a fresh run has been decided and carried
+	// out: the change is the fresh run's, and docketing the request again on its
+	// age would put a question to the development manager she has answered.
+	if published.HandedBack != nil {
+		return false
+	}
 	// Only an approved publication is stuck. A pull request from a run that was
 	// never approved is a branch nobody authorized merging, and the run's own
 	// blocker is what says so.
@@ -1517,7 +1523,7 @@ func stuckPublication(state runstate.State, now time.Time, stuckMergeAge time.Du
 	// forge, so no amount of time changes it, and until yoyodyne-ifd.429.31 its
 	// only exit was a person merging it by hand. The development manager decides
 	// it — a re-arm the harness carries out, or a re-run.
-	if state.PublicationUnarmed() {
+	if state.PublicationUnasked() {
 		return true
 	}
 	// A threshold of no time at all would docket every publication the instant
@@ -1822,14 +1828,25 @@ func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.
 // two decisions that answer it, so the entry never reads as a publication with
 // nothing to say about it.
 func publicationMessage(state runstate.State) string {
-	if !state.PublicationUnarmed() {
+	if !state.PublicationUnasked() {
 		return state.PublishFailure
 	}
 	target := state.TargetBranch
 	if state.Integration != nil {
 		target = state.Integration.TargetBranch
 	}
+	if state.PullRequest.Closed() {
+		return oneline.Bound(closedUnaskedPublication(state.PullRequest.Number, target), triage.MaxBlockerBytes)
+	}
 	return oneline.Bound(unarmedPublication(state.PullRequest.Number, target), triage.MaxBlockerBytes)
+}
+
+// closedUnaskedPublication is the account of a request nothing ever asked the
+// forge to merge that the forge has since closed: there is nothing left to arm,
+// so the one decision that answers it is a re-run.
+func closedUnaskedPublication(number int, target string) string {
+	return fmt.Sprintf("nothing ever asked the forge to merge pull request %d into %s, and the forge has closed it unmerged, so there is nothing left to arm: a re-run hands the change back for a fresh run",
+		number, target)
 }
 
 // unarmedPublication is the account of a request nothing ever asked the forge

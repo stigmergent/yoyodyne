@@ -310,6 +310,19 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		!strings.Contains(unasked.Whose(), "a re-run hands the change back") || strings.Contains(unasked.Whose(), "merge it") {
 		t.Fatalf("unasked publication = %+v, whose = %q; want it marked unarmed and put to the development manager's decisions", unasked.Publication, unasked.Whose())
 	}
+	// One the forge closed is hers too, offered only the re-run; one handed back
+	// for a fresh run is nobody's, and is off the line altogether.
+	closed := awaitingForgeAttention(runstate.State{RunID: "run-7", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
+		Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 1, State: "CLOSED"}})
+	if closed.Mover != MoverDevelopmentManager || !strings.Contains(closed.Whose(), "nothing left to arm") || strings.Contains(closed.Whose(), "a re-arm") {
+		t.Fatalf("closed publication mover %q, whose = %q; want her docket with the re-run alone", closed.Mover, closed.Whose())
+	}
+	handedBack := runstate.State{RunID: "run-8", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
+		Integration: &runstate.Integration{TargetBranch: "main"},
+		PullRequest: &runstate.PullRequest{Number: 1, HandedBack: &runstate.PublicationHandBack{At: moment}}}
+	if awaiting := AwaitingForge([]runstate.State{handedBack}); len(awaiting) != 0 {
+		t.Fatalf("awaiting the forge = %+v, want a handed-back publication off the line", awaiting)
+	}
 	// A record with no integration leaves the target field empty and says so
 	// in the sentence: a placeholder is a sentence, and a field a surface acts
 	// on carries none.
