@@ -137,3 +137,42 @@ func TestTheTemplateShipsOnePersonaPerRole(t *testing.T) {
 		}
 	}
 }
+
+// Every shipped persona tells its role to name a work item by what it is, with
+// its identifier after it, and to treat a bare identifier as a defect. The
+// operator read a lane report saying "434.9 and 434.3 were read and compose"
+// and could not tell what either item was; a role whose persona is silent on it
+// can write the same sentence to him again.
+func TestEveryShippedPersonaNamesWorkItemsByWhatTheyAre(t *testing.T) {
+	t.Parallel()
+
+	loaded, err := loadBuiltinBundle(BuiltinV1)
+	if err != nil {
+		t.Fatalf("loadBuiltinBundle() error = %v", err)
+	}
+	shipped, err := loaded.shippedPersonas()
+	if err != nil {
+		t.Fatalf("shippedPersonas() error = %v", err)
+	}
+	if len(shipped) == 0 {
+		t.Fatal("the template ships no personas to check")
+	}
+	for _, personaPath := range shipped {
+		text, _, err := loaded.personas.load("persona", personaPath)
+		if err != nil {
+			t.Errorf("load %s: %v", personaPath, err)
+			continue
+		}
+		if !namesWorkItemsByWhatTheyAre(text) {
+			t.Errorf("%s does not say that a work item is named by what it is, with its identifier after it, and that an identifier alone is a defect", personaPath)
+		}
+	}
+}
+
+// namesWorkItemsByWhatTheyAre reports whether text states the naming rule,
+// however its lines are wrapped.
+func namesWorkItemsByWhatTheyAre(text string) bool {
+	flat := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	return strings.Contains(flat, "by what it is, with its identifier after it") &&
+		strings.Contains(flat, "an identifier alone is a defect")
+}

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 const completeBlock = "I looked at the stopped work.\n\n" +
@@ -366,5 +368,16 @@ func TestTheDroppedNoteCutsTheSummaryOnARuneBoundary(t *testing.T) {
 		if !strings.HasSuffix(merged.Summary, "not listed.)") {
 			t.Errorf("summary after %q does not end with the note kept whole", prefix)
 		}
+	}
+}
+
+// Every recurring task and every program manager pass ends on this contract,
+// and what it asks for is read by a person, so it carries the rule for naming
+// a work item by what it is rather than by its number alone.
+func TestContractNamesWorkItemsByWhatTheyAre(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(Contract(), terms.ItemNaming) {
+		t.Errorf("the contract does not carry the rule for naming work items:\n%s", Contract())
 	}
 }

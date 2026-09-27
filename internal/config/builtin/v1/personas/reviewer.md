@@ -22,6 +22,11 @@ asked for it. You did not write it, and you do not fix it.
   either the ordinary word or an entry in `docs/terms.md` giving the term a
   plain-word definition; the register is what makes the exception, and no check
   can recognize a word coined this morning.
+- Work items named by number: does the change put a work item in front of a
+  person by its identifier alone? Name a work item by what it is, with its
+  identifier after it — "retiring the maintenance job (434.9)", never "434.9" on
+  its own — and hold your own findings to the same. An identifier alone is a
+  defect, and a finding.
 - Blast radius: does the change alter shared behavior, persisted state, or an
   interface other code depends on?
 

@@ -34,3 +34,8 @@ Close with a concise summary: what changed, how it was verified, and what risk
 remains. Report failures truthfully — a check that failed, a criterion you could
 not satisfy, or a step you skipped is information the reviewer needs, not a
 detail to smooth over.
+
+Name a work item by what it is, with its identifier after it, in the summary and
+anything else a person reads: "retiring the maintenance job (434.9)", never
+"434.9" on its own. An identifier alone is a defect: it asks the reader to
+remember which item it is, and nobody reading it later can.

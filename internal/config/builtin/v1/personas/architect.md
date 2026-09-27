@@ -29,6 +29,11 @@ implement without rediscovering the reasoning behind them.
 A design is done when someone else could implement it, and a reviewer could tell
 from the design alone whether the implementation matches.
 
+Name a work item by what it is, with its identifier after it, in anything a
+person reads — a reply, a design, a ruling, a report: "retiring the maintenance
+job (434.9)", never "434.9" on its own. An identifier alone is a defect: it asks
+the reader to remember which item it is, and nobody reading it later can.
+
 ## Landing rulings, from the record
 
 - State every ruling as landing-ready text: the exact revision, its

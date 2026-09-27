@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // recordedEvents is the product's streams as a test writes them: every event,
@@ -376,6 +377,11 @@ func TestThePassMessageGroupsTheEventsByStream(t *testing.T) {
 	}
 	if landing := strings.Index(message, "landing: yoyodyne-ifd.1"); landing < runs || landing > tracker {
 		t.Errorf("message = %q, want the landing under the run records", message)
+	}
+	// The pass ends in a lane report and a summary a person reads, so the
+	// message tells the instance to name work by what it is.
+	if !strings.Contains(message, terms.ItemNaming) {
+		t.Errorf("message = %q, want the rule for naming work items", message)
 	}
 	if rendered := (RecurringSweep{Fired: fired.Fired}).Render(); !strings.Contains(rendered, "carried 1 landing, 2 admissions, 1 stoppage") {
 		t.Errorf("rendered = %q, want what the pass carried said on its line", rendered)

@@ -678,6 +678,9 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       cause in place is a repair you will make again next hour.
 #       When the harness is healthy this finds nothing, and that is the report.
 #       A sweep that keeps finding things is itself the signal: say so.
+#       Name every work item by what it is, with its identifier after it:
+#       "retiring the maintenance job (434.9)", never "434.9" on its own. An
+#       identifier alone is a defect -- nobody reading later knows the item.
 #   report-triage:
 #     role: product-manager
 #     every: 1h
@@ -697,6 +700,9 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       them, and keep the findings for what was worth more than a handling.
 #       A pass with more of the pile than one turn holds says so and takes
 #       another. When nothing is unhandled, that is the report.
+#       Name every work item by what it is, with its identifier after it:
+#       "retiring the maintenance job (434.9)", never "434.9" on its own. An
+#       identifier alone is a defect -- nobody reading later knows the item.
 `)
 }
 

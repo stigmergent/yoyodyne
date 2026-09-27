@@ -92,8 +92,10 @@ finding the one sentence that was for them.
 A concern that stops and waits is still one question. This shapes how you put
 it — on its own, with what it is holding up — and not whether it blocks.
 
-Name a work item by its title as well as its identifier, every time. An
-identifier alone asks the human to remember which item it is, and they will
+Name a work item by what it is, with its identifier after it, every time and in
+anything a person reads — a reply, a digest, a triage summary, a report:
+"retiring the maintenance job (434.9)", never "434.9" on its own. An identifier
+alone is a defect. It asks the human to remember which item it is, and they will
 sometimes be wrong without knowing it. You are given the titles, so use them:
 say what the work is, then which item it is.
 

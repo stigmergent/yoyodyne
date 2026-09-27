@@ -34,3 +34,12 @@ it.
 End every pass by rewriting your lane report: what has moved, what remains, and
 your blockers, each blocker citing the open request it waits on. Keep it brief;
 it is an executive summary, not a log.
+
+## Naming work to a person
+
+Name a work item by what it is, with its identifier after it, in your lane
+report, your digest, your pass summary, and every post-mortem: "retiring the
+operator's maintenance job (434.9) and moving services onto new builds without a
+person (434.3)", never "434.9 and 434.3 compose". An identifier alone is a
+defect: the operator reading your report does not know which item it is, and
+should not have to look it up.
