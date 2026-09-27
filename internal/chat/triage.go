@@ -57,6 +57,15 @@ package chat
 // exists, and a repair re-enters the stopped run's own repair loop on the grant
 // recorded here. Both read the intake hold and prove the stoppage is over first.
 //
+// The one decision about a run that has not stopped is carried out as it is
+// recorded. A stop names a run still in flight whose work she has decided is
+// superseded, narrowed, or mis-launched, and what carries it out is the same
+// request the operator's stop writes, made on her behalf: the run reads it at
+// its next boundary and ends itself cancelled with its change preserved, and
+// the stoppage it leaves is docketed already settled by her decision. Asking a
+// run to stop is not starting work, so it is not held behind the gates a repair
+// or a re-run waits on; what it is held to is the run still being in flight.
+//
 // The hand is no longer a person's. Recording the decision is what causes it: the
 // scheduling pass reads this record, fires one decision per pass under every gate
 // either act already asks, and writes onto the item any gate that stopped it — so
@@ -111,6 +120,10 @@ const (
 	// decisionEscalate hands the entry to the operator, which is the only
 	// decision that asks a person for anything.
 	decisionEscalate = runstate.TriageDecisionEscalate
+	// decisionStop stops a run still in flight whose work is superseded,
+	// narrowed, or mis-launched, with its change preserved. It names a run that
+	// has not stopped, which is the one way it differs from every decision above.
+	decisionStop = runstate.TriageDecisionStop
 	// decisionCross raises one of the item's caps to just past what the item has
 	// spent against it, on this role's own delegated authority, so a decision the
 	// cap refused becomes one that can be recorded. It buys no attempt and spends
@@ -189,6 +202,7 @@ var triageVerbs = map[string]string{
 	decisionRearm:    "Triaged: its dropped merge to be re-armed once",
 	decisionWait:     "Triaged: waiting, because the forge still has it",
 	decisionEscalate: "Escalated to the operator by triage",
+	decisionStop:     "Triaged: stopped in flight, with its change preserved",
 	// The crossing's own sentence is built where it is recorded rather than taken
 	// from here, because which cap was crossed and which of the five crossings this
 	// was are the whole of what makes the note answerable. This is the fallback
@@ -360,7 +374,31 @@ func (a TrackerAction) triageProblems() []error {
 		problems = append(problems, errors.New("triage requires \"reason\", the reasoning the decision is recorded with; it is what a carry-out records as why the run it starts exists"))
 	}
 	problems = append(problems, a.crossingProblems()...)
+	problems = append(problems, a.supersededProblems()...)
 	return problems
+}
+
+// supersededProblems holds the item a stop names as superseding its run to the
+// one decision that takes it. It is optional there, since a run narrowed or
+// launched by mistake was superseded by nothing, and where it is given it has to
+// be an item other than the one whose run is being stopped.
+func (a TrackerAction) supersededProblems() []error {
+	superseded := strings.TrimSpace(a.SupersededBy)
+	if superseded == "" {
+		return nil
+	}
+	if strings.TrimSpace(a.Decision) != decisionStop {
+		return []error{fmt.Errorf(
+			"only the %q decision names \"superseded_by\", and this one is %q; it is the item doing a stopped run's work instead",
+			decisionStop, strings.TrimSpace(a.Decision))}
+	}
+	if err := beads.ValidateIssueID(superseded); err != nil {
+		return []error{fmt.Errorf("triage superseded_by: %w", err)}
+	}
+	if superseded == strings.TrimSpace(a.ID) {
+		return []error{errors.New("a run is not superseded by its own item; name the item doing the work instead, or leave \"superseded_by\" out")}
+	}
+	return nil
 }
 
 // crossingProblems holds the one decision that names a budget to the budget
@@ -516,6 +554,10 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	// delegation that outlives the channel message beside it.
 	if decision == decisionCross {
 		s.carryOutCapCrossing(ctx, outcome, id, run)
+		return
+	}
+	if decision == decisionStop {
+		s.carryOutStop(ctx, outcome, id, run)
 		return
 	}
 	spent, err := s.recordTriageDecision(ctx, id, runstate.TriageDecision{

@@ -252,3 +252,39 @@ func TestARecordWithTwoDecisionsAboutOneStoppageIsRefused(t *testing.T) {
 		t.Fatal("Validate() accepted two decisions about one stoppage")
 	}
 }
+
+// A stop names the item that supersedes the run it stops, and it is the only
+// decision that may: what supersedes a run is an answer to why the run should not
+// go on, which no decision about a stoppage is asking. It spends nothing and is
+// recorded by the operation that records no spend.
+func TestOnlyAStopNamesTheItemThatSupersedesItsRun(t *testing.T) {
+	t.Parallel()
+
+	store := newTriageStore(t)
+	stop := triageDecided(TriageDecisionStop, decidedRunID)
+	stop.SupersededBy = "yoyodyne-ifd.398"
+	if stop.Spends() {
+		t.Fatal("a stop spends a budget, and it buys no attempt at anything")
+	}
+	counters, err := store.RecordDecision(context.Background(), "yoyodyne-ifd.428.34", stop, time.Now())
+	if err != nil {
+		t.Fatalf("RecordDecision(stop) error = %v", err)
+	}
+	recorded, found := counters.DecisionOf(decidedRunID)
+	if !found || recorded.SupersededBy != "yoyodyne-ifd.398" {
+		t.Fatalf("decision = %#v, want the stop and what supersedes it", recorded)
+	}
+	if !strings.Contains(recorded.Describe(), "in flight") || !strings.Contains(recorded.Describe(), "superseded by yoyodyne-ifd.398") {
+		t.Fatalf("Describe() = %q", recorded.Describe())
+	}
+	if counters.AwaitingCarryOut(decidedRunID) {
+		t.Fatal("a stop reads as a decision the harness has still to carry out")
+	}
+
+	wait := triageDecided(TriageDecisionWait, secondDecidedRunID)
+	wait.SupersededBy = "yoyodyne-ifd.398"
+	if _, err := store.RecordDecision(context.Background(), "yoyodyne-ifd.428.34", wait, time.Now()); err == nil ||
+		!strings.Contains(err.Error(), `only a "stop" decision names the item that supersedes a run`) {
+		t.Fatalf("RecordDecision(wait naming a superseding item) error = %v", err)
+	}
+}

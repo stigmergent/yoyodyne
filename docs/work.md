@@ -1322,6 +1322,30 @@ third ending for a week with nothing anywhere saying so;
 work](conversation.md#deciding-what-becomes-of-stopped-work) is the decision
 side of it.
 
+**A run in flight can be stopped by the development manager as well as by
+you.** A run whose work she decides is superseded by another item, narrowed so
+it is building more than the item now asks for, or launched on something that
+should never have been dispatched is one she records a `stop` decision about, in
+her sweep or her triage conversation, with her reason and the superseding item
+where there is one. Recording it is what stops the run, and nothing waits for a
+pass: the harness writes beside the run the same request your
+[`/stop`](conversation.md#steering-the-work-from-the-conversation) writes, naming her rather than you,
+and the run honors it at its next provider-call boundary exactly as it honors
+yours — an invocation already streaming finishes first — ending cancelled with
+its branch and worktree preserved, and its developer slot free as its record
+goes terminal. The run's record, its ending on the item's notes, and the triage
+note her decision leaves all say who stopped it and why. What differs from your
+stop is the docket: yours hands nobody a decision and is docketed nowhere, while
+hers is docketed as the stopped run it is and closed by her decision in the same
+write, so it reads as a stoppage already decided rather than one waiting on her.
+The stop spends no budget and starts nothing, so none of the carry-out gates
+above apply to it; what it is refused for is a run that has already ended, whose
+stoppage is decided about rather than stopped. Only her conversation can make it
+— the `stop` decision is a triage action, which no other role holds, and the
+hand that writes the request is wired into her conversation alone. What becomes
+of the item and the preserved change afterwards is a separate decision, and
+retiring the item is the Lead Product Manager's.
+
 **A pass also fires whichever [recurring task](configuration.md#recurring-tasks)
 is due**, where a project has configured any — a role woken on a cadence to look
 at its own domain, rather than because something happened. At most one per pass,

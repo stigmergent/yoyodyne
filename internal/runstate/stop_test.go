@@ -3,6 +3,7 @@ package runstate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,4 +146,36 @@ func repeatHex(length int) string {
 		digits[index] = "0123456789abcdef"[index%16]
 	}
 	return string(digits)
+}
+
+// A stop somebody other than the operator asked for names them, and one that
+// carries out a decision names the decision and who made it. An operator's own
+// stop names nobody and is read as theirs, which is every request written before
+// anybody else could make one.
+func TestAStopRequestSaysWhoAskedForIt(t *testing.T) {
+	t.Parallel()
+
+	operator := StopRequest{
+		SchemaVersion: StopSchemaVersion, ProductID: "yoyodyne", RunID: "run-0123456789abcdef0123456789abcdef",
+		WorkItemID: "yoyodyne-ifd.428.34", RequestedAt: time.Now(),
+	}
+	if err := operator.Validate(); err != nil || operator.StoppedBy() != "the operator" {
+		t.Fatalf("operator stop = %v, %q", err, operator.StoppedBy())
+	}
+	decided := operator
+	decided.RequestedBy = "the development manager in conversation chat-0123456789abcdef"
+	decided.Decision = TriageDecisionStop
+	if err := decided.Validate(); err != nil || decided.StoppedBy() != decided.RequestedBy {
+		t.Fatalf("decided stop = %v, %q", err, decided.StoppedBy())
+	}
+	unnamed := operator
+	unnamed.Decision = TriageDecisionStop
+	if err := unnamed.Validate(); err == nil || !strings.Contains(err.Error(), "names who decided it") {
+		t.Fatalf("a decided stop naming nobody: %v", err)
+	}
+	other := decided
+	other.Decision = TriageDecisionRerun
+	if err := other.Validate(); err == nil {
+		t.Fatal("a stop request carrying out a re-run was accepted")
+	}
 }

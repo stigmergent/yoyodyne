@@ -860,6 +860,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// change is, so work carved out of a stoppage waits for the change it was
 		// written against rather than reading as ready without it.
 		Stoppages: conversationStoppages(parts, role),
+		// The hand that carries out a stop she decides about a run in flight: the
+		// operator's stop request, made on her behalf and naming her. Wired for
+		// that role alone, so no other conversation can stop a run in her name.
+		Stops: conversationStops(parts, role),
 		// What the harness is holding for a person, which is what a repair of stale
 		// backlog state is refused by. It is the same derivation the scheduler and
 		// every operator surface read, so an item this conversation reports as held
