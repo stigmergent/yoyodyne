@@ -109,6 +109,21 @@ func TestHeldWorkIsReportedRatherThanRepaired(t *testing.T) {
 			if !errors.As(err, &hold) {
 				t.Fatalf("Judge(%s) refused with %v, which is not a hold", item.ID, err)
 			}
+			// The refusal names no mover of its own: the reason does, and a
+			// directive's names the operator, who resolves it, rather than the
+			// development manager or the harness.
+			if item.ID == paused.ID {
+				for _, want := range []string{"is held and nothing here touches it", "directive directive-3", "until the operator resolves it with `yoyo directive resolve`"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("Judge(%s) refused with %q, want it to say %q", item.ID, err, want)
+					}
+				}
+				for _, unwanted := range []string{"stopped run", "development manager", "the harness"} {
+					if strings.Contains(err.Error(), unwanted) {
+						t.Errorf("Judge(%s) refused with %q, which names %q as the mover of a directive's hold", item.ID, err, unwanted)
+					}
+				}
+			}
 		}
 	}
 }

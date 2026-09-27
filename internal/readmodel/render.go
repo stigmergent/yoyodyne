@@ -308,6 +308,11 @@ func (s Standing) renderNeedsHuman() string {
 		fmt.Fprintf(&rendered, "Needs a human (%d):\n", len(operator))
 		rendered.WriteString(renderWaiting(operator))
 	}
+	// A partial reading qualifies the whole line, every mover's head as well as
+	// the operator's, so it is said once under the line's own head and says so.
+	if s.NeedsHumanProblem != "" {
+		fmt.Fprintf(&rendered, "%s%s (this covers every head of this line)\n", partialRead, s.NeedsHumanProblem)
+	}
 	for _, mover := range order {
 		entries := byMover[mover]
 		if mover == MoverOperator || len(entries) == 0 {
@@ -315,9 +320,6 @@ func (s Standing) renderNeedsHuman() string {
 		}
 		fmt.Fprintf(&rendered, "%s (%d):\n", mover.WaitingOn(), len(entries))
 		rendered.WriteString(renderWaiting(entries))
-	}
-	if s.NeedsHumanProblem != "" {
-		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.NeedsHumanProblem)
 	}
 	return rendered.String()
 }

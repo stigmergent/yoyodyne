@@ -83,3 +83,21 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 		t.Fatalf("brief:\n%s\nlists an entry", brief)
 	}
 }
+
+// A partly unreadable fourth line says so once, under its own head and saying
+// it covers every head, rather than after whichever mover's head came last.
+func TestAPartialReadingOfTheFourthLineIsSaidUnderItsOwnHead(t *testing.T) {
+	t.Parallel()
+
+	rendered := Standing{
+		NeedsHuman:        []Attention{{Kind: AttentionOwedStep, ID: "run-a", Mover: MoverHarness, WorkItemID: "item-a"}},
+		NeedsHumanProblem: "the recorded directives could not be read",
+	}.renderNeedsHuman()
+	want := "Needs a human: nothing\n" + partialRead + "the recorded directives could not be read (this covers every head of this line)\nWaiting on the harness (1):\n"
+	if !strings.HasPrefix(rendered, want) {
+		t.Fatalf("rendered:\n%s\nwant it to open with:\n%s", rendered, want)
+	}
+	if strings.Count(rendered, partialRead) != 1 {
+		t.Fatalf("rendered:\n%s\nsays the partial reading more than once", rendered)
+	}
+}

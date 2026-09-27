@@ -1478,8 +1478,8 @@ anything. Each release is on the pass and
 [reaches the operators once](operations.md#claims-with-nothing-working-on-them).
 
 A stoppage the harness tried to deliver and gave up on is not restated by every
-pass after that. It is not lost either: the item stays held, with the reason
-on it saying it needs the operator, wherever `yoyo status` reports what the harness is holding. The
+pass after that. It is not lost either: the item stays held, undecided on the
+development manager's docket, with the reason on it, wherever `yoyo status` reports what the harness is holding. The
 restating was worth having until there were twelve of them, at which point what a
 session start said was a paragraph per stoppage nobody was going to act on and
 nothing about what the pass had just done.

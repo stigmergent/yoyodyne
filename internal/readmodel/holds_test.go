@@ -146,7 +146,7 @@ func TestAnUndecidedStoppageSaysWhichPersonItIsWaitingOn(t *testing.T) {
 				Attempts: runstate.MaxEscalationAttempts,
 				Problem:  "development manager reported failure: cancelled",
 			},
-			want: "needs the operator",
+			want: "stays undecided on her docket",
 		},
 	} {
 		t.Run(stoppage.name, func(t *testing.T) {

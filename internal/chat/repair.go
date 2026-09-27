@@ -368,7 +368,7 @@ func (s *Session) renderStaleBacklogState(ctx context.Context, open []beads.Work
 		// entries above and which somebody still has to release. Correcting one
 		// would release a stoppage nobody has decided about, so it is reported and
 		// left alone every pass, with the reason restated each time.
-		fmt.Fprintf(&rendered, "\nHeld after a stopped run, waiting on the development manager's decision or the harness carrying it out, so its state is reported rather than corrected (%d):\n", len(report.Holds))
+		fmt.Fprintf(&rendered, "\nHeld until whoever each reason names releases it, so its state is reported rather than corrected (%d):\n", len(report.Holds))
 		for _, held := range listedHolds(report.Holds) {
 			fmt.Fprintf(&rendered, "- %s [%s] %s; held because %s\n", held.WorkItemID, held.Class, held.Stale, held.Reason)
 		}

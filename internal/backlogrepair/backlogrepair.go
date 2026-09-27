@@ -172,7 +172,9 @@ type Report struct {
 // Anything reports a reading that found something worth saying.
 func (r Report) Anything() bool { return len(r.Repairs) > 0 || len(r.Holds) > 0 }
 
-// HoldError reports a repair refused because the item is held for a person. It
+// HoldError reports a repair refused because the item is held. Its reason names
+// who releases the hold — the development manager, the harness, or the operator
+// for a directive — so the sentence itself names no mover. It
 // is a type rather than a sentence so a caller can say the thing this boundary
 // exists for — that the hold was reported and the item was left exactly as it
 // was — instead of reporting it as a repair that failed.
@@ -182,7 +184,7 @@ type HoldError struct {
 }
 
 func (e *HoldError) Error() string {
-	return fmt.Sprintf("%s is held after a stopped run and nothing here touches it: %s", e.WorkItemID, e.Reason)
+	return fmt.Sprintf("%s is held and nothing here touches it: %s", e.WorkItemID, e.Reason)
 }
 
 // Survey reads the admitted work and reports what has gone stale about it, and
@@ -437,7 +439,7 @@ func heldFor(workItemID string, records Records) (string, bool) {
 	}
 	for _, recorded := range records.Directives {
 		if recorded.Pauses() && recorded.Affects(workItemID) {
-			return fmt.Sprintf("directive %s pauses the work it affects until somebody settles what it is waiting for: %s",
+			return fmt.Sprintf("directive %s pauses the work it affects until the operator resolves it with `yoyo directive resolve`: %s",
 				recorded.ID, singleLine(recorded.Unresolved)), true
 		}
 	}
