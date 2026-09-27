@@ -220,11 +220,11 @@ func TestTheSweepHonoursAStopOnAPausedRunWhoseProcessWasKilled(t *testing.T) {
 	}
 }
 
-// A paused run nothing continues is settled once its record has sat still for
-// the grace, whatever it was paused on — not only a provider the harness stopped.
-// run-3b94404c was parked on a dependency and was reported resumable by every
-// sweep for twenty hours, because the settlement read provider stops alone.
-func TestTheSweepSettlesADependencyPausedRunNothingContinued(t *testing.T) {
+// A run paused on work its item waits on is not a park nothing continues: a
+// watching session's pull continues it once that work closes, so the sweep
+// leaves it however long the wait lasts rather than settling it after the grace
+// and handing the development manager a stoppage nobody caused.
+func TestTheSweepLeavesADependencyPausedRunToThePull(t *testing.T) {
 	t.Parallel()
 
 	repository, worktreeRoot, store := restartableFixture(t)
@@ -250,52 +250,28 @@ func TestTheSweepSettlesADependencyPausedRunNothingContinued(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDocketStore() error = %v", err)
 	}
-	sweepAt := func(at time.Time) Reconciler {
-		return Reconciler{
-			Tracker:   tracker,
-			Worktrees: newObserver(t, repository, worktreeRoot),
-			Store:     store,
-			Docket:    docketerOverStore(docket, store, pipeline.Config),
-			Clock:     &pausingClock{now: at},
-		}
+	sweep := Reconciler{
+		Tracker:   tracker,
+		Worktrees: newObserver(t, repository, worktreeRoot),
+		Store:     store,
+		Docket:    docketerOverStore(docket, store, pipeline.Config),
+		Clock:     &pausingClock{now: recorded.UpdatedAt.Add(24 * time.Hour)},
 	}
 
-	// Inside the grace it is the wait it is, and the reading says when that ends.
-	inside, err := sweepAt(recorded.UpdatedAt.Add(DefaultVanishedGrace - time.Minute)).Reconcile(context.Background())
-	if err != nil || len(inside) != 1 || inside[0].Action != ActionResumable || !strings.Contains(inside[0].Detail, "settles it as a stopped run") {
-		t.Fatalf("Reconcile() inside the grace = %#v, %v; want it resumable with the grace said", inside, err)
+	results, err := sweep.Reconcile(context.Background())
+	if err != nil || len(results) != 1 || results[0].Action != ActionResumable || !strings.Contains(results[0].Detail, "continues it at the first pull after that work closes") {
+		t.Fatalf("Reconcile() a day into the wait = %#v, %v; want it resumable, naming the pull as what continues it", results, err)
 	}
-
-	results, err := sweepAt(recorded.UpdatedAt.Add(DefaultVanishedGrace)).Reconcile(context.Background())
-	if err != nil {
-		t.Fatalf("Reconcile() error = %v", err)
-	}
-	if len(results) != 1 || results[0].Action != ActionBlocked || results[0].Failure != "" {
-		t.Fatalf("reconciliation = %#v, want the abandoned park settled as blocked", results)
-	}
-	for _, want := range []string{"no live process behind it", "waits on unfinished work: yoyodyne-blocker", "the harness settled it as an environmental stop"} {
-		if !strings.Contains(results[0].Detail, want) {
-			t.Fatalf("detail %q does not say %q", results[0].Detail, want)
-		}
-	}
-	settled, err := store.Load(paused.RunID)
+	left, err := store.Load(paused.RunID)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !settled.Status.Terminal() || settled.DependencyPause != nil || settled.Blocker == "" ||
-		settled.Environmental == nil || settled.Environmental.Cause != runstate.CauseProcessVanished {
-		t.Fatalf("settled run = %#v, want it terminal, blocked, and recorded as a vanished process", settled)
-	}
-	if _, err := os.Stat(filepath.Join(settled.WorktreePath, "feature.txt")); err != nil {
-		t.Fatalf("the paused run's work is not where it was left: %v", err)
-	}
-	incomplete, err := store.Incomplete()
-	if err != nil || len(incomplete) != 0 {
-		t.Fatalf("Incomplete() = %#v, %v; want the settled run holding no slot", incomplete, err)
+	if left.Status.Terminal() || left.DependencyPause == nil {
+		t.Fatalf("paused run after the sweep = %#v, want it still paused", left)
 	}
 	entries, err := docket.List()
-	if err != nil || len(entries) != 1 || entries[0].RunID != paused.RunID || entries[0].Closed != nil {
-		t.Fatalf("docket = %#v, %v; want the stoppage docketed for the development manager", entries, err)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("docket = %#v, %v; want nothing docketed for a wait on other work", entries, err)
 	}
 }
 

@@ -8087,7 +8087,7 @@ func renderDependencyPauseNotes(outcome Outcome, waiting runstate.DependencyPaus
 	}
 	lines = append(lines,
 		"This item stays claimed and its branch, worktree, and developer session are all preserved.",
-		"Closing the work above, or removing the dependency link, is what lifts the pause; running Yoyodyne on this item after that continues the same run.",
+		"Closing the work above, or removing the dependency link, is what lifts the pause; a watching `yoyo work` session then continues the same run at its next pull, with nobody having to run anything.",
 	)
 	return strings.Join(lines, "\n")
 }

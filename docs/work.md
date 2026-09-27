@@ -44,7 +44,20 @@ whatever readiness selection saw. A dependency link added to an item that is
 already in flight therefore takes effect on that run: it pauses at the next of
 those boundaries exactly as an unresolved directive does, keeping its claim, its
 branch, its worktree, and its developer session, and it carries on when the work
-it waits on is closed or the link is removed. That matters because a development
+it waits on is closed or the link is removed. **Nobody has to type anything for
+it to carry on: a watching `yoyo work` session continues it.** Its item stays
+claimed while it waits, so no queue ever offers it again, and until
+yoyodyne-ifd.428.51 the only thing that continued it was somebody typing `yoyo
+run` on the item. Now every pull reads the runs paused this way, oldest pause
+first, and asks the tracker what each item still waits on. One whose work is
+all closed is continued in its own worktree and developer session, against a
+developer slot and under a session's `--limit` exactly as a recorded repair is
+fired, and the item's notes say the harness continued it and why. One whose
+work is still open is passed over naming what it waits on, and the sweep leaves
+it alone however long that lasts, rather than settling it after half an hour as
+it does a park nothing continues. A stop recorded on such a run is honoured
+before any continuation: the pull does not pick it up, and the next `yoyo
+reconcile` ends it as the stop asked. That matters because a development
 manager linking a dependency onto work already moving is precisely how a gate
 gets added late, and a run that answered from selection-time state would develop
 straight through the gate filed to stop it — and spend review rounds on a change
@@ -1488,7 +1501,8 @@ nothing about what the pass had just done.
 waits `execution.work_poll` — a minute by default — and reads the queue again,
 until you stop it. Nothing else about the pass changes, and nothing needed to:
 the re-reading above is per pull. An idle session costs one local tracker read
-per interval and asks no provider anything, unless it has a stopped run to put to
+per interval, and one more for each run paused on work its item waits on, and
+asks no provider anything, unless it has a stopped run to put to
 the development manager, a recurring task that has come due, or a refused tracker
 block to wake a role for, or a triage decision of hers to carry out. Holding intake
 brakes a watching session in place rather

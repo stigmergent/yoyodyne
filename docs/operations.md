@@ -2144,22 +2144,25 @@ is left to that process, and a run `yoyo run` can continue on its own — one
 inside its repair loop, one paused for a provider usage limit whose deadline
 has not passed, one parked on an
 [operator pause](#pausing-everything-and-resuming-it) that still stands, and,
-for the half hour below, one whose provider the harness stopped on time, one
-paused for an [unresolved
-directive](conversation.md#directives-and-the-work-they-pause) or for work its
-item depends on, one parked on a tracker that would not answer, one waiting out
-a provider nobody could reach, and one parked on an operator pause since lifted
-— is left exactly as it is for that command to pick up. A run paused for a usage limit whose deadline has
+one paused for work its item depends on, for as long as that work is open,
+and, for the half hour below, one whose provider the harness stopped on time,
+one paused for an [unresolved
+directive](conversation.md#directives-and-the-work-they-pause), one parked on a
+tracker that would not answer, one waiting out a provider nobody could reach,
+and one parked on an operator pause since lifted — is left exactly as it is for
+that command to pick up. A run paused for a usage limit whose deadline has
 passed with no process serving the wait is the one the sweep
 [continues itself](#waiting-out-a-provider-usage-limit), as the last thing it
-does.
+does, and a run paused for work its item depends on is continued by a watching
+`yoyo work` session at the first pull after that work closes
+([how work flows](work.md#how-work-flows-once-you-approve-it)).
 
 **A run whose process vanished is settled here, and nobody edits its record by
 hand.** A run whose provider [the harness stopped on time](#when-a-provider-stalls-or-runs-out-of-budget)
 is left in flight to be continued, and so is a run parked on anything else its
-process returns from and exits over — work its item depends on, an unresolved
-directive, a tracker that would not answer, a provider nobody could reach, an
-operator pause since lifted. Nothing continues any of those on its own; a run
+process returns from and exits over — an unresolved directive, a tracker that
+would not answer, a provider nobody could reach, an operator pause since
+lifted. Nothing continues any of those on its own; a run
 nobody typed `yoyo run` for therefore goes on reading as running with no live
 process behind it and no ending ever recorded. The sweep settles one of those,
 whatever it was parked on, once thirty minutes have passed since its record last
@@ -2170,13 +2173,18 @@ that lease. It settles it as an environmental stop rather than as a verdict on
 anything. The run's record
 and the work item both carry what the sweep observed and nothing more: that no
 live process held the run, that no ending was recorded, when the record last
-moved, and what the run was parked on. Two parks are left out, because each has
-something else that ends it: a usage limit or an overloaded provider, which the
-sweep's own last step continues once its deadline passes, and the operator's
-pause while it still stands. Until the sweep settled every park nothing continues (yoyodyne-ifd.428.49), only a provider stop was
+moved, and what the run was parked on. Three parks are left out, because each
+has something else that ends it: a usage limit or an overloaded provider, which
+the sweep's own last step continues once its deadline passes; work its item
+depends on, which a watching `yoyo work` session continues at the first pull
+after that work closes, however long it stays open; and the operator's pause
+while it still stands. Until the sweep settled every park nothing continues (yoyodyne-ifd.428.49), only a provider stop was
 settled here, and on 2026-09-26 a run parked on a dependency held developer
 slot 1 for twenty hours while every sweep reported it resumable
-([the diagnosis](diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md)). The branch and worktree are left
+([the diagnosis](diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md)).
+A dependency park was settled here too from then until the watch came to
+continue it (yoyodyne-ifd.428.51); a stop recorded on such a run is still
+honoured here at once. The branch and worktree are left
 exactly as a stopped run's are, the item is blocked with that account, and the
 stoppage goes on the triage docket, so a repair-continue the development
 manager decides about it carries out as it does for any stopped run — on the
@@ -2537,7 +2545,9 @@ has the rule.
   parked on your pause says the sweep leaves it alone while the pause stands,
   that `yoyo run` continues it, and that the sweep settles it once the pause is
   lifted. A run waiting out a usage limit or an overloaded provider says the
-  sweep continues it once its deadline passes, and names the deadline. Every
+  sweep continues it once its deadline passes, and names the deadline. A run
+  paused on work its item depends on names that work and says a watching
+  `yoyo work` session continues it at the first pull after it closes. Every
   other run says the sweep settles it.
 
   Whether a process is behind a run is observed rather than taken, the way the
@@ -3119,8 +3129,8 @@ step, and one whose provider
 [the harness stopped on time](#when-a-provider-stalls-or-runs-out-of-budget).
 The audit leaves each of those as a wait, and the reconciling sweep, not the
 audit, [settles](#recovering-interrupted-runs) every one of them but the usage
-limit, the overload, and a pause that still stands once nothing has continued
-it for half an hour. Each of those returns and
+limit, the overload, work its item depends on, and a pause that still stands
+once nothing has continued it for half an hour. Each of those returns and
 lets its process exit, so its record goes as still as a killed one's, and its
 item is claimed on purpose with the worktree and developer session that
 continuation needs. Every one of those is a wait that is still pending, which is

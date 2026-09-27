@@ -1006,9 +1006,10 @@ func reportDependencyPause(stdout io.Writer, outcome orchestrator.Outcome) {
 		fmt.Fprintf(stdout, "branch: %s\n", outcome.Branch)
 		fmt.Fprintf(stdout, "worktree: %s\n", outcome.WorktreePath)
 		fmt.Fprintln(stdout, "the item stays claimed and its artifacts are preserved; nothing was cancelled")
-	} else {
-		fmt.Fprintln(stdout, "nothing was started for it, so there is nothing to clean up")
+		fmt.Fprintln(stdout, "closing that work, or removing the dependency link, lifts the pause; a watching `yoyo work` session then continues this run at its next pull")
+		return
 	}
+	fmt.Fprintln(stdout, "nothing was started for it, so there is nothing to clean up")
 	fmt.Fprintf(stdout, "closing that work, or removing the dependency link, lifts the pause; running yoyodyne on %s after that carries on\n",
 		outcome.WorkItemID)
 }

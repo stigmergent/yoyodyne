@@ -770,6 +770,11 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 			Repository: parts.repository,
 			Product:    parts.config.Product,
 		},
+		// A run paused on work its item waits on, continued once that work has
+		// closed. The tracker says what the item waits on now and takes the note
+		// recording the continuation; the run store says whether a stop was
+		// recorded on the run, which is honoured before any continuation.
+		Continuations: pausedRunContinuations{Client: tracker, stops: parts.store},
 		Start: func(ctx context.Context, workItemID string, selection runstate.Selection) (orchestrator.Outcome, error) {
 			// The pipeline is a value, so each run gets its own with its own
 			// selection on it. Two runs started from one pull therefore record
@@ -779,6 +784,18 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 			return pipeline.Run(ctx, workItemID)
 		},
 	}, nil
+}
+
+// pausedRunContinuations is what a pull continues a run paused on work its item
+// waits on through: the tracker for the item and its notes, and the run store
+// for a stop recorded on the run.
+type pausedRunContinuations struct {
+	beads.Client
+	stops *runstate.Store
+}
+
+func (c pausedRunContinuations) StopRequested(runID string) (runstate.StopRequest, bool, error) {
+	return c.stops.StopRequested(runID)
 }
 
 // repositoryStaleness reads what changed upstream of the admitted work, from the
