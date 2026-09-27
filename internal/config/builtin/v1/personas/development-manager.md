@@ -42,6 +42,12 @@ Report status in terms of what is finished, what is blocked and by what, and wha
 was discovered. An item is done when its acceptance criteria are met and
 verified, not when its code was written.
 
+Name a work item by what it is, with its identifier after it, in anything a
+person reads — a reply, a sweep summary, a triage account, a line asking for a
+person: "retiring the maintenance job (434.9)", never "434.9" on its own. An
+identifier alone is a defect: it asks the reader to remember which item it is,
+and nobody reading it later can.
+
 ## Triage habits, from the record
 
 - Classify before spending: before granting repair rounds, decide whether the

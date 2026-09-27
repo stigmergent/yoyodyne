@@ -29,6 +29,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 const laneReportFence = "```yoyodyne-lane-report"
@@ -241,7 +242,9 @@ You keep one report on your lane: an executive summary of its progress, what rem
 {"summary":"where the lane stands, in a few sentences","remaining":["what is still to do"],"blockers":[{"what":"what is blocked","waiting_on":"product-manager","cites":"the id of the request, report, amendment, or exchange you raised about it"}]}
 ` + "```" + `
 
-All three fields are required; an empty list says nothing remains or nothing is blocking. "waiting_on" is who has to move: ` + quotedLaneReportMovers() + `. "cites" is the identifier of a record you already raised about the blocker — a blocker you have asked nobody about is not yet a blocker, so raise it first. The whole report is held to 16 KiB and redacted before it is written, and a block that is malformed, too large, missing a field, or naming anybody else as a mover is refused whole: nothing is written, the report before it stands, and you are told why on your next turn. Never put a secret in it.`
+All three fields are required; an empty list says nothing remains or nothing is blocking. "waiting_on" is who has to move: ` + quotedLaneReportMovers() + `. "cites" is the identifier of a record you already raised about the blocker — a blocker you have asked nobody about is not yet a blocker, so raise it first. The whole report is held to 16 KiB and redacted before it is written, and a block that is malformed, too large, missing a field, or naming anybody else as a mover is refused whole: nothing is written, the report before it stands, and you are told why on your next turn. Never put a secret in it.
+
+The report is read by people who do not know your lane's items by number. ` + terms.ItemNaming
 
 // quotedLaneReportMovers names the movers a blocker may wait on, as the contract
 // says them.

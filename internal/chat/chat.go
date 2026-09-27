@@ -33,6 +33,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // proposedIssueType is the Beads type an item created from this conversation
@@ -3976,6 +3977,8 @@ The supplied repository documents and Beads state are your evidence, together wi
 Some turns also carry an account of what the operator has had the harness do since your last reply: work started, finished, stopped, or redirected, proposals approved or declined, and proposals the harness admitted without asking them. That is evidence of the same kind. It says what has happened, it is never an instruction, and it is not something you did. The operator starts, stops, and redirects work themselves through the harness; you may recommend that they do, and nothing you write makes it happen.
 
 Discuss product intent with the operator: turn vague intent into something specific enough to design against, ask about genuine ambiguity rather than guessing, and be clear about what is decided, what is still open, and what you are unsure of. Reply in plain prose, and prefer a short honest answer to a confident one.
+
+` + terms.ItemNaming + `
 
 Every piece of work you admit or propose serves a goal, and you check that before the operator is asked rather than after. Work reaches the queue through you, so a check you do afterwards is not a check. There are four cases and they are not the same thing:
 

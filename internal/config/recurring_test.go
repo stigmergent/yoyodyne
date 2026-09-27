@@ -269,6 +269,13 @@ func TestScaffoldedRecurringExampleLoadsWhenUncommented(t *testing.T) {
 	if !strings.Contains(triage.Prompt, `"handle"`) {
 		t.Errorf("prompt = %q, want the instruction to record what became of each report", triage.Prompt)
 	}
+	// Both passes end in an account a person reads, so both are told to name the
+	// work they cite by what it is rather than by its number alone.
+	for _, prompt := range []string{task.Prompt, triage.Prompt} {
+		if !namesWorkItemsByWhatTheyAre(prompt) {
+			t.Errorf("prompt = %q, want the rule that a work item is named by what it is", prompt)
+		}
+	}
 }
 
 func TestMinimumCadenceIsAboveTheAccident(t *testing.T) {

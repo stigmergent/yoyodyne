@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // Every role the operator can address carries a contract of its own, and a
@@ -465,5 +466,23 @@ func TestEveryTrackerActionNamesTheCapabilityItBelongsTo(t *testing.T) {
 		if !slices.Contains(trackerActionNames, action) {
 			t.Errorf("%q is mapped to a capability and is not an action the contract states", action)
 		}
+	}
+}
+
+// Every role's contract says that a work item named to a person is named by
+// what it is, with its identifier after it. It is in the contract rather than
+// left to the persona because a project's own persona can drop it, and the
+// program manager's lane report states it again where the report is described.
+func TestEveryContractNamesWorkItemsByWhatTheyAre(t *testing.T) {
+	t.Parallel()
+
+	for _, role := range ConversationalRoles() {
+		authority, _ := AuthorityFor(role)
+		if !strings.Contains(authority.Contract, terms.ItemNaming) {
+			t.Errorf("%s contract does not carry the rule for naming work items", role)
+		}
+	}
+	if !strings.Contains(laneReportContract, terms.ItemNaming) {
+		t.Error("the lane report contract does not carry the rule for naming work items")
 	}
 }

@@ -35,6 +35,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/fenced"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // Fence opens the one block a swept turn may carry its account in. It is a
@@ -436,5 +437,6 @@ func Contract() string {
 		`A pass that found nothing carries no findings and says so in the summary; that is the ordinary result and it is worth stating plainly.`,
 		`Every fix carries the work you filed for its root cause in "filed". A fix that files nothing is a silent repair, and the report says so.`,
 		"At most " + maxFindingsText + " findings and " + maxQuestionsText + " questions in one turn: a pass that found more than that has found something systemic, and the summary is where that is said.",
+		"The summary, the findings, and the questions are read by a person. " + terms.ItemNaming,
 	}, "\n")
 }
