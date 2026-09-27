@@ -884,6 +884,14 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			t.Errorf("the busy render does not open %s's report from its row", agent)
 		}
 	}
+	// A report card ends with what it shows and never with a file path: the
+	// fixtures carry report_path, and none of it reaches a card a person reads.
+	for _, scenario := range []string{"report", "report-blocked", "report-unwritten"} {
+		body := page(scenario)
+		if strings.Contains(body, "Report file") || strings.Contains(body, "report.json") || strings.Contains(body, "/Users/somebody") {
+			t.Errorf("the %s render shows the report's file path to a person", scenario)
+		}
+	}
 	// The card acts on nothing: every button on it opens or closes a pop-up.
 	for _, scenario := range []string{"attention-amendment", "attention-owed-step", "attention-carried-item", "report", "report-blocked"} {
 		for _, button := range strings.Split(page(scenario), "<button")[1:] {
