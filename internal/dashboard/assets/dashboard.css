@@ -850,6 +850,13 @@ input:focus-visible {
   gap: 0.4rem;
 }
 
+/* A run with no process behind it holds a slot and does no work. It says so in
+   words on the card, and beside them by a dashed rule where a running card has
+   none. */
+.card-run-no-process {
+  border-left: 4px dashed var(--attention);
+}
+
 /* A waiting run carries on by itself; a blocked one does not. The two are told
    apart by the word in the badge, and beside it by the rule: solid for a run
    that is asleep, dashed for one that has stopped. */

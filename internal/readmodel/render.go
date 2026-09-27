@@ -149,9 +149,9 @@ func (s Standing) renderRunning() string {
 	case len(s.Running) == 0:
 		fmt.Fprintf(&rendered, "Running: no run yet, and %s:\n", waiting)
 	case waiting == "":
-		fmt.Fprintf(&rendered, "Running (%s):\n", count(len(s.Running), "developer run"))
+		fmt.Fprintf(&rendered, "Running (%s%s):\n", count(len(s.Running), "developer run"), withNoProcess(s.Running))
 	default:
-		fmt.Fprintf(&rendered, "Running (%s, and %s):\n", count(len(s.Running), "developer run"), waiting)
+		fmt.Fprintf(&rendered, "Running (%s%s, and %s):\n", count(len(s.Running), "developer run"), withNoProcess(s.Running), waiting)
 	}
 	if len(s.Running) > 0 {
 		listed, further := bound(len(s.Running))
@@ -182,6 +182,24 @@ func (s Standing) renderRunning() string {
 		}
 	}
 	return rendered.String()
+}
+
+// withNoProcess is how many of the runs in flight have no process behind them,
+// said in the head of the line because the head is what the channel carries: a
+// run holding a slot with nothing working on it is the one entry a reader of the
+// brief rendering must not be left to think is running. It is empty where every
+// run has a process.
+func withNoProcess(running []RunningRun) string {
+	missing := 0
+	for _, run := range running {
+		if run.NoProcess != "" {
+			missing++
+		}
+	}
+	if missing == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %d with no process behind it", missing)
 }
 
 // dispatches counts dispatches, which count cannot: its plural is the noun with
@@ -338,7 +356,18 @@ func unreadable(label, problem string) string {
 // for the same reason: "checks: 14m of 30m" is what an operator watching a
 // slow stage is reading the line for, and the bound is the number that says
 // whether it is slow.
+//
+// A run with no process behind it says that first and in place of the phase,
+// because the phase is what the dead process last wrote and reads as work under
+// way: run-3b94404c read "checking" in slot 1 for twenty hours on 2026-09-26.
 func phaseOf(run RunningRun) string {
+	if run.NoProcess != "" {
+		recorded := strings.TrimSpace(string(run.Phase))
+		if recorded == "" {
+			recorded = "no phase"
+		}
+		return "no process can be found behind it: " + run.NoProcess + "; recorded as " + recorded + ", and `yoyo reconcile` settles it"
+	}
 	if run.ResumingIntegration {
 		return runstate.ResumingIntegrationSays
 	}

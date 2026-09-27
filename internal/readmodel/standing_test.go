@@ -624,6 +624,51 @@ func TestARunResumedAtItsPromotionSaysSoOnTheRunningLine(t *testing.T) {
 	}
 }
 
+// runsWithPresence is a run source that can say whether a process is behind each
+// run, as the store the harness wires can.
+type runsWithPresence struct {
+	fakeRuns
+	missing map[string]string
+}
+
+func (f runsWithPresence) Presence(state runstate.State, _ time.Duration, _ time.Time) (runstate.RunPresence, error) {
+	if says, gone := f.missing[state.RunID]; gone {
+		return runstate.RunPresence{Says: says}, nil
+	}
+	return runstate.RunPresence{Found: true}, nil
+}
+
+// A run with no process behind it is still in flight and still in its slot, so
+// it stays on the running line — but the line says nothing is running it, in
+// the head the channel carries as well as against the run, rather than printing
+// the phase the dead process last wrote. run-3b94404c read "checking" in slot 1
+// for twenty hours on 2026-09-26 with nothing behind it.
+func TestARunWithNoProcessBehindItIsNamedAsSuchOnTheRunningLine(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Runs = runsWithPresence{
+		fakeRuns: fakeRuns{incomplete: []runstate.State{
+			{RunID: "run-a", WorkItemID: "yoyodyne-ifd.428.34", Status: runstate.StatusRunning, Phase: runstate.PhaseChecking, StartedAt: moment.Add(-20 * time.Hour)},
+			{RunID: "run-b", WorkItemID: "yoyodyne-ifd.194", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-12 * time.Minute)},
+		}},
+		missing: map[string]string{"run-a": "no process holds it, and nothing has been written to it since 2026-08-29T16:05:00Z"},
+	}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.Running) != 2 || standing.Running[0].NoProcess == "" || standing.Running[1].NoProcess != "" {
+		t.Fatalf("running = %+v, want only the first run named as having no process", standing.Running)
+	}
+	rendered := standing.Render()
+	for _, want := range []string{
+		"Running (2 developer runs, 1 with no process behind it):\n",
+		"  yoyodyne-ifd.428.34 — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-08-29T16:05:00Z; recorded as checking, and `yoyo reconcile` settles it, 20h00m elapsed",
+		"  yoyodyne-ifd.194 — developing, 12m elapsed",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
+		}
+	}
+}
+
 // A run in its checks says where the stage stands in place of the bare phase:
 // what it has spent of the bound, and which check it is on. That is the line
 // the 2026-09-19 stage would have been visible on — two hours into a stage

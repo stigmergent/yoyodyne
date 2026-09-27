@@ -385,7 +385,12 @@ with you as its reset instead of a clock: the park is durable before any waiting
 starts, and the item stays claimed with its branch, worktree, and developer
 session all preserved. A process already parked acts on `yoyo resume` within
 seconds and carries on unaided; one that exited while the pause stood is
-continued by `yoyo run <beads-id>`. Nothing is cancelled, so nothing has to be
+continued by `yoyo run <beads-id>`. While the pause stands nothing settles such
+a run, however long it stands. Once it is lifted, one that nothing continues
+within half an hour is settled by the next
+[`yoyo reconcile`](#recovering-interrupted-runs) as a run with no process behind
+it — its change kept and its stoppage docketed for the development manager —
+rather than holding a developer slot until somebody types the command. Nothing is cancelled, so nothing has to be
 reconciled afterwards — which is the whole difference between this and killing
 processes, where the run lands cancelled and the work has to be developed again
 from scratch once
@@ -1131,7 +1136,9 @@ its claim, its branch, its worktree, and its developer session — exactly as a
 run waiting on an unresolved directive or on work its item depends on does. It
 says so on the item, naming the read, the attempts, the time, and the last thing
 the store said; `yoyo status` reads it as a parked run, `yoyo reconcile` leaves
-it resumable rather than settling it, the claim audit leaves its claim alone, and
+it resumable for half an hour and then, with nothing having continued it,
+[settles it](#recovering-interrupted-runs) as a run with no process behind it,
+the claim audit leaves its claim alone, and
 the channel says it as a `warning`, since nobody chose it. The store answering is
 what lifts it: `yoyo run <beads-id>` continues the same run from the boundary it
 stopped at, and the window goes with the park, so the re-entered gate asks again
@@ -2120,28 +2127,41 @@ artifacts that are already gone does nothing, and a stall already standing is no
 recorded twice. A run another process still holds
 is left to that process, and a run `yoyo run` can continue on its own — one
 inside its repair loop, one paused for a provider usage limit whose deadline
-has not passed, one whose
-provider the harness stopped on time and the half hour below has not passed
-for, one paused for an [unresolved
-directive](conversation.md#directives-and-the-work-they-pause), or one parked on an
-[operator pause](#pausing-everything-and-resuming-it) — is left exactly as it is
-for that command to pick up. A run paused for a usage limit whose deadline has
+has not passed, one parked on an
+[operator pause](#pausing-everything-and-resuming-it) that still stands, and,
+for the half hour below, one whose provider the harness stopped on time, one
+paused for an [unresolved
+directive](conversation.md#directives-and-the-work-they-pause) or for work its
+item depends on, one parked on a tracker that would not answer, one waiting out
+a provider nobody could reach, and one parked on an operator pause since lifted
+— is left exactly as it is for that command to pick up. A run paused for a usage limit whose deadline has
 passed with no process serving the wait is the one the sweep
 [continues itself](#waiting-out-a-provider-usage-limit), as the last thing it
 does.
 
 **A run whose process vanished is settled here, and nobody edits its record by
 hand.** A run whose provider [the harness stopped on time](#when-a-provider-stalls-or-runs-out-of-budget)
-is left in flight to be continued, and nothing continues one on its own; a run
+is left in flight to be continued, and so is a run parked on anything else its
+process returns from and exits over — work its item depends on, an unresolved
+directive, a tracker that would not answer, a provider nobody could reach, an
+operator pause since lifted. Nothing continues any of those on its own; a run
 nobody typed `yoyo run` for therefore goes on reading as running with no live
-process behind it and no ending ever recorded. The sweep settles one of those
-once thirty minutes have passed since the stop with nothing continuing it —
-the lease it takes to settle a run is what says no process holds it, since a
-continuation somebody did start would be holding that lease — and settles it as
-an environmental stop rather than as a verdict on anything. The run's record
+process behind it and no ending ever recorded. The sweep settles one of those,
+whatever it was parked on, once thirty minutes have passed since its record last
+moved with nothing continuing it — measured, for a provider nobody could reach,
+from the probe it recorded — and the lease it takes to settle a run is what says
+no process holds it, since a continuation somebody did start would be holding
+that lease. It settles it as an environmental stop rather than as a verdict on
+anything. The run's record
 and the work item both carry what the sweep observed and nothing more: that no
 live process held the run, that no ending was recorded, when the record last
-moved, and why the provider was stopped. The branch and worktree are left
+moved, and what the run was parked on. Two parks are left out, because each has
+something else that ends it: a usage limit or an overloaded provider, which the
+sweep's own last step continues once its deadline passes, and the operator's
+pause while it still stands. Until yoyodyne-ifd.428.49 only a provider stop was
+settled here, and on 2026-09-26 a run parked on a dependency held developer
+slot 1 for twenty hours while every sweep reported it resumable
+([the diagnosis](diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md)). The branch and worktree are left
 exactly as a stopped run's are, the item is blocked with that account, and the
 stoppage goes on the triage docket, so a repair-continue the development
 manager decides about it carries out as it does for any stopped run — on the
@@ -2165,6 +2185,19 @@ record edited by hand carries no account of who ended the run or why, the
 docket and every status surface are derived from the record rather than from
 the edit, and the sweep already writes the whole of it on the next
 `yoyo reconcile`.
+
+**A stop asked for on a run with no process behind it is honoured by the sweep,
+at once.** A stop — yours, or one the development manager decided — is read by
+the run's own process at its next provider-call boundary, and a run whose
+process is gone reaches no boundary. So the sweep reads it too, before anything
+else it decides about an in-flight run: a run whose lease it can take and that
+somebody asked to stop is ended there and then, without waiting out the half
+hour, exactly as the run would have ended itself — `cancelled`, its branch and
+worktree left where they are, the stop and who asked for it on the item, and, for
+a stop she decided, the stoppage docketed as settled by her decision. The slot
+is free as the record goes terminal. `yoyo reconcile` says `cancelled` against
+the run, with the stop's own words and that the sweep ended it in the dead
+process's place.
 
 ## Git maintenance, and the one prune that is still yours
 
@@ -2470,6 +2503,26 @@ has the rule.
   same derivation the scheduler fills the free slots from, so the slot this
   line calls free is the slot the scheduler will fill. Where no slot prefers a
   label the line reads exactly as above.
+
+  **A run with no process behind it is named as one rather than as running.**
+  Its record says `running` until something writes its ending, and a process
+  that dies writes nothing, so it stays on this line — it still holds its
+  slot — but in place of the phase the line says so, and the head counts it:
+
+  ```text
+  Running (2 developer runs, 1 with no process behind it):
+    yoyodyne-ifd.428.34 (…) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-09-27T01:05:29Z; recorded as checking, and `yoyo reconcile` settles it, 20h02m elapsed, $41.20 so far
+  ```
+
+  Whether a process is behind a run is observed rather than taken, the way the
+  Working line below observes a conversation: a process that takes a run's
+  lease writes down which process it is beside it, and a reading checks that
+  process is still there. A holder killed outright leaves that stamp behind,
+  and the run reads as having no process at once. A run with no stamp at all —
+  a park whose process let go of it and exited — reads so once neither its
+  record nor its event log has been written to for half an hour, which is also
+  what keeps a run from a build older than the stamp, still working, from being
+  called dead. `--json` carries the sentence as the run's `no_process`.
 - **Working** is the persona conversations with a turn in flight, which nothing
   counted before this: a conversation is not a run, so a machine spending money
   on six persona turns used to report nothing running at all. The advisory hold
@@ -3008,9 +3061,11 @@ unresolved directive or by work its item depends on, one parked because
 gate boundary makes, one [put back at its promotion](#recovering-interrupted-runs)
 to bring a queued head up to date, which the reconciling sweep hosts as its last
 step, and one whose provider
-[the harness stopped on time](#when-a-provider-stalls-or-runs-out-of-budget) —
-which the audit leaves as a wait and the reconciling sweep, not the audit,
-settles once nothing has continued it for half an hour. Each of those returns and
+[the harness stopped on time](#when-a-provider-stalls-or-runs-out-of-budget).
+The audit leaves each of those as a wait, and the reconciling sweep, not the
+audit, [settles](#recovering-interrupted-runs) every one of them but the usage
+limit, the overload, and a pause that still stands once nothing has continued
+it for half an hour. Each of those returns and
 lets its process exit, so its record goes as still as a killed one's, and its
 item is claimed on purpose with the worktree and developer session that
 continuation needs. Every one of those is a wait that is still pending, which is
@@ -3519,7 +3574,10 @@ slowly or not at all`.
    turn in flight: the work item's title and id, the phase (or `approved,
    resuming integration` where that is what the run is doing), how long it has
    been going, what it has spent so far or `cost unknown` and why, and the
-   provider, model, and account alias it is spending. The title and the id
+   provider, model, and account alias it is spending. A run with
+   [no process behind it](#where-the-harness-stands-the-four-lines) says `no
+   process behind it` in place of the phase, with why under it, and its card
+   carries a dashed rule a running card does not. The title and the id
    each open [the item's card](#opening-a-work-item). A conversation card says
    the agent, its role, how long the turn has been in flight, and how many turns
    are recorded before it.

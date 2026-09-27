@@ -89,6 +89,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/intake.go:(*IntakeHoldStore).Held":                 {strictValidator, "an intake hold nobody can read is never taken for a clear one; the read model reports it and the sink reads it past"},
 	"internal/runstate/provideroutage.go:(*ProviderOutageStore).Standing": {strictValidator, "an outage nobody can read is never started through; the read model reports it and the sink reads it past"},
 	"internal/runstate/conversation.go:(*ConversationStore).readHolder":   {strictValidator, "who is mid-turn with an agent is refused rather than guessed at from part of a record"},
+	"internal/runstate/presence.go:readRunHolder":                         {strictValidator, "whether a process is behind a run is refused rather than guessed at from part of a stamp; the reading then reports the run as found"},
 	"internal/runstate/stop.go:(*Store).StopRequested":                    {strictValidator, "a run acts on a stop request, and one it cannot read fails its step rather than being ignored"},
 	"internal/runstate/release.go:(*Store).ReleasedWait":                  {strictValidator, "a run acts on the operator's release of a wait, and one it cannot read fails its step rather than being ignored"},
 	"internal/runstate/passcursor.go:(*PassCursorStore).Load":             {strictWriter, "an instance's cursor is read to be advanced and written back, and a cursor nobody can read must stop its passes rather than hand them nothing or everything"},

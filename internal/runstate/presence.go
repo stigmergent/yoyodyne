@@ -1,0 +1,189 @@
+package runstate
+
+// Whether a process can be found behind a run in flight.
+//
+// A run's record says "running" from the moment it is reserved until something
+// writes its ending, and a process that dies writes nothing. So the status field
+// is a claim the process made about itself, and the one question every reader
+// of an in-flight run actually has — is anything working on it — is not in the
+// record at all. The lease answers it for whoever takes the lease, which is how
+// the sweep and the claim audit have always decided; but a surface that only
+// reads must not take it, because for the instant it lasts a reading is a second
+// owner, and a process adopting the run in that instant would be refused.
+//
+// So a process that takes a run's lease writes down which process it is beside
+// the lease, exactly as a conversation's holder does, and a reader checks the
+// process it names rather than taking anything. That is what lets `yoyo status`
+// and the dashboard say a run has no process behind it rather than printing it
+// as running: on 2026-09-26 run-3b94404c read as running, in developer slot 1,
+// for twenty hours after its process exited
+// (docs/diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md).
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// runHolder is what a process holding a run's lease writes beside it.
+type runHolder struct {
+	// PID is the process that took the lease. A holder killed outright leaves the
+	// stamp behind, and a reader that finds no such process reports what the
+	// operating system already decided when it dropped the lock.
+	PID int `json:"pid"`
+	// HeldAt is when the lease was taken, written so a state directory somebody
+	// reads by hand says when. Nothing decides from it.
+	HeldAt time.Time `json:"held_at"`
+}
+
+// RunPresence is whether a process can be found behind one run in flight, and
+// what was looked at to say so.
+type RunPresence struct {
+	// Found is a process holding the run, or a run too recently moved to say
+	// otherwise. It is the answer every reading assumed before this existed, so a
+	// reading that could not be made is reported as found and never as missing.
+	Found bool `json:"found"`
+	// Says is why no process can be found, in a sentence a person reads, and is
+	// empty where one was.
+	Says string `json:"says,omitempty"`
+	// LastMoved is the later of the record's last write and its event log's, which
+	// is the last moment anything was demonstrably working on the run.
+	LastMoved time.Time `json:"last_moved,omitempty"`
+}
+
+// Presence reports whether a process can be found behind a run, and takes
+// nothing to answer it.
+//
+// A stamp naming a live process is a holder. A stamp naming a process that is
+// gone is a holder that was killed, and is said to be at once. No stamp at all is
+// either a run whose process let go of it — a park that returns and exits, or a
+// death the stamp's removal preceded — or a holder from a build that wrote no
+// stamp, and those two are told apart only by the run going quiet: a run nothing
+// has written to, record or event log, for quiet is reported as having no
+// process, and one written to more recently is given the benefit of the doubt.
+// A run that is not in flight has no process to find and reports found.
+func (s *Store) Presence(state State, quiet time.Duration, now time.Time) (RunPresence, error) {
+	if !state.Status.InFlight() {
+		return RunPresence{Found: true}, nil
+	}
+	lastMoved, err := s.lastMoved(state)
+	if err != nil {
+		return RunPresence{Found: true}, err
+	}
+	presence := RunPresence{LastMoved: lastMoved}
+	path, err := s.holderPath(state.RunID)
+	if err != nil {
+		return RunPresence{Found: true}, err
+	}
+	holder, err := readRunHolder(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if now.Sub(lastMoved) < quiet {
+			presence.Found = true
+			return presence, nil
+		}
+		presence.Says = fmt.Sprintf("no process holds it, and nothing has been written to it since %s",
+			lastMoved.UTC().Format(time.RFC3339))
+		return presence, nil
+	case err != nil:
+		return RunPresence{Found: true}, err
+	}
+	running, err := processIsRunning(holder.PID)
+	if err != nil {
+		return RunPresence{Found: true}, fmt.Errorf("ask whether run %s's holder is running: %w", state.RunID, err)
+	}
+	if running {
+		presence.Found = true
+		return presence, nil
+	}
+	presence.Says = fmt.Sprintf("the process that held it, pid %d, has exited without recording an ending, and nothing has been written to it since %s",
+		holder.PID, lastMoved.UTC().Format(time.RFC3339))
+	return presence, nil
+}
+
+// lastMoved is the later of the run's record and its event log. The event log is
+// read by its modification time rather than parsed, because a streaming provider
+// appends to it every few seconds and parsing it whole to find the last line
+// would make every status reading as expensive as pricing the run.
+func (s *Store) lastMoved(state State) (time.Time, error) {
+	moved := state.UpdatedAt
+	path, err := s.eventPath(state.RunID)
+	if err != nil {
+		return moved, err
+	}
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return moved, nil
+	}
+	if err != nil {
+		return moved, fmt.Errorf("read when run %s last wrote an event: %w", state.RunID, err)
+	}
+	if info.ModTime().After(moved) {
+		moved = info.ModTime()
+	}
+	return moved, nil
+}
+
+// holderPath names the stamp beside a run's lease. It is not a `.json` file, so
+// what the listings read stays the runs themselves.
+func (s *Store) holderPath(runID string) (string, error) {
+	if !runIDPattern.MatchString(runID) {
+		return "", errors.New("run id is invalid")
+	}
+	return filepath.Join(s.root, runID+".holder"), nil
+}
+
+// stampRunHolder writes this process's stamp for a run whose lease it now holds.
+// It is replaced by rename rather than written in place, so a reader sees the
+// whole of one stamp or none of it.
+func (s *Store) stampRunHolder(path string) error {
+	temporary, err := os.CreateTemp(s.root, ".holder-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary run holder: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("secure temporary run holder: %w", err)
+	}
+	if err := writeJSONFile(temporary, "run holder", runHolder{PID: os.Getpid(), HeldAt: time.Now().UTC()}); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary run holder: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace run holder: %w", err)
+	}
+	return syncDirectory(s.root)
+}
+
+// readRunHolder is one stamp as it sits on disk. A stamp that will not decode is
+// a failure to answer rather than an absence, because a reader that guessed at
+// it would be inventing whether anybody is working on the run.
+func readRunHolder(path string) (runHolder, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return runHolder{}, err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, maxEncodedStateBytes))
+	decoder.DisallowUnknownFields()
+	var holder runHolder
+	if err := decoder.Decode(&holder); err != nil {
+		return runHolder{}, fmt.Errorf("decode run holder %s: %w", filepath.Base(path), err)
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return runHolder{}, fmt.Errorf("decode run holder %s: %w", filepath.Base(path), err)
+	}
+	if holder.PID <= 0 {
+		return runHolder{}, fmt.Errorf("run holder %s names no process", filepath.Base(path))
+	}
+	return holder, nil
+}

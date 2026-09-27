@@ -98,6 +98,10 @@ type ReconcileStore interface {
 	// making terminal with an instance still standing mid-graph is one that would
 	// otherwise read as having agreed with the definition throughout.
 	LoadWorkflowInstance(instanceID string) (runstate.WorkflowInstance, error)
+	// StopRequested reads a stop somebody asked for. A run a live process holds
+	// honours it at its next boundary; a run whose process is gone reaches no
+	// boundary, so the sweep honours it in the process's place.
+	StopRequested(runID string) (runstate.StopRequest, bool, error)
 }
 
 // ReconcileReleases is the record of claims the audit gave back, read. It is
@@ -143,10 +147,16 @@ type Reconciler struct {
 	// pipeline's is: a test must be able to take the backoff without taking the
 	// time, and a sweep given none waits on a timer.
 	Sleep func(ctx context.Context, duration time.Duration) error
-	// VanishedGrace is how long a run whose provider the harness stopped on time
-	// may sit in flight with nothing continuing it before the sweep settles it
-	// rather than reporting it resumable. Zero takes DefaultVanishedGrace.
+	// VanishedGrace is how long a run parked with no process behind it — its
+	// provider stopped on time, or paused on anything nothing but a process
+	// continues — may sit in flight before the sweep settles it rather than
+	// reporting it resumable. Zero takes DefaultVanishedGrace.
 	VanishedGrace time.Duration
+	// Holds is the operator's pause over all harness activity, read before a run
+	// parked on it is settled: while the pause stands, the park is the operator's
+	// and is left exactly as it is. Optional: a sweep wired without it never
+	// settles a run parked on the operator's pause.
+	Holds OperatorHolds
 	// Continue is how ContinueWaits continues a run that exited on its
 	// in-process usage-limit bound, and how ContinueUpdates carries a queued
 	// head through its update: the run's own pipeline re-entering the run named,
@@ -217,6 +227,11 @@ const (
 	// request or drops the queued merge, so the run is left outstanding and the
 	// next sweep asks again.
 	ActionQueued ReconcileAction = "queued"
+	// ActionCancelled reports a run somebody asked to stop whose process was gone,
+	// so nothing would ever reach the boundary that honours a stop: the sweep
+	// ended it cancelled in that process's place, exactly as the process would
+	// have.
+	ActionCancelled ReconcileAction = "cancelled"
 )
 
 // Reconciliation is what happened to one run. Failure records that
@@ -359,8 +374,31 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// word is what let two of these stand for a day and a half. The lease this
 	// sweep holds is what says the process is gone: a continuation somebody did
 	// start holds it, and this is never reached.
-	if stoppedProviderIsResumable(state) && r.vanished(state) {
-		return r.settleVanished(ctx, state)
+	//
+	// The same holds for every other park a run returns from and lets its process
+	// exit — waiting on work its item depends on, on an unresolved directive, on
+	// a tracker that would not answer, on a provider nobody could reach, or on the
+	// operator's pause once it is lifted. Nothing in the harness continues any of
+	// those either, so each is settled the same way once its record has sat still
+	// for the grace. On 2026-09-26 a run parked on a dependency held developer
+	// slot 1 for twenty hours, read as resumable by every sweep, because only a
+	// provider stop was settled here
+	// (docs/diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md).
+	//
+	// A stop somebody asked for comes first and does not wait for the grace: the
+	// run was going to end at its next boundary, no process will reach one, and
+	// the lease this sweep holds is the evidence that none is there to.
+	if state.Status.InFlight() {
+		request, requested, err := r.Store.StopRequested(state.RunID)
+		if err != nil {
+			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("read whether run %s was asked to stop: %w", state.RunID, err)
+		}
+		if requested {
+			return r.settleStopRequest(ctx, state, request)
+		}
+	}
+	if park, parked := r.parkNothingServes(state); parked && r.vanished(park) {
+		return r.settleVanished(ctx, state, park)
 	}
 	// A run waiting out a provider that refused it is not an interrupted run at
 	// all: it recorded a deadline and is owed the attempt it was refused.
@@ -417,8 +455,8 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// must never turn into.
 	if pausedForDirective(state) {
 		result := reconciliationOf(state, ActionResumable)
-		result.Detail = fmt.Sprintf("the run is paused for unresolved directive %s and can continue once it is settled: %s",
-			state.DirectivePause.DirectiveID, state.DirectivePause.Unresolved)
+		result.Detail = fmt.Sprintf("the run is paused for unresolved directive %s and can continue once it is settled: %s; with no process holding it, a sweep after %s of its record not moving settles it as a stopped run",
+			state.DirectivePause.DirectiveID, state.DirectivePause.Unresolved, r.vanishedGrace())
 		return result, nil
 	}
 	// A run waiting on work its item depends on is not an interrupted run either.
@@ -427,8 +465,8 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// only made wait.
 	if pausedForDependency(state) {
 		result := reconciliationOf(state, ActionResumable)
-		result.Detail = fmt.Sprintf("the run is paused because %s waits on unfinished work and can continue once it is closed: %s",
-			state.WorkItemID, state.DependencyPause.Summary())
+		result.Detail = fmt.Sprintf("the run is paused because %s waits on unfinished work and can continue once it is closed: %s; with no process holding it, a sweep after %s of its record not moving settles it as a stopped run",
+			state.WorkItemID, state.DependencyPause.Summary(), r.vanishedGrace())
 		return result, nil
 	}
 	// A run parked because the tracker would not answer the read a gate boundary
@@ -438,8 +476,8 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// parking exists to replace.
 	if pausedForTracker(state) {
 		result := reconciliationOf(state, ActionResumable)
-		result.Detail = fmt.Sprintf("the run is parked because %s, and can continue once the tracker answers",
-			state.TrackerPause.Summary())
+		result.Detail = fmt.Sprintf("the run is parked because %s, and can continue once the tracker answers; with no process holding it, a sweep after %s of its record not moving settles it as a stopped run",
+			state.TrackerPause.Summary(), r.vanishedGrace())
 		return result, nil
 	}
 	// A run parked because the operator paused all harness activity is not an
@@ -1231,13 +1269,67 @@ func (r Reconciler) abandon(ctx context.Context, state runstate.State, observati
 	return r.abandonFor(ctx, state, observation, reason)
 }
 
-// vanished reports a run the harness stopped on time that has now sat in flight,
-// with nothing continuing it, for the whole of the grace. The age is measured
-// from the record's last write, which for such a run is the stop itself: nothing
-// writes to a parked run until something continues it, and a continuation would
-// be holding the lease this sweep has.
-func (r Reconciler) vanished(state runstate.State) bool {
-	return r.clock().Now().Sub(state.UpdatedAt) >= r.vanishedGrace()
+// recordedPark is a wait a run recorded and returned from, which only a
+// process continues: what it was, in words the settled run's reason carries, and
+// the moment the record last moved for it.
+type recordedPark struct {
+	says  string
+	since time.Time
+}
+
+// parkNothingServes reports a run parked on something the harness itself will
+// never continue, which is every park but two. A usage limit or an overloaded
+// provider is continued by the sweep's own last step once its deadline passes
+// (ContinueWaits), and before then is the bounded wait it recorded. The
+// operator's pause is theirs while it stands. Everything else — a provider the
+// harness stopped on time, work the item waits on, an unresolved directive, a
+// tracker that would not answer, a provider nobody could reach, and the
+// operator's pause once lifted — waits on somebody typing `yoyo run`, which is
+// the wait that held a slot for twenty hours on 2026-09-26.
+//
+// It is asked only under the run's lease, so a park a live process is serving —
+// asleep on the operator's pause, or waiting out an outage in-process — never
+// reaches here.
+func (r Reconciler) parkNothingServes(state runstate.State) (recordedPark, bool) {
+	since := state.UpdatedAt
+	switch {
+	case pausedForOperatorHold(state):
+		if r.Holds == nil {
+			return recordedPark{}, false
+		}
+		_, held, err := r.Holds.Held()
+		if err != nil || held {
+			return recordedPark{}, false
+		}
+		return recordedPark{says: "it parked on the operator's pause of all harness activity, which has since been lifted", since: since}, true
+	case pausedForUsageLimit(state):
+		if exitsOnInProcessBound(state) {
+			return recordedPark{}, false
+		}
+		// An outage wait's deadline is its next probe, and nothing has failed to
+		// serve it until that has passed.
+		if state.UsageLimitResetsAt.After(since) {
+			since = *state.UsageLimitResetsAt
+		}
+		return recordedPark{says: "it was waiting out " + runstate.DescribePause(state.PauseCause, state.UsageLimitKind) + ", and nothing asked the provider again at its recorded probe", since: since}, true
+	case stoppedProviderIsResumable(state):
+		return recordedPark{says: "the harness stopped its provider because " + describeProviderStop(state.ProviderStop), since: since}, true
+	case pausedForDependency(state):
+		return recordedPark{says: "it paused because " + state.WorkItemID + " waits on unfinished work: " + state.DependencyPause.Summary(), since: since}, true
+	case pausedForDirective(state):
+		return recordedPark{says: "it paused for unresolved directive " + state.DirectivePause.DirectiveID, since: since}, true
+	case pausedForTracker(state):
+		return recordedPark{says: "it parked because " + state.TrackerPause.Summary(), since: since}, true
+	}
+	return recordedPark{}, false
+}
+
+// vanished reports a park that has now sat, with nothing continuing it, for the
+// whole of the grace. The age is measured from the record's last write, which for
+// such a run is the park itself: nothing writes to a parked run until something
+// continues it, and a continuation would be holding the lease this sweep has.
+func (r Reconciler) vanished(park recordedPark) bool {
+	return r.clock().Now().Sub(park.since) >= r.vanishedGrace()
 }
 
 func (r Reconciler) vanishedGrace() time.Duration {
@@ -1247,30 +1339,29 @@ func (r Reconciler) vanishedGrace() time.Duration {
 	return DefaultVanishedGrace
 }
 
-// settleVanished ends a run whose provider the harness stopped on time and which
-// nothing then continued. It is the one settlement here the record did not ask
-// for: the run says it may be continued, and what this decides is that nobody
-// is going to, on the evidence that the grace has passed and the lease was free
-// to take.
+// settleVanished ends a parked run that nothing then continued. It is the one
+// settlement here the record did not ask for: the run says it may be continued,
+// and what this decides is that nobody is going to, on the evidence that the
+// grace has passed and the lease was free to take.
 //
 // The stoppage is recorded as an environmental one — the harness's own doing
 // rather than the work's — naming exactly what the sweep observed: no live
-// process, no ending recorded, and the last moment the record moved. Whether the
-// round it ends is refused, in the class's sense, is decided the way every
-// environmental round is: on whether it delivered anything. A stopped attempt
-// that left a change in its worktree or on its branch spent what it spent, and
-// the change is what the development manager decides about; one that left
-// nothing is a round the item must not have paid for, and a repair grant it
-// consumed is given back. Neither is read from the run's own account of itself,
-// because that account was written by a process that is gone; both are read
-// from the repository.
+// process, no ending recorded, the park it was in, and the last moment the record
+// moved. Whether the round it ends is refused, in the class's sense, is decided
+// the way every environmental round is: on whether it delivered anything. A
+// stopped attempt that left a change in its worktree or on its branch spent what
+// it spent, and the change is what the development manager decides about; one
+// that left nothing is a round the item must not have paid for, and a repair
+// grant it consumed is given back. Neither is read from the run's own account of
+// itself, because that account was written by a process that is gone; both are
+// read from the repository.
 //
 // Everything past that is the settlement an interrupted run already gets — the
 // item blocked with the account of it, the run terminal with the blocker on it,
 // the artifacts untouched, and the stoppage docketed — so a repair-continue the
 // development manager decides carries out exactly as it does for a run a killed
 // process left. Nothing here removes, moves, or judges the change.
-func (r Reconciler) settleVanished(ctx context.Context, state runstate.State) (Reconciliation, error) {
+func (r Reconciler) settleVanished(ctx context.Context, state runstate.State, park recordedPark) (Reconciliation, error) {
 	observation := gitworktree.Observation{}
 	if state.WorktreePath != "" {
 		var err error
@@ -1280,13 +1371,29 @@ func (r Reconciler) settleVanished(ctx context.Context, state runstate.State) (R
 		}
 	}
 	now := r.clock().Now().UTC()
-	state.Environmental = vanishedRefusal(&state, observation, now)
-	reason := vanishedReason(state, r.vanishedGrace())
-	// The stop is an instruction to continue later, and the record refuses to
+	state.Environmental = vanishedRefusal(&state, observation, park, now)
+	reason := vanishedReason(state, park, r.vanishedGrace())
+	// A park is an instruction to continue later, and the record refuses to
 	// carry one on a terminal run: what it said is kept in the refusal's detail
 	// and in the reason, which is where a reader of the settled run finds it.
-	state.ProviderStop = ""
+	clearRecordedParks(&state)
 	return r.abandonFor(ctx, state, observation, reason)
+}
+
+// clearRecordedParks takes every instruction to continue later off a run that is
+// ending now, as a run ending in its own process clears them: the terminal
+// record refuses each of them, and what stopped the run is named by the reason
+// rather than by a park nothing will ever resume.
+func clearRecordedParks(state *runstate.State) {
+	state.UsageLimitResetsAt = nil
+	state.UsageLimitPausedSince = nil
+	state.UsageLimitResetUnknown = false
+	state.PauseCause = ""
+	state.ProviderStop = ""
+	state.DirectivePause = nil
+	state.DependencyPause = nil
+	state.TrackerPause = nil
+	state.OperatorHeldSince = nil
 }
 
 // vanishedRefusal is the environmental account of a run whose process vanished,
@@ -1298,14 +1405,14 @@ func (r Reconciler) settleVanished(ctx context.Context, state runstate.State) (R
 // recorded delivered nothing, and that is known rather than guessed — the
 // harness never gave it anywhere to deliver to. The grant is returned only on a
 // round that delivered nothing, which is the class's own rule; the review round
-// is never returned here, because a stopped attempt never reached the verdict
-// that would have charged one.
-func vanishedRefusal(state *runstate.State, observation gitworktree.Observation, now time.Time) *runstate.EnvironmentalRefusal {
+// is never returned here, because a parked run never reached the verdict that
+// would have charged one.
+func vanishedRefusal(state *runstate.State, observation gitworktree.Observation, park recordedPark, now time.Time) *runstate.EnvironmentalRefusal {
 	refusal := &runstate.EnvironmentalRefusal{
 		Cause: runstate.CauseProcessVanished,
 		Detail: singleLine(fmt.Sprintf(
-			"no live process held run %s, no ending was recorded on it, and it last wrote to its record at %s, when the harness stopped its provider because %s",
-			state.RunID, state.UpdatedAt.UTC().Format(time.RFC3339), describeProviderStop(state.ProviderStop)),
+			"no live process held run %s, no ending was recorded on it, and it last wrote to its record at %s, when %s",
+			state.RunID, park.since.UTC().Format(time.RFC3339), park.says),
 			runstate.MaxEnvironmentalDetailBytes),
 		RecordedAt: now,
 		Settled:    true,
@@ -1326,10 +1433,60 @@ func vanishedRefusal(state *runstate.State, observation gitworktree.Observation,
 // because it is what the work item, the run's own record, and the docket entry
 // all carry, and a reader of any of them is owed the same sentence: nobody
 // edited this record by hand, the harness settled it, and here is why.
-func vanishedReason(state runstate.State, grace time.Duration) string {
+func vanishedReason(state runstate.State, park recordedPark, grace time.Duration) string {
 	return fmt.Sprintf(
-		"the run was recorded as running in the %s phase with no live process behind it: the harness stopped its provider at %s because %s, no ending was ever recorded, and nothing continued the run within %s of that, so the harness settled it as an environmental stop. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them",
-		nonEmpty(string(state.Phase), "unrecorded"), state.UpdatedAt.UTC().Format(time.RFC3339), describeProviderStop(state.ProviderStop), grace)
+		"the run was recorded as running in the %s phase with no live process behind it: at %s %s, no ending was ever recorded, and nothing continued the run within %s of that, so the harness settled it as an environmental stop. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them",
+		nonEmpty(string(state.Phase), "unrecorded"), park.since.UTC().Format(time.RFC3339), park.says, grace)
+}
+
+// settleStopRequest honours a stop somebody asked for on a run whose process is
+// gone. A live run reads the request at its next provider-call boundary and ends
+// itself cancelled, its artifacts where they are and its item told; a run with
+// no process reaches no boundary, and on 2026-09-27 a stop the development
+// manager decided stood unread for most of a day over a run that had been dead
+// since the evening before. So the sweep ends it the way the run would have, in
+// the same words and to the same record: cancelled, the branch and worktree
+// untouched, the item told, and — where the stop carries out her decision — the
+// stoppage docketed as settled by it. It is done at once rather than after the
+// grace, because the stop is the answer the grace would otherwise be waiting
+// for, and the lease this sweep holds is what says no process is there to give
+// it.
+func (r Reconciler) settleStopRequest(ctx context.Context, state runstate.State, request runstate.StopRequest) (Reconciliation, error) {
+	observation, err := r.observeArtifacts(ctx, state)
+	if err != nil {
+		return reconciliationOf(state, ActionUnsettled), err
+	}
+	reason := operatorStop{request: request}.Error() +
+		"; no process was holding the run to honour it at a boundary, so the harness's sweep ended it in that process's place. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them"
+	completedAt := r.clock().Now()
+	clearRecordedParks(&state)
+	state.Status = runstate.StatusCancelled
+	state.SettledQuietSince = settledQuietSince(state, completedAt)
+	state.UpdatedAt = completedAt
+	state.CompletedAt = &completedAt
+	state.Failure = runstate.RecordFailure(reason)
+	state.CheckStage.CloseInterrupted(completedAt)
+	// The item is told before the record goes terminal, so an interruption here
+	// leaves the run outstanding for the next sweep rather than a stopped run
+	// its item never heard about.
+	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderReconciledFailureNotes(state, observation, reason)); err != nil {
+		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the stop of run %s on its item: %w", state.RunID, err)
+	}
+	r.noteUnfinishedObservation(&state)
+	if err := r.Store.Save(state); err != nil {
+		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("save the stopped run %s: %w", state.RunID, err)
+	}
+	result := reconciliationOf(state, ActionCancelled)
+	result.Detail = reason
+	// A stop the development manager decided is docketed as settled by her
+	// decision, as the run would have docketed it; an operator's stop hands
+	// nobody a decision and is docketed nowhere, as it always was.
+	if strings.TrimSpace(request.Decision) != "" && r.Docket != nil {
+		if err := r.Docket.RecordDecidedStop(state, request); err != nil {
+			result.DocketProblem = fmt.Errorf("docket the stop the development manager decided on run %s: %w", state.RunID, err).Error()
+		}
+	}
+	return result, nil
 }
 
 // abandonFor is abandon with the reason the caller has, for the one settlement

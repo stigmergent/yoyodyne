@@ -344,7 +344,21 @@ func (s *Store) takeLease(ctx context.Context, runID string) (*Lease, bool, erro
 		file.Close()
 		return nil, false, nil
 	}
-	return &Lease{label: "run", file: file}, true, nil
+	lease := &Lease{label: "run", file: file}
+	// The holder is stamped under the lock, so a surface that only reads can say
+	// whether a process is behind the run without taking the lease to find out.
+	// A lease that cannot be stamped is refused rather than taken: what it would
+	// buy is a run every surface reports as having no process while one works on
+	// it.
+	holder, err := s.holderPath(runID)
+	if err != nil {
+		return nil, false, errors.Join(err, lease.Release())
+	}
+	if err := s.stampRunHolder(holder); err != nil {
+		return nil, false, errors.Join(err, lease.Release())
+	}
+	lease.holder = holder
+	return lease, true, nil
 }
 
 // acquireLease takes the exclusive lock on an open lease file, retrying within
