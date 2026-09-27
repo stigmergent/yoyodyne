@@ -393,8 +393,8 @@ them, and the finding it produced reached you a month after the first of them
 was filed, because you asked why.
 
 **A finding that needs your hand is a class the harness reads, and it goes to
-three places the moment it is recorded.** Three things make one, and the
-brake's hold becomes a fourth once it is yours:
+three places the moment it is recorded.** Four things make one, and the
+brake's hold becomes a fifth once it is yours:
 
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
   `"needs": "operator"` for a report whose answer is a change only you can make,
@@ -420,6 +420,15 @@ brake's hold becomes a fourth once it is yours:
   or closed ends it. (Her escalation already carries a warning-or-above report
   into the pile; that report is what she may handle as yours, and the finding is
   the decision rather than the report, so it is named once.)
+- **An owning role's batch of recommendations on the changes proposed to its
+  documents.** A [recurring pass](configuration.md#working-the-amendment-queue-on-a-cadence)
+  of the architect, or of the Lead Product Manager, argues the undecided
+  proposals it is put — approve, decline, or merge with another, with the
+  reason — and decides none of them: only `yoyo amendment` does. Each pass that
+  argued something still undecided is one finding, keyed by the pass, whose
+  message is the pass's decision list — each proposal with what its owner
+  recommends, then the reasons. A proposal you decide drops out of it, and the
+  finding ends when the last one in it is decided.
 - **The failure-storm brake's hold, once it is yours.** The hold names the runs
   it counted — each with its item and what stopped it. The trip is sent to you
   directly once, tagged, the moment it is recorded, naming those runs and
@@ -451,14 +460,18 @@ Where each goes:
    `report-… needs your hand: <what> (found by …; recorded in …)`,
    `yoyodyne-ifd.272 needs your hand: <the development manager's reason> (found
    by the development manager, escalating the stopped run to the operator;
-   recorded in …)`, and for the brake `intake is held, since <trip time>: …;
+   recorded in …)`, `the architect's batch of 3 proposed changes needs your
+   hand: decide amendment-… approve; …`, and for the brake `intake is held, since <trip time>: …;
    tripped by run … of …: …`. It stays until the finding ends — the change
-   recorded made, the report handled, the run decided again, the hold lifted.
+   recorded made, the report handled, the run decided again, the batch's
+   last proposal decided, the hold lifted.
    `--json` carries each finding as an entry of kind `operator-action`, with the
    finding whole under `operator_action`.
 3. **The durable records that made it** — the report and its handling in the
    pile, read with `yoyo reports`; the triage decision on the item's record and
-   the blocker on the item; the hold in `intake-hold.json` under the product,
+   the blocker on the item; the pass's account in `yoyo sweeps` and the
+   amendment log `yoyo amendment` decides into; the hold in `intake-hold.json`
+   under the product,
    which the status line is read from. A finding is derived from those and
    stored nowhere else, so there is nothing to clear by hand: what ends it is
    the record that says it is done.
@@ -2403,7 +2416,9 @@ Needs a human (3):
   is the development manager's or the harness's rather than yours until she
   escalates it, and names the probe run while one is in flight — an unresolved
   directive, each [finding that needs your hand](#where-a-finding-that-needs-your-hand-goes)
-  by name, a
+  by name — among them each batch of recommendations an owning role argued on a
+  [recurring pass](configuration.md#working-the-amendment-queue-on-a-cadence),
+  one per pass, as one decision list that is yours — a
   proposed change nobody has decided, a run that ended still owing a step, a
   promotion the forge has not published, work
   marked for a conversation rather than for a run, a queue nothing is pulling
@@ -2414,9 +2429,14 @@ Needs a human (3):
   [recurring task whose firings keep failing before their first turn](#reading-what-the-recurring-tasks-found),
   with the failure and how many in a row, and a
   [pile of collected reports](reporting.md#whether-the-pile-is-draining) whose
-  oldest undecided entry has been waiting more than a week. A stall over an empty
+  oldest undecided entry has been waiting more than a week, and its sibling: a
+  queue of proposed changes whose oldest undecided one has been waiting more
+  than a week, said as a count and an age — `44 of 51 proposed change(s) are
+  undecided, the oldest raised 23d ago, against the architect's documents` —
+  because the proposals are each named on the line already and a list is not
+  an age. A stall over an empty
   queue is not listed: it is a state of the machine rather than something waiting
-  on you, and neither is a report pile that is being worked through — what is
+  on you, and neither is a report pile or an amendment queue that is being worked through — what is
   listed is one that is not. The line names ten entries and counts the rest,
   except a finding that needs your hand and a hold the brake placed: those are
   named wherever they fall and never counted into `and N things not named
@@ -3877,6 +3897,23 @@ that finds it, rather than once an hour. The `--json` form carries them a second
 time as `pull_requests` on the record, by number, which is what the next pass
 reads to know what was already said. [Recurring
 tasks](configuration.md#recurring-tasks) says when the reading is taken.
+
+**A pass of a role that owns documents carries what it recommended on the
+changes proposed to them.** The harness puts the undecided proposals against
+the role's documents in front of it on every firing — oldest first, at most ten
+a pass, and never one the role already argued on an earlier pass while the
+operator has not decided it — and the account carries a recommendation for each:
+`approve`, `decline`, or `merge` with another, with the reason. The listing
+shows them after the findings, as `> recommends approve for <id>` with the
+reason under it. They are recommendations and never decisions: nothing on a
+sweep record changes a document or settles a proposal, `yoyo amendment approve`
+and `yoyo amendment decline` record each decision under the owner's authority,
+and each pass's batch is [a finding that needs your
+hand](#where-a-finding-that-needs-your-hand-goes): sent to you once and named by
+[`yoyo status`](#where-the-harness-stands-the-four-lines) while it waits on you —
+derived from these records, and dropping any proposal you have decided since. [Working the amendment queue on a
+cadence](configuration.md#working-the-amendment-queue-on-a-cadence) says how
+the pass is configured.
 
 Five outcomes look similar in a listing and are not the same thing:
 

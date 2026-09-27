@@ -75,6 +75,11 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			RepositoryID: string(parts.config.Product.RepositoryID),
 			Build:        buildinfo.Commit(),
 		},
+		// The proposed changes, so a task that wakes a role owning documents puts
+		// the undecided ones against them in the wake and records what the role
+		// argued. The same log every run proposes into and `yoyo amendment`
+		// decides from.
+		Amendments: parts.amendments,
 	}
 	// The docket a development manager's pass carries, built by the docketer her
 	// conversation builds it with and rendered by the section her conversation
@@ -569,6 +574,19 @@ func renderSweep(recorded runstate.Sweep) string {
 			fmt.Fprintf(&rendered, "      fixed with nothing filed for the root cause\n")
 		}
 	}
+	// What the role recommended on the changes proposed to its own documents,
+	// after the findings: it is the batch `yoyo amendment` decides from, and the
+	// verdict is the role's argument rather than anything settled.
+	for _, recommendation := range recorded.Result.Recommendations {
+		verdict := string(recommendation.Verdict)
+		if recommendation.Verdict == sweep.RecommendMerge && strings.TrimSpace(recommendation.Into) != "" {
+			verdict += " into " + strings.TrimSpace(recommendation.Into)
+		}
+		fmt.Fprintf(&rendered, "  > recommends %s for %s\n", verdict, recommendation.Proposal)
+		if reason := strings.TrimSpace(recommendation.Reason); reason != "" {
+			fmt.Fprintf(&rendered, "      %s\n", reason)
+		}
+	}
 	if recorded.Problem != "" {
 		fmt.Fprintf(&rendered, "  %s\n", recorded.Problem)
 	}
@@ -622,6 +640,16 @@ On a development manager's pass some findings are the harness's own: the open
 pull requests the forge is holding for work that is closed, or for a branch the
 target already carries. Each is stated once, as left, and closing it is
 somebody's decision rather than the harness's.
+
+On a pass of a role that owns documents -- the architect over the designs and
+decisions, the product manager over the brief and goals -- the harness puts the
+undecided changes other roles proposed to those documents in front of it,
+oldest first and at most ten a pass, and the account carries what it recommended
+on each: approve, decline, or merge with another, with the reason. Those are
+shown after the findings. They are recommendations and never decisions: "yoyo
+amendment approve" and "yoyo amendment decline" record each one, under the
+owner's authority. Each pass's batch is said to you once, directly, as one
+decision list, and "yoyo status" names it until every proposal in it is decided.
 
 Four outcomes look alike and are not: a pass that found nothing shows its own
 summary and no findings, which on a healthy harness is most of them; a pass that

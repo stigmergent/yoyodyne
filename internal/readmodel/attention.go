@@ -50,6 +50,10 @@ const (
 	// AttentionReports is the collected report pile, once its oldest undecided
 	// report has waited longer than any working cadence would leave it.
 	AttentionReports AttentionKind = "report"
+	// AttentionAmendmentQueue is the queue of proposed changes, once its oldest
+	// undecided proposal has waited longer than any working cadence would leave
+	// it: the report pile's sibling.
+	AttentionAmendmentQueue AttentionKind = "amendment-queue"
 	// AttentionOwedStep is a run that ended still owing a step.
 	AttentionOwedStep AttentionKind = "owed-step"
 	// AttentionPublication is a promotion the forge has not published.
@@ -90,6 +94,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionAmendment,
 		AttentionCarriedItem,
 		AttentionReports,
+		AttentionAmendmentQueue,
 		AttentionOwedStep,
 		AttentionPublication,
 		AttentionDegradedService,
@@ -301,6 +306,9 @@ type Attention struct {
 	Stall *Stall `json:"stall,omitempty"`
 	// Reports is how the pile stands, on an AttentionReports entry.
 	Reports *report.Pile `json:"reports,omitempty"`
+	// AmendmentQueue is how the queue of proposed changes stands, on an
+	// AttentionAmendmentQueue entry.
+	AmendmentQueue *amendment.Queue `json:"amendment_queue,omitempty"`
 	// Service is the supervisor's record of the part it left down, on an
 	// AttentionDegradedService entry.
 	Service *runstate.SupervisedChild `json:"service,omitempty"`
@@ -444,6 +452,10 @@ func (a Attention) What() string {
 		if a.Reports != nil {
 			return a.Reports.Describe()
 		}
+	case AttentionAmendmentQueue:
+		if a.AmendmentQueue != nil {
+			return a.AmendmentQueue.Describe()
+		}
 	case AttentionStall:
 		if a.Stall != nil {
 			what := a.Stall.Says
@@ -528,6 +540,8 @@ func (a Attention) Whose() string {
 		return ReasonProviderAway.Whose()
 	case AttentionReports:
 		return a.Mover.Possessive() + " — reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up"
+	case AttentionAmendmentQueue:
+		return a.Mover.Possessive() + " — proposals are decided with `yoyo amendment`, and a queue this old says the recurring task that argues them is not keeping up, or none is enabled"
 	case AttentionStall:
 		if a.Stall != nil {
 			return a.Stall.Reason.Whose()
@@ -684,6 +698,14 @@ func outageAttention(outage runstate.ProviderOutage) Attention {
 // long, as the attention line carries it.
 func reportsAttention(pile report.Pile) Attention {
 	return Attention{Kind: AttentionReports, Mover: MoverProductManager, Reports: &pile}
+}
+
+// amendmentQueueAttention is a queue of proposed changes whose oldest
+// undecided one has waited too long, as the attention line carries it. It is
+// the operator's move whoever owns the documents: only `yoyo amendment` decides
+// a proposal, and only a person enables the task that argues them.
+func amendmentQueueAttention(queue amendment.Queue) Attention {
+	return Attention{Kind: AttentionAmendmentQueue, Mover: MoverOperator, AmendmentQueue: &queue}
 }
 
 // degradedServiceAttention is a part the supervisor has left down, as the

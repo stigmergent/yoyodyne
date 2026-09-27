@@ -678,7 +678,10 @@ disagree about them. A pile that is draining says nothing anywhere else; one
 whose oldest undecided report has been waiting more than a week is named on
 `yoyo status`'s "needs a human" line as the Lead Product Manager's. That line is what
 catches both failures a single reading cannot tell apart: a cadence that has
-stopped keeping up, and no cadence configured at all.
+stopped keeping up, and no cadence configured at all. The queue of proposed
+amendments has the same line as a sibling, on the same threshold and for the
+same reason — see [working the amendment queue on a
+cadence](configuration.md#working-the-amendment-queue-on-a-cadence).
 
 ## What agents propose changing, and who decides
 
@@ -1371,8 +1374,11 @@ once, directly, tagged by member id** — the communication rule's own test for 
 tag, since it is both important and yours — the pass after it is recorded.
 [Operations](operations.md#where-a-finding-that-needs-your-hand-goes) says what
 makes one: the Lead Product Manager handling a report with `"needs":
-"operator"`, a report filed at critical severity that nobody has handled, and a
-stopped run the development manager escalated to you. The message says what is
+"operator"`, a report filed at critical severity that nobody has handled, a
+stopped run the development manager escalated to you, and the batch of
+recommendations an owning role argued on a recurring pass over the changes
+proposed to its documents — one message per pass, listing each proposal with
+what its owner recommends and why, for you to decide with `yoyo amendment`. The message says what is
 needed, who found it, where it is recorded, and what ends it, so you can go and
 read the whole of it:
 
@@ -1389,7 +1395,8 @@ It is said once and never again while it stands. The sink marks each finding by
 name in its own durable cursors, so a second pass, a restarted sink, and every
 poll afterwards send nothing more; `yoyo status` names it under `Needs a human`
 until it ends, which is the record that says it is done — the report handled,
-the change recorded made, the escalated run decided again — and the mark is
+the change recorded made, the escalated run decided again, every proposal in a
+batch decided — and the mark is
 dropped with it, so the same report handled as yours again later is a second
 finding, said once more. An escalated stoppage is read here from the runs and
 the triage record alone, without asking the tracker whether the item is still

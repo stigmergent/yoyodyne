@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
 
 var moment = time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
@@ -348,6 +349,80 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 	cursors = harness.poll(t, cursors)
 	if len(cursors.Streams[operatorActionStream].Delivered) != 0 {
 		t.Fatalf("cursor = %#v, want an ended escalation forgotten", cursors.Streams[operatorActionStream])
+	}
+}
+
+// The batch an owning role argued on a recurring pass is one decision list, and
+// it reaches the operator the way every finding does: once, directly and tagged,
+// through the operator-action message, naming each proposal and what the owner
+// recommends. It ends, silently, once the operator has decided every proposal
+// in it.
+func TestAnOwnersArguedBatchIsSaidToTheOperatorOnce(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	first := "amendment-0123456789abcdef0123456789abcde0"
+	second := "amendment-0123456789abcdef0123456789abcde1"
+	harness.propose(t, first, moment)
+	harness.propose(t, second, moment.Add(time.Minute))
+	cursors := harness.poll(t, harness.start(), notify.KindProposalRaised, notify.KindProposalRaised)
+
+	pass := moment.Add(time.Hour)
+	if err := harness.runs.Sweeps().Append(runstate.Sweep{
+		Task: "architect-amendments", Role: domain.RoleArchitect,
+		StartedAt: pass, EndedAt: pass.Add(time.Minute), Turns: 1,
+		Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "argued two", Recommendations: []sweep.Recommendation{
+			{Proposal: first, Verdict: sweep.RecommendApprove, Reason: "the design is silent on it"},
+			{Proposal: second, Verdict: sweep.RecommendMerge, Reason: "the same change", Into: first},
+		}},
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	batch, err := harness.feed.Poll(context.Background(), cursors)
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	var findings []Delivery
+	for _, delivery := range batch.Deliveries {
+		if delivery.Stream == operatorActionStream && delivery.Posts() {
+			findings = append(findings, delivery)
+		}
+	}
+	if len(findings) != 1 || !findings[0].Direct || !findings[0].Tag {
+		t.Fatalf("findings = %#v, want the batch said once, directly and tagged", findings)
+	}
+	message, err := notify.Render(findings[0].Notification.Topic, findings[0].Notification.Speaker, findings[0].Notification.Event)
+	if err != nil {
+		t.Fatalf("render the finding: %v", err)
+	}
+	for _, want := range []string{
+		first + " approve; " + second + " merge into " + first,
+		"the design is silent on it",
+		"the architect, arguing the undecided changes proposed to its documents",
+		"yoyo sweeps --task architect-amendments",
+		"every proposal in it is decided",
+	} {
+		if !strings.Contains(message.Body, want) {
+			t.Fatalf("finding reads as %q, which does not say %q", message.Body, want)
+		}
+	}
+	cursors = harness.poll(t, cursors, notify.KindOperatorAction)
+	cursors = harness.poll(t, cursors)
+
+	// Deciding one leaves the batch standing and says nothing more; deciding the
+	// other ends it, and its mark goes with it.
+	for index, id := range []string{first, second} {
+		if err := harness.amend.Decide(amendment.Decision{
+			SchemaVersion: amendment.SchemaVersion, ProposalID: id, Verdict: amendment.VerdictApproved,
+			Authority: domain.RoleArchitect, Decider: amendment.DeciderOperator,
+			DecidedAt: pass.Add(time.Duration(index+1) * time.Hour),
+		}); err != nil {
+			t.Fatalf("Decide() error = %v", err)
+		}
+		cursors = harness.poll(t, cursors)
+	}
+	if len(cursors.Streams[operatorActionStream].Delivered) != 0 {
+		t.Fatalf("cursor = %#v, want a batch whose every proposal is decided forgotten", cursors.Streams[operatorActionStream])
 	}
 }
 
