@@ -876,57 +876,100 @@ func (g GitHub) find(ctx context.Context, head string) (PullRequest, bool, error
 // mergeQueueQuery asks whether a pull request is in its base branch's merge
 // queue. The listing verbs carry no field for it, so it is asked of the forge's
 // GraphQL API, with the repository named by the placeholders the API verb fills
-// from GH_REPO.
+// from GH_REPO. The request's node id comes back with the answer, because it is
+// what taking the request out of the queue is asked by.
 const mergeQueueQuery = `query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) { pullRequest(number: $number) { isInMergeQueue } }
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { id isInMergeQueue } }
+}`
+
+// dequeueMutation takes a pull request out of its base branch's merge queue.
+const dequeueMutation = `mutation($id: ID!) {
+  dequeuePullRequest(input: {id: $id}) { mergeQueueEntry { id } }
 }`
 
 // inMergeQueue reports whether the forge's merge queue holds a pull request.
 func (g GitHub) inMergeQueue(ctx context.Context, number int) (bool, error) {
+	_, queued, err := g.mergeQueueEntry(ctx, number)
+	return queued, err
+}
+
+// mergeQueueEntry reports whether the forge's merge queue holds a pull request,
+// and the request's node id beside the answer.
+func (g GitHub) mergeQueueEntry(ctx context.Context, number int) (string, bool, error) {
+	stdout, err := g.graphql(ctx, fmt.Sprintf("ask the forge whether pull request %d is in the merge queue", number),
+		"-f", "query="+mergeQueueQuery,
+		"-F", "owner={owner}",
+		"-F", "name={repo}",
+		"-F", "number="+strconv.Itoa(number))
+	if err != nil {
+		return "", false, err
+	}
+	var answered struct {
+		Data struct {
+			Repository struct {
+				PullRequest *struct {
+					ID             string `json:"id"`
+					IsInMergeQueue *bool  `json:"isInMergeQueue"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &answered); err != nil {
+		return "", false, fmt.Errorf("decode whether pull request %d is in the merge queue: %w", number, err)
+	}
+	pull := answered.Data.Repository.PullRequest
+	if pull == nil || pull.IsInMergeQueue == nil {
+		return "", false, fmt.Errorf("the forge's answer about pull request %d does not say whether it is in the merge queue", number)
+	}
+	return strings.TrimSpace(pull.ID), *pull.IsInMergeQueue, nil
+}
+
+// dequeue takes a pull request out of its base branch's merge queue, where the
+// forge's answer says the queue holds it. A forge with no merge queue answers
+// that nothing is queued, and there is nothing to take out.
+func (g GitHub) dequeue(ctx context.Context, number int) error {
+	id, queued, err := g.mergeQueueEntry(ctx, number)
+	if err != nil {
+		return err
+	}
+	if !queued {
+		return nil
+	}
+	if id == "" {
+		return fmt.Errorf("the forge's answer about pull request %d names no request to take out of the merge queue", number)
+	}
+	_, err = g.graphql(ctx, fmt.Sprintf("take pull request %d out of the merge queue", number),
+		"-f", "query="+dequeueMutation,
+		"-F", "id="+id)
+	return err
+}
+
+// graphql runs one request against the forge's GraphQL API, scoped to the
+// configured remote's repository, and returns what it answered.
+func (g GitHub) graphql(ctx context.Context, what string, args ...string) (string, error) {
 	url, err := g.remoteURL(ctx, g.remoteName())
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	repository, err := remoteRepository(url)
 	if err != nil {
-		return false, fmt.Errorf("resolve the repository of remote %s: %w", g.remoteName(), err)
+		return "", fmt.Errorf("resolve the repository of remote %s: %w", g.remoteName(), err)
 	}
 	result, err := g.Runner.Run(ctx, execution.Command{
-		Name: g.binary(),
-		Args: []string{"api", "graphql",
-			"-f", "query=" + mergeQueueQuery,
-			"-F", "owner={owner}",
-			"-F", "name={repo}",
-			"-F", "number=" + strconv.Itoa(number)},
+		Name:     g.binary(),
+		Args:     append([]string{"api", "graphql"}, args...),
 		Dir:      g.Dir,
 		Env:      append(execution.ForgeEnvironment(nil), "GH_REPO="+repository),
 		Timeout:  g.timeout(),
 		Redactor: execution.NewRedactor(g.RedactValues...),
 	}, nil)
 	if err != nil {
-		return false, fmt.Errorf("ask the forge whether pull request %d is in the merge queue: %w", number, err)
+		return "", fmt.Errorf("%s: %w", what, err)
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return false, fmt.Errorf("ask the forge whether pull request %d is in the merge queue: exit code %d: %s",
-			number, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+		return "", fmt.Errorf("%s: exit code %d: %s", what, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
 	}
-	var answered struct {
-		Data struct {
-			Repository struct {
-				PullRequest *struct {
-					IsInMergeQueue *bool `json:"isInMergeQueue"`
-				} `json:"pullRequest"`
-			} `json:"repository"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &answered); err != nil {
-		return false, fmt.Errorf("decode whether pull request %d is in the merge queue: %w", number, err)
-	}
-	pull := answered.Data.Repository.PullRequest
-	if pull == nil || pull.IsInMergeQueue == nil {
-		return false, fmt.Errorf("the forge's answer about pull request %d does not say whether it is in the merge queue", number)
-	}
-	return *pull.IsInMergeQueue, nil
+	return result.Stdout, nil
 }
 
 // repoArgs scopes a forge command to the configured remote's repository. It
