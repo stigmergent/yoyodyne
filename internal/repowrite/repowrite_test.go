@@ -600,3 +600,48 @@ func link(t *testing.T, target, name string) {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
 }
+
+// A file is removed, a file that is not there is a removal already made, and a
+// symlink or a directory standing where the file was named is refused rather
+// than removed.
+func TestRemoveFileRemovesAFileAndRefusesWhatIsNotOne(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	root, err := NewRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(directory, "job.plist")
+	if err := os.WriteFile(file, []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.RemoveFile("job.plist"); err != nil {
+		t.Fatalf("RemoveFile() error = %v", err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the file is still there after RemoveFile: %v", err)
+	}
+	if _, err := root.RemoveFile("job.plist"); err != nil {
+		t.Fatalf("removing a file that is not there = %v, want a removal already made", err)
+	}
+
+	if err := os.Mkdir(filepath.Join(directory, "folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.RemoveFile("folder"); err == nil {
+		t.Error("RemoveFile() removed a directory")
+	}
+	if runtime.GOOS != "windows" {
+		target := filepath.Join(t.TempDir(), "kept")
+		if err := os.WriteFile(target, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(directory, "link.plist")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := root.RemoveFile("link.plist"); err == nil {
+			t.Error("RemoveFile() removed a symlink")
+		}
+	}
+}

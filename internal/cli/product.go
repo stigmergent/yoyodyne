@@ -37,8 +37,10 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
 	"github.com/mason-bryant/yoyodyne/internal/supervise"
@@ -73,6 +75,12 @@ type product struct {
 	// parts nothing can start yet and the parts that are off.
 	children func() ([]supervise.Child, []supervise.NotYet, []config.ServiceName, error)
 	now      func() time.Time
+	// machine is where the operator's maintenance launchd job is looked for
+	// and retired from, and runner what the supervisor's rebuild runs Git and
+	// the build with. Both are empty in a product assembled by a test that is
+	// not about them, and an empty machine finds no job.
+	machine maintenancejob.Machine
+	runner  execution.ProcessRunner
 }
 
 func runStart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -144,6 +152,9 @@ func openProduct(configPath string) (*product, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A home that cannot be found is a job that cannot be looked for, which the
+	// retirement says rather than refusing to start the product over.
+	home, _ := os.UserHomeDir()
 	p := &product{
 		resolved:  resolved,
 		stateRoot: stateRoot,
@@ -153,6 +164,13 @@ func openProduct(configPath string) (*product, error) {
 		environ:   os.Environ(),
 		goos:      runtime.GOOS,
 		now:       time.Now,
+		machine: maintenancejob.Machine{
+			Home:   home,
+			UID:    os.Getuid(),
+			GOOS:   runtime.GOOS,
+			Runner: execution.OSProcessRunner{},
+		},
+		runner: execution.OSProcessRunner{},
 	}
 	p.children = p.realChildren
 	return p, nil
@@ -172,12 +190,20 @@ type startReport struct {
 	// Pending says why it was not.
 	Recorded *runstate.Supervision `json:"recorded,omitempty"`
 	Pending  string                `json:"pending,omitempty"`
+	// Retired says the operator's maintenance launchd job was retired as the
+	// supervisor was installed, and RetireProblem why it could not be.
+	Retired       string `json:"retired,omitempty"`
+	RetireProblem string `json:"retire_problem,omitempty"`
 }
 
 // start starts the supervisor detached, unless one is running, and reports
 // what the supervisor then recorded about the parts.
 func (p *product) start(ctx context.Context, stdout, stderr io.Writer, jsonOutput bool) int {
 	productID := p.resolved.Config.Product.ID
+	// Installing the supervisor retires the job that managed the parts before
+	// it, whether or not a supervisor is already running: a second manager of
+	// the same processes is what `yoyo doctor` sends the operator here to end.
+	retired, retireProblem := p.retireMaintenanceJob(ctx, "yoyo start")
 	running, err := p.store.Running()
 	if err != nil {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
@@ -187,7 +213,7 @@ func (p *product) start(ctx context.Context, stdout, stderr io.Writer, jsonOutpu
 		// A second start while one is running says so and does nothing. What
 		// it says is what the running supervisor recorded, because that is what
 		// the person typing it wanted to know.
-		report := startReport{Product: productID, Started: false}
+		report := startReport{Product: productID, Started: false, Retired: retired, RetireProblem: retireProblem}
 		if recorded, found, err := p.store.Load(); err != nil {
 			report.Pending = fmt.Sprintf("its record could not be read: %v", err)
 		} else if found {
@@ -215,10 +241,12 @@ func (p *product) start(ctx context.Context, stdout, stderr io.Writer, jsonOutpu
 		return 1
 	}
 	report := startReport{
-		Product: productID,
-		Started: true,
-		PID:     pid,
-		Log:     filepath.Join(logRoot, filepath.FromSlash(logPath)),
+		Product:       productID,
+		Started:       true,
+		PID:           pid,
+		Log:           filepath.Join(logRoot, filepath.FromSlash(logPath)),
+		Retired:       retired,
+		RetireProblem: retireProblem,
 	}
 	// The supervisor records the parts on its first look. Waiting for that is
 	// what lets this verb say what came up rather than only that something was
@@ -275,6 +303,12 @@ func (p *product) reportStart(stdout, stderr io.Writer, jsonOutput bool, report 
 	if report.Pending != "" {
 		fmt.Fprintf(stdout, "  %s\n", report.Pending)
 	}
+	if report.Retired != "" {
+		fmt.Fprintf(stdout, "%s\n", report.Retired)
+	}
+	if report.RetireProblem != "" {
+		fmt.Fprintf(stderr, "%s\n", report.RetireProblem)
+	}
 	fmt.Fprintf(stdout, "stop it with `yoyo stop`; `yoyo status` says how each part stands\n")
 	return 0
 }
@@ -288,18 +322,25 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
 		return 1
 	}
+	log := func(format string, args ...any) {
+		fmt.Fprintf(stdout, "%s %s\n", p.now().UTC().Format(time.RFC3339), fmt.Sprintf(format, args...))
+	}
+	// The resident form retires the job too, so a supervisor launchd starts at
+	// login ends the second manager without anybody typing `yoyo start`.
+	if retired, problem := p.retireMaintenanceJob(ctx, "the supervisor"); retired != "" || problem != "" {
+		log("%s", firstNonEmptyString(retired, problem))
+	}
 	supervisor := &supervise.Supervisor{
-		Records:  p.store,
-		Product:  p.resolved.Config.Product.ID,
-		Children: children,
-		NotYet:   notYet,
-		Off:      off,
-		Now:      p.now,
-		Log: func(format string, args ...any) {
-			fmt.Fprintf(stdout, "%s %s\n", p.now().UTC().Format(time.RFC3339), fmt.Sprintf(format, args...))
-		},
-		PID:   os.Getpid(),
-		Build: buildinfo.Commit(),
+		Records:   p.store,
+		Product:   p.resolved.Config.Product.ID,
+		Children:  children,
+		NotYet:    notYet,
+		Off:       off,
+		Now:       p.now,
+		Log:       log,
+		Residents: p.residents(log),
+		PID:       os.Getpid(),
+		Build:     buildinfo.Commit(),
 	}
 	err = supervisor.Run(ctx)
 	switch {
@@ -391,6 +432,68 @@ func (p *product) stop(ctx context.Context, stdout, stderr io.Writer, jsonOutput
 		fmt.Fprintf(stderr, "stop: %s\n", report.Problem)
 	}
 	return code
+}
+
+// retireMaintenanceJob retires the operator's maintenance launchd job, where
+// this machine has it, and records that it did. It returns what to say about a
+// retirement made, or why one could not be made; both are empty where there was
+// no job. A job that could not be retired never stops the product starting: the
+// supervisor still runs, and `yoyo doctor` goes on naming the job.
+func (p *product) retireMaintenanceJob(ctx context.Context, by string) (said, problem string) {
+	retirement, err := p.machine.Retire(ctx)
+	if err != nil {
+		return "", fmt.Sprintf("the operator's maintenance job %s could not be retired, so it and the supervisor both manage the product's parts until it is: %v; `yoyo doctor` names it", maintenancejob.Label, err)
+	}
+	if !retirement.Acted() {
+		if retirement.Left != "" && retirement.Found.Loaded {
+			return "", fmt.Sprintf("the maintenance job was not retired: %s", retirement.Left)
+		}
+		return "", ""
+	}
+	said = retirement.Describe()
+	path, err := p.store.RecordRetiredJob(runstate.RetiredJob{
+		Label:        maintenancejob.Label,
+		Plist:        retirement.Found.Plist,
+		PlistContent: retirement.Found.Content,
+		Program:      retirement.Found.Program,
+		Duplicated:   maintenancejob.DutyNames(retirement.Found.Duplicates),
+		WasLoaded:    retirement.Found.Loaded,
+		Unloaded:     retirement.Unloaded,
+		Removed:      retirement.Removed,
+		Left:         retirement.Left,
+		By:           by,
+		RetiredAt:    p.now().UTC(),
+	})
+	if err != nil {
+		return said, fmt.Sprintf("the retirement of %s could not be recorded: %v", maintenancejob.Label, err)
+	}
+	if retirement.Left != "" {
+		said += "; " + retirement.Left
+	}
+	return said + "; recorded in " + path, ""
+}
+
+// residents is the work the supervisor hosts beside its children: rebuilding
+// the product's binary when its branch lands, for a product whose binary is
+// built from its own checkout.
+func (p *product) residents(log func(format string, args ...any)) []supervise.Resident {
+	if p.runner == nil {
+		return nil
+	}
+	rebuilder, ok := supervise.NewRebuilder(doctor.RepositoryPath(config.ProjectDirectory(p.resolved.Path), p.resolved.Config.Product.Repository), p.program, p.runner, slack.WithoutSecrets(p.environ), log)
+	if !ok {
+		return nil
+	}
+	return []supervise.Resident{rebuilder}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func joinProblem(first, second string) string {

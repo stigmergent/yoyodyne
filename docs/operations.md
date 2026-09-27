@@ -113,6 +113,48 @@ and the launchd job that runs it at login is the resident item,
 `yoyodyne-ifd.413`, whose form is `yoyo start --foreground` — the same verb,
 being the supervisor in the calling process rather than detaching one.
 
+**Starting the supervisor retires the operator's old maintenance job.** Before
+the supervisor, a launchd job of the operator's own, `com.yoyodyne.maintenance`,
+ran a script every ten minutes that started and restarted the scheduler,
+restarted the Slack sink, started the dashboard, ran `yoyo reconcile`, and
+rebuilt `bin/yoyo` after a landing. Beside a supervisor it is a second manager of
+the same processes, and the two start, kill, and restart them against each
+other: on 2026-09-26 its bounce-when-idle step killed the watch 32 times,
+cancelling the pulls and recurring passes in it. So `yoyo start` — and the
+foreground supervisor, whichever starts first — boots that job out of launchd
+and removes its property list from `~/Library/LaunchAgents`, and says so:
+
+```text
+retired the operator's maintenance job com.yoyodyne.maintenance, a second manager of the product's parts: booted it out of launchd and removed …/Library/LaunchAgents/com.yoyodyne.maintenance.plist; it starts, kills, and restarts the scheduler …; the job's script …/yoyodyne-maintenance.sh is the operator's file and is left where it is; nothing runs it any more; recorded in …/products/yoyodyne/supervisor/retired-jobs.jsonl
+```
+
+Nothing about it is typed by hand. The record keeps the job's property list
+whole, what it ran, and what of the product it duplicated, so what was removed
+is written down rather than only gone; the script it ran is left where it is.
+Only the job this user's `LaunchAgents` installed is retired: one of the same
+label that launchd loaded from anywhere else is left loaded and named, and
+[`yoyo doctor`](#checking-the-installation) gives the command for it. A job
+that could not be retired does not stop the product starting; the line says
+why, and the doctor goes on naming the job until it is gone.
+
+**The one duty of that job the product still needed is the supervisor's own:
+rebuilding the binary when the target branch lands.** Where the binary the
+supervisor was started from lives inside the checkout that builds it — the
+harness developing itself, with `bin/yoyo` in its own checkout — the supervisor
+looks every thirty seconds at where the checkout's branch stands and at the
+revision the binary was built from, and where the branch has landed something
+under `cmd`, `internal`, `go.mod`, or `go.sum` since, it runs `make build` into
+that binary and says so in its log. A landing of only documentation builds
+nothing, a checkout with uncommitted changes to those paths is not built over
+until they are gone, and a build that fails is tried again when the branch next
+moves. What takes the build up is what already did: the watch re-executes itself
+into a replaced binary between runs. The job's other steps are not carried: its
+bounce-when-idle compared a process's start time with the binary's, which is
+wrong for a watch that re-executes itself in place, and restarting parts into a
+deployed build is `yoyodyne-ifd.434.3`'s. Until `yoyodyne-ifd.413` and
+`yoyodyne-ifd.414` land, what the job did for reconcile and the dashboard is
+the maintenance line's and the dashboard line's hand steps above.
+
 ## Checking the installation
 
 `yoyo doctor` answers one question — can work actually run here — and answers it
@@ -222,6 +264,22 @@ tokens stored, the dashboard with a `keychain` or `file` token that is not in
 the store its entry names. The remedy is the command that stores it, and a
 part that cannot start reports nothing or serves nothing rather than stopping a
 run, which is why none of these is a problem.
+
+**A launchd job outside the product that manages its parts is a warning too**,
+under `maintenance-job`, on macOS: the operator's old
+`com.yoyodyne.maintenance` job, loaded or installed to load at the next login,
+named with its property list and each part it duplicates, read from the script
+it runs:
+
+```text
+warning  maintenance-job        the launchd job com.yoyodyne.maintenance is loaded, a second manager of the product's parts beside the supervisor
+                                it starts, kills, and restarts the scheduler (`yoyo work --watch`), which the supervisor's scheduler child does; …
+                                fix: yoyo start
+```
+
+The remedy is the verb because the verb is what retires it
+([starting the product](#starting-the-product-and-stopping-it)); the doctor
+itself only asks `launchctl` and reads the files.
 
 It changes nothing. Nothing here installs, authenticates, restarts, or edits a
 configuration, and no credential is ever read: whether a secret is stored is

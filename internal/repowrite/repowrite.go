@@ -422,3 +422,40 @@ func (r Root) RemoveDirectory(relative string) (string, error) {
 	}
 	return target, nil
 }
+
+// RemoveFile removes the file a root-relative path names, and returns where it
+// removed from.
+//
+// It is RemoveDirectory's counterpart for a single file, here for the same
+// reason: a caller reaching for `os.Remove` itself would be a mutation outside
+// this package deciding its own containment. What needs it is a file the harness
+// takes back out of a directory it does not own — a launchd job's property list
+// the supervisor retires, under the user's LaunchAgents directory.
+//
+// The refusals are RemoveDirectory's turned round: a final component that is a
+// symlink is refused, because the link would go and what it names would stay,
+// and one that is a directory is refused, because the caller named a file.
+// Removing what is not there is a removal already made.
+func (r Root) RemoveFile(relative string) (string, error) {
+	clean, target, err := r.resolve(relative)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return target, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", clean, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("refusing to remove %s: it is a symlink rather than a file", clean)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("refusing to remove %s: it is a directory", clean)
+	}
+	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("remove %s: %w", clean, err)
+	}
+	return target, nil
+}
