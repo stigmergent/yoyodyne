@@ -41,15 +41,79 @@ func TestCheckAvailability(t *testing.T) {
 	}
 }
 
+// An executable that is not on PATH is the one case that reads as not
+// installed, and it says which PATH it was looked for on: a scheduler started by
+// launchd searches one the operator's shell does not have.
 func TestCheckAvailabilityMissingCLI(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PATH", "/nowhere/bin:/also/nowhere")
 
 	availability, err := (Backend{Runner: &fakeRunner{errors: []error{exec.ErrNotFound}}}).CheckAvailability(context.Background())
 	if err != nil {
 		t.Fatalf("CheckAvailability() error = %v", err)
 	}
-	if availability.Installed {
+	if availability.Installed || availability.Missing != "claude was not found on PATH /nowhere/bin:/also/nowhere" {
 		t.Fatalf("CheckAvailability() = %#v", availability)
+	}
+}
+
+// A version check that ran and did not answer is not a missing executable. It is
+// an error saying how it went -- out of time and after how long, stopped with
+// whatever asked for it, or exited with a status and what it wrote to stderr --
+// and never Installed false, which every caller renders as "not installed". The
+// cancelled case is factory-flow-pm's first pass, refused on 2026-09-27 as a
+// backend that was not installed because the scheduler was stopped under it.
+func TestCheckAvailabilitySaysWhatAVersionCheckThatDidNotAnswerCameTo(t *testing.T) {
+	t.Parallel()
+
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, test := range []struct {
+		name      string
+		ctx       context.Context
+		result    execution.ProcessResult
+		want      string
+		cancelled bool
+	}{
+		{
+			name:   "timed out",
+			ctx:    context.Background(),
+			result: execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1},
+			want:   "`claude --version` did not answer and timed out after 10s",
+		},
+		{
+			name:   "exited nonzero",
+			ctx:    context.Background(),
+			result: execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 2, Stderr: "error: this install\nis damaged\n"},
+			want:   "`claude --version` exited with status 2: error: this install is damaged",
+		},
+		{
+			name:   "exited nonzero silently",
+			ctx:    context.Background(),
+			result: execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1},
+			want:   "`claude --version` exited with status 1 and wrote nothing to stderr",
+		},
+		{
+			name:      "stopped with its caller",
+			ctx:       stopped,
+			result:    execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1},
+			want:      "`claude --version` was stopped before it answered, because what asked for it was stopped: context canceled",
+			cancelled: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			availability, err := (Backend{Runner: &fakeRunner{results: []execution.ProcessResult{test.result}}}).CheckAvailability(test.ctx)
+			if err == nil {
+				t.Fatalf("CheckAvailability() = %#v, want an error saying what the check came to", availability)
+			}
+			if !strings.Contains(err.Error(), test.want) || strings.Contains(err.Error(), "not installed") {
+				t.Fatalf("CheckAvailability() error = %q, want it to say %q", err, test.want)
+			}
+			if errors.Is(err, context.Canceled) != test.cancelled {
+				t.Fatalf("CheckAvailability() error = %v carries the cancellation: %t, want %t", err, !test.cancelled, test.cancelled)
+			}
+		})
 	}
 }
 

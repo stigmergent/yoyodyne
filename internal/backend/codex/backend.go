@@ -188,6 +188,9 @@ func (b Backend) binary() string {
 	return b.Binary
 }
 
+// versionCheckTimeout is how long the executable is given to say its version.
+const versionCheckTimeout = 10 * time.Second
+
 // CheckAvailability asks the installed CLI whether it is there and whether it is
 // logged in. Both answers are the provider's own: Codex holds the credentials,
 // whether they came from a ChatGPT subscription or an API key, and the harness
@@ -208,15 +211,19 @@ func (b Backend) CheckAvailability(ctx context.Context) (backend.Availability, e
 	// account's login. Naming no directory asks where the machine is signed in,
 	// which is what a single-account installation has always done.
 	environment := environmentFor(b.ConfigDir)
-	versionResult, err := b.Runner.Run(ctx, execution.Command{Name: binary, Args: []string{"--version"}, Env: environment, Timeout: 10 * time.Second}, nil)
+	versionResult, err := b.Runner.Run(ctx, execution.Command{Name: binary, Args: []string{"--version"}, Env: environment, Timeout: versionCheckTimeout}, nil)
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			return backend.Availability{Installed: false}, nil
+			return backend.NotFound(binary), nil
 		}
 		return backend.Availability{}, fmt.Errorf("check Codex version: %w", err)
 	}
+	// An executable that was found and did not answer is not a missing one. A
+	// check that timed out, was cancelled with whatever asked for it, or exited
+	// nonzero says which, rather than reading as "not installed": see
+	// internal/backend/availability.go for the firing that read it that way.
 	if versionResult.Status != execution.ProcessSucceeded {
-		return backend.Availability{Installed: false}, nil
+		return backend.Availability{}, fmt.Errorf("check Codex version: %w", backend.VersionCheckFailed(ctx, binary, versionCheckTimeout, versionResult))
 	}
 	availability := backend.Availability{
 		Installed:   true,

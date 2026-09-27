@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,5 +153,61 @@ func TestAnInstancesPassOpensTheInstancesOwnConversation(t *testing.T) {
 	}
 	if len(opened) != 1 || opened[0] != "reliability-pm" {
 		t.Fatalf("opened = %v, want the instance's own conversation", opened)
+	}
+}
+
+// A program manager instance's pass opened through the real conversation path,
+// over a `claude` that is on PATH and does not answer its version check, is
+// refused with what the check came to and never with "not installed".
+//
+// The cancelled case is the one that happened: factory-flow-pm's first pass,
+// at 2026-09-27T00:21:34Z, began in the second the operator's maintenance job
+// stopped the scheduler, and its version check was cancelled with the pull. It
+// was recorded as a failed firing of a backend that "is not installed". Carried
+// as the cancellation it was, it is a pass that could not reach the role and
+// not a failed firing, which is what passNotOpened already makes of a stopped
+// scheduler once it can see one.
+func TestAnInstancesPassRefusedByItsVersionCheckSaysWhatTheCheckCameTo(t *testing.T) {
+	// Not parallel: the state root and the PATH the conversation resolves are set
+	// here.
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	configPath := writeConfig(t, twoArchitectsConfig+`  factory-flow-pm:
+    role: program-manager
+    backend: claude-code
+    model: fable
+    lane: factory-flow
+    triggers:
+      every: 2h
+`)
+	directory := t.TempDir()
+	script := "#!/bin/sh\necho 'claude: this install is damaged' >&2\nexit 3\n"
+	if err := os.WriteFile(filepath.Join(directory, "claude"), []byte(script), 0o700); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	conversation := roleConversation{configPath: configPath, stderr: io.Discard}
+
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := conversation.Wake(stopped, domain.RoleProgramManager, "factory-flow-pm", "factory-flow-pm#1", "", "a pass")
+	if err == nil || strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("Wake() on a stopped scheduler error = %v, want the cancellation rather than a missing backend", err)
+	}
+	var notStarted *orchestrator.NotStartedError
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, orchestrator.ErrRoleUnreachable) || errors.As(err, &notStarted) {
+		t.Fatalf("Wake() on a stopped scheduler error = %v, want the role unreachable because the pass was cancelled, and not a failed firing", err)
+	}
+
+	_, err = conversation.Wake(context.Background(), domain.RoleProgramManager, "factory-flow-pm", "factory-flow-pm#1", "", "a pass")
+	if err == nil || strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("Wake() over a failing claude error = %v, want what the version check came to rather than a missing backend", err)
+	}
+	for _, want := range []string{"factory-flow-pm", "`claude --version` exited with status 3", "this install is damaged"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Wake() over a failing claude error = %v, want it to say %q", err, want)
+		}
+	}
+	if !errors.As(err, &notStarted) || notStarted.Cause != runstate.PreTurnConversationUnopened {
+		t.Fatalf("Wake() over a failing claude error = %v, want a failed firing whose conversation could not be opened", err)
 	}
 }

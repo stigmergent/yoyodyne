@@ -273,7 +273,7 @@ func (p Pipeline) requireBackendReady(ctx context.Context, workItemID string) er
 	}
 	named := p.developer().Backend
 	if !availability.Installed {
-		return fmt.Errorf("the %s backend is not installed; `yoyo doctor` names what to install", named)
+		return fmt.Errorf("%s; `yoyo doctor` names what to install", availability.NotInstalled(named))
 	}
 	if !availability.Authenticated {
 		detail := fmt.Sprintf("the %s backend is not authenticated; `yoyo doctor` names the login that fixes it (auth method: %s)",
