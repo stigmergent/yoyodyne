@@ -884,18 +884,26 @@ getting one each. A run that loses the race for the last free slot is reported a
 declined and the pass exits zero: that is two schedulers doing exactly what they
 should, not a failure.
 
-**A freed slot is refilled at the next poll**, whatever else is still in flight.
-A watching session with every slot taken waits for one of its runs to end,
-because nothing else can change its answer; one with a slot free waits for
-whichever comes first of one of its runs ending and `execution.work_poll`, and
-reads the queue again either way. On 2026-09-26 it did not: two of three runs
-ended early, the pulls they woke found nothing they could start at that moment,
-and the session then waited only on the third run — so two slots stood empty for
-over an hour beside twenty-nine ready items. Every poll that starts work says in
-the watch log how many slots it filled, of how many it found free, and how many
-of the session's own runs were already in flight beside them — `filled 2 of 2
-free developer slots, beside 1 run this session already had in flight` — so a
-slot left empty is visible there rather than inferred from the silence.
+**A slot freed by any run is refilled at the next poll**, whatever else is still
+in flight and whichever process hosted the run that freed it. A watching session
+with a slot free, or with every slot taken and any of them held by another
+process's run, waits for whichever comes first of one of its own runs ending and
+`execution.work_poll`, and at each poll reads the limit again against every run
+in flight wherever it runs. Only a session whose every slot is held by its own
+runs waits for one of them to end, because then nothing else can change its
+answer. On 2026-09-26 a session did not refill: two of three runs ended early,
+the pulls they woke found nothing they could start at that moment, and the
+session then waited only on the third run — so two slots stood empty for over an
+hour beside twenty-nine ready items. The same stall held a full session's slots
+that another process's runs held, which a bounded drain makes the ordinary case:
+when those runs ended, the session did not notice until one of its own did.
+Every poll that starts work says in the watch log how many slots it filled, of
+how many it found free, and how many of the session's own runs were already in
+flight beside them, and which slots freed since the last poll and whose runs
+held them — `filled 1 of 1 free developer slot, beside 1 run this session already
+had in flight; …; 1 developer slot freed since the last poll: run-… over
+yoyodyne-ifd.12, another process's run` — so a slot left empty is visible there
+rather than inferred from the silence.
 
 Eleven things keep an item out of a pass, and the pass accounts for them at two
 different grains. The first eight are named against the item, because nothing

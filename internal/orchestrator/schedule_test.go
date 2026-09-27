@@ -1312,6 +1312,152 @@ func TestAFreedSlotIsRefilledAtTheNextPollWhileAnotherRunIsStillGoing(t *testing
 	}
 }
 
+// Two sessions sharing the reservation limit, which the bounded drain makes
+// routine: this session's one slot is taken by its own long run and the other
+// by a run another process hosts. When that run ends, nothing of this session's
+// has ended, so a session waiting only on its own completions left the slot it
+// freed empty until its own run finished.
+//
+// A slot freed by any run is refilled at the next poll: the ready item is
+// started there with this session's own run still going, and the filling line
+// names the run that freed it and says it was another process's.
+func TestASlotAnotherProcessFreesIsRefilledAtTheNextPollWhileTheSessionIsFull(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two")...)
+	harness.capacity = 2
+	harness.inFlight["yoyodyne-elsewhere"] = runstate.State{
+		RunID: "run-elsewhere", WorkItemID: "yoyodyne-elsewhere", Status: runstate.StatusRunning,
+	}
+	sessions := &recordedSessions{}
+	// hold keeps this session's own run going until the refill has started. The
+	// bound is only what stops the old behaviour hanging the test: a session that
+	// waits on its own run's completion reaches the second item after it, and
+	// fails below rather than here.
+	hold := make(chan struct{})
+	var (
+		ownRunGoing bool
+		ownRunEnded bool
+		release     sync.Once
+		ticks       int
+		runs        int
+	)
+	// The first item started is this session's long run; the second is the
+	// refill, whichever of the two the order puts first.
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		h.mu.Lock()
+		runs++
+		refilled := runs > 1
+		if refilled {
+			ownRunGoing = !ownRunEnded
+		}
+		h.mu.Unlock()
+		if refilled {
+			release.Do(func() { close(hold) })
+			return h.complete(id), nil
+		}
+		select {
+		case <-hold:
+		case <-time.After(5 * time.Second):
+		}
+		h.mu.Lock()
+		ownRunEnded = true
+		h.mu.Unlock()
+		return h.complete(id), nil
+	}
+	// The first interval the full session waits on is the one the other
+	// process's run ends in, and it elapses at once. No later interval elapses.
+	interval := func(time.Duration) <-chan time.Time {
+		ticks++
+		if ticks > 1 {
+			return nil
+		}
+		harness.mu.Lock()
+		delete(harness.inFlight, "yoyodyne-elsewhere")
+		harness.mu.Unlock()
+		elapsed := make(chan time.Time, 1)
+		elapsed <- time.Time{}
+		return elapsed
+	}
+	harness.onSleep = func(*scheduleHarness, int) bool { return false }
+
+	schedule, err := Scheduler{
+		Open: harness.open, Watching: true, Sleep: harness.sleep, Interval: interval, Sessions: sessions,
+	}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	got := harness.pullOrder()
+	slices.Sort(got)
+	if want := []string{"yoyodyne-one", "yoyodyne-two"}; !slices.Equal(got, want) {
+		t.Fatalf("pulled %v, want %v", harness.pullOrder(), want)
+	}
+	if !ownRunGoing {
+		t.Fatal("the slot the other process freed was refilled only after this session's own run ended, want it refilled at the next poll")
+	}
+	if ticks < 1 {
+		t.Fatal("the full session never waited on its poll interval beside another process's run")
+	}
+	var refill string
+	for _, transition := range sessions.recorded() {
+		if strings.HasPrefix(transition.reason, "filled 1 of 1 free developer slot") && strings.Contains(transition.reason, "freed since the last poll") {
+			refill = transition.reason
+		}
+	}
+	if !strings.Contains(refill, "1 developer slot freed since the last poll: run-elsewhere over yoyodyne-elsewhere, another process's run") {
+		t.Fatalf("filling line = %q, want the refill to name the other process's run that freed the slot", refill)
+	}
+	if len(schedule.Started) != 2 {
+		t.Fatalf("started = %d run(s), want 2", len(schedule.Started))
+	}
+}
+
+// A session whose every slot is held by its own runs has nothing but one of
+// those runs ending to wait on, so it waits on that and never on the interval,
+// exactly as it did before a slot held elsewhere was read at each poll.
+func TestASessionFullOfItsOwnRunsWaitsOnThemRatherThanThePoll(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two")...)
+	harness.capacity = 1
+	sessions := &recordedSessions{}
+	ticks := 0
+	interval := func(time.Duration) <-chan time.Time {
+		ticks++
+		return nil
+	}
+	// A run that reserved carries its identifier back, which is what names it.
+	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
+		outcome := h.complete(id)
+		outcome.RunID = "run-" + id
+		return outcome, nil
+	}
+	harness.onSleep = func(*scheduleHarness, int) bool { return false }
+
+	schedule, err := Scheduler{
+		Open: harness.open, Watching: true, Sleep: harness.sleep, Interval: interval, Sessions: sessions,
+	}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if len(schedule.Started) != 2 {
+		t.Fatalf("started = %d run(s), want both items run one after the other", len(schedule.Started))
+	}
+	if ticks != 0 {
+		t.Fatalf("the session waited on its poll interval %d time(s) with every slot its own, want it to wait on its runs", ticks)
+	}
+	// The second item filled the slot the first run freed, and the line says so.
+	var said bool
+	for _, transition := range sessions.recorded() {
+		if strings.Contains(transition.reason, "1 developer slot freed since the last poll: run-yoyodyne-one over yoyodyne-one, this session's run") {
+			said = true
+		}
+	}
+	if !said {
+		t.Fatalf("filling lines = %+v, want the refill to name this session's run that freed the slot", sessions.recorded())
+	}
+}
+
 // The state that misled an operator three times on 2026-09-01, replayed: a
 // session idle on one developer slot while a run works on the other, over a
 // queue whose only unstarted work is the architect's to carry in conversation.
