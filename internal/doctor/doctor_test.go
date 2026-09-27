@@ -1278,6 +1278,9 @@ func newWorld(t *testing.T) *world {
 	w.runner.reply("gh auth status", succeeded("Logged in to github.com"))
 	w.runner.reply("remote get-url", succeeded("git@github.com:example/thing.git"))
 	w.runner.reply("find-generic-password", succeeded("keychain item"))
+	// No operator's launchd job manages the product's parts beside the
+	// supervisor on a machine where everything answers.
+	w.runner.reply("launchctl print", failed("Could not find service \"com.yoyodyne.maintenance\" in domain for user gui: 501"))
 	// A project `yoyo init` configured has an index at the door of every artifact
 	// home, so a machine where everything answers has them too.
 	w.documentArtifactHomes()

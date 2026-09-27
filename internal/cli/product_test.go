@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/shutdown"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
@@ -72,6 +76,10 @@ func TestTheProductStartsOnceStopsOnceAndASecondStartDoesNothing(t *testing.T) {
 	stateRoot := t.TempDir()
 	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
 	t.Setenv(productHelperVariable, "1")
+	// The real verb retires the operator's maintenance launchd job from the
+	// home it runs under, so this one runs under a home of its own: a job
+	// found there is none, and the machine's own is never touched.
+	t.Setenv("HOME", t.TempDir())
 	configPath := writeConfig(t, quietProductConfig)
 	store, err := runstate.NewSupervisionStore(stateRoot, "yoyodyne")
 	if err != nil {
@@ -334,5 +342,165 @@ func TestStartAndStopAreListedAmongTheCommands(t *testing.T) {
 		if !strings.Contains(stop.String(), want) {
 			t.Errorf("stop usage does not say %q", want)
 		}
+	}
+}
+
+// machineRunner is the machine the supervisor is installed on: launchd holding
+// the operator's maintenance job until it is booted out, and a checkout whose
+// branch has landed something the product's binary is made of. It records the
+// build it is asked for, and ends the supervisor once it has one.
+type machineRunner struct {
+	mu         sync.Mutex
+	loaded     bool
+	loadedFrom string
+	asked      []string
+	builds     []execution.Command
+	built      func()
+}
+
+func (m *machineRunner) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	joined := strings.Join(append([]string{command.Name}, command.Args...), " ")
+	m.asked = append(m.asked, joined)
+	succeeded := execution.ProcessResult{Status: execution.ProcessSucceeded}
+	switch {
+	case joined == "launchctl print gui/501/com.yoyodyne.maintenance":
+		if !m.loaded {
+			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 113}, nil
+		}
+		succeeded.Stdout = "gui/501/com.yoyodyne.maintenance = {\n\tpath = " + m.loadedFrom + "\n}\n"
+		return succeeded, nil
+	case joined == "launchctl bootout gui/501/com.yoyodyne.maintenance":
+		m.loaded = false
+		return succeeded, nil
+	case command.Name == "make":
+		m.builds = append(m.builds, command)
+		if m.built != nil {
+			m.built()
+		}
+		return succeeded, nil
+	case strings.Contains(joined, "symbolic-ref"):
+		succeeded.Stdout = "main\n"
+		return succeeded, nil
+	case strings.Contains(joined, "rev-parse"):
+		succeeded.Stdout = "b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0\n"
+		return succeeded, nil
+	case strings.Contains(joined, " status "):
+		return succeeded, nil
+	}
+	return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "not a command this machine answers"}, nil
+}
+
+// The supervisor installed over the operator's loaded maintenance job retires
+// it — booted out of launchd, its property list removed, what it was recorded —
+// and carries the one duty of it the product still needs: the target branch
+// having landed, the supervisor rebuilds the product's binary in its checkout.
+func TestTheSupervisorInstalledOverTheMaintenanceJobRetiresItAndCarriesTheRebuild(t *testing.T) {
+	t.Parallel()
+
+	// The checkout the product's binary is built from, with the job installed
+	// under a home of its own.
+	configPath := writeConfig(t, quietProductConfig)
+	checkout := config.ProjectDirectory(configPath)
+	for _, directory := range []string{filepath.Join(checkout, "cmd", "yoyo"), filepath.Join(checkout, "bin")} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(checkout, "Makefile"), []byte("build:\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	plist := filepath.Join(home, "Library", "LaunchAgents", maintenancejob.Label+".plist")
+	script := filepath.Join(home, ".local", "yoyodyne", "yoyodyne-maintenance.sh")
+	for path, content := range map[string]string{
+		plist:  "<plist version=\"1.0\"><dict><key>Label</key><string>" + maintenancejob.Label + "</string><key>ProgramArguments</key><array><string>" + script + "</string></array></dict></plist>\n",
+		script: "#!/bin/bash\nmake build\nnohup bin/yoyo work --watch &\nbin/yoyo slack ensure\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resolved, err := config.LoadResolved(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := t.TempDir()
+	store, err := runstate.NewSupervisionStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	machine := &machineRunner{loaded: true, loadedFrom: plist, built: cancel}
+	p := &product{
+		resolved:  resolved,
+		stateRoot: stateRoot,
+		store:     store,
+		program:   filepath.Join(checkout, "bin", "yoyo"),
+		environ:   []string{"HOME=" + home, slack.BotTokenVariable + "=xoxb-secret"},
+		goos:      "darwin",
+		now:       time.Now,
+		machine:   maintenancejob.Machine{Home: home, UID: 501, GOOS: "darwin", Runner: machine},
+		runner:    machine,
+		children: func() ([]supervise.Child, []supervise.NotYet, []config.ServiceName, error) {
+			return nil, nil, config.ServiceNames, nil
+		},
+	}
+
+	var stdout, stderr strings.Builder
+	if code := p.supervise(ctx, &stdout, &stderr); code != 0 {
+		t.Fatalf("supervise code = %d, stderr %q", code, stderr.String())
+	}
+
+	// The job is gone: unloaded, its property list removed, its script left.
+	machine.mu.Lock()
+	loaded, builds := machine.loaded, machine.builds
+	machine.mu.Unlock()
+	if loaded {
+		t.Error("the maintenance job is still loaded after the supervisor was installed")
+	}
+	if _, err := os.Stat(plist); !os.IsNotExist(err) {
+		t.Errorf("the job's property list is still installed: %v", err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Errorf("the job's script, the operator's file, was not left: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "retired the operator's maintenance job com.yoyodyne.maintenance") {
+		t.Errorf("the supervisor said:\n%s\nwant the retirement said", stdout.String())
+	}
+	retired, err := store.RetiredJobs()
+	if err != nil || len(retired) != 1 {
+		t.Fatalf("RetiredJobs() = %+v, %v, want the one retirement recorded", retired, err)
+	}
+	record := retired[0]
+	if !record.WasLoaded || !record.Unloaded || !record.Removed || record.By != "the supervisor" || !strings.Contains(record.PlistContent, script) {
+		t.Errorf("recorded %+v, want the job unloaded and removed by the supervisor, with its property list kept", record)
+	}
+	if !slices.Equal(record.Duplicated, []string{"scheduler", "slack", "rebuild"}) {
+		t.Errorf("recorded duplicates %v, want what its script ran", record.Duplicated)
+	}
+
+	// And the rebuild is the supervisor's: the branch has landed, and the
+	// product's binary is built again in its checkout, without a Slack token.
+	if len(builds) != 1 {
+		t.Fatalf("built %d times, want the supervisor to rebuild the binary once", len(builds))
+	}
+	build := builds[0]
+	if build.Dir != checkout || strings.Join(build.Args, " ") != "build BINARY="+filepath.Join(checkout, "bin", "yoyo") {
+		t.Errorf("build = make %v in %s, want the product's binary built in its checkout", build.Args, build.Dir)
+	}
+	if slices.ContainsFunc(build.Env, func(entry string) bool { return strings.HasPrefix(entry, slack.BotTokenVariable) }) {
+		t.Errorf("the build ran with a Slack token in its environment: %v", build.Env)
+	}
+
+	// Installing again finds nothing to retire.
+	if said, problem := p.retireMaintenanceJob(context.Background(), "yoyo start"); said != "" || problem != "" {
+		t.Errorf("a second retirement = %q, %q, want nothing to do", said, problem)
 	}
 }

@@ -123,6 +123,10 @@ type Supervisor struct {
 	// shows the product's whole shape.
 	NotYet []NotYet
 	Off    []config.ServiceName
+	// Residents are the work the supervisor hosts beside its children, looked
+	// at after them on every tick: rebuilding the product's binary when its
+	// branch lands is the one there is.
+	Residents []Resident
 	// Poll is how often each child is looked at; zero takes DefaultPoll.
 	Poll time.Duration
 	// Now and Sleep are the clock, injectable so a test drives the bounds
@@ -201,6 +205,12 @@ func (s *Supervisor) Tick(ctx context.Context) {
 		s.look(ctx, child, state, now)
 	}
 	s.record(now)
+	for _, resident := range s.Residents {
+		if ctx.Err() != nil {
+			return
+		}
+		resident.Look(ctx, now)
+	}
 }
 
 // look is one child, once.
@@ -408,6 +418,11 @@ func (s *Supervisor) validate() error {
 	}
 	if err := domain.ValidateIdentifier("product id", string(s.Product)); err != nil {
 		problems = append(problems, err)
+	}
+	for _, resident := range s.Residents {
+		if resident == nil {
+			problems = append(problems, errors.New("a supervisor was given a resident that is nothing"))
+		}
 	}
 	seen := make(map[config.ServiceName]struct{}, len(s.Children))
 	for _, child := range s.Children {

@@ -23,6 +23,8 @@ package runstate
 // this for what the supervisor decided about it.
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -341,3 +343,121 @@ func (s *SupervisionStore) Load() (Supervision, bool, error) {
 }
 
 func (s *SupervisionStore) path() string { return filepath.Join(s.root, supervisionFile) }
+
+// retiredJobsFile is the log of the launchd jobs outside the product that the
+// supervisor retired, one line each, beside its record.
+const retiredJobsFile = "retired-jobs.jsonl"
+
+// maxRetiredJobBytes bounds one line of that log. The line carries the job's
+// whole property list, which is a page of XML and never more than this.
+const maxRetiredJobBytes = 256 << 10
+
+// RetiredJob is a launchd job outside the product that managed the product's
+// parts, and what the supervisor did about it when it was installed over it.
+//
+// It is written because a retirement removes something the operator put on the
+// machine: the record keeps what the job was — its property list whole, which
+// is what `launchctl bootstrap` would need to put it back — and what was done to
+// it, so the hand step it replaces is recorded rather than only gone.
+type RetiredJob struct {
+	// Label is the job's launchd label, and Plist where its property list was.
+	Label string `json:"label"`
+	Plist string `json:"plist"`
+	// PlistContent is the property list as it stood before it was removed.
+	PlistContent string `json:"plist_content,omitempty"`
+	// Program is what the job ran.
+	Program []string `json:"program,omitempty"`
+	// Duplicated is what the job did that the product does, in the words the
+	// doctor uses.
+	Duplicated []string `json:"duplicated,omitempty"`
+	// WasLoaded, Unloaded, and Removed are what was found and what was done:
+	// the job booted out of launchd where it was loaded, and its property list
+	// removed where it was there.
+	WasLoaded bool `json:"was_loaded"`
+	Unloaded  bool `json:"unloaded"`
+	Removed   bool `json:"removed"`
+	// Left names what the retirement deliberately did not touch — the job's own
+	// script, which is the operator's file.
+	Left string `json:"left,omitempty"`
+	// By is the verb that retired it, and RetiredAt when.
+	By        string    `json:"by"`
+	RetiredAt time.Time `json:"retired_at"`
+}
+
+// RecordRetiredJob appends one retirement to the log and returns where the log
+// is, so what says the job was retired can say where that is written down.
+func (s *SupervisionStore) RecordRetiredJob(job RetiredJob) (string, error) {
+	if job.Label == "" || job.RetiredAt.IsZero() {
+		return "", errors.New("a retired job needs its label and when it was retired")
+	}
+	encoded, err := json.Marshal(job)
+	if err != nil {
+		return "", fmt.Errorf("encode retired job: %w", err)
+	}
+	encoded = append(encoded, '\n')
+	if len(encoded) > maxRetiredJobBytes {
+		return "", fmt.Errorf("encoded retired job is %d bytes, limit is %d", len(encoded), maxRetiredJobBytes)
+	}
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return "", fmt.Errorf("create supervisor state directory: %w", err)
+	}
+	path := s.RetiredJobsPath()
+	_, statErr := os.Stat(path)
+	created := errors.Is(statErr, os.ErrNotExist)
+	if statErr != nil && !created {
+		return "", fmt.Errorf("inspect retired job log: %w", statErr)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("open retired job log: %w", err)
+	}
+	written, err := file.Write(encoded)
+	if err != nil {
+		file.Close()
+		return "", fmt.Errorf("append retired job: %w", err)
+	}
+	if written != len(encoded) {
+		file.Close()
+		return "", fmt.Errorf("append retired job: %w", io.ErrShortWrite)
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return "", fmt.Errorf("sync retired job log: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close retired job log: %w", err)
+	}
+	if created {
+		if err := syncDirectory(s.root); err != nil {
+			return "", err
+		}
+	}
+	return path, nil
+}
+
+// RetiredJobs reads every retirement back, oldest first. A log that is not there
+// is a product that never retired anything.
+func (s *SupervisionStore) RetiredJobs() ([]RetiredJob, error) {
+	encoded, err := os.ReadFile(s.RetiredJobsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read retired job log: %w", err)
+	}
+	var jobs []RetiredJob
+	for index, line := range bytes.Split(encoded, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var job RetiredJob
+		if err := json.Unmarshal(line, &job); err != nil {
+			return nil, fmt.Errorf("decode retired job log line %d: %w", index+1, err)
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
+// RetiredJobsPath is where the retirements are logged.
+func (s *SupervisionStore) RetiredJobsPath() string { return filepath.Join(s.root, retiredJobsFile) }
