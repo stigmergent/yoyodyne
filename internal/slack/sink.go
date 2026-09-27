@@ -192,10 +192,11 @@ type Titles interface {
 // answer. The pacer is shared on purpose, since a pace two callers each advanced
 // from their own reading of it is not a pace, and it holds a mutex for exactly
 // that. The API is an HTTP client, which is safe to use from several goroutines.
-// And the store is read from all of them and written from one: the delivery pass
-// owns the thread map, and neither the acknowledgment path nor a conversation
-// turn can write it, because the poster each is given cannot open a thread (see
-// `poster.opens`).
+// And the store is read from all of them and written from one per record: the
+// delivery pass owns the thread map and the decision map, and neither the
+// acknowledgment path nor a conversation turn can write either — the poster each
+// is given cannot open a thread (see `poster.opens`), and answering an ask
+// records a directive rather than revising the ask.
 //
 // The conversation runs off the connection rather than on it for one reason: the
 // connection is a read loop that Slack expects to keep reading, and a turn takes
@@ -652,6 +653,13 @@ func (s *Sink) pass(ctx context.Context) error {
 	// nothing left to say still has to stop reading as working.
 	s.mark(ctx, &threads, batch.Statuses)
 
+	// A line that has stopped is put to the operators themselves, after the
+	// channel has been told the same thing. The order is that way round because
+	// the channel is the account and this is the ask: somebody who opens the
+	// direct message and goes to look should find the state already said where the
+	// work is discussed, rather than arriving ahead of it.
+	s.ask(ctx, batch.Asking)
+
 	// Cursors for streams that no longer exist are dropped only after a pass
 	// that read them all, so a feed that failed halfway, or read a record past
 	// because it could not read it, never looks like a product whose runs have
@@ -793,6 +801,14 @@ func (s *Sink) remark(ctx context.Context, thread Thread, status notify.Status) 
 // It reports its error rather than logging, because its callers are the two
 // halves that already know how to say what a reply could not be told.
 func (s *Sink) receipt(ctx context.Context, messageTS string, receipt notify.Receipt) error {
+	return s.receiptIn(ctx, s.channel, messageTS, receipt)
+}
+
+// receiptIn is the same mark on a message in a named conversation, which is how
+// a message addressed to this app in a direct message wears one: a mark put on
+// by channel and timestamp lands on whatever that pair names, and the reporting
+// channel holds no message at a direct message's timestamp.
+func (s *Sink) receiptIn(ctx context.Context, channel, messageTS string, receipt notify.Receipt) error {
 	if !receipt.Valid() {
 		return fmt.Errorf("%q is not one of the marks a reply can wear", receipt)
 	}
@@ -804,7 +820,7 @@ func (s *Sink) receipt(ctx context.Context, messageTS string, receipt notify.Rec
 			if err := s.pace.wait(ctx); err != nil {
 				return err
 			}
-			if err := s.api.Unreact(ctx, s.channel, messageTS, stale.Symbol()); err != nil {
+			if err := s.api.Unreact(ctx, channel, messageTS, stale.Symbol()); err != nil {
 				return err
 			}
 		}
@@ -812,7 +828,7 @@ func (s *Sink) receipt(ctx context.Context, messageTS string, receipt notify.Rec
 	if err := s.pace.wait(ctx); err != nil {
 		return err
 	}
-	return s.api.React(ctx, s.channel, messageTS, receipt.Symbol())
+	return s.api.React(ctx, channel, messageTS, receipt.Symbol())
 }
 
 // settle moves the mark on the message that asked for a directive now that what

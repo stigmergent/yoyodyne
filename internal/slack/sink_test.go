@@ -1559,10 +1559,13 @@ type fixedFeed struct {
 	// reading rather than a history: a test moves it and polls again exactly as a
 	// record moving underneath the sink would.
 	statuses map[string]notify.Status
+	// asking is the decision this pass owes the operators, which the heartbeat
+	// derives in a real feed and a test states outright.
+	asking *Ask
 }
 
 func (f *fixedFeed) Poll(_ context.Context, cursors Cursors) (Batch, error) {
-	batch := Batch{Streams: map[string]struct{}{}, Statuses: f.statuses}
+	batch := Batch{Streams: map[string]struct{}{}, Statuses: f.statuses, Asking: f.asking}
 	for _, delivery := range f.deliveries {
 		batch.Streams[delivery.Stream] = struct{}{}
 		if delivery.Cursor.Position <= cursors.Streams[delivery.Stream].Position {
@@ -1594,6 +1597,10 @@ type recordedPosts struct {
 	// marks is every reaction call in the order it was made, which is what says a
 	// stale mark came off before the new one went on.
 	marks []mark
+	// markedIn is the conversation each of those calls named, in the same order:
+	// a mark lands on whatever a channel and timestamp name together, so the
+	// conversation is half of which message was marked.
+	markedIn []string
 	// wearing is what each message actually carries once those calls have been
 	// applied. It is kept as well as the calls because the two answer different
 	// questions: the calls say what the sink did, and this says what somebody
@@ -1661,6 +1668,7 @@ func (r *recordedPosts) handle(writer http.ResponseWriter, request *http.Request
 			return
 		}
 		r.marks = append(r.marks, mark{method: method, ts: reaction.Timestamp, name: reaction.Name})
+		r.markedIn = append(r.markedIn, reaction.Channel)
 		// The workspace answers the way Slack does: a mark that is already there
 		// and one that is already off are refusals rather than successes, which is
 		// what a sweep over the vocabulary meets three times out of four.

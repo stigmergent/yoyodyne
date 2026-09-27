@@ -5687,7 +5687,7 @@ person.
 | grant | what it is |
 | --- | --- |
 | `own-intent` | stating and approving what the product is for: the brief, the goals, and the non-goals. **At most one human may hold it** — several people amending goals concurrently is conflict machinery nobody has designed. |
-| `direct-work` | steering work already in flight: the directives that reach a run, and the thread replies the Slack sink acts on. |
+| `direct-work` | steering work already in flight: the directives that reach a run, the thread replies the Slack sink acts on, and the decisions it asks for directly when the line has stopped. |
 
 **One grant is checked today, and it is worth being exact about which.** The
 Slack sink's allow-list is derived from the `direct-work` holders who bound a
@@ -5810,7 +5810,10 @@ hold the authority, and Slack is not a boundary they can reach it through.
 An instruction from somebody on that list is recorded as a directive against the
 item whose thread it was said in, and reaches the work exactly as one typed at a
 terminal does; a question from them is answered by the Lead Product Manager in the
-same thread and recorded as nothing. A reply from a human this mapping names who is not on it is
+same thread and recorded as nothing. The same list is who the sink asks, each in
+a direct message, when the line has stopped over ready work, and whose reply in
+that thread is recorded as the decision — see
+[deciding a stopped line from a direct message](slack/setup.md#deciding-a-stopped-line-from-a-direct-message). A reply from a human this mapping names who is not on it is
 answered in the thread saying it was not acted on, naming the grant they are
 missing — visibly, because a channel that silently ignores some people looks
 broken rather than closed. What a reply may say is in

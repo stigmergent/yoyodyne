@@ -92,7 +92,7 @@ func (s *steering) refuse(ctx context.Context, message inboundMessage) {
 		s.sink.log("a message from %s, who this project does not recognize, arrived but what has already been said to strangers could not be read, so it was not answered: %v", message.user, err)
 		return
 	}
-	if refusals.Has(s.sink.channel, thread) {
+	if refusals.Has(s.sink.conversationOf(message), thread) {
 		s.sink.log("%s said something more in a thread this app has already told them it does not know them in, saying %q, and it was recorded rather than answered again",
 			message.user, singleLine(message.text, maxAskedBytes))
 		return
@@ -110,8 +110,8 @@ func (s *steering) refuse(ctx context.Context, message inboundMessage) {
 	// put on for the same reason: a message wearing nothing is one nobody read,
 	// and this one was. It is put on after the words rather than instead of them,
 	// and a workspace that will not take it costs the mark and nothing else.
-	s.mark(ctx, message.ts, notify.ReceiptRefused)
-	refusals.Record(s.sink.channel, thread, Refusal{Member: message.user, At: s.sink.clock().UTC()})
+	s.markIn(ctx, s.sink.conversationOf(message), message.ts, notify.ReceiptRefused)
+	refusals.Record(s.sink.conversationOf(message), thread, Refusal{Member: message.user, At: s.sink.clock().UTC()})
 	if err := s.sink.store.SaveRefusals(refusals); err != nil {
 		s.sink.log("%s was told this app does not know them, but that it was said could not be remembered, so it may be said in that thread again: %v", message.user, err)
 	}

@@ -138,14 +138,7 @@ var standingQuestions = []string{
 // is owed a record of having been heard even where the workspace refused to
 // carry it.
 func (s *steering) mentioned(ctx context.Context, message inboundMessage) {
-	// The cheap refusal first: a message with no mention in it at all cannot be
-	// addressed to this app, and settling that here means an ordinary channel
-	// never causes the workspace to be asked anything.
-	if !strings.Contains(message.text, "<@") {
-		return
-	}
-	member, known := s.identity(ctx)
-	if !known || !addresses(message.text, member) {
+	if !s.addressed(ctx, message) {
 		return
 	}
 	if !s.first(message.ts) {
@@ -182,6 +175,19 @@ func (s *steering) mentioned(ctx context.Context, message inboundMessage) {
 	default:
 		s.converse(ctx, message, said)
 	}
+}
+
+// addressed says whether one message names this app.
+//
+// The cheap refusal comes first: a message with no mention in it at all cannot
+// be addressed to this app, and settling that here means an ordinary channel
+// never causes the workspace to be asked anything.
+func (s *steering) addressed(ctx context.Context, message inboundMessage) bool {
+	if !strings.Contains(message.text, "<@") {
+		return false
+	}
+	member, known := s.identity(ctx)
+	return known && addresses(message.text, member)
 }
 
 // answerOnce posts one of this door's own answers and says in the sink's log
@@ -285,6 +291,18 @@ func (s *Sink) answerMention(ctx context.Context, message inboundMessage, answer
 	return s.answerAs(ctx, notify.Harness(), message, answer, standingElsewhere)
 }
 
+// conversationOf is the conversation one message arrived in, which is where
+// everything said back to it goes: the reporting channel, or a direct message
+// with the person who addressed this app there. A message that names no
+// conversation is the reporting channel's, which is the only one this sink read
+// before it read direct messages at all.
+func (s *Sink) conversationOf(message inboundMessage) string {
+	if message.channel != "" {
+		return message.channel
+	}
+	return s.channel
+}
+
 // answerAs is the same answer in a named voice, with its own account of where
 // the whole of a truncated one is.
 //
@@ -304,7 +322,7 @@ func (s *Sink) answerAs(ctx context.Context, speaker notify.Speaker, message inb
 		thread = message.ts
 	}
 	_, err := s.post(ctx, Message{
-		Channel:   s.channel,
+		Channel:   s.conversationOf(message),
 		Text:      boundAnswer(tagged(message.user, answer), elsewhere),
 		ThreadTS:  thread,
 		Username:  identity.Name,
