@@ -1609,6 +1609,9 @@ func (s *State) recordedTexts() []recordedText {
 	if s.IntegrationStop != nil {
 		nested("integration_stop.detail", "integration_stop.detail", &s.IntegrationStop.Detail, MaxEnvironmentalDetailBytes)
 	}
+	if s.ReplayConflict != nil {
+		nested("replay_conflict.detail", "replay_conflict.detail", &s.ReplayConflict.Detail, MaxEnvironmentalDetailBytes)
+	}
 	for index := range s.IntegrationResumptions {
 		resumption := &s.IntegrationResumptions[index]
 		nested("integration_resumptions[].reason", at("integration_resumptions", index, "reason"), &resumption.Reason, MaxSelectionReasonBytes)
@@ -2537,6 +2540,15 @@ type State struct {
 	// the environment did not stop there, which is nearly all of them. See
 	// integrationresume.go.
 	IntegrationStop *IntegrationStop `json:"integration_stop,omitempty"`
+	// ReplayConflict is this run's approved change having conflicted when it was
+	// replayed onto what its target became: the one stop after an approval that
+	// is a person's to settle rather than the harness's to resume past. It is
+	// written where the conflict is decided, before the blocker about it is
+	// attempted on the tracker, so the record says what stopped the run even when
+	// that write fails — and a record carrying it is never an integration stop.
+	// Absent is every run whose replay did not conflict, which is nearly all of
+	// them. See integrationresume.go.
+	ReplayConflict *ReplayConflict `json:"replay_conflict,omitempty"`
 	// IntegrationResumptions are the continuations of this run's integration
 	// after an environmental stop: the run made live again at the promotion, with
 	// its approval standing and no attempt, round, or grant charged. Absent is

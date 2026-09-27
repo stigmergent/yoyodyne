@@ -4704,7 +4704,10 @@ to its developer and has no attempt to carry on with either; a re-run is what
 those need. A stall is continued rather than re-run: the harness is what stopped
 it, before anything judged the work, so what it is owed is the attempt it was
 stopped in, resumed in the session it stalled in — and the continuation counts
-no review round and no repair attempt, because a stall judges nothing. The
+no review round and no repair attempt, because a stall judges nothing. A run
+whose record says its approved change conflicted on replay is refused in the
+docket's own sentence for it, naming the conflict and a person as the next
+mover, until this verb extends to replay conflicts (yoyodyne-ifd.132). The
 preserved worktree has
 to be as the harness left it: what a continued developer is handed back is
 whatever is in that worktree, so a HEAD that moved — an operator mid-surgery, an

@@ -376,10 +376,15 @@ the run there, on the change; at `0` no replay may stop on the change. The earli
 approval never carries over, because the diff it approved is not the one that
 would now be promoted. A replay that conflicts is never
 resolved automatically: the run stops, both sides survive untouched, and the
-blocker on the item says so. A replay the harness itself killed — timed out,
-cancelled, or stalled — is not a conflict, although it leaves the same
-half-applied state: it is abandoned so the worktree is back on its branch, and
-recorded as the environmental stop below rather than handed to a person.
+blocker on the item says so. The conflict is also written on the run's own
+record, before the blocker is attempted on the tracker, so the run says what
+stopped it even when that write fails — and the docket entry, the item's notes,
+and the refusals of `yoyo triage resume` and `yoyo triage repair` all name the
+conflict and a person as the next mover from that record rather than from the
+error's prose. A replay the harness itself killed — timed out, cancelled, or
+stalled — is not a conflict, although it leaves the same half-applied state: it
+is abandoned so the worktree is back on its branch, and recorded as the
+environmental stop below rather than handed to a person.
 
 **An environmental stop after approval costs nothing.** Not everything that
 stops an approved change short of the target branch is a verdict on it, and
@@ -399,7 +404,16 @@ forge login on the push or the fetch around it (`remote-auth-refused`, the
 by the one the worktree manager declares for that, and a tracker, forge, or network that did not answer by the [recovery
 rule](operations.md#waiting-out-a-network-that-dropped)'s closed reading of the
 error — the same reading that decides what the harness waits out at the
-boundaries that have a window, applied to a step that has none. A refused
+boundaries that have a window, applied to a step that has none. What is read
+is the step's own failure, and not the failure of any write the run then
+attempted about it: a run that stops and then cannot record the stop — a
+blocker the tracker did not take in time, a replayed base the store would not
+save — ends on both, and the write's failure is transport-shaped whatever the
+stop was. On yoyodyne-ifd.441 a replay conflict whose blocker write timed out
+was read from its tail as a transport failure, and the docket sent the
+development manager to a resume that would have met the conflict again. A
+replay conflict is refused by its own sentinel besides, so it is never an
+integration stop whatever wrapped it. A refused
 credential is never waited out, even where SSH's closing "Connection closed"
 would read as a dropped network on its own. Nothing about
 the change is in question, so nothing about it is anybody's to decide. A
