@@ -267,16 +267,20 @@ cannot make fail.
 ### The repetition
 
 The converted tests were run ten times in sequence under `-race` with
-`-count=1`, so nothing was served from the test cache, all six packages they live
-in per run, beside a full `make check` on the same tree. Ten of ten exited 0,
-between 23:27 and 23:33 PDT on 2026-09-27, at one-minute load averages from 40
-to 50 on sixteen cores. CHECK_RESULT
+`-count=1`, so nothing was served from the test cache, all six packages they
+live in per run. Ten of ten exited 0, between 23:27 and 23:33 PDT on
+2026-09-27, at one-minute load averages from 40 to 50 on sixteen cores. The
+whole of `make test` then ran once with `GOFLAGS=-count=1` and exited 0,
+between 23:39 and 23:51 PDT, with the one-minute load between 34 and 63; and
+`make race` over those six packages, `-count=1` again, exited 0 between 23:51
+and 00:02 PDT, with the load between 40 and 53.
 
-The ten full `make check` runs this record's own repetition is were not
-repeated: the section above says that sequence takes over three hours, and the
-run that first took this item stopped inside it. The targeted ten are the
-repetition for the tests this item changed, and the one full suite is the
-evidence that nothing else moved.
+The ten full `make check` runs that make up this record's own repetition were
+not repeated: the section above says that sequence takes over three hours, and
+the run that first took this item stopped inside it. The targeted ten are the
+repetition for the tests this item changed; the one uncached `make test`, and
+the race detector over the packages the change touches, are the evidence that
+nothing else moved.
 
 ### Found, outside this sweep
 
