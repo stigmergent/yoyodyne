@@ -152,7 +152,11 @@ execution:
 recurring_tasks:
   development-manager-sweep:
     role: development-manager
-    every: 1h
+    # 45m, down from 1h, at the operator's direction of 2026-09-28: a
+    # turn more than an hour after the last one re-reads the whole context
+    # (the provider's cache lasts an hour), and those cold re-reads were most
+    # of this role's spend. Inside the hour, a sweep reuses the cache.
+    every: 45m
     enabled: true
     max_turns: 4
     prompt: |
@@ -169,7 +173,11 @@ recurring_tasks:
 
   product-manager-sweep:
     role: product-manager
-    every: 12h
+    # 45m, down from 12h, at the operator's direction of 2026-09-28: a
+    # turn more than an hour after the last one re-reads the whole context
+    # (the provider's cache lasts an hour), and those cold re-reads were most
+    # of this role's spend. Inside the hour, a sweep reuses the cache.
+    every: 45m
     enabled: true
     max_turns: 6
     prompt: |
