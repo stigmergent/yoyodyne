@@ -7335,9 +7335,12 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 		WorktreePath: a.worktree.Path,
 		Changes:      changes,
 		Checks:       a.outcome.Checks,
-		RedactValues: p.RedactValues,
-		LastSequence: a.state.LastSequence,
-		EventSink:    a.sink,
+		// What the item's done-conditions quote, so every line of a check's
+		// output carrying one reaches the reviewer beside the check's result.
+		CheckPatterns: review.CriterionPatterns(a.item.Description, a.item.AcceptanceCriteria),
+		RedactValues:  p.RedactValues,
+		LastSequence:  a.state.LastSequence,
+		EventSink:     a.sink,
 		// What the reviewer's invocation spends is this run's spend, charged to
 		// the review rather than to the change: an item that was reviewed four
 		// times is where that distinction is the whole answer.

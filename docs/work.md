@@ -140,6 +140,23 @@ change made and then undone, and the evidence says so and lists them, because a
 reviewer told only that the patch is empty concludes the harness lost the
 evidence. [One did](diagnoses/yoyodyne-ifd-236-review-evidence-over-committed-work.md).
 
+**Each check result carries what the check printed, not only whether it
+passed.** Beside every check's pass or fail the reviewer is shown the last 4 KiB
+of each of its streams, cut at a line, and every line of its retained output
+containing something the item's done-conditions quote — the text between
+backticks or quotation marks in the description's "Done means" paragraphs and
+in the acceptance criteria, at most sixteen of them, compared with whitespace
+collapsed so a quoted `=== RUN TestX` finds Go's `=== RUN   TestX`. Those lines
+are at most forty per check and 512 bytes each, and a quoted pattern no line
+contains is said to be absent rather than left out. Every quotation says it is
+the check's own output and untrusted, because a check runs the change's code and
+what it prints is the change's to choose; and every one that was cut says the
+bound that cut it and that the whole is in the run's event log, which keeps
+every line every check printed. A pass alone could not answer a criterion like
+"the run quotes the test's run line": the reviewer of `yoyodyne-ifd.141.5`
+judged one indirectly from the suite passing, and otherwise would have spent a
+repair round asking for the line.
+
 **What a reviewer is shown for a continued run** — a repair round, a grant
 carried out on a preserved worktree, a run picked up after its process died —
 is therefore the branch's whole diff against the run's recorded base, never the
