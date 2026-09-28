@@ -278,7 +278,7 @@ pass "bd ready answers in the scratch project"
 step "3. write the configuration"
 written="$("$yoyo" init 2>&1)"
 printf '%s\n' "$written"
-for persona in architect developer development-manager product-manager reviewer; do
+for persona in architect developer development-manager product-manager program-manager reviewer; do
   if [ -f "$project/.yoyodyne/personas/$persona.md" ]; then
     pass "wrote personas/$persona.md"
   else

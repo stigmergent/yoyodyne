@@ -155,6 +155,30 @@ deployed build is `yoyodyne-ifd.434.3`'s. Until `yoyodyne-ifd.413` and
 `yoyodyne-ifd.414` land, what the job did for reconcile and the dashboard is
 the maintenance line's and the dashboard line's hand steps above.
 
+## Setting up with `yoyo setup`
+
+`yoyo setup` walks a project to an installation that can run work, as
+questions: the tracker, the configuration, the checks read from what the
+repository already declares, the tracker's sync remote, the index at the door of
+each artifact home, and the optional offer of
+[reporting into Slack](reporting.md#reporting-into-slack), ending with
+`yoyo doctor`. Everything it does is something you could have typed, and it
+asks before each step.
+
+It changes nothing that is already there — a configuration that does not load is
+handed back rather than regenerated, a sync remote the tracker already holds
+keeps pointing where it points, and a Slack token already stored is left alone —
+and it keeps no record of its own, which is what makes running it again safe:
+every step looks at the installation first, says what was already true, and
+resumes an interrupted setup where it actually got to rather than where a record
+claims. `--yes` answers every question with the answer it proposes; the one
+prompt it cannot answer for you is the keychain's own, which waits for each
+Slack token to be typed. `--json` on its own asks nothing and changes nothing: it
+reports the same steps machine-readably, saying what is already true and what
+would still have to be done. `yoyo setup --yes --json` carries a walk out with
+nobody at the terminal, and leaves the keychain step, and only that step, to a
+walk somebody is watching.
+
 ## Checking the installation
 
 `yoyo doctor` answers one question — can work actually run here — and answers it
