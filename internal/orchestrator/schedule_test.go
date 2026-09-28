@@ -2793,6 +2793,10 @@ type scheduleHarness struct {
 	outages     ScheduleOutages
 	provider    ScheduleProvider
 	outageProbe time.Duration
+	// divergences is the product's record of the target branches the harness
+	// will not catch up to the remote's. A pull is wired with it only where a
+	// test asks, so every other test's pass reads no divergence at all.
+	divergences ScheduleDivergences
 	// usageLimits is the product's record of the provider refusing the harness
 	// for want of capacity, and developers every endpoint a developer's turn can
 	// end on. A pull is wired with them only where a test asks, so every other
@@ -2994,6 +2998,7 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		UsageLimits:                 h.usageLimits,
 		Developers:                  h.developers,
 		CapacityServed:              h.capacityServed,
+		Divergences:                 h.divergences,
 	}, nil
 }
 

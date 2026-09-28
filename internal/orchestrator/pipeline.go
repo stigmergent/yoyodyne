@@ -394,6 +394,13 @@ type Pipeline struct {
 	// run wired without one runs exactly as it would have, and every refusal then
 	// stands until its quoted reset.
 	CapacityServed CapacityServedRecorder
+	// DivergedTargets is the product's record of the target branches the harness
+	// will not catch up to the remote's, written by the run whose promotion is
+	// refused on one and lifted by the convergence sweep that finds the branches
+	// converged. It is optional: a run wired without one stops exactly as it
+	// would have, and what is lost is the record a watching session reads to
+	// stop pulling items into the same refusal.
+	DivergedTargets DivergedTargets
 	// Selection is why this pipeline is running what it runs: who chose the work
 	// and on what grounds. It is recorded with the run so that an operator reading
 	// what is in flight can see why each item was picked, which is the question
@@ -749,6 +756,11 @@ type Outcome struct {
 	// have; what was lost is the evidence that would have read an earlier refusal
 	// of that account and model as lifted before its quoted reset.
 	CapacityServedProblem string `json:"capacity_served_problem,omitempty"`
+	// DivergedTargetProblem names a diverged target this run stopped on that
+	// could not be recorded on the product. The run stopped exactly as it would
+	// have and its blocker says so; what was lost is the record a watching
+	// session holds its choosing on.
+	DivergedTargetProblem string `json:"diverged_target_problem,omitempty"`
 	// Invariants names the architectural invariants this run delivered to its
 	// developer and to its reviewer. It is the audit record of which durable
 	// constraints the change was actually held to, which is the thing a
@@ -2759,6 +2771,7 @@ func (a *activeRun) blockOnDivergedTarget(catchup gitworktree.Catchup) error {
 	diverged := fmt.Errorf("%w: %s cannot be brought onto %s before promoting: %s",
 		ErrDivergedTarget, catchup.TargetBranch, remote, catchup.Held)
 	a.outcome.DivergedTarget = &catchup
+	a.noticeDivergedTarget(catchup)
 	if err := a.block(renderDivergedTargetNotes(a.outcome, catchup, remote, diverged.Error(), a.state.ApprovedAwaitingIntegration())); err != nil {
 		return withFailedRecord(diverged, fmt.Errorf("record the diverged target branch as a blocker: %w", err))
 	}
@@ -2780,6 +2793,7 @@ func (a *activeRun) blockOnPromotedDivergence(integration gitworktree.Integratio
 	// The same held catch-up, for the same reader: the brake counts this stop
 	// toward nothing whichever side of the promotion the divergence was found on.
 	a.outcome.DivergedTarget = &catchup
+	a.noticeDivergedTarget(catchup)
 	if err := a.block(renderPromotedDivergenceNotes(a.outcome, integration, catchup, remote, diverged.Error())); err != nil {
 		return withFailedRecord(diverged, fmt.Errorf("record the diverged target branch as a blocker: %w", err))
 	}
