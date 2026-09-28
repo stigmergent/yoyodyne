@@ -1615,7 +1615,9 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		}
 		outcome.WorkItemID = item.ID
 		outcome.recordTarget(item)
-		outcome.Detail = renderWorkItemEvidence(item, s.options.Goals)
+		// The runs go after the item and outside its bound, because the bound cuts
+		// the front of the notes and the run a stoppage is about is named there.
+		outcome.Detail = renderWorkItemEvidence(item, s.options.Goals) + s.renderItemRuns(ctx, item.ID)
 		outcome.applied("read %s: %s", item.ID, singleLine(item.Title, maxSurveyTitleBytes))
 	case actionSurvey:
 		// The one action about the queue rather than about an item in it. It is the

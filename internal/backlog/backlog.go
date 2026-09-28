@@ -79,6 +79,12 @@ type Hold struct {
 	// surface can say how long a hold has stood, which is what tells a stoppage
 	// from yesterday apart from one three weeks old.
 	Since time.Time
+	// RunID is the run the hold is about: the stopped run, the one whose
+	// publication is unfinished, or the one whose stoppage was escalated. It is
+	// empty where the record behind the hold names none. It is carried apart from
+	// the reason, which names it too, because the reason is prose a reader may
+	// cut, and a decision about the stoppage has to name the run.
+	RunID string
 }
 
 // Holds is the admitted work somebody has to release before anything pulls it,
@@ -139,6 +145,16 @@ func (h Holds) Reason(workItemID string) (string, bool) {
 func (h Holds) Decided(workItemID string) bool {
 	held := h.held[workItemID]
 	return held.Decided && strings.TrimSpace(held.Reason) != ""
+}
+
+// RunID is the run one named item's hold is about, and empty where nothing
+// holds the item or the record holding it names no run.
+func (h Holds) RunID(workItemID string) string {
+	held := h.held[workItemID]
+	if strings.TrimSpace(held.Reason) == "" {
+		return ""
+	}
+	return strings.TrimSpace(held.RunID)
 }
 
 // Read reports holds a reader actually got an answer about. It is exported

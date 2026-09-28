@@ -221,14 +221,14 @@ const (
 //
 // since is when the item came to be held, which is the run's stop for every
 // hold this closes.
-func heldFor(account string, decided bool, problem string, since time.Time) backlog.Hold {
+func heldFor(runID, account string, decided bool, problem string, since time.Time) backlog.Hold {
 	switch {
 	case problem != "":
-		return backlog.Hold{Reason: account + "; " + problem + ", so this is stated as a stoppage nobody has decided about", Since: since}
+		return backlog.Hold{Reason: account + "; " + problem + ", so this is stated as a stoppage nobody has decided about", Since: since, RunID: runID}
 	case decided:
-		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since}
+		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	default:
-		return backlog.Hold{Reason: account + "; " + awaitingDecisionClause, Since: since}
+		return backlog.Hold{Reason: account + "; " + awaitingDecisionClause, Since: since, RunID: runID}
 	}
 }
 
@@ -286,7 +286,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		// Never a carry-out: an escalation with nothing recorded against it is by
 		// construction one nobody has decided, so what it waits on is the decision
 		// itself however much triage has decided about the item's other stoppages.
-		reasons[escalation.WorkItemID] = backlog.Hold{Reason: undecidedStoppage(escalation), Since: raisedAt(escalation)}
+		reasons[escalation.WorkItemID] = backlog.Hold{Reason: undecidedStoppage(escalation), Since: raisedAt(escalation), RunID: escalation.RunID}
 	}
 	// A publication the forge never merged next. It holds the item for the same
 	// reason the merged one below does — the work is on the target branch and a
@@ -305,7 +305,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 			continue
 		}
 		carryOut, problem := decided(workItemID, run.RunID)
-		reasons[workItemID] = heldFor(unmergedPublication(run), carryOut, problem, stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, unmergedPublication(run), carryOut, problem, stoppedAt(run))
 	}
 	// The stoppages, each looked at rather than read: a run whose change the
 	// repository still holds, a run whose change nothing could look for, and a run
@@ -345,19 +345,19 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		// that is — with the re-run named as the way on rather than a verb that
 		// would refuse.
 		if run.IntegrationStop != nil && StoppageMover(run, &found, false) == MoverHarness {
-			reasons[workItemID] = backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true, Since: stoppedAt(run)}
+			reasons[workItemID] = backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 			continue
 		}
 		carryOut, problem := decided(workItemID, run.RunID)
 		if run.IntegrationStop != nil {
-			reasons[workItemID] = heldFor(triage.IntegrationGoneSays(run.RunID, found.Describe()), carryOut, problem, stoppedAt(run))
+			reasons[workItemID] = heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), carryOut, problem, stoppedAt(run))
 			continue
 		}
 		if !preserved {
-			reasons[workItemID] = heldFor(continuedStoppage(run), carryOut, problem, stoppedAt(run))
+			reasons[workItemID] = heldFor(run.RunID, continuedStoppage(run), carryOut, problem, stoppedAt(run))
 			continue
 		}
-		reasons[workItemID] = heldFor(preservedChange(run, found), carryOut, problem, stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, preservedChange(run, found), carryOut, problem, stoppedAt(run))
 	}
 	// A raise whose re-run the development manager has decided and the harness
 	// has still to carry out. The run that raised the item succeeded, so none of
@@ -374,7 +374,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 			continue
 		}
 		if carryOut, _ := decided(workItemID, run.RunID); carryOut {
-			reasons[workItemID] = heldFor(raiseRerun(run), true, "", stoppedAt(run))
+			reasons[workItemID] = heldFor(run.RunID, raiseRerun(run), true, "", stoppedAt(run))
 		}
 	}
 	// The merged publications last. Only these know the change reached everywhere
@@ -385,7 +385,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		return outstandingPublication(run) && mergeConfirmed(run)
 	}) {
 		carryOut, problem := decided(workItemID, run.RunID)
-		reasons[workItemID] = heldFor(mergedPublication(run), carryOut, problem, stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, mergedPublication(run), carryOut, problem, stoppedAt(run))
 	}
 	// A stop the development manager decided, last, because it is only ever about
 	// the item's latest run and says the most about what to do with it. Such a run
@@ -426,7 +426,7 @@ func supersededHolds(runs []runstate.State, stopped latestStop, look Look) map[s
 		if !preserved.Holds() {
 			continue
 		}
-		held[workItemID] = backlog.Hold{Reason: supersededStop(run, decision, preserved), Since: decision.DecidedAt}
+		held[workItemID] = backlog.Hold{Reason: supersededStop(run, decision, preserved), Since: decision.DecidedAt, RunID: run.RunID}
 	}
 	return held
 }

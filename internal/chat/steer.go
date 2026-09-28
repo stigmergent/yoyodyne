@@ -252,8 +252,11 @@ func (s *Session) command(ctx context.Context, line string, out io.Writer) (bool
 		// What it cost comes from the run records rather than the tracker, and it
 		// is broken down by attempt: a single total answers what an item cost, and
 		// only the breakdown says what the harness spent it on. A price nobody
-		// could read never withholds the item, which is what was asked for.
-		s.printWorkItemPrice(ctx, out, argument)
+		// could read never withholds the item, which is what was asked for. The
+		// runs section a role's read carries comes from the same reading.
+		price, err := s.WorkItemPrice(ctx, argument)
+		fmt.Fprint(out, s.renderItemRunsFrom(ctx, item.ID, price, err))
+		printItemPrice(out, price, err)
 		fmt.Fprintln(out)
 		return false, nil
 	case "/diff":
@@ -607,12 +610,11 @@ func (s *Session) WorkItemPrice(ctx context.Context, workItemID string) (ItemPri
 	return price, nil
 }
 
-// printWorkItemPrice writes what an item cost beneath the item itself. A price
+// printItemPrice writes what an item cost beneath the item itself. A price
 // that could not be read is said in a line rather than raised as a failure: the
 // operator asked to see the item, and losing the item over its price tag would
 // be a worse answer than the item without one.
-func (s *Session) printWorkItemPrice(ctx context.Context, out io.Writer, workItemID string) {
-	price, err := s.WorkItemPrice(ctx, workItemID)
+func printItemPrice(out io.Writer, price ItemPrice, err error) {
 	if err != nil {
 		fmt.Fprintf(out, "cost: could not be read, so treat it as unknown rather than nothing: %v\n", err)
 		return

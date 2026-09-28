@@ -340,6 +340,11 @@ type RunPrice struct {
 	// Integrated reports a run that promoted its work, which is what separates
 	// the attempt that finished a piece of work from the ones that did not.
 	Integrated bool `json:"integrated,omitempty"`
+	// Remains is what the run's record says survives of its change, in the
+	// phrase every surface says it in (Artifacts.Describe). It rides with the
+	// price because a reader of an item's runs asks two things of each — what it
+	// cost and whether its work is still there — and one read answers both.
+	Remains string `json:"remains,omitempty"`
 	// Invocations counts the provider invocations priced from this run's log,
 	// which is the developer's, the reviewer's, and one more per repair attempt.
 	Invocations int     `json:"invocations,omitempty"`
@@ -706,6 +711,7 @@ func (s *Store) priceRun(state State) RunPrice {
 		StartedAt:   state.StartedAt,
 		CompletedAt: state.CompletedAt,
 		Integrated:  state.Integration != nil,
+		Remains:     state.Artifacts().Describe(),
 	}
 	// What the run waited is read from its own state rather than from its event
 	// log, so it is recorded before anything that can fail: a run whose log is
