@@ -1680,9 +1680,11 @@ func (s *State) recordedTexts() []recordedText {
 		nested("changes.diff_stat", "changes.diff_stat", &s.Changes.DiffStat, MaxChangeRecordBytes)
 	}
 	// A check's name is the forge's, and the repository's workflows phrase it.
+	// Its conclusion is the forge's word for how it ended.
 	if s.PullRequest != nil && s.PullRequest.Checks != nil {
 		for index := range s.PullRequest.Checks.Failing {
 			nested("pull_request.checks.failing[].name", at("pull_request.checks.failing", index, "name"), &s.PullRequest.Checks.Failing[index].Name, maxCheckNameBytes)
+			nested("pull_request.checks.failing[].conclusion", at("pull_request.checks.failing", index, "conclusion"), &s.PullRequest.Checks.Failing[index].Conclusion, maxCheckNameBytes)
 		}
 	}
 	// A hand-back carries the re-run's own reason, which is the selection

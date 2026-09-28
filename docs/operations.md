@@ -1900,6 +1900,24 @@ the queue was landing them.
   rather than the run — intake held, every developer slot taken, or a pass that
   hosts no runs, such as the settle a conversation makes — the merge is left
   queued with the checks beside it and the reason, for the next `yoyo reconcile`.
+- **A job the forge ended itself.** A check the forge reports as cancelled,
+  timed out, or never started (`startup_failure`), whose only annotation is the
+  forge's own on `.github` or that has none, was ended before any step decided
+  anything, so before anything is decided on it the sweep asks the forge to run
+  that job again on the same head
+  (`POST /repos/{owner}/{repo}/actions/jobs/{id}/rerun`) and leaves the merge
+  queued. A re-run that passes is the forge landing the merge. Each head gets at
+  most two re-runs, counted on the publication's check reading with the check
+  runs sent back; the forge gives a re-run a check run of its own, so a sweep
+  that reads the old one again before the re-run has started spends nothing. A
+  job ended again after both re-runs, or one the forge will not run again (a
+  check no Actions job ran, or a `gh` token without the right to re-run jobs),
+  is handed back as below, saying the forge ended it. A job waiting on a
+  person's approval is not re-run. Neither is a step that failed: GitHub files
+  "Process completed with exit code 2" on `.github` too, and that is what a
+  genuine red test looks like, so a failed step annotated only there is handed
+  back as below, described as a step that failed without naming a file, with
+  the forge's log of the run named as where to look.
 - **Anything else red** — a failing check whose annotations name a file the
   change touches, or a head already level with its target, where nothing but the
   change differs and an update would change nothing — is handed back. The queued

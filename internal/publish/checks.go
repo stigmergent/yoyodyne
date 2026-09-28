@@ -32,9 +32,15 @@ const (
 //
 // A check that annotates nothing names no files, and that is recorded as it is
 // rather than guessed at: nothing here says whose failure it is.
+//
+// ID is the forge's check run, which for an Actions job is the job a re-run
+// names. Conclusion is how the forge says the check ended: a job cancelled,
+// timed out, or never started failed in the runner rather than on any file.
 type FailedCheck struct {
-	Name  string
-	Paths []string
+	Name       string
+	Paths      []string
+	ID         int64
+	Conclusion string
 }
 
 // CheckReading is what the forge says about a pull request's checks at the
@@ -139,7 +145,7 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 		case !strings.EqualFold(run.Status, "completed"):
 			reading.Pending = append(reading.Pending, name)
 		case failingConclusions[strings.ToLower(strings.TrimSpace(run.Conclusion))]:
-			failed := FailedCheck{Name: name}
+			failed := FailedCheck{Name: name, ID: run.ID, Conclusion: strings.ToLower(strings.TrimSpace(run.Conclusion))}
 			if len(reading.Failing) < maxAnnotatedChecks && run.ID > 0 {
 				paths, err := g.annotatedPaths(ctx, run.ID)
 				if err != nil {
@@ -204,6 +210,28 @@ func (g GitHub) annotatedPaths(ctx context.Context, checkRun int64) ([]string, e
 	}
 	sort.Strings(paths)
 	return paths, nil
+}
+
+// RerunCheck asks the forge to run one failed check again: the Actions job
+// whose check run it is, on the same head. The forge's latest reading of the
+// head's checks is then the re-run's, so a job that failed in the runner rather
+// than on the tree stops holding the merge once it passes.
+//
+// A check no Actions job ran — one a third-party app reports — has nothing the
+// forge can re-run, and the forge refusing says so as an error.
+func (g GitHub) RerunCheck(ctx context.Context, checkRun int64) error {
+	if checkRun <= 0 {
+		return fmt.Errorf("check run %d is not a check run", checkRun)
+	}
+	result, err := g.apiMethod(ctx, "POST", fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/rerun", checkRun))
+	if err != nil {
+		return fmt.Errorf("ask the forge to run check %d again: %w", checkRun, err)
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return fmt.Errorf("ask the forge to run check %d again: exit code %d: %s",
+			checkRun, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+	}
+	return nil
 }
 
 // DisableAutoMerge withdraws the merge the forge is holding for a pull

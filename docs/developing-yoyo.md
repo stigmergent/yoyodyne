@@ -145,7 +145,10 @@ That third step is what a bad bump fails, and it fails naming the assumption the
 new version broke rather than the walkthrough — the walkthrough never runs. A
 version that is not there to download, an archive with no binary in it, or a
 binary reporting some version other than the one asked for, fails earlier still,
-at the install step, which names `BD_VERSION` and this section.
+at the install step, which names `BD_VERSION` and this section. The download is
+tried five times first, so a release host or network that fails for a moment
+does not turn the job red, and a download that still fails says it may have been
+the network rather than the pin.
 
 What cannot happen quietly is the pin turning back into a floating reference.
 `make test` holds every workflow in this repository to installing tools at
