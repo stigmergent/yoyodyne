@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
@@ -1337,7 +1338,13 @@ func renderMatchedLines(result checks.Result, patterns []string, record string) 
 				break
 			}
 			if len(line) > maxMatchedLineBytes {
-				line = line[:maxMatchedLineBytes] + fmt.Sprintf(" [line cut at %d bytes]", maxMatchedLineBytes)
+				// The line is quoted as the check printed it, spacing and all, so
+				// the cut is stepped back to a rune start rather than folded.
+				end := maxMatchedLineBytes
+				for end > 0 && !utf8.RuneStart(line[end]) {
+					end--
+				}
+				line = line[:end] + fmt.Sprintf(" [line cut at %d bytes]", maxMatchedLineBytes)
 			}
 			rendered.WriteString("    " + line + "\n")
 			quotedLines++

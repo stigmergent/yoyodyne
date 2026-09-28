@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
@@ -204,6 +205,21 @@ func TestReviewDeclaresTheBoundACheckOutputWasCutAt(t *testing.T) {
 	}
 	if strings.Count(prompt, "early line of a long suite") > maxCheckOutputBytes/len("early line of a long suite\n") {
 		t.Fatalf("prompt quotes more of the stream than the bound allows")
+	}
+}
+
+// A matched line past its bound is cut on a rune boundary, so the quotation
+// stays valid text however the line's characters fall against the bound.
+func TestMatchedLineCutFallsOnARuneBoundary(t *testing.T) {
+	t.Parallel()
+
+	line := "MATCH " + strings.Repeat("é", maxMatchedLineBytes)
+	rendered := renderMatchedLines(checks.Result{Process: execution.ProcessResult{Stdout: line}}, []string{"MATCH"}, "the event log")
+	if !utf8.ValidString(rendered) {
+		t.Fatalf("rendered matched lines are not valid UTF-8:\n%q", rendered)
+	}
+	if !strings.Contains(rendered, fmt.Sprintf("[line cut at %d bytes]", maxMatchedLineBytes)) {
+		t.Fatalf("rendered matched lines do not declare the cut:\n%s", rendered)
 	}
 }
 
