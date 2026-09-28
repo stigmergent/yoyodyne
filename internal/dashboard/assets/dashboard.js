@@ -329,7 +329,7 @@
   var lines = [
     { list: "running", problem: "running_problem", noun: "developer run", suffix: "", label: "Running" },
     { list: "working", problem: "working_problem", noun: "conversation", suffix: " with a turn in flight", label: "Working" },
-    { list: "not_startable", problem: "not_startable_problem", noun: "admitted item", suffix: " nothing will pull", label: "Not startable" },
+    { list: "not_startable", problem: "not_startable_problem", noun: "admitted item", suffix: " not startable now", label: "Not startable" },
     { list: "needs_human", problem: "needs_human_problem", noun: "thing", suffix: " waiting on somebody", label: "Needs a human" }
   ];
 
@@ -588,6 +588,11 @@
         if (standing.awaiting_decision || standing.awaiting_carry_out) {
           detail += "; awaiting a decision: " + standing.awaiting_decision + ", awaiting carry-out: " + standing.awaiting_carry_out;
         }
+        // Ready work waiting only for a developer slot is counted apart and
+        // never in the figure: it is the work the harness starts next.
+        if (standing.waiting_for_slot) {
+          detail += "; and " + standing.waiting_for_slot.says;
+        }
       }
       if (line.list === "needs_human") {
         tiles.appendChild(needsHumanTile(line.label, standing.needs_human));
@@ -803,24 +808,32 @@
 
   // ---- section 4: the pipeline --------------------------------------------
 
-  // piles is the queue's own vocabulary for why an admitted item is not pulled,
-  // in the order a reader wants them: the ones waiting on a role's decision
-  // first, then the ones waiting on the harness or on other work, then the ones
-  // nothing here can explain. Each says who it is waiting on, because a pile
-  // with no mover is a pile nobody empties — and names that mover rather than
-  // "a person", because the operator moves almost none of them: on 2026-09-27
-  // the held pile said a person was needed over thirty-four items the
-  // development manager and the harness were moving.
-  var piles = [
-    { kind: "held", label: "held after a stopped run", whose: "the development manager's decision, or the harness carrying out her decision" },
-    { kind: "directive", label: "paused by a directive", whose: "the operator, through yoyo directive resolve" },
-    { kind: "stalled", label: "pullable, and nothing is choosing", whose: "whoever the refusal names" },
-    { kind: "parked", label: "parked", whose: "whoever parked it" },
-    { kind: "waiting", label: "waiting on other work", whose: "nobody; it clears as that work lands" },
-    { kind: "covered", label: "covered by its children", whose: "nobody; the children are the work, and it clears as they land" },
-    { kind: "conversation", label: "carried by a conversation, not a run", whose: "the role the item names" },
-    { kind: "unread", label: "not offered, and nothing here can say why", whose: "nobody this page can name; run yoyo status for the refusal in full" }
-  ];
+  // The piles under Held back are the read model's groups of the not-startable
+  // work, by what each waits on, in the model's order and the model's words:
+  // each arrives with its count, its next step, and who takes that step, so the
+  // page counts nothing and words nothing of its own. A pile's key names its
+  // kind, and the wait or the role where the model splits a kind by one.
+  function pileKey(group) {
+    return group.kind + (group.awaiting ? "-" + group.awaiting : "") + (group.kind === "conversation" ? "-" + group.mover : "");
+  }
+
+  function pileGroups(standing) {
+    return standing.not_startable_problem ? [] : (standing.not_startable_groups || []);
+  }
+
+  function pileNamed(standing, key) {
+    var found = null;
+    pileGroups(standing).forEach(function (group) {
+      if (pileKey(group) === key) {
+        found = group;
+      }
+    });
+    return found;
+  }
+
+  function pileWhose(group) {
+    return "next: " + group.next + "; whose: " + moverLabel(group.mover);
+  }
 
   // stageOrder is the order the read model's three stages are shown in: the
   // developer's part, the reviewer's, the harness's. Which phase is which stage
@@ -909,6 +922,11 @@
 
     listProblems("pipeline-problems", [standing.not_startable_problem, standing.running_problem, throughput ? throughput.runs_problem : ""]);
     var note = document.getElementById("pipeline-note");
+    // Whether anything held back is the operator's, in the model's one
+    // sentence, ahead of the Needs-a-human head.
+    var operators = standing.not_startable_for_operator && (refused.length > 0 || standing.waiting_for_slot)
+      ? standing.not_startable_for_operator.charAt(0).toUpperCase() + standing.not_startable_for_operator.slice(1) + ". "
+      : "";
     // The line under the pipeline is the terminal's Needs-a-human head, with
     // the count said per mover after it, the operator's first.
     var attention;
@@ -926,7 +944,7 @@
         attention += "; waiting on others: " + moverCounts(counts.slice(1));
       }
     }
-    note.textContent = "Needs a human: " + attention + ".";
+    note.textContent = operators + "Needs a human: " + attention + ".";
     section("pipeline", "ready");
   }
 
@@ -935,23 +953,16 @@
   function appendQueueStages(stages, standing, refused) {
     stages.appendChild(stage("Admitted", String(standing.admitted), plural(standing.admitted, "item"), "stage-admitted", "admitted"));
 
-    var held = stage("Held back", String(refused.length), refused.length === 1 ? "item nothing will pull" : "items nothing will pull", refused.length > 0 ? "stage-held" : "stage-clear", "held");
-    var byKind = {};
-    refused.forEach(function (item) {
-      byKind[item.kind] = (byKind[item.kind] || 0) + 1;
-    });
+    var held = stage("Held back", String(refused.length), refused.length === 1 ? "item not startable now" : "items not startable now", refused.length > 0 ? "stage-held" : "stage-clear", "held");
+    var groups = pileGroups(standing);
     var breakdown = el("ul", "piles");
     var largest = 0;
-    piles.forEach(function (named) {
-      largest = Math.max(largest, byKind[named.kind] || 0);
+    groups.forEach(function (group) {
+      largest = Math.max(largest, group.count);
     });
-    piles.forEach(function (named) {
-      var number = byKind[named.kind] || 0;
-      if (number === 0) {
-        return;
-      }
-      var entry = pile("pile:" + named.kind, String(number), pileLabel(named, standing) + (number === largest ? " (most)" : ""), number === largest ? "pile-largest" : null);
-      entry.appendChild(el("span", "pile-whose", "waiting on: " + named.whose));
+    groups.forEach(function (group) {
+      var entry = pile("pile:" + pileKey(group), String(group.count), group.waits_on + (group.count === largest ? " (most)" : ""), group.count === largest ? "pile-largest" : null);
+      entry.appendChild(el("span", "pile-whose", pileWhose(group)));
       breakdown.appendChild(entry);
     });
     if (breakdown.firstChild) {
@@ -967,6 +978,10 @@
     var stalled = refused.filter(function (item) { return item.kind === "stalled"; });
     if (stalled.length > 0) {
       stages.appendChild(stage("Startable", "none", "the harness is choosing nothing: " + stalled[0].reason, "stage-held", "startable"));
+    } else if (standing.waiting_for_slot) {
+      // Every developer slot is taken: the ready work is what is started next,
+      // said as the model says it rather than as work nothing will pull.
+      stages.appendChild(stage("Startable", String(standing.startable), standing.waiting_for_slot.says, "stage-flowing", "startable"));
     } else if (standing.startable > 0) {
       stages.appendChild(stage("Startable", String(standing.startable), standing.startable === 1 ? "item the harness pulls next" : "items the harness pulls next", "stage-flowing", "startable"));
     } else {
@@ -974,34 +989,6 @@
     }
   }
 
-  // pileLabel is a pile's name, with the held pile counted by who moves it:
-  // the development manager for a decision still to make, the harness for one
-  // she has made and it has still to carry out. Neither is the operator, so
-  // neither is said as "a person".
-  function pileLabel(named, standing) {
-    var label = named.label;
-    if (named.kind === "held" && (standing.awaiting_decision || standing.awaiting_carry_out)) {
-      var split = [];
-      if (standing.awaiting_decision) {
-        split.push(standing.awaiting_decision + " waiting on the development manager's decision");
-      }
-      if (standing.awaiting_carry_out) {
-        split.push(standing.awaiting_carry_out + " waiting on the harness carrying out her decision");
-      }
-      label += ": " + split.join(", ");
-    }
-    return label;
-  }
-
-  function pileNamed(kind) {
-    var found = null;
-    piles.forEach(function (named) {
-      if (named.kind === kind) {
-        found = named;
-      }
-    });
-    return found;
-  }
 
   // ---- section 5: throughput ---------------------------------------------
 
@@ -1393,14 +1380,17 @@
         return listing("Admitted", "every admitted item, in the Lead Product Manager's order", standing.not_startable_problem, whatToDoAboutTheQueue(), "No work item is admitted.",
           (standing.admitted_items || []).map(function (item) { return { id: item.work_item_id, title: item.title }; }));
       case "held":
-        return listing("Held back", "admitted items nothing will pull, each with the refusal that stops it", standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is held back.", refused.map(withReason));
+        return listing("Held back", "admitted items not startable now, each with the refusal that stops it", standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is held back.", refused.map(withReason));
       case "pile":
-        var found = pileNamed(which);
-        return listing("Held back: " + (found ? found.label : which), found ? "waiting on: " + found.whose : "", standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is in this pile.",
-          refused.filter(function (item) { return item.kind === which; }).map(withReason));
+        var found = pileNamed(standing, which);
+        var inPile = {};
+        (found ? found.items : []).forEach(function (item) { inPile[item.work_item_id] = true; });
+        return listing("Held back: " + (found ? found.waits_on : which), found ? pileWhose(found) : "", standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is in this pile.",
+          refused.filter(function (item) { return inPile[item.work_item_id]; }).map(withReason));
       case "startable":
         var stalled = refused.filter(function (item) { return item.kind === "stalled"; });
-        return listing("Startable", stalled.length > 0 ? "the harness is choosing nothing: " + stalled[0].reason : "the admitted items nothing refuses, which the harness pulls next in this order",
+        return listing("Startable", stalled.length > 0 ? "the harness is choosing nothing: " + stalled[0].reason
+          : (standing.waiting_for_slot ? standing.waiting_for_slot.says + "; the harness pulls them in this order as slots free" : "the admitted items nothing refuses, which the harness pulls next in this order"),
           standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is startable.",
           (standing.startable_items || []).map(function (item) { return { id: item.work_item_id, title: item.title }; }));
       default:

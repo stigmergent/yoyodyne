@@ -51,8 +51,8 @@
                 <dt>Not startable</dt>
                 <dd>
                   <span class="figure">6</span>
-                  <span class="unit">admitted items nothing will pull</span>
-                  <span class="detail">of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1</span>
+                  <span class="unit">admitted items not startable now</span>
+                  <span class="detail">of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1; and 3 ready, waiting for a developer slot; 3 slots, all taken</span>
                 </dd>
               </div>
               <div class="tile tile-attention">
@@ -248,39 +248,44 @@
               <li class="stage stage-held">
                 <button class="grouping-open stage-label" type="button" data-grouping="held">Held back</button>
                 <span class="stage-figure">6</span>
-                <span class="stage-unit">items nothing will pull</span>
+                <span class="stage-unit">items not startable now</span>
                 <ul class="piles">
                   <li class="pile pile-largest">
-                    <span class="pile-figure">2</span>
-                    <button class="grouping-open pile-label" type="button" data-grouping="pile:held">held after a stopped run: 1 waiting on the development manager's decision, 1 waiting on the harness carrying out her decision (most)</button>
-                    <span class="pile-whose">waiting on: the development manager's decision, or the harness carrying out her decision</span>
-                  </li>
-                  <li class="pile">
                     <span class="pile-figure">1</span>
-                    <button class="grouping-open pile-label" type="button" data-grouping="pile:directive">paused by a directive</button>
-                    <span class="pile-whose">waiting on: the operator, through yoyo directive resolve</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:held-decision">waits on the development manager's decision about a stopped run (most)</button>
+                    <span class="pile-whose">next: she decides what becomes of each stopped run: a repair, a re-run, a wait, a re-scope, or an escalation; whose: the development manager's</span>
                   </li>
-                  <li class="pile">
+                  <li class="pile pile-largest">
                     <span class="pile-figure">1</span>
-                    <button class="grouping-open pile-label" type="button" data-grouping="pile:parked">parked</button>
-                    <span class="pile-whose">waiting on: whoever parked it</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:held-carry-out">waits on the harness carrying out a decision already recorded (most)</button>
+                    <span class="pile-whose">next: the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull; whose: the harness's</span>
                   </li>
-                  <li class="pile">
+                  <li class="pile pile-largest">
                     <span class="pile-figure">1</span>
-                    <button class="grouping-open pile-label" type="button" data-grouping="pile:waiting">waiting on other work</button>
-                    <span class="pile-whose">waiting on: nobody; it clears as that work lands</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:directive">waits on an unresolved directive (most)</button>
+                    <span class="pile-whose">next: `yoyo directive resolve` settles it, and the work it pauses is pulled; whose: the operator's</span>
                   </li>
-                  <li class="pile">
+                  <li class="pile pile-largest">
                     <span class="pile-figure">1</span>
-                    <button class="grouping-open pile-label" type="button" data-grouping="pile:conversation">carried by a conversation, not a run</button>
-                    <span class="pile-whose">waiting on: the role the item names</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:waiting">waits on other items (most)</button>
+                    <span class="pile-whose">next: the harness pulls each once the work it waits on lands; whose: the harness's</span>
+                  </li>
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:conversation-product-manager">is done in the Lead Product Manager's conversation, not by a run (most)</button>
+                    <span class="pile-whose">next: the role does the work in its conversation, and the harness closes each item when the role's revision lands; whose: the Lead Product Manager's</span>
+                  </li>
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:parked">is parked by the Lead Product Manager (most)</button>
+                    <span class="pile-whose">next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's</span>
                   </li>
                 </ul>
               </li>
               <li class="stage stage-flowing">
                 <button class="grouping-open stage-label" type="button" data-grouping="startable">Startable</button>
                 <span class="stage-figure">3</span>
-                <span class="stage-unit">items the harness pulls next</span>
+                <span class="stage-unit">3 ready, waiting for a developer slot; 3 slots, all taken</span>
               </li>
               <li class="stage stage-flowing">
                 <button class="grouping-open stage-label" type="button" data-grouping="running">Running</button>
@@ -308,7 +313,7 @@
               </li>
             </ol>
             <ul id="pipeline-problems" class="degraded" hidden></ul>
-            <p id="pipeline-note" class="footnote">Needs a human: 2 things waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.</p>
+            <p id="pipeline-note" class="footnote">1 item here is the operator's — 1 waits on an unresolved directive; everything else is somebody else's to move. Needs a human: 2 things waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.</p>
           </div>
         </section>
         <section id="throughput" class="panel throughput" data-state="loading" aria-labelledby="throughput-heading">

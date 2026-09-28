@@ -686,9 +686,18 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"approved, resuming integration",
 			// The effort level beside the model it was asked of.
 			"claude-code · claude-opus-5 · medium effort · account pool-b",
-			// The held pile names who moves it, counted by mover, and never "a person".
-			"held after a stopped run: 1 waiting on the development manager's decision, 1 waiting on the harness carrying out her decision (most)",
-			"waiting on: the development manager's decision, or the harness carrying out her decision",
+			// The held-back work by what it waits on, each pile with its next step
+			// and whose it is; the ready work waiting for a slot counted apart from
+			// it; and whether any of it is the operator's.
+			"waits on the development manager's decision about a stopped run (most)",
+			"next: she decides what becomes of each stopped run: a repair, a re-run, a wait, a re-scope, or an escalation; whose: the development manager's",
+			"waits on the harness carrying out a decision already recorded (most)",
+			"is done in the Lead Product Manager's conversation, not by a run (most)",
+			"is parked by the Lead Product Manager (most)",
+			"admitted items not startable now",
+			"of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1; and 3 ready, waiting for a developer slot; 3 slots, all taken",
+			`<span class="stage-unit">3 ready, waiting for a developer slot; 3 slots, all taken</span>`,
+			"1 item here is the operator's — 1 waits on an unresolved directive; everything else is somebody else's to move. Needs a human:",
 			// What waits on a person, counted per mover in the model's order: the
 			// operator's is the figure, and each role's and the harness's are
 			// beside it, out of the whole the terminal prints. The label opens
@@ -721,7 +730,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 		},
 		"held": {
-			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "pullable, and nothing is choosing", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
+			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage window until 18:50Z (most)", "next: the harness asks again when the provider's usage window lifts; whose: nobody's", "Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
 			// One thing waiting, and it is the operator's: the figure says so and
 			// there is no breakdown to give.
 			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on the operator.",
@@ -793,13 +802,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// The card over the grouping it was opened from: a stopped run with its
 		// change preserved, said as `yoyo status` says it.
 		"grouping-card": {
-			`<h2 id="grouping-heading" class="popup-title">Held back: held after a stopped run (2 items)</h2>`,
-			"waiting on: the development manager", `data-item="yoyodyne-ifd.150"`,
+			`<h2 id="grouping-heading" class="popup-title">Held back: waits on the development manager's decision about a stopped run (1 item)</h2>`,
+			"next: she decides what becomes of each stopped run", `data-item="yoyodyne-ifd.153"`,
 			// Each held item says since when, in the reader's zone — the renders are
-			// drawn in UTC — and how long before the reading that was, oldest first
-			// as the model ordered them.
+			// drawn in UTC — and how long before the reading that was.
 			"held since 2026-09-10 08:00 UTC, 9 days ago; run run-5035c832 stopped on it",
-			"held since 2026-09-19 11:05 UTC, 3 hours ago; run run-a17c9b40 stopped on it",
 			`<h2 id="card-heading" class="popup-title">Triage names the phase a run stopped in</h2>`,
 			`<p class="card-run-preserved">preserved: stopped, reviewing — work preserved</p>`,
 			"reason: the reviewer asked for repair 3 times",
@@ -862,10 +869,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			}
 		}
 	}
-	// The held pile lists its items oldest hold first, in the order the model
-	// gave them.
-	if held := page("grouping-card"); strings.Index(held, "held since 2026-09-10") > strings.Index(held, "held since 2026-09-19") {
-		t.Errorf("the held pile does not list the oldest hold first")
+	// The held items are listed oldest hold first, in the order the model gave
+	// them. The two held waits are two piles now, so the order is read where
+	// both are listed: the whole of what is held back.
+	if held := page("grouping"); !strings.Contains(held, "held since 2026-09-19") || strings.Index(held, "held since 2026-09-10") > strings.Index(held, "held since 2026-09-19") {
+		t.Errorf("what is held back does not list the oldest hold first")
 	}
 	if strings.Contains(page("degraded"), `<span class="figure">0</span>`) {
 		t.Errorf("the degraded render counts an unreadable line as zero")
@@ -892,7 +900,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			t.Errorf("the busy render does not open %s from both its title and its id", id)
 		}
 	}
-	for _, key := range []string{"admitted", "held", "startable", "running", "landed:today", "landed:week", "pile:held", "pile:directive", "stage:developing", "stage:integrating", "attention", "spend:days"} {
+	for _, key := range []string{"admitted", "held", "startable", "running", "landed:today", "landed:week", "pile:held-decision", "pile:held-carry-out", "pile:directive", "stage:developing", "stage:integrating", "attention", "spend:days"} {
 		if !strings.Contains(page("busy"), `data-grouping="`+key+`"`) {
 			t.Errorf("the busy render has nothing that opens the %s grouping", key)
 		}

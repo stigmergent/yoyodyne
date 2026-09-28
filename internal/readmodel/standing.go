@@ -505,6 +505,18 @@ type Standing struct {
 	WorkingProblem string        `json:"working_problem,omitempty"`
 
 	NotStartable []Refused `json:"not_startable"`
+	// NotStartableGroups is the not-startable items counted by what they wait
+	// on, each group with its next step and whose move it is, in the order a
+	// reader acts on them. NotStartableForOperator is the one sentence saying
+	// whether any of it is the operator's. Both are absent where the queue could
+	// not be read, as NotStartable's entries are.
+	NotStartableGroups      []WaitGroup `json:"not_startable_groups,omitempty"`
+	NotStartableForOperator string      `json:"not_startable_for_operator,omitempty"`
+	// WaitingForSlot is the ready work waiting only for a developer slot, where
+	// every slot is taken and something is ready behind them, and nil otherwise.
+	// It is not refused work and is counted in Startable, never in NotStartable:
+	// the harness starts the next of it as a run finishes.
+	WaitingForSlot *SlotWait `json:"waiting_for_slot,omitempty"`
 	// Admitted is the whole backlog this reading saw, so a short not-startable
 	// list is legible: two refusals out of three admitted items and two out of
 	// forty are different states of the same machine.
@@ -530,7 +542,10 @@ type Standing struct {
 	// harness would start next, counted over the same entries the refusals are,
 	// so the head of the line, the refusals under it, and this are one set of
 	// items. It is zero whenever the pass-level stall stands, because a stall
-	// is precisely every pullable item refused at once. It is not printed — the
+	// is precisely every pullable item refused at once — except a full machine,
+	// which refuses nothing: the ready items behind every slot being taken are
+	// the ones started next, so they are counted here and named again under
+	// WaitingForSlot. It is not printed — the
 	// four lines say it by the absence of a refusal — and is carried for the
 	// surface that shows the pipeline, so that surface reads the count rather
 	// than subtracting one list from another.
@@ -644,6 +659,11 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Startable = len(waits.startable)
 	standing.StartableItems = waits.startable
 	standing.AdmittedItems = waits.admitted
+	standing.WaitingForSlot = waits.slotWait
+	if waits.groups != nil {
+		standing.NotStartableGroups = waits.groups
+		standing.NotStartableForOperator = ForOperator(waits.groups)
+	}
 	standing.NotStartableProblem = notStartableProblem
 	// The provider's usage window is read out of the same stall the refusals are
 	// worded from, rather than derived a second time here: one reading of one
@@ -1165,6 +1185,18 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	stalled := false
 	waits := heldWork{admitted: make([]WorkItemRef, 0, len(queue.Entries)), startable: []WorkItemRef{}}
 	refused := make([]Refused, 0, len(queue.Entries))
+	groups := newWaitGroups(stopped, held)
+	// A full machine refuses nothing. Every developer slot being taken is the
+	// harness working, and an item ready behind it is the next one started as a
+	// run finishes — so it is counted as startable and on a line of its own, and
+	// never filed as not startable. On 2026-09-27 forty-five such items were
+	// counted as work "nothing will pull", and the operator asked what he was
+	// meant to do about it.
+	full := stopped.Reason == ReasonNoCapacity
+	if full {
+		refusal = ""
+	}
+	var slotWait *SlotWait
 	for _, entry := range queue.Entries {
 		waits.admitted = append(waits.admitted, WorkItemRef{WorkItemID: entry.ID, Title: entry.Title})
 		if _, carried := inFlight[entry.ID]; carried {
@@ -1182,29 +1214,47 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 				held.HeldSince = entry.AwaitingSince
 			}
 			refused = append(refused, held)
+			groups.add(entry, kind)
 		case len(covering) > 0:
 			// A covered item is not stalled and never will be: nothing is holding it
 			// back that clearing a switch or freeing a slot would release, so the
 			// pass-level refusal below must not be the one it carries.
 			refused = append(refused, Refused{WorkItemID: entry.ID, Title: entry.Title,
 				Reason: backlog.CoveredReason(covering), Kind: backlog.HeldCovered})
+			groups.add(entry, backlog.HeldCovered)
 		case paused != nil:
 			refused = append(refused, Refused{WorkItemID: entry.ID, Title: entry.Title,
 				Reason: fmt.Sprintf("paused for unresolved directive %s: %s",
 					paused.ID, singleLine(paused.Unresolved, maxRefusalBytes)),
 				Kind: backlog.HeldByDirective})
+			groups.add(entry, backlog.HeldByDirective)
 		case refusal != "":
 			refused = append(refused, Refused{WorkItemID: entry.ID, Title: entry.Title, Reason: refusal, Kind: backlog.HeldByStall})
+			groups.add(entry, backlog.HeldByStall)
 			stalled = true
 		default:
-			// Nothing refuses it: this is the work the harness starts next.
-			waits.startable = append(waits.startable, WorkItemRef{WorkItemID: entry.ID, Title: entry.Title})
+			// Nothing refuses it: this is the work the harness starts next, now or,
+			// on a full machine, as soon as a slot frees.
+			ref := WorkItemRef{WorkItemID: entry.ID, Title: entry.Title}
+			waits.startable = append(waits.startable, ref)
+			if full {
+				if slotWait == nil {
+					slotWait = &SlotWait{Slots: sources.Capacity, InFlight: len(running), Items: []WorkItemRef{}}
+				}
+				slotWait.Ready++
+				slotWait.Items = append(slotWait.Items, ref)
+			}
 		}
 	}
 	if !stalled {
 		stopped = Stall{}
 	}
 	oldestHoldFirst(refused)
+	if slotWait != nil {
+		slotWait.said()
+	}
+	waits.groups = groups.list()
+	waits.slotWait = slotWait
 	if len(held.problems) > 0 {
 		problem = joinProblems(problem, strings.Join(held.problems, "; "))
 	}
@@ -1260,6 +1310,10 @@ type heldWork struct {
 	// decisions the harness has not carried out, by what became of them.
 	carryOutsRefused     int
 	carryOutsUnattempted int
+	// groups is the refused items counted by what they wait on, and slotWait
+	// the ready items waiting only for a developer slot.
+	groups   []WaitGroup
+	slotWait *SlotWait
 }
 
 // countCarryOuts counts one held item's decisions a gate refused and ones no

@@ -1008,9 +1008,11 @@ func firstLine(rendered string) string {
 	return line
 }
 
-// Every developer slot taken is a different refusal from a held switch, and an
-// operator does an entirely different thing about it.
-func TestAFullMachineIsItsOwnRefusal(t *testing.T) {
+// Every developer slot taken refuses nothing: the ready item behind it is the
+// next one started, so it is counted as startable and on a line of its own, and
+// never inside the count of work that is not startable. On 2026-09-27 forty-five
+// such items were filed as work nothing would pull.
+func TestReadyWorkBehindAFullMachineIsCountedApartFromNotStartable(t *testing.T) {
 	t.Parallel()
 	sources := quietSources()
 	sources.Capacity = 1
@@ -1026,8 +1028,33 @@ func TestAFullMachineIsItsOwnRefusal(t *testing.T) {
 		ready:    []beads.WorkItem{{ID: "item-1"}},
 	}}
 	standing := ReadStanding(context.Background(), sources)
-	if len(standing.NotStartable) != 1 || !strings.Contains(standing.NotStartable[0].Reason, "every developer slot is taken: 1 of 1") {
-		t.Fatalf("not startable = %+v", standing.NotStartable)
+	if len(standing.NotStartable) != 0 {
+		t.Fatalf("not startable = %+v, want the ready item left out of it", standing.NotStartable)
+	}
+	for _, group := range standing.NotStartableGroups {
+		if group.Kind == backlog.HeldByStall {
+			t.Fatalf("groups = %+v, want no ready item filed as stalled", standing.NotStartableGroups)
+		}
+	}
+	waiting := standing.WaitingForSlot
+	if waiting == nil || waiting.Ready != 1 || waiting.Slots != 1 || len(waiting.Items) != 1 || waiting.Items[0].WorkItemID != "item-1" {
+		t.Fatalf("waiting for a slot = %+v, want item-1 behind the one slot", waiting)
+	}
+	if standing.Startable != 1 {
+		t.Fatalf("startable = %d, want the ready item counted as what is started next", standing.Startable)
+	}
+	rendered := standing.Render()
+	for _, want := range []string{
+		"Not startable: nothing, of 1 admitted item\n",
+		"  - 1 ready, waiting for a developer slot; 1 slot, taken — not counted as not startable",
+		"  - nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one\n",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered lacks %q:\n%s", want, rendered)
+		}
+	}
+	if brief := standing.RenderBrief(); !strings.Contains(brief, "1 ready, waiting for a developer slot") {
+		t.Fatalf("the hourly rendering drops the slot wait:\n%s", brief)
 	}
 }
 
