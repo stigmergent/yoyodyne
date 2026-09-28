@@ -1303,7 +1303,8 @@ count.** A run refused despite an item that plainly names the path is usually
 this. Both the refusal and the blocker name the fields a grant is read from.
 
 **The paths a grant does not reach.** A grant is an exception to *this harness's*
-refusal, and to nothing else's. Claude Code refuses an agent's writes to its own
+default-deny, and to nothing else's — and one directory of this harness's own
+is beyond it too, below. Claude Code refuses an agent's writes to its own
 settings files above anything yoyodyne permits — the editing tools are denied
 there however the run is configured, and the shell sandbox names the file and
 cannot be disabled by policy — so an item that grants one of them has admitted
@@ -1314,13 +1315,30 @@ against it. One item spent three rounds there before this was recorded anywhere.
 | --- | --- |
 | `.claude/settings.json` | Claude Code |
 | `.claude/settings.local.json` | Claude Code |
+| `.yoyodyne/roles/` | Yoyodyne, absolutely |
 
 So the harness refuses a creation, an update, or a proposal whose text grants one
-of these, and the refusal names the provider: what is wrong is not the item's
+of these, and the refusal names who refuses it: what is wrong is not the item's
 judgement about the path, but that the change is a person's to make by hand
 rather than a run's to be given. Only the marker is refused — prose that names
 one of these files grants nothing and admits fine, which is what lets an item
 *about* this boundary exist at all.
+
+**The role definitions are refused by this harness itself, and for a reason of
+its own.** A role definition says what a role may do, so a run that could write
+one could widen its own authority — the one thing
+`configuration-never-grants-authority` forbids. The rest of `.yoyodyne/` is
+default-deny with the item as the way out; this directory has no way out at
+all, decided change or not
+([configurable workflows](designs/configurable-workflows.md#the-authority-model)).
+A grant naming `.yoyodyne/roles` or anything inside it is refused at the same
+three doors and by the run before it claims the item, and a change touching the
+directory is refused by the diff gate **whatever the item grants** — a grant of
+`.yoyodyne`, which is still how an item admits the rest of the configuration,
+does not reach inside it. The comparison folds case, because on a
+case-insensitive filesystem `.yoyodyne/Roles/` is the same directory. A person
+changes a role definition by hand, and the operator's activation is what makes
+it effective.
 
 **And once more, where all four fields are read.** Those three doors carry an
 item's title and description; a grant is honoured from its design guidance and
@@ -1334,10 +1352,12 @@ paths for the case no gate can catch — an item that describes the work without
 granting anything, whose developer would otherwise spend attempts looking for a
 way in.
 
-The list is short and evidenced rather than a guess at everything a provider's
-sandbox refuses: an entry refuses work at admission, so a path added on suspicion costs
-items nobody needed to refuse. It grows the same way it started — something meets
-the wall and reports it.
+The provider rows are short and evidenced rather than a guess at everything a
+provider's sandbox refuses: an entry refuses work at admission, so a path added on
+suspicion costs items nobody needed to refuse. They grow the same way they started —
+something meets the wall and reports it. The role-definitions row is not one of
+them: it is this harness's own refusal, decided in the design rather than met by a
+run, and it is absolute by that decision.
 
 **A done-condition is never written against one of these homes.** The gate
 above refuses a diff; what it cannot refuse is an item whose *done-condition*
@@ -1375,8 +1395,8 @@ question of the item it is handed, over the acceptance criteria as well, before
 it claims the item, and refuses to start rather than parking on the condition
 afterwards — which is what covers an item whose criteria were written with the
 tracker's own command, and an item admitted before this existed. Neither check
-reaches `.claude/settings.json` or `.claude/settings.local.json`, which stay
-beyond any grant as above. [How work flows](work.md#what-an-item-may-ask-of-a-run)
+reaches `.claude/settings.json`, `.claude/settings.local.json`, or
+`.yoyodyne/roles/`, which stay beyond any grant as above. [How work flows](work.md#what-an-item-may-ask-of-a-run)
 states the rule from the item's side.
 
 **What a grant does not do.** It admits the path; it does not decide what is
