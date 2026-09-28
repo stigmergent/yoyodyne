@@ -608,6 +608,10 @@ type Session struct {
 	// it, and a conversation resumed by a later process must not offer again what
 	// an earlier one already showed.
 	deliveredReports map[string]bool
+	// shownCriticals is the critical reports the latest turn carried in ahead of
+	// the walk, by identifier. It is this process's and this turn's alone: what a
+	// recurring pass reads to refuse an account that ends complete over one.
+	shownCriticals []string
 	// concerns is what the product manager has raised instead of proposing, and
 	// whether the operator has answered it. It is kept the same way and for the
 	// same reason: a question nobody answered is a loose end, not silence.

@@ -214,6 +214,7 @@ func (s *Session) ReadReports() ([]report.Report, map[string]report.Handling, er
 // something already costing somebody has to be read today rather than when the
 // walk reaches it.
 func (s *Session) renderUnhandledReports() string {
+	s.shownCriticals = nil
 	// The pile is delivered to the role that can record what became of a report
 	// and to no other. A role that cannot act on one would read past this every
 	// turn, which is how a channel becomes something nobody reads.
@@ -276,10 +277,12 @@ func (s *Session) renderUnhandledReports() string {
 		delivered = append(delivered, reported)
 		return true
 	}
+	var criticals []string
 	for _, reported := range waiting.Urgent {
 		if !fits(reported) {
 			break
 		}
+		criticals = append(criticals, reported.ID)
 	}
 	for _, reported := range waiting.Next {
 		if !fits(reported) {
@@ -295,6 +298,7 @@ func (s *Session) renderUnhandledReports() string {
 		fmt.Fprintf(&rendered, "\n%s\n", problem)
 	}
 	s.state.ReportPosition = position
+	s.shownCriticals = criticals
 	for _, reported := range delivered {
 		s.markReportDelivered(reported.ID)
 	}
@@ -312,6 +316,15 @@ func (s *Session) renderUnhandledReports() string {
 	}
 	rendered.WriteString("\n")
 	return rendered.String()
+}
+
+// CriticalReportsShown is the critical reports the latest turn carried in ahead
+// of the rest of the pile, by identifier, and nothing where it carried none. A
+// recurring pass reads it after the turn: an account that says the pass is
+// complete while one of these stands unhandled is refused as complete, which is
+// what holds a pass to the severity that means somebody has to act.
+func (s *Session) CriticalReportsShown() []string {
+	return append([]string(nil), s.shownCriticals...)
 }
 
 // reportSectionHeading names the section wherever it is rendered, including the

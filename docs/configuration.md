@@ -6554,6 +6554,15 @@ firing takes the next slice of the pile instead of the same worst one. Whether
 it is keeping up is answered by the count and the oldest undecided report's age
 that every listing of the pile now leads with.
 
+This task is also what a critical report is delivered through. The first
+enabled task that wakes the product manager, in name order, is fired out of its
+cadence on the pull after a critical is filed, with that report in the message;
+its passes are refused as complete while a critical they were shown stands
+unhandled; and they name a program manager's warnings and notes left unhandled
+through two passes as overdue. What each of those does is in
+[the reporting guide](reporting.md#who-reads-them-and-what-became-of-each-one).
+A project with no such task has none of the three.
+
 ### A program manager instance's passes
 
 A [program manager instance](#a-program-manager-instance) is woken the way a
