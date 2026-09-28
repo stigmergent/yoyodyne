@@ -153,8 +153,11 @@ type Result struct {
 	// a caller can audit the review against policy instead of assuming it.
 	RequestedModel string
 	ResolvedModel  string
-	SessionID      string
-	LastSequence   uint64
+	// RequestedEffort is the effort level this review asked the provider for,
+	// and empty where the reviewer agent configured none.
+	RequestedEffort string
+	SessionID       string
+	LastSequence    uint64
 	// UsageLimit is set when the provider reported an exhausted usage limit
 	// during this invocation. A review that was declined for want of capacity was
 	// never made, so the caller can wait and ask again rather than treating the
@@ -199,6 +202,9 @@ type Reviewer struct {
 	// Model is required: a review is audit evidence, and evidence produced by
 	// whatever model the provider happened to default to is not auditable.
 	Model string
+	// Effort is the effort level the review asks the provider for, from the
+	// reviewer agent's configuration, and empty where it names none.
+	Effort string
 	// Persona is the effective reviewer persona from configuration. It may
 	// specialize what a reviewer looks for; it is appended after the immutable
 	// contract and can never replace or weaken it.
@@ -325,6 +331,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		Prompt:           prompt,
 		SystemPrompt:     systemPrompt,
 		Model:            r.Model,
+		Effort:           r.Effort,
 		AllowedTools:     []string{},
 		Timeout:          r.timeout(),
 		LastSequence:     sequence.Last(),
@@ -336,6 +343,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{
 			RequestedModel:   r.Model,
+			RequestedEffort:  r.Effort,
 			LastSequence:     lastSequence,
 			UsageLimit:       providerResult.UsageLimit,
 			ServerOverload:   providerResult.ServerOverload,
@@ -364,6 +372,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	evidence := func() Result {
 		return Result{
 			RequestedModel:   r.Model,
+			RequestedEffort:  r.Effort,
 			ResolvedModel:    providerResult.ResolvedModel,
 			SessionID:        providerResult.SessionID,
 			LastSequence:     lastSequence,

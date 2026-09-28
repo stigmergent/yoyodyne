@@ -488,6 +488,7 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 			Backend:               "claude-code",
 			ProviderModel:         "opus",
 			ProviderResolvedModel: "claude-opus-5",
+			ProviderEffort:        "medium",
 			AccountAlias:          "default",
 			Status:                runstate.StatusRunning,
 			Phase:                 runstate.PhaseDeveloping,
@@ -504,6 +505,7 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 			Role:           domain.RoleProductManager,
 			Backend:        "claude-code",
 			ProviderModel:  "fable",
+			ProviderEffort: "high",
 			Turns:          270,
 			UpdatedAt:      moment.Add(-40 * time.Second),
 		}},
@@ -577,10 +579,10 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 	// reading that worded it.
 	standing := ReadStanding(context.Background(), sources)
 	run := standing.Running[0]
-	if run.Title != "the four-line status" || run.Backend != "claude-code" || run.Model != "claude-opus-5" || run.Account != "default" {
+	if run.Title != "the four-line status" || run.Backend != "claude-code" || run.Model != "claude-opus-5" || run.Effort != "medium" || run.Account != "default" {
 		t.Fatalf("running run carries %+v", run)
 	}
-	if turn := standing.Working[0]; turn.Backend != "claude-code" || turn.Model != "fable" {
+	if turn := standing.Working[0]; turn.Backend != "claude-code" || turn.Model != "fable" || turn.Effort != "high" {
 		t.Fatalf("working turn carries %+v", turn)
 	}
 	kinds := map[string]backlog.HoldKind{}

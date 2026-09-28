@@ -2234,6 +2234,12 @@ type State struct {
 	// floating alias makes the resolved identifier the only real audit record.
 	ProviderModel         string `json:"provider_model,omitempty"`
 	ProviderResolvedModel string `json:"provider_resolved_model,omitempty"`
+	// ProviderEffort is the effort level the developer invocations ask for,
+	// settled from the developer agent's configuration when the run is reserved
+	// and read back by every invocation after, as the account is. Empty is a
+	// developer agent that configured none, and every run recorded before the
+	// level was configurable; either way the provider resolved its own.
+	ProviderEffort string `json:"provider_effort,omitempty"`
 	// DeveloperModel is the selector execution.developer_models chose for this
 	// run from the labels its item carried, and DeveloperModelReason is why that
 	// entry rather than another or than none. They are settled once, when the run
@@ -2361,6 +2367,9 @@ type State struct {
 	ReviewSessionID     string `json:"review_session_id,omitempty"`
 	ReviewModel         string `json:"review_model,omitempty"`
 	ReviewResolvedModel string `json:"review_resolved_model,omitempty"`
+	// ReviewEffort is the effort level the review asked the provider for, and
+	// empty where the reviewer agent configured none.
+	ReviewEffort string `json:"review_effort,omitempty"`
 	// ReviewBaseCommit and ReviewHeadCommit are the two commits the change the
 	// reviewer was shown was measured between: the base it was cut from, and
 	// the branch's tip at the moment of the review, with the uncommitted

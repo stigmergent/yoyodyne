@@ -291,6 +291,15 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		return backend.RunResult{}, errors.New("Codex runs cannot be granted a tool list; the sandbox is what scopes what an agent may do")
 	}
 
+	// Codex accepts no effort level from this harness (see backend/effort.go),
+	// and the configuration refuses one on a Codex agent. A request carrying one
+	// anyway is refused rather than run with the level quietly dropped, for the
+	// reason a tool list is: the record would say a level was asked for that the
+	// provider was never given.
+	if strings.TrimSpace(request.Effort) != "" {
+		return backend.RunResult{}, fmt.Errorf("Codex runs cannot be given effort level %q; this provider accepts no effort level", request.Effort)
+	}
+
 	args := []string{"exec"}
 	// Resuming continues the provider's own session, which is an acceleration
 	// and never the record: what the harness knows about this work is in its own

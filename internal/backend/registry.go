@@ -116,6 +116,11 @@ type Descriptor struct {
 	// declared, which is what a refusal has to say to be actionable: one of them
 	// is a typo and the other is a plugin that was never written.
 	BuiltIn bool
+	// EffortLevels are the effort levels this provider's adapter accepts, in the
+	// provider's own order from least to most, and nil for a provider that
+	// accepts none. A declared provider inherits its adapter's, because the level
+	// is passed on the command line the adapter builds. See effort.go.
+	EffortLevels []string
 }
 
 // Runnable reports a provider something in this build can actually launch.
@@ -165,9 +170,10 @@ func BuiltInDescriptors() []Descriptor {
 				ToolControl:       true,
 				LocalAuth:         true,
 			},
-			Roles:    domain.Roles(),
-			Postures: Postures,
-			BuiltIn:  true,
+			Roles:        domain.Roles(),
+			Postures:     Postures,
+			BuiltIn:      true,
+			EffortLevels: claudeCodeEffortLevels,
 		},
 		{
 			ID:             domain.BackendCodex,
@@ -362,6 +368,7 @@ func DescriptorFor(id domain.Backend, plugin ProviderPlugin) (Descriptor, error)
 		Roles:          append([]domain.AgentRole(nil), plugin.Roles...),
 		Postures:       append([]Posture(nil), plugin.Postures...),
 		Dialect:        dialect,
+		EffortLevels:   append([]string(nil), adapter.EffortLevels...),
 	}, nil
 }
 

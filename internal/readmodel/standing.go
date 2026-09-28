@@ -315,6 +315,9 @@ type RunningRun struct {
 	// what lets this be said on a page — it names nothing a credential is.
 	Backend domain.Backend `json:"backend,omitempty"`
 	Model   string         `json:"model,omitempty"`
+	// Effort is the effort level the run's developer invocations ask for, said
+	// beside the model, and absent where the developer agent configured none.
+	Effort  string         `json:"effort,omitempty"`
 	Account string         `json:"account,omitempty"`
 	Phase   runstate.Phase `json:"phase,omitempty"`
 	// Stage is the phase folded onto the three parts of a run a pipeline shows,
@@ -381,6 +384,9 @@ type WorkingTurn struct {
 	// reported one.
 	Backend domain.Backend `json:"backend,omitempty"`
 	Model   string         `json:"model,omitempty"`
+	// Effort is the effort level the conversation's last recorded turn asked
+	// for, and absent where the agent configured none.
+	Effort string `json:"effort,omitempty"`
 	// Turns is how many turns the record holds, which is the turn before the one
 	// in flight: a turn is recorded as it completes.
 	Turns int `json:"turns"`
@@ -782,6 +788,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, string) {
 			Labels:              append([]string(nil), state.WorkItemLabels...),
 			Backend:             state.Backend,
 			Model:               modelOf(state.ProviderModel, state.ProviderResolvedModel),
+			Effort:              strings.TrimSpace(state.ProviderEffort),
 			Account:             state.AccountAlias,
 			Phase:               state.Phase,
 			Stage:               StageOf(state.Phase),
@@ -920,6 +927,7 @@ func readWorking(sources Sources, now time.Time) ([]WorkingTurn, string) {
 			Role:    conversation.Role,
 			Backend: conversation.Backend,
 			Model:   modelOf(conversation.ProviderModel, conversation.ProviderResolvedModel),
+			Effort:  strings.TrimSpace(conversation.ProviderEffort),
 			Turns:   conversation.Turns,
 			Since:   conversation.UpdatedAt,
 			Elapsed: now.Sub(conversation.UpdatedAt),

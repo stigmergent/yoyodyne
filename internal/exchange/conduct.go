@@ -108,6 +108,7 @@ type Spoken struct {
 	Backend        domain.Backend
 	Model          string
 	ResolvedModel  string
+	Effort         string
 	AccountAlias   string
 	ConfigRevision string
 	Build          string
@@ -279,6 +280,7 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 	round.Backend = spoken.Backend
 	round.Model = spoken.Model
 	round.ResolvedModel = spoken.ResolvedModel
+	round.Effort = spoken.Effort
 	round.AccountAlias = spoken.AccountAlias
 	round.ConfigRevision = spoken.ConfigRevision
 	round.Build = spoken.Build

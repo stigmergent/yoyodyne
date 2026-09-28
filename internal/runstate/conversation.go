@@ -92,6 +92,11 @@ type Conversation struct {
 	// floating family alias makes the resolved identifier the only real record.
 	ProviderModel         string `json:"provider_model,omitempty"`
 	ProviderResolvedModel string `json:"provider_resolved_model,omitempty"`
+	// ProviderEffort is the effort level the last completed turn asked for, and
+	// empty where the agent configured none. It is rewritten by each turn as the
+	// model is; what pins every turn is the cost log's line for it, which carries
+	// the level too.
+	ProviderEffort string `json:"provider_effort,omitempty"`
 	// AccountAlias is the provider account the turn this record last took was
 	// answered on, and ConfigRevision the configuration in force while it was.
 	// They sit beside the backend and the model selectors and are kept exactly as

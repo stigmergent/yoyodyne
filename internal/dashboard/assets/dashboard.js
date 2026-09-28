@@ -280,6 +280,11 @@
     if (record.model) {
       parts.push(record.model);
     }
+    // The effort level is said beside the model it was asked of, and only where
+    // the record carries one: an agent that configured none asked for none.
+    if (record.effort) {
+      parts.push(record.effort + " effort");
+    }
     if (record.account) {
       parts.push("account " + record.account);
     }

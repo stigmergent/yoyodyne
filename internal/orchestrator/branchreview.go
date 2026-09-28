@@ -137,6 +137,7 @@ type BranchReviewOutcome struct {
 	SessionID      string           `json:"session_id,omitempty"`
 	Model          string           `json:"model,omitempty"`
 	ResolvedModel  string           `json:"resolved_model,omitempty"`
+	Effort         string           `json:"effort,omitempty"`
 	Invariants     []string         `json:"invariants,omitempty"`
 	Reports        []report.Report  `json:"reports,omitempty"`
 	ReportProblem  string           `json:"report_problem,omitempty"`
@@ -236,6 +237,7 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 	outcome.SessionID = result.SessionID
 	outcome.Model = result.RequestedModel
 	outcome.ResolvedModel = result.ResolvedModel
+	outcome.Effort = result.RequestedEffort
 	outcome.Summary = result.Verdict.Summary
 	outcome.Findings = result.Verdict.Findings
 	// What the reviewer reported is collected before its verdict is read,
@@ -382,6 +384,7 @@ func (b BranchReviewer) record(outcome *BranchReviewOutcome, change gitworktree.
 		SessionID:      outcome.SessionID,
 		Model:          outcome.Model,
 		ResolvedModel:  outcome.ResolvedModel,
+		Effort:         outcome.Effort,
 		Decision:       string(outcome.Decision),
 		Summary:        outcome.Summary,
 		Findings:       durableFindings(outcome.Findings),

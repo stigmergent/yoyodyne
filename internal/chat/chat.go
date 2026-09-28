@@ -427,6 +427,10 @@ type Options struct {
 	// It is supplied rather than read here for the reason the alternate below is:
 	// the conversation is handed its configuration rather than loading one.
 	ModelVersion string
+	// Effort is the effort level every turn of this conversation asks the
+	// provider for, and empty for an agent that configured none. A substitution
+	// -- a pinned version's fallback, a failover alternate -- keeps it.
+	Effort string
 	// FailoverModel is the permitted alternate this conversation's turn may be
 	// served by while the model above has no capacity. It is empty for every
 	// agent that has not enabled failover, which is every agent until one says
@@ -843,7 +847,10 @@ type Evidence struct {
 	// to ask for, and this one is what actually took the turn.
 	ServedModel   string `json:"served_model,omitempty"`
 	ResolvedModel string `json:"resolved_model,omitempty"`
-	SessionID     string `json:"session_id,omitempty"`
+	// Effort is the effort level the turns ask for, absent for an agent that
+	// configured none.
+	Effort    string `json:"effort,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 	// SessionBytes is how large that session has grown as the harness measures
 	// it, and SessionBudgetBytes the size past which its next turn compacts it.
 	// Both are zero on a conversation whose session was never measured.
@@ -1174,6 +1181,7 @@ func (s *Session) Evidence() Evidence {
 		// stops saying it.
 		ServedModel:        s.servedByAlternate(),
 		ResolvedModel:      s.state.ProviderResolvedModel,
+		Effort:             strings.TrimSpace(s.options.Effort),
 		SessionID:          s.state.ProviderSessionID,
 		SessionBytes:       s.state.ProviderSessionBytes,
 		SessionBudgetBytes: s.state.ProviderSessionBudgetBytes,
@@ -1703,6 +1711,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		// from the record below.
 		SessionID:    s.resumableSession(),
 		Model:        s.options.Model,
+		Effort:       strings.TrimSpace(s.options.Effort),
 		AllowedTools: []string{},
 		Timeout:      s.options.timeout(),
 		LastSequence: lastSequence,
@@ -1947,6 +1956,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	s.state.Backend = serving.Provider
 	s.state.ProviderModel = serving.Model
 	s.state.ProviderResolvedModel = result.ResolvedModel
+	// The level the invocation that served the turn asked for, which is the
+	// agent's own unless a crossing landed on a provider that does not accept it.
+	s.state.ProviderEffort = served.Effort
 	// And what served it besides the endpoint: the configuration in force while it
 	// was. It is rewritten with the endpoint above, so the record says what is
 	// serving this conversation now. What pins each turn rather than the last one

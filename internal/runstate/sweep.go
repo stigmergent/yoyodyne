@@ -207,6 +207,11 @@ type Sweep struct {
 	// developer ran on. It is absent on a pass that took no turn, and on every
 	// record written before passes named one.
 	Model string `json:"model,omitempty"`
+	// Effort is the effort level the pass's turns asked the provider for: the
+	// role's agent's, whichever model served them. It is absent on a pass that
+	// took no turn, on one whose agent configured none, and on every record
+	// written before passes named one.
+	Effort string `json:"effort,omitempty"`
 	// Result is the account the role gave, merged across the turns of this
 	// firing. It is absent where the pass produced none — a turn that failed, or
 	// one that answered in prose without the block — and Problem then says why.
@@ -507,6 +512,9 @@ func (s Sweep) Validate() error {
 	}
 	if len(s.Model) > MaxSweepModelBytes {
 		problems = append(problems, fmt.Errorf("model is %d bytes, limit is %d", len(s.Model), MaxSweepModelBytes))
+	}
+	if len(s.Effort) > MaxSweepModelBytes {
+		problems = append(problems, fmt.Errorf("effort is %d bytes, limit is %d", len(s.Effort), MaxSweepModelBytes))
 	}
 	if s.NotStarted != "" {
 		if !s.NotStarted.Valid() {

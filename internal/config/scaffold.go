@@ -958,6 +958,9 @@ func renderScaffoldAgent(builder *strings.Builder, name string, agent AgentConfi
 	fmt.Fprintf(builder, "    role: %s\n", agent.Role)
 	fmt.Fprintf(builder, "    backend: %s\n", agent.Backend)
 	fmt.Fprintf(builder, "    model: %s\n", agent.Model)
+	if agent.Effort != "" {
+		fmt.Fprintf(builder, "    effort: %s\n", agent.Effort)
+	}
 	fmt.Fprintf(builder, "    account: %s\n", agent.Account)
 	fmt.Fprintf(builder, "    instances: %d\n", agent.Instances)
 	if !agent.Persona.Defined() {

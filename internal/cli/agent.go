@@ -39,6 +39,9 @@ type agentReport struct {
 	// because an operator asking what an agent is has to be able to tell a pinned
 	// agent from a floating one without opening the configuration.
 	ModelVersion string `json:"model_version,omitempty"`
+	// Effort is the effort level every invocation of this agent asks for, and
+	// absent for an agent that configured none, whose provider resolves its own.
+	Effort string `json:"effort,omitempty"`
 	// Account is the provider account this agent runs under. Which role runs
 	// where is the operator's and it is fixed, so it is read here beside the
 	// model rather than reconstructed from the configuration by hand.
@@ -364,6 +367,7 @@ func readAgents(parts components) ([]agentReport, error) {
 			Backend:        agent.Backend,
 			Model:          agent.Model,
 			ModelVersion:   parts.config.AgentModelVersion(name),
+			Effort:         parts.config.AgentEffort(name),
 			Account:        agent.Account,
 			FailoverModel:  parts.config.AgentFailoverModel(name),
 			Conversations:  parts.config.AgentConversationMode(name),
@@ -486,8 +490,14 @@ func renderAgent(report agentReport) string {
 	if report.Lane != "" {
 		identity += ", lane " + report.Lane
 	}
+	// The effort level is said beside the model it is asked of, and only where
+	// the agent names one: an agent that names none passes none.
+	model := report.Model
+	if report.Effort != "" {
+		model += " at " + report.Effort + " effort"
+	}
 	fmt.Fprintf(&rendered, "%s (%s) %s, model %s, account %s, %d instance(s)\n",
-		report.Name, identity, report.Backend, report.Model,
+		report.Name, identity, report.Backend, model,
 		recorded(report.Account, "none the configuration names"), report.Instances)
 	if report.ModelVersion != "" {
 		// The scope is named for the reason the alternate's below is: a pin covers

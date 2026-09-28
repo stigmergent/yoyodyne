@@ -560,6 +560,11 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	if choice := config.ResolveDeveloperModel(p.Config.Execution.DeveloperModels, state.WorkItemLabels, p.developer().Model); choice.Chosen() {
 		state.DeveloperModel, state.DeveloperModelReason = choice.Model, choice.Reason
 	}
+	// The effort level is settled beside the model, from the developer agent's
+	// configuration, so an edit to it reaches the next run and never one already
+	// in flight. A mapped model keeps the agent's level: the mapping chooses the
+	// model, and nothing in it is a decision about how hard it is asked to think.
+	state.ProviderEffort = strings.TrimSpace(p.developer().Effort)
 	lease, err := p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
 	if err != nil {
 		// The wrapping is the reservation's own, so that what a caller reports about
@@ -676,6 +681,7 @@ type Outcome struct {
 	ProviderSessionID     string          `json:"provider_session_id,omitempty"`
 	ProviderModel         string          `json:"provider_model,omitempty"`
 	ProviderResolvedModel string          `json:"provider_resolved_model,omitempty"`
+	ProviderEffort        string          `json:"provider_effort,omitempty"`
 	Checks                []checks.Result `json:"checks,omitempty"`
 	// CheckStage is the check stage the checks above ran in: its bound and what
 	// it spent, and the narrowing every check was told. It is on the outcome so
@@ -750,6 +756,7 @@ type Outcome struct {
 	ReviewSessionID     string   `json:"review_session_id,omitempty"`
 	ReviewModel         string   `json:"review_model,omitempty"`
 	ReviewResolvedModel string   `json:"review_resolved_model,omitempty"`
+	ReviewEffort        string   `json:"review_effort,omitempty"`
 	// ReviewBaseCommit and ReviewHeadCommit are the commits the reviewed change
 	// was measured between — the run's base and the branch's tip at the review —
 	// so the record of a verdict names what it was judged against.
@@ -1630,6 +1637,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			ProviderSessionID:     state.ProviderSessionID,
 			ProviderModel:         state.ProviderModel,
 			ProviderResolvedModel: state.ProviderResolvedModel,
+			ProviderEffort:        state.ProviderEffort,
 			RepairAttempts:        state.RepairAttempts,
 			TransientRelaunches:   state.TransientRelaunches,
 			Retries:               state.Retries,
@@ -3572,6 +3580,16 @@ func (a *activeRun) developerModel() string {
 	return a.pipeline.developer().Model
 }
 
+// developerEffort is the effort level this run's developer invocations ask for,
+// read off the run's own record for the reason the model is. A run reserved
+// before the level was recorded asks for the developer agent's configured level.
+func (a *activeRun) developerEffort() string {
+	if effort := strings.TrimSpace(a.state.ProviderEffort); effort != "" {
+		return effort
+	}
+	return strings.TrimSpace(a.pipeline.developer().Effort)
+}
+
 // attemptDevelopment makes one developer invocation.
 //
 // It goes through the meter rather than straight at the backend, so that what
@@ -3584,6 +3602,9 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	model := a.developerModel()
 	a.state.ProviderModel = model
 	a.outcome.ProviderModel = model
+	effort := a.developerEffort()
+	a.state.ProviderEffort = effort
+	a.outcome.ProviderEffort = effort
 	provider := spend.Metered{
 		Provider:    p.Backend,
 		Log:         p.Spend,
@@ -3597,6 +3618,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		Prompt:           prompt,
 		SessionID:        sessionID,
 		Model:            model,
+		Effort:           effort,
 		LastSequence:     a.state.LastSequence,
 		RedactValues:     p.RedactValues,
 		EventSink:        a.sink,
@@ -7029,9 +7051,11 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 	a.state.ReviewSessionID = result.SessionID
 	a.state.ReviewModel = result.RequestedModel
 	a.state.ReviewResolvedModel = result.ResolvedModel
+	a.state.ReviewEffort = result.RequestedEffort
 	a.outcome.ReviewSessionID = result.SessionID
 	a.outcome.ReviewModel = result.RequestedModel
 	a.outcome.ReviewResolvedModel = result.ResolvedModel
+	a.outcome.ReviewEffort = result.RequestedEffort
 	if result.Verdict.Summary != "" {
 		// Cut to the record's own bound as it is taken rather than as it is stored:
 		// a reviewer writes at whatever length it likes, and a summary the docket
@@ -7098,6 +7122,7 @@ func (a *activeRun) clearReviewEvidence() {
 	a.state.ReviewSessionID = ""
 	a.state.ReviewModel = ""
 	a.state.ReviewResolvedModel = ""
+	a.state.ReviewEffort = ""
 	a.state.ReviewBaseCommit = ""
 	a.state.ReviewHeadCommit = ""
 	a.state.ReviewDecision = ""
@@ -7108,6 +7133,7 @@ func (a *activeRun) clearReviewEvidence() {
 	a.outcome.ReviewSessionID = ""
 	a.outcome.ReviewModel = ""
 	a.outcome.ReviewResolvedModel = ""
+	a.outcome.ReviewEffort = ""
 	a.outcome.ReviewBaseCommit = ""
 	a.outcome.ReviewHeadCommit = ""
 	a.outcome.ReviewDecision = ""
@@ -7228,6 +7254,7 @@ func (a *activeRun) carryReviewEvidence() {
 	a.outcome.ReviewSessionID = state.ReviewSessionID
 	a.outcome.ReviewModel = state.ReviewModel
 	a.outcome.ReviewResolvedModel = state.ReviewResolvedModel
+	a.outcome.ReviewEffort = state.ReviewEffort
 	a.outcome.ReviewBaseCommit = state.ReviewBaseCommit
 	a.outcome.ReviewHeadCommit = state.ReviewHeadCommit
 	a.outcome.ReviewDecision = review.Decision(state.ReviewDecision)
@@ -8289,6 +8316,9 @@ func renderOutcomeNotes(outcome Outcome) string {
 	if outcome.ProviderModel != "" {
 		lines = append(lines, "Developer model: "+renderModel(outcome.ProviderModel, outcome.ProviderResolvedModel))
 	}
+	if outcome.ProviderEffort != "" {
+		lines = append(lines, "Developer effort: "+outcome.ProviderEffort)
+	}
 	if outcome.Changes.Status != "" {
 		lines = append(lines, "Changes:\n"+outcome.Changes.Status)
 	}
@@ -8437,6 +8467,9 @@ func renderFailureNotes(outcome Outcome) string {
 	if outcome.ProviderModel != "" {
 		lines = append(lines, "Developer model: "+renderModel(outcome.ProviderModel, outcome.ProviderResolvedModel))
 	}
+	if outcome.ProviderEffort != "" {
+		lines = append(lines, "Developer effort: "+outcome.ProviderEffort)
+	}
 	// The change summary is the run's own record of what it had done and stays
 	// true whatever became of the checkout, so it is named for what it is rather
 	// than as preserved work. Where the artifacts are gone, the lines above are
@@ -8555,6 +8588,9 @@ func renderReviewNotes(outcome Outcome) []string {
 	}
 	if outcome.ReviewModel != "" {
 		lines = append(lines, "Reviewer model: "+renderModel(outcome.ReviewModel, outcome.ReviewResolvedModel))
+	}
+	if outcome.ReviewEffort != "" {
+		lines = append(lines, "Reviewer effort: "+outcome.ReviewEffort)
 	}
 	// What the verdict was judged against, as two commits: a reader of the item
 	// can tell from this alone whether a review saw the branch's earlier

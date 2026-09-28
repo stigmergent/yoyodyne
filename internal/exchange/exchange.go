@@ -178,12 +178,15 @@ type Round struct {
 	// for one further reason: a binary built without the stamping carries no
 	// revision at all, which is a comparison nobody can make rather than a round
 	// that ran on what is deployed.
-	Backend        domain.Backend `json:"backend,omitempty"`
-	Model          string         `json:"model,omitempty"`
-	ResolvedModel  string         `json:"resolved_model,omitempty"`
-	AccountAlias   string         `json:"account_alias,omitempty"`
-	ConfigRevision string         `json:"config_revision,omitempty"`
-	Build          string         `json:"build,omitempty"`
+	Backend       domain.Backend `json:"backend,omitempty"`
+	Model         string         `json:"model,omitempty"`
+	ResolvedModel string         `json:"resolved_model,omitempty"`
+	// Effort is the effort level the round asked the provider for, and absent
+	// where the answering agent configured none.
+	Effort         string `json:"effort,omitempty"`
+	AccountAlias   string `json:"account_alias,omitempty"`
+	ConfigRevision string `json:"config_revision,omitempty"`
+	Build          string `json:"build,omitempty"`
 }
 
 // Exchange is one durable ask thread.

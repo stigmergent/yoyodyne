@@ -222,6 +222,7 @@ agents:
     role: product-manager
     backend: claude-code
     model: opus
+    effort: medium
     account: default
     instances: 1
     persona:
@@ -231,7 +232,8 @@ agents:
 ```
 
 Five agents — Lead Product Manager, architect, development manager, developer, and
-reviewer — each with a role, a backend, a model selector, the [provider
+reviewer — each with a role, a backend, a model selector, the
+[effort level](#an-agents-effort-level) that model is asked to think at, the [provider
 account](#provider-accounts) it runs under, an instance count, and a persona file
 that is in the repository beside the configuration. Change one by
 editing it. Remove one by deleting its block. Nothing has to be expressed as a
@@ -4025,6 +4027,61 @@ agent rather than leaving it to be assumed. A recurring task's pass is the
 agent's own turn and carries the pin, unless the task
 [names another model](#a-tasks-own-model), which carries none.
 
+### An agent's effort level
+
+`effort` sits beside `model` in an agent's block and says how hard the agent's
+provider is asked to think on every invocation of that agent: its developer or
+reviewer invocations in a run, its conversation turns, the rounds where another
+role asks it something, its side threads, and its recurring and program manager
+passes. Claude Code accepts `low`, `medium`, `high`, `xhigh`, and `max` — its own
+`--effort` flag, which the harness passes — and anything else is refused when the
+file loads, naming those five.
+
+The template `yoyo init` writes states `effort: medium` for every agent. That is
+not a preference: it is Claude Code's own default for the model `opus` serves
+today, Opus 5.5, which its model configuration documentation gives as `medium`
+(every other model that takes an effort level defaults to `high`). Writing it
+down pins the level where it was, so it does not move when the alias does, and
+makes it something a record can say. A later change of level is an edit to this
+key.
+
+The key is optional. An agent without one passes no level, and Claude Code
+resolves its own from the environment, the machine's settings, or the model's
+default — which is how every agent ran before the key existed and how a project
+whose file predates it still runs. Stating it empty in a later layer removes an
+inherited level. A project generated before the template carried it hears of
+it from [`yoyo config drift`](#extending-a-built-in-bundle) as an available
+value.
+
+**The level belongs to the agent, not the model.** A model
+[`execution.developer_models`](#a-developer-model-chosen-by-the-items-label)
+maps an item to, a model a [recurring task](#a-tasks-own-model) names, a pinned
+version's fallback to its alias, and a
+[failover alternate](#serving-a-turn-from-a-permitted-alternate-model) all serve
+the turn at the agent's level. The one exception is a failover that crosses onto
+a provider that accepts no level: that turn is asked with none, and its record
+says none was asked rather than the level configured, so the failover still
+saves the turn.
+
+**Codex is given no level.** It has a reasoning-effort setting of its own, but
+its accepted values and its default were not confirmed when this was written,
+so a Codex agent naming `effort` is refused when the file loads, saying so. A
+provider a project [declares](provider-plugins.md) accepts whatever its adapter
+does.
+
+**Every record says what was asked.** A run records the developer's level at
+reservation — read back by every attempt, as its account and model are — and
+the reviewer's with its verdict; both appear in the item's notes beside the
+models. A conversation records the level of its last turn, an exchange round and
+a side thread record theirs, a recurring or program manager pass records its
+pass's, and a branch review records its reviewer's. Every line in the cost log
+carries the level its invocation asked for, so each turn is pinned to one even
+where the conversation's own record has moved on. An absent level means none was
+asked. `yoyo config show` prints the key beside the model, `yoyo agent list`
+says `model opus at medium effort`, `yoyo status --json` carries it on each
+running run and conversation in flight, and the dashboard shows it beside the
+model on a run's card.
+
 ## Relaunching a run the provider killed
 
 Not every way a provider ends an invocation is a refusal it names in advance.
@@ -5444,6 +5501,9 @@ These are all errors, reported before any work is claimed:
   takes, so a second entry for one label is one nothing would ever reach;
 - a `recurring_tasks` entry whose `model` is written and is not a usable model
   selector, by the rule and with the reason an agent's `model` is refused;
+- an agent's `effort` that its provider does not accept — anything but `low`,
+  `medium`, `high`, `xhigh`, or `max` on Claude Code, and any level at all on
+  Codex — with the refusal naming the levels accepted;
 - any effective configuration that fails validation, even when every individual
   layer looked reasonable — for example `max_concurrent_developers` above the
   configured developer instances, or automatic integration with no checks;

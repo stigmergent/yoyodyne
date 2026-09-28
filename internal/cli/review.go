@@ -139,6 +139,7 @@ func branchReviewerFrom(parts components, model string) orchestrator.BranchRevie
 		Reviewer: review.Reviewer{
 			Backend: providerBackend(cfg, reviewer.Backend, parts.runner),
 			Model:   reviewerModel,
+			Effort:  reviewer.Effort,
 			Persona: reviewer.Persona.Text,
 			// A branch review spends like every other provider invocation and lands
 			// in the same log, which is also what makes a shadow review's price

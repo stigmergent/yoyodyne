@@ -228,6 +228,10 @@ type agentDocument struct {
 	// empty removes an inherited pin, which is how an alias is put back to
 	// floating.
 	ModelVersion *string `yaml:"model_version"`
+	// Effort overrides on its own, like the model version: it is one value, and
+	// stating it empty removes an inherited level so the provider resolves its
+	// own again.
+	Effort *string `yaml:"effort"`
 	// Account is absent from most files. A layer that does not supply it leaves
 	// the agent assigned to the project's single account, which is a derivation
 	// rather than an inherited value: it follows whatever account the effective
@@ -268,7 +272,7 @@ type agentDocument struct {
 // disabled, which is how a contradictory "remove it and also configure it"
 // entry is detected.
 func (d agentDocument) overridesFields() bool {
-	return d.Role != nil || d.Backend != nil || d.Model != nil || d.ModelVersion != nil || d.Account != nil ||
+	return d.Role != nil || d.Backend != nil || d.Model != nil || d.ModelVersion != nil || d.Effort != nil || d.Account != nil ||
 		d.Instances != nil || d.Persona != nil || d.Failover != nil || d.Conversations != nil ||
 		d.Lane != nil || d.Remit != nil || d.Triggers != nil
 }

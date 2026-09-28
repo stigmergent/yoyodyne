@@ -81,10 +81,13 @@ type BranchReview struct {
 	SessionID      string    `json:"session_id,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	ResolvedModel  string    `json:"resolved_model,omitempty"`
-	Decision       string    `json:"decision,omitempty"`
-	Summary        string    `json:"summary,omitempty"`
-	Findings       []Finding `json:"findings,omitempty"`
-	Failure        string    `json:"failure,omitempty"`
+	// Effort is the effort level the review asked the provider for, and empty
+	// where the reviewer agent configured none.
+	Effort   string    `json:"effort,omitempty"`
+	Decision string    `json:"decision,omitempty"`
+	Summary  string    `json:"summary,omitempty"`
+	Findings []Finding `json:"findings,omitempty"`
+	Failure  string    `json:"failure,omitempty"`
 	// Shadow marks a review made to measure the reviewer rather than to judge
 	// the branch: the same reviewer under the same contract, run again over a
 	// branch state another review already decided, so the two verdicts can be

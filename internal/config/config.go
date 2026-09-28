@@ -763,6 +763,11 @@ type AgentConfig struct {
 	// latest by definition; see modelversion.go for why a pin is a preference
 	// rather than a requirement.
 	ModelVersion string `yaml:"model_version,omitempty" json:"model_version,omitempty"`
+	// Effort is the effort level every invocation of this agent asks its
+	// provider for, validated against the levels that provider accepts. Empty is
+	// an agent that names none, whose invocations pass no level and run at
+	// whatever the provider resolves for itself; see effort.go.
+	Effort string `yaml:"effort,omitempty" json:"effort,omitempty"`
 	// Account is the alias of the provider account this agent runs under, from
 	// the top-level accounts mapping. The assignment is the operator's and it is
 	// fixed: an agent runs where the configuration says it runs, and nothing
@@ -1109,6 +1114,7 @@ func (c Config) Validate() error {
 			problems = append(problems, fmt.Sprintf("agent %q %s", name, err))
 		}
 		problems = append(problems, modelVersionProblems(name, agent.ModelVersion, agent.Model, agent.Failover.Model)...)
+		problems = append(problems, effortProblems(providers, name, agent)...)
 		if agent.Instances < 1 {
 			problems = append(problems, fmt.Sprintf("agent %q instances must be at least 1", name))
 		}

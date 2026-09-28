@@ -157,6 +157,9 @@ type Turn struct {
 	// the pass's record names what it actually ran on rather than what the
 	// configuration hoped for.
 	Model string `json:"model,omitempty"`
+	// Effort is the effort level the turn asked for, and empty where the role's
+	// agent configured none.
+	Effort string `json:"effort,omitempty"`
 	// Result is the account the role gave of the pass, where it gave one.
 	Result *sweep.Result `json:"result,omitempty"`
 	// ResultProblem names an account that could not be read, or a turn that
@@ -211,6 +214,9 @@ type Fired struct {
 	CostUSD float64 `json:"cost_usd,omitempty"`
 	// Model is what the firing's turns ran on, and empty where no turn was taken.
 	Model string `json:"model,omitempty"`
+	// Effort is the effort level those turns asked for, and empty where no turn
+	// was taken or the role's agent configured none.
+	Effort string `json:"effort,omitempty"`
 	// Findings and SilentRepairs are what the pass found and how many of its
 	// fixes filed nothing for their root cause. They are counts here because this
 	// is the line a session prints; the whole account is in the durable report.
@@ -918,6 +924,10 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			recorded.Model = model
 			fired.Model = model
 		}
+		if effort := strings.TrimSpace(answered.Effort); effort != "" && len(effort) <= runstate.MaxSweepModelBytes {
+			recorded.Effort = effort
+			fired.Effort = effort
+		}
 		if conversation := strings.TrimSpace(answered.ConversationID); conversation != "" {
 			recorded.ConversationID = conversation
 		}
@@ -933,6 +943,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 				// No turn ran on anything, so the record names no model: the one the
 				// conversation would have asked for is not what the pass ran on.
 				recorded.Model, fired.Model = "", ""
+				recorded.Effort, fired.Effort = "", ""
 				// The refusal's own words lead, because they are what a line
 				// about the firing is cut down to.
 				problems = append(problems, fmt.Sprintf(
