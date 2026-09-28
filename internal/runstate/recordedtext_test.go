@@ -39,6 +39,7 @@ var structuredStrings = map[string]string{
 	"developer_model":                      "a model selector from the configuration",
 	"status":                               "an enumeration",
 	"phase":                                "an enumeration",
+	"stop_class":                           "an enumeration, refused at the save when it names no class",
 	"worktree_path":                        "a path the harness cut",
 	"branch":                               "a branch name the harness cut",
 	"base_commit":                          "matched against the commit pattern",

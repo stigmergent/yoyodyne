@@ -970,6 +970,9 @@ type Outcome struct {
 	WorktreeRemoved bool   `json:"worktree_removed"`
 	BranchRemoved   bool   `json:"branch_removed"`
 	Failure         string `json:"failure,omitempty"`
+	// StopClass is which gate stopped the run, exactly as the run's record
+	// carries it: it is set where the record's is, and never anywhere else.
+	StopClass runstate.StopClass `json:"stop_class,omitempty"`
 	// CleanupFailure is set when the run completed but its post-completion
 	// cleanup did not finish cleanly. The work is integrated and the item is
 	// closed either way, so this is evidence for reconciliation rather than a
@@ -2423,7 +2426,7 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 	// second invocation. Missing or reused provider identity means the
 	// independence the policy relies on was never established.
 	if err := validateIndependentInvocations(a.outcome); err != nil {
-		outcome, err := a.fail(err, runstate.StatusFailed)
+		outcome, err := a.fail(stoppedBy(runstate.StopReview, err), runstate.StatusFailed)
 		return outcome, false, err
 	}
 	// The promotion is the last moment a directive can still stop this work,
@@ -2638,9 +2641,9 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 	blocked := fmt.Errorf("the change replayed onto its moved target stopped on the change with %d of %d permitted replay stop(s) spent: %s",
 		a.state.ChargedReplays, limit, stop)
 	if err := a.block(renderChargedReplayBlockerNotes(a.outcome, blocked.Error(), limit)); err != nil {
-		return withFailedRecord(blocked, fmt.Errorf("record the charged replay as a blocker: %w", err))
+		return stoppedBy(runstate.StopIntegration, withFailedRecord(blocked, fmt.Errorf("record the charged replay as a blocker: %w", err)))
 	}
-	return blocked
+	return stoppedBy(runstate.StopIntegration, blocked)
 }
 
 // continueOnRebaseConflict hands a change that cannot be replayed back to the
@@ -2810,9 +2813,9 @@ func recordedReplayConflict(worktree gitworktree.Worktree, cause error, phase ru
 func (a *activeRun) blockOnRebaseConflict(cause error, limit int) error {
 	a.outcome.ReplayConflict = a.state.ReplayConflict
 	if err := a.block(renderRebaseConflictNotes(a.outcome, cause.Error(), a.state.ReplayConflict, limit)); err != nil {
-		return withFailedRecord(cause, fmt.Errorf("record the replay conflict as a blocker: %w", err))
+		return stoppedBy(runstate.StopIntegration, withFailedRecord(cause, fmt.Errorf("record the replay conflict as a blocker: %w", err)))
 	}
-	return cause
+	return stoppedBy(runstate.StopIntegration, cause)
 }
 
 // ErrDivergedTarget is what a run stopped because its target branch could not
@@ -2847,9 +2850,9 @@ func (a *activeRun) blockOnDivergedTarget(catchup gitworktree.Catchup) error {
 	a.outcome.DivergedTarget = &catchup
 	a.noticeDivergedTarget(catchup)
 	if err := a.block(renderDivergedTargetNotes(a.outcome, catchup, remote, diverged.Error(), a.state.ApprovedAwaitingIntegration())); err != nil {
-		return withFailedRecord(diverged, fmt.Errorf("record the diverged target branch as a blocker: %w", err))
+		return stoppedBy(runstate.StopIntegration, withFailedRecord(diverged, fmt.Errorf("record the diverged target branch as a blocker: %w", err)))
 	}
-	return diverged
+	return stoppedBy(runstate.StopIntegration, diverged)
 }
 
 // blockOnPromotedDivergence ends a run whose remote target diverged in the
@@ -2869,9 +2872,9 @@ func (a *activeRun) blockOnPromotedDivergence(integration gitworktree.Integratio
 	a.outcome.DivergedTarget = &catchup
 	a.noticeDivergedTarget(catchup)
 	if err := a.block(renderPromotedDivergenceNotes(a.outcome, integration, catchup, remote, diverged.Error())); err != nil {
-		return withFailedRecord(diverged, fmt.Errorf("record the diverged target branch as a blocker: %w", err))
+		return stoppedBy(runstate.StopIntegration, withFailedRecord(diverged, fmt.Errorf("record the diverged target branch as a blocker: %w", err)))
 	}
-	return diverged
+	return stoppedBy(runstate.StopIntegration, diverged)
 }
 
 // repairLoop returns each failure to the same developer until an attempt both
@@ -3085,9 +3088,9 @@ func (a *activeRun) blockOnUnresolvedFindings(limit int) error {
 	cause := fmt.Errorf("independent review requires repair after %d of %d permitted attempt(s): %s",
 		a.state.RepairAttempts, limit, a.outcome.ReviewSummary)
 	if err := a.block(renderBlockerNotes(a.outcome, limit)); err != nil {
-		return withFailedRecord(cause, fmt.Errorf("record unresolved review findings as a blocker: %w", err))
+		return stoppedBy(runstate.StopReview, withFailedRecord(cause, fmt.Errorf("record unresolved review findings as a blocker: %w", err)))
 	}
-	return cause
+	return stoppedBy(runstate.StopReview, cause)
 }
 
 // blockOnFailingCheck ends a run whose repair budget was spent on a check that
@@ -3099,9 +3102,9 @@ func (a *activeRun) blockOnFailingCheck(limit int) error {
 	cause := fmt.Errorf("verification failed after %d of %d permitted attempt(s): %s exited with %d",
 		a.state.RepairAttempts, limit, failure.Command, failure.ExitCode)
 	if err := a.block(renderCheckBlockerNotes(a.outcome, failure, limit)); err != nil {
-		return withFailedRecord(cause, fmt.Errorf("record the failing check as a blocker: %w", err))
+		return stoppedBy(runstate.StopChecks, withFailedRecord(cause, fmt.Errorf("record the failing check as a blocker: %w", err)))
 	}
-	return cause
+	return stoppedBy(runstate.StopChecks, cause)
 }
 
 // verifyHandback proves the worktree a run is re-entered in still holds the
@@ -3143,9 +3146,9 @@ func (a *activeRun) blockOnMissingPreservedChange(cause error) error {
 	// carries the cause with it.
 	a.recordEnvironmentalRefusal(runstate.CauseHandbackMissingChange, cause.Error(), nothingRan)
 	if err := a.block(renderMissingPreservedChangeNotes(a.outcome, blocked.Error())); err != nil {
-		return withFailedRecord(blocked, fmt.Errorf("record the missing preserved change as a blocker: %w", err))
+		return stoppedBy(runstate.StopOutside, withFailedRecord(blocked, fmt.Errorf("record the missing preserved change as a blocker: %w", err)))
 	}
-	return blocked
+	return stoppedBy(runstate.StopOutside, blocked)
 }
 
 // nothingRan says a refusal happened before anything this round would have
@@ -3511,9 +3514,9 @@ func (a *activeRun) blockOnRefusedPaths(refused pathRefusal, limit int) error {
 	cause := fmt.Errorf("protected paths refused after %d of %d permitted attempt(s): %s",
 		a.state.RepairAttempts, limit, strings.Join(refused.refusal.Paths, ", "))
 	if err := a.block(renderPathRefusalBlockerNotes(a.outcome, refused, limit)); err != nil {
-		return withFailedRecord(cause, fmt.Errorf("record the refused protected paths as a blocker: %w", err))
+		return stoppedBy(runstate.StopChecks, withFailedRecord(cause, fmt.Errorf("record the refused protected paths as a blocker: %w", err)))
 	}
-	return cause
+	return stoppedBy(runstate.StopChecks, cause)
 }
 
 // develop runs one developer attempt in the run's worktree and records what the
@@ -3686,7 +3689,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 					a.observe(ctx, deliveryDevelop, "reissued")
 					continue
 				}
-				recorded = fmt.Errorf("the developer ended two invocations without accounting for the work: %s", unaccounted.reason)
+				recorded = stoppedBy(runstate.StopProvider, fmt.Errorf("the developer ended two invocations without accounting for the work: %s", unaccounted.reason))
 			}
 			if recorded != nil {
 				// The developer invocation is what this round delivers with, so an
@@ -3708,7 +3711,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			// every other one — so what happens here is the push and the pull
 			// request, and it happens on the accepted path because that is the
 			// change the checks and the reviewer are about to judge.
-			published := a.publishAttempt(ctx)
+			published := stoppedBy(runstate.StopPublish, a.publishAttempt(ctx))
 			a.observeDevelopEnded(ctx, published)
 			return published
 		}
@@ -3838,9 +3841,9 @@ func (a *activeRun) blockOnSpentRelaunchBudget(ctx context.Context, failure back
 	}
 	cause := error(phaseError{status: failureStatus(ctx, recorded), cause: blocked})
 	if err := a.block(renderRelaunchBlockerNotes(a.outcome, failure, a.state.CheckFailure, a.state.PathRefusal, a.state.ReplayConflict, limit)); err != nil {
-		return withFailedRecord(cause, fmt.Errorf("record the spent relaunch budget as a blocker: %w", err))
+		return stoppedBy(runstate.StopProvider, withFailedRecord(cause, fmt.Errorf("record the spent relaunch budget as a blocker: %w", err)))
 	}
-	return cause
+	return stoppedBy(runstate.StopProvider, cause)
 }
 
 // account is where this run's invocations are made. It is read off the run's own
@@ -3920,7 +3923,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backend.RunResult, err error) error {
 	p := a.pipeline
 	if err != nil {
-		cause := fmt.Errorf("developer backend failed: %w", err)
+		cause := stoppedBy(runstate.StopProvider, fmt.Errorf("developer backend failed: %w", err))
 		summaryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		changeSummary, summaryErr := p.Worktrees.SummarizeChanges(summaryCtx, a.worktree)
 		cancel()
@@ -4046,16 +4049,16 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		if resumable {
 			return providerStop{reason: reason}
 		}
-		return phaseError{
+		return stoppedBy(runstate.StopProvider, phaseError{
 			status: statusForProcess(providerResult.Process.Status),
 			cause: fmt.Errorf("the harness stopped the developer: %s, and this run has nothing to continue from",
 				describeProviderStop(reason)),
-		}
+		})
 	}
-	return phaseError{
+	return stoppedBy(runstate.StopProvider, phaseError{
 		status: statusForProcess(providerResult.Process.Status),
 		cause:  fmt.Errorf("developer reported failure: %s", providerResult.DescribeFailure()),
-	}
+	})
 }
 
 // refusedForUsageLimit reports an attempt the provider declined for want of
@@ -4516,9 +4519,9 @@ func (a *activeRun) blockOnUsageLimit(reason string) error {
 	cause := fmt.Errorf("this run was refused by %s and cannot wait for it: %s",
 		runstate.DescribePause(a.state.PauseCause, a.state.UsageLimitKind), reason)
 	if err := a.block(renderUsageLimitBlockerNotes(a.outcome, reason)); err != nil {
-		return withFailedRecord(cause, fmt.Errorf("record the provider's refusal as a blocker: %w", err))
+		return stoppedBy(runstate.StopProvider, withFailedRecord(cause, fmt.Errorf("record the provider's refusal as a blocker: %w", err)))
 	}
-	return cause
+	return stoppedBy(runstate.StopProvider, cause)
 }
 
 // capacityWindow reports a pause cause that is an exhausted usage limit: a
@@ -5278,7 +5281,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 	a.state.LastSequence = lastSequence
 	a.closeCheckStage(stage, checkResults)
 	if err != nil {
-		return fmt.Errorf("verification infrastructure failed: %w", err)
+		return stoppedBy(runstate.StopChecks, fmt.Errorf("verification infrastructure failed: %w", err))
 	}
 	for _, check := range checkResults {
 		if check.Passed {
@@ -5312,7 +5315,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 				"verification timed out: %s ran for %s and was stopped at its %s execution.check_timeout budget; raise that budget or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
 				check.Command, check.Elapsed().Round(time.Second), check.Timeout)
 		}
-		return phaseError{status: statusForProcess(check.Process.Status), cause: cause}
+		return stoppedBy(runstate.StopChecks, phaseError{status: statusForProcess(check.Process.Status), cause: cause})
 	}
 	// The change in the worktree now passes, so any failure an earlier attempt
 	// was handed is no longer this run's outstanding repair input. What replaces
@@ -5546,7 +5549,7 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	}
 	lease, err := p.Store.LeasePromotion(ctx, a.worktree.TargetBranch)
 	if err != nil {
-		return fmt.Errorf("wait for this run's turn to promote: %w", err)
+		return stoppedBy(runstate.StopIntegration, fmt.Errorf("wait for this run's turn to promote: %w", err))
 	}
 	// Releasing is this process letting the next promotion in, and the operating
 	// system does it anyway when the process exits. A close that failed therefore
@@ -5558,7 +5561,7 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// item as integrated against a divergence nothing owns; finding out here leaves
 	// a change that can still be replayed onto wherever the target went.
 	if err := a.settleRemoteTarget(ctx); err != nil {
-		return err
+		return stoppedBy(runstate.StopIntegration, err)
 	}
 	// A target the forge protects is one whose local copy this run never moves:
 	// the change lands by the forge merging its pull request, and the local branch
@@ -5581,11 +5584,11 @@ func (a *activeRun) integrate(ctx context.Context) error {
 			a.recordHarnessCommit(integration.SourceCommit)
 			a.state.UpdatedAt = p.clock().Now()
 			if saveErr := p.Store.Save(a.state); saveErr != nil {
-				return withFailedRecord(fmt.Errorf("integrate approved change: %w", err),
-					fmt.Errorf("record the commit the refused promotion made: %w", saveErr))
+				return stoppedBy(runstate.StopIntegration, withFailedRecord(fmt.Errorf("integrate approved change: %w", err),
+					fmt.Errorf("record the commit the refused promotion made: %w", saveErr)))
 			}
 		}
-		return fmt.Errorf("integrate approved change: %w", err)
+		return stoppedBy(runstate.StopIntegration, fmt.Errorf("integrate approved change: %w", err))
 	}
 	a.outcome.Integration = &integration
 	a.state.Integration = &runstate.Integration{
@@ -6013,7 +6016,7 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	// nothing afterwards can see waiting, and the run is refused completion over
 	// it rather than recorded succeeded.
 	if err := a.publicationRecorded(); err != nil {
-		return a.fail(err, runstate.StatusFailed)
+		return a.fail(stoppedBy(runstate.StopPublish, err), runstate.StatusFailed)
 	}
 	// Where the landing does not discharge the item, where that item goes is
 	// decided before the outcome is recorded rather than as part of the settlement
@@ -6053,7 +6056,7 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 		_, err := p.Tracker.RecordOutcome(ctx, a.state.WorkItemID, renderOutcomeNotes(a.outcome))
 		return err
 	}); err != nil {
-		return a.fail(fmt.Errorf("record successful run outcome: %w", err), runstate.StatusFailed)
+		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("record successful run outcome: %w", err)), runstate.StatusFailed)
 	}
 	// An item closes as integrated once the promotion is where it is going to
 	// stay. A merge the forge only queued is not that yet: it lands minutes
@@ -6088,14 +6091,14 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 				a.applyUndischargedDisposition(settled)
 				return nil
 			}); err != nil {
-				return a.fail(fmt.Errorf("reopen the work item this run did not discharge: %w", err), runstate.StatusFailed)
+				return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("reopen the work item this run did not discharge: %w", err)), runstate.StatusFailed)
 			}
 		} else {
 			if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
 				_, err := p.Tracker.Complete(ctx, a.state.WorkItemID, completionReason(a.outcome))
 				return err
 			}); err != nil {
-				return a.fail(fmt.Errorf("close integrated work item: %w", err), runstate.StatusFailed)
+				return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("close integrated work item: %w", err)), runstate.StatusFailed)
 			}
 			a.outcome.WorkItemClosed = true
 			p.closeDocketWithItem(a.state, "closed by run "+a.state.RunID+", whose change landed")
@@ -6127,7 +6130,7 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 		a.state.Phase = runstate.PhaseComplete
 	}
 	if err := p.Store.Save(a.state); err != nil {
-		return a.fail(fmt.Errorf("save successful run state: %w", err), runstate.StatusFailed)
+		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("save successful run state: %w", err)), runstate.StatusFailed)
 	}
 	a.outcome.Status = runstate.StatusSucceeded
 	a.outcome.Phase = a.state.Phase
@@ -6579,6 +6582,12 @@ func (a *activeRun) fail(cause error, status runstate.Status) (Outcome, error) {
 			a.recordEnvironmentalRefusal(named, cause.Error(), ranAnyway)
 		}
 	}
+	// Which gate stopped the run is decided here, once the environment has been
+	// asked and before the round is settled, because settling is what marks the
+	// environment's record as belonging to a round that is over. It goes on the
+	// record and the outcome together, so the two cannot name different gates.
+	a.state.StopClass = a.classifyStop(cause, status)
+	a.outcome.StopClass = a.state.StopClass
 	// An approved change the environment stopped short of its promotion is
 	// recorded as exactly that, so what resumes it reads the classification off
 	// the record rather than deciding it from the failure's prose afterwards. It
@@ -6739,6 +6748,7 @@ func (a *activeRun) recordEndingAfterRefusedSave(status runstate.Status, complet
 	durable.Status = status
 	durable.UpdatedAt = completedAt
 	durable.CompletedAt = &completedAt
+	durable.StopClass = a.state.StopClass
 	durable.Failure = singleLine(fmt.Sprintf("%s (this record carries the run's ending and not its evidence, because the run's own state could not be stored: %s)",
 		a.state.Failure, refused), maxRefusedRecordFailureBytes)
 	if err := p.Store.Save(durable); err != nil {
@@ -6943,6 +6953,8 @@ func (a *activeRun) recordHarnessCommit(commit string) {
 // costs nothing: a resumed cleanup over absent artifacts is a safe no-op.
 func (p Pipeline) reportCompletionRecordingFailure(state runstate.State, outcome Outcome, cause error) (Outcome, error) {
 	outcome.CompletionRecordingFailure = cause.Error()
+	outcome.StopClass = runstate.StopRecording
+	state.StopClass = outcome.StopClass
 	// A further write is attempted with the failure on it. The store just
 	// refused this record twice, so this is best effort — but when it lands,
 	// the terminal record is whole and carries why it was late, which is the
@@ -6968,6 +6980,8 @@ func (p Pipeline) reportCompletionRecordingFailure(state runstate.State, outcome
 func (p Pipeline) reportOutstandingCleanup(state runstate.State, outcome Outcome, cause error) (Outcome, error) {
 	outcome.CleanupFailure = cause.Error()
 	state.CleanupFailure = outcome.CleanupFailure
+	outcome.StopClass = runstate.StopCleanup
+	state.StopClass = outcome.StopClass
 	state.UpdatedAt = p.clock().Now()
 	if err := p.Store.Save(state); err != nil {
 		outcome.CleanupFailure = errors.Join(cause, fmt.Errorf("record outstanding cleanup: %w", err)).Error()
@@ -7465,14 +7479,14 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 			transientFailure: result.TransientFailure,
 			providerOutage:   result.ProviderOutage,
 			processStatus:    result.ProcessStatus,
-		}, fmt.Errorf("independent review failed: %w", reviewErr)
+		}, stoppedBy(runstate.StopProvider, fmt.Errorf("independent review failed: %w", reviewErr))
 	}
 	// The reviewer reports the selector it actually ran with. Auditing that
 	// against configuration here keeps the recorded evidence a fact rather than
 	// an assumption about how the reviewer was wired.
 	configured := p.reviewer().Model
 	if result.RequestedModel != configured {
-		return "", providerEvidence{}, fmt.Errorf("reviewer ran with model %q, configured reviewer model is %q", result.RequestedModel, configured)
+		return "", providerEvidence{}, stoppedBy(runstate.StopProvider, fmt.Errorf("reviewer ran with model %q, configured reviewer model is %q", result.RequestedModel, configured))
 	}
 	return result.Decision, providerEvidence{
 		servedCleanly: result.ProcessStatus == execution.ProcessSucceeded &&
@@ -7663,6 +7677,50 @@ type phaseError struct {
 func (e phaseError) Error() string { return e.cause.Error() }
 
 func (e phaseError) Unwrap() error { return e.cause }
+
+// classifiedStop carries which gate a stop happened at from the site that knew
+// it to fail, which is where the run's record is written. It travels on the error
+// rather than being written onto the record where it is known, because most of
+// these sites return an error something above them may still answer — a relaunch,
+// a re-ask, a pause — and a class written early would outlive the stop it
+// described.
+type classifiedStop struct {
+	class runstate.StopClass
+	cause error
+}
+
+func (e classifiedStop) Error() string { return e.cause.Error() }
+
+func (e classifiedStop) Unwrap() error { return e.cause }
+
+// stoppedBy marks cause as a stop at the gate class names. A nil cause stays
+// nil, so a site can mark whatever it returns without asking first.
+func stoppedBy(class runstate.StopClass, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return classifiedStop{class: class, cause: cause}
+}
+
+// classifyStop decides the class fail records. The environment and a
+// cancellation are asked before anything a site said, because each is true of
+// the run whichever gate it was at when it met them: a check that could not start
+// because the machine would not spawn it is the environment's stop, not the
+// checks'. Past those, the class the stopping site gave is the one that knew most
+// when the run stopped, and a stop no site classified is the harness's own step.
+func (a *activeRun) classifyStop(cause error, status runstate.Status) runstate.StopClass {
+	if a.state.Environmental != nil && !a.state.Environmental.Settled {
+		return runstate.StopOutside
+	}
+	if status == runstate.StatusCancelled {
+		return runstate.StopCancelled
+	}
+	var classified classifiedStop
+	if errors.As(cause, &classified) {
+		return classified.class
+	}
+	return runstate.StopHarness
+}
 
 func failureStatus(ctx context.Context, err error) runstate.Status {
 	var phase phaseError

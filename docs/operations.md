@@ -3588,12 +3588,12 @@ The listing below is `./bin/yoyo status --failed --limit 2`:
 
 ```text
 runs that ended without succeeding, 2 of 9 shown (137 run(s) recorded):
-run-19dc9dff153e1eb89a2470f78f02f240 yoyodyne-ifd.1.7 started 2026-08-16T18:02:11Z [stopped, developing, work preserved, checked] $4.62
+run-19dc9dff153e1eb89a2470f78f02f240 yoyodyne-ifd.1.7 started 2026-09-26T18:02:11Z [stopped, developing, work preserved, checked] $4.62
   selected by the operator: the operator ran this item by name from the command line
   ran under default, configuration cfg-9f2c41ab7e05, harness 9870df6a1b2c
-  reason: the provider ended this run without judging the work after 3 of 3 permitted relaunch(es)
-  branch (checked and there at 2026-08-16T19:40:02Z): yoyodyne/yoyodyne-ifd.1.7/19dc9dff
-  worktree (checked and there at 2026-08-16T19:40:02Z): /Users/you/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-1-7-19dc9dff
+  reason: provider: the provider ended this run without judging the work after 3 of 3 permitted relaunch(es)
+  branch (checked and there at 2026-09-26T19:40:02Z): yoyodyne/yoyodyne-ifd.1.7/19dc9dff
+  worktree (checked and there at 2026-09-26T19:40:02Z): /Users/you/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-1-7-19dc9dff
   preserved developer session: 0f2c41ab-7e05-4c3d-9a1b-6e8f0d2a4c71
 run-c81f0a4d7c2b41e6a0f9d3b5e7104c22 yoyodyne-ifd.63 started 2026-08-15T11:47:03Z [failed, no artifacts recorded] $12.80
   selected: no reason recorded
@@ -3683,6 +3683,16 @@ binary installed without the stamping records none, and the line says so rather
 than inventing one: a comparison nobody can make is an answer, and a comparison
 made against the wrong commit is not.
 
+The first word of the `reason` is which gate stopped the run, as the pipeline
+recorded it where it stopped it: `checks`, `review`, `integration`, `publish`,
+`cleanup`, `recording`, `provider`, `outside`, `cancelled`, or `harness`
+for the harness's own step around the work. It is read off the record rather
+than worked out from the evidence printed under it, because that evidence can
+mislead: a `failing check` is what the last repair was handed, and it is still
+there on a run the provider then killed. A run recorded before the class
+existed, or settled by `yoyo reconcile` rather than by its own pipeline, prints
+its reason without one, as the second run above does.
+
 Each of the other reasons is printed under the run it belongs to and named for
 what it is, because the records keep them apart deliberately. Only `reason` is the
 run's own account of why it ended. An `outstanding publication`, an `outstanding
@@ -3690,7 +3700,10 @@ cleanup`, a `failing check`, and a `completion recorded late` are recorded aroun
 and a run can carry one of them with its change already promoted. The last of
 those is the class whose work-item note is itself unreliable — recording that
 note is part of what was failing — so the run record this verb reads is its
-authoritative home.
+authoritative home. A succeeded run that stopped short of one of the first,
+second, or last of these carries it as its `reason` too, under `publish`,
+`cleanup`, or `recording`, and the line it came from is not printed a second
+time.
 
 `outstanding` in the brackets marks a finished run that still owes somebody a
 step, and the `outstanding:` line under it says which — cleanup that is not
