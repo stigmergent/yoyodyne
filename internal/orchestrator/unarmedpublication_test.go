@@ -300,7 +300,7 @@ func (h *rearmHarness) carryOut(checks RearmChecks) CarryOut {
 // The re-arm she records is carried out by the watch on its own pull, with
 // nobody typing `yoyo triage rearm`: the merge request is made once, and a pull
 // after it finds nothing left to carry out. Under the intake hold nothing is
-// attempted.
+// asked of the forge, and the item says the hold is what the decision waits on.
 func TestTheWatchArmsAnUnaskedPublicationItsDecisionNames(t *testing.T) {
 	t.Parallel()
 
@@ -309,8 +309,8 @@ func TestTheWatchArmsAnUnaskedPublicationItsDecisionNames(t *testing.T) {
 	watch := harness.carryOut(checks)
 
 	held, err := watch.CarryRearms(context.Background(), true)
-	if err != nil || len(held) != 0 || len(harness.forge.requested) != 0 {
-		t.Fatalf("CarryRearms() under the intake hold = %+v, %v with requests %#v; want nothing attempted", held, err, harness.forge.requested)
+	if err != nil || len(held) != 1 || held[0].Carried || held[0].Gate != runstate.TriageGateIntakeHold || len(harness.forge.requested) != 0 {
+		t.Fatalf("CarryRearms() under the intake hold = %+v, %v with requests %#v; want nothing asked of the forge and the hold named", held, err, harness.forge.requested)
 	}
 
 	carried, err := watch.CarryRearms(context.Background(), false)

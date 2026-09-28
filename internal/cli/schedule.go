@@ -930,8 +930,10 @@ preserved worktree being what a continued developer could be handed back. Nothin
 is spent by a refusal, and every refusal is written onto the item's triage record
 and onto the docket entry she reads, naming the gate and what would clear it -- so
 a decision that cannot be carried out says so where she is looking rather than
-sitting silently. A re-arm is not carried out by the pass: "yoyo triage rearm"
-is still typed. A gate that stops one item is retried at a paced interval
+sitting silently. A recorded re-arm is carried out by the pass too, for a merge
+the forge dropped and for one nothing ever asked it to make: it is one merge
+request rather than a run, so it takes no developer slot, and "yoyo triage
+rearm" is what fires one now. A gate that stops one item is retried at a paced interval
 rather than every poll; one that stops everything at once -- your pause, your
 intake hold, a full harness -- is attempted once while it stands, so the docket
 says so, and again on the first pull after it opens. A decision no pull has

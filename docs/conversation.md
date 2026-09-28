@@ -1900,11 +1900,12 @@ fires a recorded repair or re-run itself, oldest stoppage first and as many per
 pull as there are developer slots for them, through these same two actions and
 under every condition each of them asks — so
 recording the decision is what causes it, and the verbs are what fires one *now*
-rather than at the next pull. A re-arm of a merge the forge dropped is still
-typed: it is the one decision the pass does not carry out. A re-arm of a request
-nothing ever asked the forge to merge is not typed — the pass makes it itself, on
-every pull, outside the developer slots since it is one merge request rather
-than a run, and not while your pause or intake hold stands. Every refusal is written onto the item's own triage record and shown on the
+rather than at the next pull. A re-arm is not typed either, whether of a merge
+the forge dropped or of a request nothing ever asked the forge to merge — the
+pass makes it itself through `yoyo triage rearm`'s own action, on every pull,
+outside the developer slots since it is one merge request rather than a run, and
+not while your pause or intake hold stands, which is written onto the item as
+what it waits on. Every refusal is written onto the item's own triage record and shown on the
 docket entry the development manager reads, naming which gate refused and what
 would clear it, so a decision that cannot be carried out says so where she is
 already looking — and a decision no pass has attempted a poll interval after it

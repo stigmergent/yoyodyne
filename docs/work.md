@@ -947,8 +947,8 @@ deciding the stoppage, by her decision being carried out, by the escalation
 being answered, or by the publication being settled — at which point the records
 stop saying the item is held, and it becomes pullable without anybody having
 edited its status. The first and the third are a person's. The second is the
-pass's own: a repair or a re-run she recorded is fired at the next pull, under
-the gates the carry-out paragraph further down names, and the hold goes with it
+pass's own: a repair, a re-run, or a merge re-arm she recorded is fired at the
+next pull, under the gates the carry-out paragraph further down names, and the hold goes with it
 — so an item awaiting carry-out waits on an interval rather than on anybody. The fourth is
 [`yoyo reconcile`](operations.md#recovering-interrupted-runs)'s: every sweep
 asks the remote again whether it carries a publication the record says is
@@ -1371,8 +1371,16 @@ recorded is fired by the pass itself, oldest stoppage first, as many per pull as
 there are developer slots free for them — and as a session's `--limit` leaves,
 since each is a run started — against a developer slot exactly as a pulled item
 is, so recording the decision is what causes it, and `yoyo triage repair` and
-`yoyo triage rerun` are what fires one now rather than at the next pull. Every
-decision the item's record holds is read, whatever its place on the docket: the
+`yoyo triage rerun` are what fires one now rather than at the next pull. A merge
+re-arm she recorded is fired by the same pass, whether the merge it makes is one
+the forge dropped or one nothing ever asked the forge for — on every pull and
+outside the developer slots, because it is one merge request rather than a run —
+through the action `yoyo triage rearm` takes, which is what fires one now. Its
+gates are that action's own: the forge's merge state, the request's head and
+checks where nothing had asked for the merge before, the pre-merge check on the
+remote target, and a decision standing that nothing has carried out; your pause
+and your intake hold stop it as they stop the other two, and a run of the item
+in flight holds it back. Every decision the item's record holds is read, whatever its place on the docket: the
 one about a stoppage docketed as a stopped run, and the item's latest decision
 where it names a run no such entry stands for. A re-run recorded again about a
 stoppage whose one re-run was already claimed is attempted as well, and refused
@@ -1933,7 +1941,8 @@ under the branch's promotion lease. A merge the forge queued moves nothing
 locally until `yoyo reconcile` finds it merged. A merge the forge refused or
 dropped leaves the change on its pull request and on no target branch, so the
 item is not closed: the run stops and hands it back with the forge's answer as
-the blocker, and `yoyo triage rearm` can repeat the merge once the requirement is
+the blocker, and a re-arm the development manager records repeats the merge — at
+the next pull, or at once by `yoyo triage rearm` — once the requirement is
 met. A remote target that moved in the meantime is replayed onto, like any lost
 race. A process killed mid-landing is settled by `yoyo reconcile` on the forge's
 answer about the pull request, never on the local target, which the landing did

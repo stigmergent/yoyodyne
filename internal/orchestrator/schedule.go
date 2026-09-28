@@ -507,8 +507,8 @@ type ScheduleCarryOut interface {
 	RecordUnattempted(ctx context.Context, poll time.Duration, passed map[string]string) ([]CarriedOut, error)
 }
 
-// ScheduleRearms fires the re-arms decided about publications nothing ever
-// asked the forge to merge. A ScheduleCarryOut that also satisfies it has them
+// ScheduleRearms fires the re-arms decided about publications — a merge nothing
+// ever asked the forge for, or one the forge dropped. A ScheduleCarryOut that also satisfies it has them
 // fired on every pull; it is satisfied by *CarryOut, and asked for by assertion
 // so a carry-out that fires only runs is wired exactly as it was.
 type ScheduleRearms interface {
@@ -1932,9 +1932,10 @@ pulling:
 		// this pull can see: a decision the hold stopped is left alone while the hold
 		// is up and attempted on the first pull it is down, which is the latency the
 		// unpaced record exists to keep. See nextCarryOut.
-		// A re-arm she decided about a request nothing ever asked the forge to merge
-		// is fired first, and in the pull's own thread: it is one merge request
-		// rather than a run, so it takes no slot and leaves nothing to wait out.
+		// A re-arm she decided about a publication — a merge nothing ever asked the
+		// forge for, or one the forge dropped — is fired first, and in the pull's
+		// own thread: it is one merge request rather than a run, so it takes no slot
+		// and leaves nothing to wait out.
 		s.carryOutRearms(ctx, &schedule, pull, held)
 		closed := closedGates{intake: held, pause: paused, capacity: free < 1}
 		carrying := false
@@ -3658,7 +3659,8 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 }
 
 // carryOutRearms fires the re-arms the development manager decided about
-// publications nothing ever asked the forge to merge, and says on the pass what
+// publications, whether nothing ever asked the forge to merge them or the forge
+// dropped the merge, and says on the pass what
 // each came to. A failure to read is said beside the pass rather than stopping
 // it, like every other account the carry-out keeps.
 func (s Scheduler) carryOutRearms(ctx context.Context, schedule *Schedule, pull Pull, intakeHeld bool) {
@@ -3684,7 +3686,7 @@ func (s Scheduler) carryOutRearms(ctx context.Context, schedule *Schedule, pull 
 	}
 	if err != nil {
 		schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem,
-			fmt.Sprintf("the re-arms the development manager decided about publications nothing asked the forge to merge could not be read in full, so one may be waiting that nothing here fired: %v", err))
+			fmt.Sprintf("the re-arms the development manager decided about publications could not be read in full, so one may be waiting that nothing here fired: %v", err))
 	}
 }
 

@@ -179,11 +179,11 @@ type CarryOut struct {
 	// carry-out with neither fires nothing.
 	Rerunner CarryOutRerunner
 	Repairer CarryOutRepairer
-	// Rearmer arms a publication nothing ever asked the forge to merge, where the
-	// development manager decided a re-arm of it. Optional: a carry-out wired
-	// without it leaves that decision for somebody typing `yoyo triage rearm`,
-	// which is what it was before yoyodyne-ifd.429.31. A re-arm of a merge the
-	// forge dropped is not fired here, and stays the verb's.
+	// Rearmer makes the merge request of a publication the development manager
+	// decided a re-arm of: one nothing ever asked the forge to merge, or one whose
+	// merge the forge dropped. Optional: a carry-out wired without it leaves that
+	// decision for somebody typing `yoyo triage rearm`, which is what it was before
+	// yoyodyne-ifd.429.31 for the first and yoyodyne-ifd.428.46 for the second.
 	Rearmer CarryOutRearmer
 	// CheckStages continues a run the check stage bound stopped, where she has
 	// decided nothing about it. Optional: a carry-out wired without it leaves such
@@ -411,6 +411,16 @@ func (c CarryOut) read() (carryOutReading, error) {
 			WorkItemID: workItemID,
 		}, item)
 	}
+	// A re-arm is fired on its own path, and what that path holds back is written
+	// down here with everything else the sweep holds back, so a re-arm no pass
+	// attempts is as visible on the item as a re-run no pass attempts.
+	if c.Rearmer != nil {
+		_, held, err := c.readRearms(entries, inFlight, history, now, "")
+		if err != nil {
+			problems = append(problems, err)
+		}
+		reading.held = append(reading.held, held...)
+	}
 	return reading, errors.Join(problems...)
 }
 
@@ -616,8 +626,8 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 		// A re-scope, a wait, an escalation, and a merge re-arm are decisions this
 		// sweep does not offer: the first three ask for no run at all, and a re-arm
 		// is an integration retry rather than work, which takes no developer slot.
-		// The re-arm of a request nothing ever asked the forge to merge is fired
-		// on its own path, CarryRearms; a re-arm of a dropped merge is still typed.
+		// A re-arm is fired on its own path, CarryRearms, whether the merge it
+		// makes is one nothing ever asked the forge for or one the forge dropped.
 		return CarryOutTask{}, false, nil, nil
 	}
 	if stopped, refused := i.counters.CarryOutOf(entry.RunID); refused && stopped.Cooling(now) {
