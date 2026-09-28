@@ -1247,9 +1247,10 @@ func TestAFreedSlotIsRefilledAtTheNextPollWhileAnotherRunIsStillGoing(t *testing
 	harness.capacity = 3
 	sessions := &recordedSessions{}
 	// hold keeps the long runs going until the last of the refills has started.
-	// The bound is only what stops the old behaviour hanging the test: a session
-	// that waits on the long run's completion reaches the admitted work after it,
-	// and fails below rather than here.
+	// It carries no bound: a session that waits on the long run's completion
+	// never starts the refill, and the binary's own -timeout reports that hang
+	// naming this wait. A bound that let the old behaviour fail below instead
+	// was one a loaded machine could reach with the new behaviour working.
 	hold := make(chan struct{})
 	var (
 		longRunEnded    bool
@@ -1269,10 +1270,7 @@ func TestAFreedSlotIsRefilledAtTheNextPollWhileAnotherRunIsStillGoing(t *testing
 			releaseLongRuns.Do(func() { close(hold) })
 			return h.complete(id), nil
 		}
-		select {
-		case <-hold:
-		case <-time.After(5 * time.Second):
-		}
+		<-hold
 		if id == "yoyodyne-three" {
 			h.mu.Lock()
 			longRunEnded = true
@@ -1358,10 +1356,10 @@ func TestASlotAnotherProcessFreesIsRefilledAtTheNextPollWhileTheSessionIsFull(t 
 		RunID: "run-elsewhere", WorkItemID: "yoyodyne-elsewhere", Status: runstate.StatusRunning,
 	}
 	sessions := &recordedSessions{}
-	// hold keeps this session's own run going until the refill has started. The
-	// bound is only what stops the old behaviour hanging the test: a session that
-	// waits on its own run's completion reaches the second item after it, and
-	// fails below rather than here.
+	// hold keeps this session's own run going until the refill has started. It
+	// carries no bound: a session that waits on its own run's completion never
+	// starts the refill, and the binary's own -timeout reports that hang naming
+	// this wait, rather than a bound a loaded machine could reach first.
 	hold := make(chan struct{})
 	var (
 		ownRunGoing bool
@@ -1384,10 +1382,7 @@ func TestASlotAnotherProcessFreesIsRefilledAtTheNextPollWhileTheSessionIsFull(t 
 			release.Do(func() { close(hold) })
 			return h.complete(id), nil
 		}
-		select {
-		case <-hold:
-		case <-time.After(5 * time.Second):
-		}
+		<-hold
 		h.mu.Lock()
 		ownRunEnded = true
 		h.mu.Unlock()
@@ -2816,6 +2811,10 @@ type scheduleHarness struct {
 	// passedOver is what each pull handed the carry-out as the decisions it
 	// offered and did not attempt, one map per pull, in order.
 	passedOver []map[string]string
+	// unattempted is told each time a pull hands over what it passed over, so a
+	// test can wait on the account rather than poll for it; nil for every test
+	// that does not wait, which tells nobody.
+	unattempted chan<- struct{}
 	// paused is the operator's pause over everything the harness spends, as the
 	// pull reads it. A pull is wired with the switch only where a test asks, so
 	// every other test's pass cannot see it — which is what every pass was before.

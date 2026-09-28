@@ -157,13 +157,16 @@ func TestSilencePastTheDeadlineEndsTheRead(t *testing.T) {
 // alive with pings alone. Measuring the idle bound from the last message rather
 // than the last frame is what made the sink hang up on a working connection
 // every ninety seconds and open 1,988 connections in the life of one process.
+//
+// The claim is read off the deadlines the connection was given rather than off
+// a real timer surviving a run of pings spaced across several times the bound:
+// a loaded machine can stretch one gap between two pings past any bound short
+// enough to sit through, which fails a connection that is working. That the
+// bound, once set, does end a silent read is TestSilencePastTheDeadlineEndsTheRead.
 func TestPingsAloneKeepAQuietConnectionAlive(t *testing.T) {
 	t.Parallel()
 
-	// The pings span four times the idle bound, and no single gap between them
-	// comes near it, so this says the bound is renewed by a ping and not that it
-	// is generous.
-	const idle = 500 * time.Millisecond
+	const idle = 90 * time.Second
 	const pings = 10
 	server := startWebSocketServer(t, func(peer *serverSocket) {
 		for range pings {
@@ -171,21 +174,36 @@ func TestPingsAloneKeepAQuietConnectionAlive(t *testing.T) {
 			// The pong is read so the client's write does not block on the pipe,
 			// and reading it is also what paces this loop.
 			peer.readFrame()
-			time.Sleep(idle / 5)
 		}
 		peer.writeText([]byte(`{"type":"hello"}`))
 	})
-	socket, err := dialWebSocket(context.Background(), server.url, server.dial)
+	dial, held := holdingDeadlines(server.dial, false)
+	socket, err := dialWebSocket(context.Background(), server.url, dial)
 	if err != nil {
 		t.Fatalf("dialWebSocket() error = %v", err)
 	}
 	defer socket.Close()
+	reading := time.Now()
 	message, err := socket.ReadMessage(idle)
 	if err != nil {
 		t.Fatalf("ReadMessage() error = %v, want a connection its pings kept alive", err)
 	}
 	if string(message) != `{"type":"hello"}` {
 		t.Fatalf("ReadMessage() = %q, want the message that followed the pings", message)
+	}
+	// One bound per frame read, each set as its frame was waited for: a bound
+	// measured from the call rather than the frame is one deadline, set once.
+	deadlines := held.readDeadlines()
+	if len(deadlines) != pings+1 {
+		t.Fatalf("the read bound was set %d time(s), want once for each of %d pings and once for the message", len(deadlines), pings)
+	}
+	for index, deadline := range deadlines {
+		if deadline.Before(reading.Add(idle)) {
+			t.Fatalf("read bound %d = %s, want it a whole idle bound past the read it was set for", index, deadline)
+		}
+		if index > 0 && deadline.Before(deadlines[index-1]) {
+			t.Fatalf("read bound %d = %s, before the one set ahead of it at %s", index, deadline, deadlines[index-1])
+		}
 	}
 }
 
@@ -201,7 +219,12 @@ func TestHangingUpTellsThePeerTheConnectionIsOver(t *testing.T) {
 		peer.writeText([]byte(`{"type":"hello"}`))
 		hungUp <- peer.readFrame()
 	})
-	socket, err := dialWebSocket(context.Background(), server.url, server.dial)
+	// The close frame is written under a short courtesy bound, and the peer is
+	// only reading by the time the frame arrives if it has been scheduled since
+	// it sent the hello. So the bound is held rather than armed: what this is
+	// about is that the frame is sent, not that the peer read it quickly.
+	dial, _ := holdingDeadlines(server.dial, true)
+	socket, err := dialWebSocket(context.Background(), server.url, dial)
 	if err != nil {
 		t.Fatalf("dialWebSocket() error = %v", err)
 	}
@@ -253,6 +276,53 @@ func startRawServer(t *testing.T, handle func(net.Conn, *bufio.Reader)) *testSer
 		client.Close()
 	})
 	return server
+}
+
+// heldDeadlines is the client end of a connection with its read deadlines
+// recorded rather than armed, and its write deadlines too where holdWrites says
+// so. A test about which bound the connection sets, and when, reads the record;
+// a test about a frame reaching the peer is not held to a bound a loaded
+// machine can run out before the peer is scheduled to read it.
+type heldDeadlines struct {
+	net.Conn
+	holdWrites bool
+
+	mu    sync.Mutex
+	reads []time.Time
+}
+
+// holdingDeadlines wraps what dial returns in a heldDeadlines, and returns the
+// wrapper so the test can read what it recorded.
+func holdingDeadlines(dial dialFunc, holdWrites bool) (dialFunc, *heldDeadlines) {
+	held := &heldDeadlines{holdWrites: holdWrites}
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		held.Conn = conn
+		return held, nil
+	}, held
+}
+
+func (c *heldDeadlines) SetReadDeadline(deadline time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reads = append(c.reads, deadline)
+	return nil
+}
+
+func (c *heldDeadlines) SetWriteDeadline(deadline time.Time) error {
+	if c.holdWrites {
+		return nil
+	}
+	return c.Conn.SetWriteDeadline(deadline)
+}
+
+func (c *heldDeadlines) readDeadlines() []time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]time.Time(nil), c.reads...)
 }
 
 // serverSocket is the peer end of one connection: it writes unmasked frames, as

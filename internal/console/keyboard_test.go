@@ -121,7 +121,14 @@ func TestTheKeyboardIsNegotiatedAndHandedBack(t *testing.T) {
 					keys.Write([]byte(test.reply))
 				}
 			}()
-			console.negotiateKeyboard(200 * time.Millisecond)
+			// A terminal that answers ends the negotiation with its identity
+			// reply, so it is waited for; only the one that answers nothing is
+			// given a bound, and running out is what that case asserts.
+			wait := answeredNegotiation
+			if test.reply == "" {
+				wait = 200 * time.Millisecond
+			}
+			console.negotiateKeyboard(wait)
 
 			if console.keyboard != test.mode {
 				t.Fatalf("keyboard = %v, want %v", console.keyboard, test.mode)
@@ -160,7 +167,7 @@ func TestTypingAheadOfTheNegotiationIsKept(t *testing.T) {
 		keys.Close()
 	})
 	go keys.Write([]byte("\x1b[?0uthe brief\x1b[?62;c"))
-	console.negotiateKeyboard(2 * time.Second)
+	console.negotiateKeyboard(answeredNegotiation)
 
 	if console.keyboard != keyboardKitty {
 		t.Fatalf("keyboard = %v, want the kitty protocol", console.keyboard)
@@ -169,6 +176,13 @@ func TestTypingAheadOfTheNegotiationIsKept(t *testing.T) {
 		t.Fatalf("what was typed ahead = %q, want %q", got, "the brief")
 	}
 }
+
+// answeredNegotiation is the bound given to a negotiation whose terminal does
+// answer. Its identity reply is what ends the negotiation, so the bound is never
+// what does: it is past the binary's own -timeout, which is what reports a
+// negotiation that never finishes, naming where it waited. A figure short enough
+// to finish on was one a loaded machine could reach before the reply was read.
+const answeredNegotiation = time.Hour
 
 // TestHelpNamesOnlyTheKeysThisTerminalHas is the honesty the whole negotiation
 // is for: a terminal that will not report shift-return is never told it does.

@@ -164,18 +164,18 @@ func landingRun(t *testing.T, root string, landings *queuedLandings, index int, 
 }
 
 // awaitLanding reads a run's record until its landing satisfies ready, which is
-// what `yoyo status` reads it from.
+// what `yoyo status` reads it from. It sets no deadline: one a loaded machine
+// can reach with the landing working fails a change that never touched it, and
+// a landing that never gets there is reported by the binary's own -timeout,
+// naming this wait.
 func awaitLanding(t *testing.T, store *runstate.Store, runID string, ready func(*runstate.LandingChecks) bool) runstate.LandingChecks {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		if state, err := store.Load(runID); err == nil && state.LandingChecks != nil && ready(state.LandingChecks) {
 			return *state.LandingChecks
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("the landing on %s never reached the state waited for", runID)
-	return runstate.LandingChecks{}
 }
 
 // queuedLandings stands in for both the landing checkouts and the check runner,

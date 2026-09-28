@@ -65,6 +65,11 @@ type terminal struct {
 	// restoreKeyboard is what puts that agreement back as it was found.
 	keyboard        keyboardMode
 	restoreKeyboard string
+	// keyboardWait is how long a negotiation waits for a terminal that answers
+	// none of it, which is keyboardReplyTimeout. It is a field so a test whose
+	// terminal does answer can wait for the answer, which ends the negotiation,
+	// rather than bet that it lands inside a quarter of a second.
+	keyboardWait time.Duration
 
 	prompting  bool
 	promptText string
@@ -128,7 +133,7 @@ func openTerminal(in, out *os.File, env func(string) string) (*terminal, error) 
 	// What the terminal will say about a keystroke is settled before the first
 	// prompt is drawn, because it decides both what shift-return does and what
 	// /help is allowed to claim it does.
-	terminal.negotiateKeyboard(keyboardReplyTimeout)
+	terminal.negotiateKeyboard(terminal.keyboardWait)
 	// A paste is asked to arrive bracketed for the same span, so a block of
 	// several lines is one message rather than the first of them and a spill.
 	io.WriteString(out, pasteOn)
@@ -139,12 +144,13 @@ func openTerminal(in, out *os.File, env func(string) string) (*terminal, error) 
 // region and the editing can be exercised without a real terminal to drive.
 func newTerminal(in io.Reader, out io.Writer, width, height func() int, restore func() error) *terminal {
 	return &terminal{
-		out:     out,
-		input:   readInput(in),
-		restore: restore,
-		raise:   raiseSignal,
-		width:   width,
-		height:  height,
+		out:          out,
+		input:        readInput(in),
+		restore:      restore,
+		raise:        raiseSignal,
+		width:        width,
+		height:       height,
+		keyboardWait: keyboardReplyTimeout,
 	}
 }
 
@@ -734,7 +740,7 @@ func (t *terminal) suspend() {
 		// than it was and better than a conversation that ends because the operator
 		// stopped it, so it carries on and the region is drawn on what there is.
 	}
-	t.negotiateKeyboard(keyboardReplyTimeout)
+	t.negotiateKeyboard(t.keyboardWait)
 	// Bracketing is asked for again for the reason the keyboard is: the shell
 	// that had the terminal in between may have turned it off.
 	io.WriteString(t.out, pasteOn)
