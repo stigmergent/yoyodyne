@@ -183,13 +183,13 @@ product:
   repository: %s
 `, bundleName, effective.Version, effective.Product.ID, effective.Product.Repository)
 
-	fmt.Fprintf(&builder, `  # The Lead Product Manager reads product intent from the specifications under
-  # this directory and from nowhere else in the repository. Beside them, labeled
-  # as a description of what is built rather than as intent, it is given the
-  # README, a fixed set of operator-facing documents under docs/, and the help
-  # the commands print -- not this file, not the source, not the design
-  # document. It must stay inside the repository.
-  specifications: %s
+	// The product block is written directly under the version, ahead of
+	// everything else, because what it names is what every role reads as the
+	// product's intent. The comment above the specifications directory is one the
+	// template tracks, so a project carrying an earlier wording of it is told by
+	// `yoyo config drift`; see comments.go.
+	builder.WriteString(renderSpecificationsComment())
+	fmt.Fprintf(&builder, `  specifications: %s
   # The architect's durable architectural invariants: one Markdown file per
   # constraint, named by its id. The harness delivers the ones relevant to a
   # work item into the developer's context and the reviewer's evidence. A

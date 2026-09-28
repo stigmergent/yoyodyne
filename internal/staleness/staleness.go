@@ -126,6 +126,9 @@ type Report struct {
 	Documents []Document `json:"documents,omitempty"`
 	WorkItems []WorkItem `json:"work_items,omitempty"`
 	Unjudged  []Unjudged `json:"unjudged,omitempty"`
+	// Contradictions are documents of the product's intent in force that say
+	// opposite things, each naming both. See contradiction.go.
+	Contradictions []Contradiction `json:"contradictions,omitempty"`
 	// Admitted is how many work items were read, and Judged how many of them
 	// this could actually answer for. The difference is work naming no goal these
 	// changes can be followed to, which is what `yoyo goals attribution` reports
@@ -136,7 +139,7 @@ type Report struct {
 
 // Anything reports a reading that found something to look at.
 func (r Report) Anything() bool {
-	return len(r.Documents) > 0 || len(r.WorkItems) > 0
+	return len(r.Documents) > 0 || len(r.WorkItems) > 0 || len(r.Contradictions) > 0
 }
 
 // Survey compares what the artifacts and the tracker record and reports what is
@@ -155,7 +158,7 @@ func Survey(artifacts artifact.Set, goals goal.Set, items []beads.WorkItem) Repo
 		recorded[candidate.ID] = candidate
 	}
 
-	report := Report{Admitted: len(items)}
+	report := Report{Admitted: len(items), Contradictions: contradictions(artifacts, goals)}
 	for _, candidate := range artifacts.Artifacts {
 		// A document that was superseded or retired is not asked to answer for
 		// what happened upstream of it afterwards. It stated what was intended and

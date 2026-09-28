@@ -72,6 +72,13 @@ type Request struct {
 	// promoted meanwhile, and a document read at a later revision than the one the
 	// change was written against makes a correct change read as a divergent one.
 	Revision *Revision
+	// Specifications is the product's specification home, product.specifications,
+	// relative to the repository root. Every document in it is carried after the
+	// work item, labelled as authoritative product intent, so the developer and
+	// the reviewer read the intent the item serves rather than only what the item
+	// happened to cite. Empty carries none, which is what a caller that is only
+	// validating the item passes.
+	Specifications string
 }
 
 // Revision is a recorded commit references are read at.
@@ -178,6 +185,11 @@ func Assemble(request Request) (Bundle, error) {
 	for _, plan := range plans {
 		pendingNotes += len(plan.note())
 	}
+	// The least the specification home can say is reserved the same way, so an
+	// item whose notes are cut to fit still leaves room to say where the
+	// product's intent is.
+	intentReserve := len(intentFallback(request.Specifications))
+	pendingNotes += intentReserve
 
 	base := renderWorkItem(request.WorkItem)
 	var truncation *NotesTruncation
@@ -196,8 +208,33 @@ func Assemble(request Request) (Bundle, error) {
 	var output bytes.Buffer
 	output.WriteString(base)
 
+	// The product's specification home is read after the item and before what
+	// the item names, so intent wins the budget over a citation, and it takes at
+	// most its share so a large home still leaves the item's references room.
+	pendingNotes -= intentReserve
+	intentBudget := max(min(maxBytes/maxIntentShareDivisor, maxBytes-bundle.Bytes-pendingNotes), intentReserve)
+	intent, intentReferences, err := renderWorkItemIntent(root, source, request.Specifications, intentBudget)
+	if err != nil {
+		return Bundle{}, err
+	}
+	output.WriteString(intent)
+	bundle.Bytes += len(intent)
+	carried := make(map[string]bool, len(intentReferences))
+	for _, reference := range intentReferences {
+		carried[reference.Path] = true
+		bundle.References = append(bundle.References, reference)
+		if !directoryIndex(reference.Path) {
+			bundle.SpecificationsIncluded++
+		}
+	}
+
 	for _, plan := range plans {
 		pendingNotes -= len(plan.note())
+		// A document the item names that the specification home already carried
+		// is not carried twice.
+		if plan.omission == "" && carried[plan.resolved.path] {
+			continue
+		}
 		if plan.omission != "" {
 			output.WriteString(plan.omission)
 			bundle.Bytes += len(plan.omission)

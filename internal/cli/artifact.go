@@ -382,7 +382,7 @@ func (f *artifactFlags) store(stderr io.Writer) (artifact.Store, artifact.Policy
 		fmt.Fprintf(stderr, "resolve product repository: %v\n", err)
 		return artifact.Store{}, artifact.Policy{}, 1
 	}
-	return artifactStore(repository, resolved.Config.Product), artifactPolicy(resolved.Config.Approvals), 0
+	return artifactStore(repository, resolved.Config.Product), artifactPolicy(resolved.Config.Approvals, resolved.Config.Product), 0
 }
 
 // artifactPolicy is the approvals configuration in the terms the artifact
@@ -390,8 +390,8 @@ func (f *artifactFlags) store(stderr io.Writer) (artifact.Store, artifact.Policy
 // project's configuration rather than by the kind of document: a project that
 // says its designs need approving gets that, and one that says its goals do not
 // is told so rather than nagged.
-func artifactPolicy(approvals config.Approvals) artifact.Policy {
-	return artifact.Policy{Brief: approvals.Brief, Goals: approvals.Goals, Designs: approvals.Designs}
+func artifactPolicy(approvals config.Approvals, product config.Product) artifact.Policy {
+	return artifact.Policy{Brief: approvals.Brief, Goals: approvals.Goals, Designs: approvals.Designs, SpecificationsHome: product.Specifications}
 }
 
 // artifactStore is how the configured directories become a store, in one place
@@ -424,7 +424,7 @@ func artifactSupports(recorded artifact.Artifact) string {
 // brief is something for the operator to do, and an unapproved design in a
 // project whose designs are automatic is nothing at all.
 func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) string {
-	setting, mode, governed := policy.Setting(recorded.Kind)
+	setting, mode, governed := policy.SettingFor(recorded)
 	latest, approved := recorded.LatestApproval()
 	if approved {
 		given := fmt.Sprintf("given by the %s %s, for revision %d",
@@ -436,7 +436,7 @@ func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) 
 			given, laterRevisions(recorded.RevisionsSinceApproval()))
 	}
 	switch {
-	case policy.Requires(recorded.Kind):
+	case policy.RequiresFor(recorded):
 		return fmt.Sprintf("none recorded, and %s is %s, so this document is yours to approve", setting, mode)
 	case governed:
 		return fmt.Sprintf("none recorded; %s is %s, so none is asked for", setting, mode)
@@ -457,10 +457,10 @@ func laterRevisions(count int) string {
 func artifactApprovals(artifacts []artifact.Artifact, policy artifact.Policy) map[string]artifactApproval {
 	approvals := make(map[string]artifactApproval, len(artifacts))
 	for _, recorded := range artifacts {
-		setting, mode, governed := policy.Setting(recorded.Kind)
+		setting, mode, governed := policy.SettingFor(recorded)
 		reported := artifactApproval{
 			State:                  recorded.ApprovalState(),
-			Required:               policy.Requires(recorded.Kind),
+			Required:               policy.RequiresFor(recorded),
 			RevisionsSinceApproval: recorded.RevisionsSinceApproval(),
 		}
 		if governed {

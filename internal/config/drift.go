@@ -71,6 +71,12 @@ type Drift struct {
 	BundleRevision   string `json:"bundle_revision,omitempty"`
 	// Values is every compared key, in key order.
 	Values []Value `json:"values,omitempty"`
+	// Comments is every comment the template tracks, compared against the
+	// project's own file. It is answered whether or not there is a baseline,
+	// because what a comment is compared against is the template's own record of
+	// what it wrote there rather than a record the project keeps; see
+	// comments.go.
+	Comments []Value `json:"comments,omitempty"`
 }
 
 // Available is the improvements a project could take: the bundle moved them and
@@ -269,6 +275,14 @@ type Unknown struct {
 // a file that decides nothing about how it runs. Which kind of unknown it is
 // comes back with it, so a surface that was asked outright can say the true one.
 func ReadDrift(resolved Resolved) (Drift, Unknown) {
+	drift, unknown := readValueDrift(resolved)
+	drift.Comments = CompareComments(resolved.Path)
+	return drift, unknown
+}
+
+// readValueDrift is the comparison of values against the baseline beside the
+// configuration.
+func readValueDrift(resolved Resolved) (Drift, Unknown) {
 	if resolved.Path == "" {
 		return Drift{}, Unknown{Absent: true, Reason: "the configuration was not read from a project directory, so it has no baseline beside it"}
 	}

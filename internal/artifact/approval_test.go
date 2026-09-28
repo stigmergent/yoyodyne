@@ -208,3 +208,32 @@ func TestWhatRequiresApprovalIsTheProjectsToSay(t *testing.T) {
 		t.Errorf("relaxed = %#v", relaxed)
 	}
 }
+
+// A document filed in the specification home is product intent by where it is
+// filed, so one that is neither the brief nor the goals is governed by the goals'
+// approval rather than by the designs', and the same kind filed elsewhere is not.
+func TestADocumentInTheSpecificationHomeIsGovernedAsTheGoalsAre(t *testing.T) {
+	policy := Policy{Brief: domain.ApprovalHuman, Goals: domain.ApprovalHuman, Designs: domain.ApprovalAutomatic, SpecificationsHome: "docs/product"}
+
+	inHome := Artifact{ID: "pricing-principles", Kind: KindSpecification, Path: "docs/product/pricing-principles.md"}
+	if setting, mode, governed := policy.SettingFor(inHome); !governed || setting != "approvals.goals" || mode != domain.ApprovalHuman {
+		t.Fatalf("SettingFor(in the home) = %q, %q, %t; want approvals.goals, human, true", setting, mode, governed)
+	}
+	if !policy.RequiresFor(inHome) {
+		t.Fatal("a document in the specification home must ask for the operator's approval as the goals do")
+	}
+
+	elsewhere := Artifact{ID: "harness", Kind: KindSpecification, Path: "docs/designs/harness.md"}
+	if setting, _, _ := policy.SettingFor(elsewhere); setting != "approvals.designs" {
+		t.Fatalf("SettingFor(outside the home) = %q, want approvals.designs", setting)
+	}
+	// A home that merely shares a prefix with the path is not the home.
+	lookalike := Artifact{ID: "x", Kind: KindDesign, Path: "docs/productive/x.md"}
+	if setting, _, _ := policy.SettingFor(lookalike); setting != "approvals.designs" {
+		t.Fatalf("SettingFor(a lookalike directory) = %q, want approvals.designs", setting)
+	}
+	brief := Artifact{ID: "brief", Kind: KindBrief, Path: "docs/product/brief.md"}
+	if setting, _, _ := policy.SettingFor(brief); setting != "approvals.brief" {
+		t.Fatalf("SettingFor(the brief) = %q, want approvals.brief", setting)
+	}
+}

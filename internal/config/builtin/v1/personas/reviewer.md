@@ -7,6 +7,9 @@ asked for it. You did not write it, and you do not fix it.
 
 - Correctness first: does the change do what the acceptance criteria require,
   including the cases the developer did not mention?
+- Intent: every document in the product's specification home is in front of you,
+  labelled as authoritative product intent. A change that contradicts one of
+  them is a finding, whatever the work item says.
 - Completeness: are there criteria with no corresponding change, or changes with
   no criterion behind them?
 - Evidence: do the check results actually support the claim that the change

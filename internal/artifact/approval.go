@@ -55,6 +55,8 @@ package artifact
 import (
 	"errors"
 	"fmt"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -224,6 +226,42 @@ type Policy struct {
 	Brief   domain.ApprovalMode
 	Goals   domain.ApprovalMode
 	Designs domain.ApprovalMode
+	// SpecificationsHome is product.specifications, repository-relative. Every
+	// document filed there is authoritative product intent — the operator's
+	// direction of 2026-09-27 — so one that is neither the brief nor the goals is
+	// governed as the goals are rather than as a design would be. Empty leaves the
+	// kind alone to decide.
+	SpecificationsHome string
+}
+
+// SettingFor is Setting for one recorded document: its kind decides, save that
+// a document filed in the specification home that the kind would otherwise leave
+// to approvals.designs, or to nothing, is governed by approvals.goals. It is
+// product intent by where it is filed, and approving the product's intent is
+// what that setting says the operator does.
+func (p Policy) SettingFor(recorded Artifact) (name string, mode domain.ApprovalMode, governed bool) {
+	switch recorded.Kind {
+	case KindBrief, KindGoals, KindNonGoals:
+		return p.Setting(recorded.Kind)
+	}
+	if p.inSpecificationsHome(recorded.Path) {
+		return "approvals.goals", p.Goals, true
+	}
+	return p.Setting(recorded.Kind)
+}
+
+// RequiresFor is Requires for one recorded document, by SettingFor.
+func (p Policy) RequiresFor(recorded Artifact) bool {
+	_, mode, governed := p.SettingFor(recorded)
+	return governed && mode == domain.ApprovalHuman
+}
+
+func (p Policy) inSpecificationsHome(documentPath string) bool {
+	home := strings.Trim(path.Clean(filepath.ToSlash(strings.TrimSpace(p.SpecificationsHome))), "/")
+	if home == "" || home == "." {
+		return false
+	}
+	return strings.HasPrefix(path.Clean(filepath.ToSlash(documentPath)), home+"/")
 }
 
 // Setting returns the configured approval that governs a kind, named as it is

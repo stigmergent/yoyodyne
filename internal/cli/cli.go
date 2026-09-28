@@ -302,10 +302,43 @@ func runConfigDrift(args []string, stdout, stderr io.Writer) int {
 	}
 	if !drift.Known {
 		renderUnknownBaseline(stdout, unknown)
+		renderCommentDrift(stdout, drift, *all)
 		return 0
 	}
 	renderDrift(stdout, drift, *all)
+	renderCommentDrift(stdout, drift, *all)
 	return 0
+}
+
+// renderCommentDrift names every comment the template tracks that the project's
+// copy carries in a wording other than the template's. It is said whether or not
+// there is a baseline, because it is compared against the template's own record
+// of what it wrote rather than against one: a copy carrying an earlier wording
+// is offered the current one, and a copy somebody rewrote is theirs.
+func renderCommentDrift(stdout io.Writer, drift config.Drift, all bool) {
+	for _, value := range drift.Comments {
+		switch value.Class {
+		case config.ClassUnchanged:
+			if !all {
+				continue
+			}
+			fmt.Fprintf(stdout, "\ncomment unchanged -- %s says what the template says\n", value.Key)
+			continue
+		case config.ClassAvailable:
+			fmt.Fprintf(stdout, "\ncomment available -- the template has rewritten %s and this copy still carries its earlier wording\n", value.Key)
+		default:
+			fmt.Fprintf(stdout, "\ncomment yours -- %s was written here in words the template never shipped; never touched\n", value.Key)
+		}
+		fmt.Fprintf(stdout, "  yours:    %s\n", commentOrNone(value.Yours))
+		fmt.Fprintf(stdout, "  template: %s\n", value.Bundle)
+	}
+}
+
+func commentOrNone(comment string) string {
+	if comment == "" {
+		return "(no comment)"
+	}
+	return comment
 }
 
 // renderUnknownBaseline says why there is no comparison and what to do about it,

@@ -1306,7 +1306,7 @@ func (a *activeRun) claim(ctx context.Context) error {
 	if err := validateClaimedItem(item, a.state.WorkItemID); err != nil {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
 	}
@@ -1516,7 +1516,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	if err := validateClaimedItem(item, state.WorkItemID); err != nil {
 		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications})
 	if err != nil {
 		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
 	}
@@ -6926,7 +6926,7 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 			return file.Size, file.Content, err
 		},
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: a.item, Revision: revision})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications})
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}

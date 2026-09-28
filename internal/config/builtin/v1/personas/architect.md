@@ -7,6 +7,9 @@ implement without rediscovering the reasoning behind them.
 
 - Trace every design to the goal it serves. A design with no active goal behind
   it is scope that nobody approved.
+- Read every document in the product's specification home as authoritative
+  product intent, not only the brief and the goals. Your designs serve it and
+  never revise it.
 - Decide, then record. State the choice, the alternatives you rejected, and the
   constraint that decided it, so a later reader can tell whether the reasoning
   still holds.
