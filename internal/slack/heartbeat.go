@@ -119,6 +119,10 @@ type switches struct {
 	// it answers the same question they do: what has stopped the line.
 	outage runstate.ProviderOutage
 	away   bool
+	// diverged is every target branch recorded as one the harness will not catch
+	// up to the remote's, which stops the line the way the outage does and is
+	// ended only by a person settling the branches.
+	diverged []runstate.DivergedTarget
 }
 
 // heartbeatDeliveries says a line that is choosing nothing over ready work, again
@@ -210,6 +214,16 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 	// it is a person's now, and nothing else ends it.
 	severity := report.SeverityNote
 	tag, direct := false, false
+	// A target branch the harness will not catch up to the remote's is the
+	// operator's and nobody else's: nothing the harness does ends it, and every
+	// item it would otherwise have pulled waits behind it. So the line names the
+	// recovery in its mover and is tagged to the operators every time it is said,
+	// at warning, since the per-run blocker that first said it went to one item's
+	// thread and this is the line itself standing still.
+	if state.Reason == readmodel.ReasonDivergedTarget {
+		severity = report.SeverityWarning
+		tag = true
+	}
 	if state.Reason == readmodel.ReasonIntakeHold && held.intake.HeldBy == runstate.IntakeHolderBrake && held.intake.WaitsOnAPerson() {
 		severity = report.SeverityWarning
 		tag = true
@@ -301,6 +315,14 @@ func options(reason readmodel.Reason) []string {
 		return []string{
 			"a watch session should be running; it stopped and nobody meant it to",
 			"leave the line stopped; work is being started by name rather than watched",
+		}
+	case readmodel.ReasonDivergedTarget:
+		// Neither answer ends the divergence: only settling the branches does, and
+		// the line resumes by itself once a sweep finds them converged. What an
+		// operator can say is whether that is in hand.
+		return []string{
+			"I am settling the branches by the recovery in docs/operations.md; the line resumes by itself once they converge",
+			"the divergence needs somebody else; hold intake so nothing is chosen even once the branches converge",
 		}
 	default:
 		return nil
@@ -576,6 +598,7 @@ func waitingLine(held switches, sessions []runstate.WatchTransition, inFlight in
 		IntakeHeld:     held.intakeHeld,
 		ProviderOutage: held.outage,
 		ProviderAway:   held.away,
+		Diverged:       held.diverged,
 		Sessions:       func() ([]runstate.WatchTransition, error) { return sessions, nil },
 		// This pass's own moment, so a provider usage window the line reports as
 		// standing is one that had not lifted when the rest of the pass was read.

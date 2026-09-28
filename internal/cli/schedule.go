@@ -510,14 +510,15 @@ func openStallWatch(configPath string, threshold time.Duration, stderr io.Writer
 	}
 	watch := &stallWatch{
 		checker: watchdog.Checker{
-			Runs:      parts.store,
-			Sessions:  parts.watch,
-			Holds:     parts.holds,
-			Intake:    parts.intake,
-			Outages:   parts.outages,
-			Backlog:   readyBacklog{tracker: parts.tracker()},
-			Stalls:    stalls,
-			Threshold: threshold,
+			Runs:        parts.store,
+			Sessions:    parts.watch,
+			Holds:       parts.holds,
+			Intake:      parts.intake,
+			Outages:     parts.outages,
+			Divergences: parts.divergences,
+			Backlog:     readyBacklog{tracker: parts.tracker()},
+			Stalls:      stalls,
+			Threshold:   threshold,
 		},
 		threshold: threshold,
 		stderr:    stderr,
@@ -742,6 +743,10 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// every endpoint a developer's turn can end on, so a session started inside
 		// a window the record already holds chooses nothing from its first poll.
 		UsageLimits: parts.usageLimits,
+		// A target branch the harness will not catch up to the remote's, recorded
+		// by the run that met it, holds the choosing until a sweep finds the
+		// branches converged.
+		Divergences: parts.divergences,
 		Developers:  developerEndpoints(parts.config),
 		// Read against what the provider has served since and which conversations
 		// are still their roles', so intake is never held on a window a served

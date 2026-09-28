@@ -186,6 +186,13 @@ type Docket interface {
 	List() ([]triage.Entry, error)
 }
 
+// DivergedTargets is the product's record of the target branches the harness
+// will not catch up to the remote's, as a reading asks it. It is satisfied by
+// *runstate.DivergedTargetStore.
+type DivergedTargets interface {
+	Standing() ([]runstate.DivergedTarget, error)
+}
+
 // Sources are the durable records one standing reading is assembled from, and
 // the two configured numbers it is read against. Every store is an interface so
 // that this derivation can be exercised without a state directory, which is the
@@ -245,6 +252,10 @@ type Sources struct {
 	// rather than reporting none — three days of a login nobody was told had
 	// expired is the reason this is here.
 	ProviderOutages ProviderOutages
+	// DivergedTargets is the product's record of the target branches the harness
+	// will not catch up to the remote's. It is optional, and a reading without
+	// one says nothing about a divergence rather than reporting none.
+	DivergedTargets DivergedTargets
 	// Supervision is the product's supervisor: whether one is running, and what
 	// it last recorded about the parts of the product. It is optional, and a
 	// reading without one says nothing about the parts rather than reporting
@@ -465,6 +476,12 @@ type Standing struct {
 	// where it is answering. It is carried whole for the surfaces that read the
 	// model rather than its lines; the banner above says it in one sentence.
 	ProviderOutage *runstate.ProviderOutage `json:"provider_outage,omitempty"`
+	// DivergedTargets is every target branch the product's record holds as one
+	// the harness will not catch up to the remote's, carried whole for the
+	// surfaces that read the model rather than its lines. While any stands a
+	// watching session chooses nothing; each is on the attention line as the
+	// operator's, with the recovery.
+	DivergedTargets []runstate.DivergedTarget `json:"diverged_targets,omitempty"`
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
@@ -693,6 +710,17 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	if switches.providerAway && stall.Reason != ReasonProviderAway {
 		needs = append(needs, outageAttention(switches.providerOutage))
 	}
+	// A target branch the harness will not catch up to the remote's is on the
+	// attention line whatever else is stopping the choosing, for the reason the
+	// outage is: only a person settles it. Where it is what stops the choosing
+	// the stall below carries the first; every other one is added here.
+	standing.DivergedTargets = switches.diverged
+	for index, diverged := range switches.diverged {
+		if index == 0 && stall.Reason == ReasonDivergedTarget {
+			continue
+		}
+		needs = append(needs, divergedTargetAttention(diverged))
+	}
 	// The hold is waiting on a person in the one way a window is not: the window
 	// lifts on the provider's clock, and the configuration that let it hold every
 	// role is the operator's to change.
@@ -713,6 +741,11 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// choosing nothing over a ready queue is a state no record announces, and the
 	// only thing that ever said it was the silence afterwards.
 	if waiting, attention := stall.Waiting(); attention {
+		// A divergence's stall names its reason, which is every divergence's, so
+		// its entry is keyed to the branch it is about like the ones above.
+		if stall.Reason == ReasonDivergedTarget && len(switches.diverged) > 0 {
+			waiting.ID = divergedTargetAttentionID(switches.diverged[0])
+		}
 		needs = append(needs, waiting)
 	}
 	// A part of the product the supervisor has stopped restarting is down and
@@ -1017,6 +1050,9 @@ type switches struct {
 	// they are: as what stops the choosing, and as something waiting on a person.
 	providerOutage runstate.ProviderOutage
 	providerAway   bool
+	// diverged is every target branch recorded as one the harness will not
+	// catch up to the remote's.
+	diverged []runstate.DivergedTarget
 	// pausing are the unresolved directives that stop work, in the order they were
 	// recorded.
 	pausing []directive.Directive
@@ -1048,6 +1084,13 @@ func readSwitches(sources Sources) switches {
 			read.problems = append(read.problems, fmt.Sprintf("whether the provider is answering could not be read: %v", err))
 		} else {
 			read.providerOutage, read.providerAway = outage, standing
+		}
+	}
+	if sources.DivergedTargets != nil {
+		if diverged, err := sources.DivergedTargets.Standing(); err != nil {
+			read.problems = append(read.problems, fmt.Sprintf("whether a target branch stands diverged from the remote's could not be read: %v", err))
+		} else {
+			read.diverged = diverged
 		}
 	}
 	if sources.Directives == nil {
@@ -1259,6 +1302,7 @@ func whyNothingStarts(sources Sources, held switches, running int, now time.Time
 		IntakeHeld:     held.intakeHeld,
 		ProviderOutage: held.providerOutage,
 		ProviderAway:   held.providerAway,
+		Diverged:       held.diverged,
 		Running:        running,
 		Capacity:       sources.Capacity,
 		// The reading's own moment, so a provider's usage window this line reports
