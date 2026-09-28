@@ -2081,10 +2081,10 @@ and `yoyo status` then say too. The channel line asks the same way as it says
 the stop, so a sink catching the stop up after the branch was deleted ends it
 on the branch being gone and the re-run rather than on a resume that would
 refuse. It has to have recorded a failure that was actually
-returned to its developer — findings, a failing check, or refused paths — or be
-the stall above, which returned none because the harness stopped it; a run whose
-provider kept refusing, or whose replay conflicted, is neither, and has no
-attempt to carry on with. The item must
+returned to its developer — findings, a failing check, refused paths, or a
+replay conflict, which a run records before it stops on one — or be the stall
+above, which returned none because the harness stopped it; a run whose provider
+kept refusing is neither, and has no attempt to carry on with. The item must
 not be closed or waiting on other work. A grant of the development manager's has
 to be there and not already carried out. **The preserved worktree has to be
 as the harness left it**: what a continued developer is handed back is whatever is
@@ -2294,15 +2294,16 @@ to a person: what a restored checkout would promote is not what was reviewed.
 
 One thing leaves the resumed path, and it leaves it exactly as it always did:
 a replay onto a target that moved re-earns the checks and the review like any
-replay, and a replay that conflicts stops the run for a person with both sides
-preserved. A conflict is never recorded as an integration stop, because the
+replay, and a replay that conflicts goes back to the change's developer as a
+repair attempt, or stops the run for a person with both sides preserved where no
+attempt is left. A conflict is never recorded as an integration stop, because the
 environment does not answer for it; it is recorded on the run as a *replay
 conflict* instead, written before the blocker about it is attempted on the
 tracker so it survives that write failing, and the record refuses the two
 together. The docket entry for such a run names the conflict and you as the
-next mover — or the repair-continue, once `yoyo triage repair` extends to
-conflicts (yoyodyne-ifd.132) — and says the resume is not the answer; asked
-anyway, the resume and the repair both refuse in the same sentence.
+next mover, names `yoyo triage repair` as the verb that hands the conflict back
+to the same developer session (yoyodyne-ifd.132), and says the resume is not the
+answer; asked anyway, the resume refuses in the same sentence.
 
 Everything you type as a command — `/status`, `/backlog`, `/show`, `/work`,
 `/reports`, `/refresh` — means the same thing in every conversation, because

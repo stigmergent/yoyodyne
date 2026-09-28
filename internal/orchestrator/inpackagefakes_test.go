@@ -128,6 +128,10 @@ func (partialWorktreeManager) RebaseOntoTarget(context.Context, gitworktree.Work
 	return gitworktree.Rebase{}, errors.New("partial worktree cannot be replayed")
 }
 
+func (partialWorktreeManager) ReplayForRepair(context.Context, gitworktree.Worktree, string) (gitworktree.Rebase, error) {
+	return gitworktree.Rebase{}, errors.New("partial worktree cannot be replayed")
+}
+
 func (partialWorktreeManager) CleanupIntegrated(context.Context, gitworktree.CleanupRequest) (gitworktree.Cleanup, error) {
 	return gitworktree.Cleanup{}, errors.New("partial worktree cannot be cleaned up")
 }

@@ -406,16 +406,22 @@ check or a repair verdict — and the replay that takes the count past it stops
 the run there, on the change; at `0` no replay may stop on the change. The earlier
 approval never carries over, because the diff it approved is not the one that
 would now be promoted. A replay that conflicts is never
-resolved automatically: the run stops, both sides survive untouched, and the
-blocker on the item says so. The conflict is also written on the run's own
-record, before the blocker is attempted on the tracker, so the run says what
-stopped it even when that write fails — and the docket entry, the item's notes,
-and the refusals of `yoyo triage resume` and `yoyo triage repair` all name the
-conflict and a person as the next mover from that record rather than from the
-error's prose. A replay the harness itself killed — timed out, cancelled, or
-stalled — is not a conflict, although it leaves the same half-applied state: it
-is abandoned so the worktree is back on its branch, and recorded as the
-environmental stop below rather than handed to a person.
+resolved automatically, and it goes back to the developer that wrote the change
+first: the change is moved onto where the target went with the conflict left in
+the worktree as Git's markers, the same developer session settles it as a repair
+attempt, and the result is checked and reviewed again before it is promoted. A
+conflict is a replay that stopped on the change, so it is charged to the
+integration budget as well as spending a repair attempt. Only a run with either
+budget spent stops, both sides untouched, with a blocker on the item naming the
+conflicting paths — and a repair granted in triage hands that same conflict to
+that same session. The conflict is also written on the run's own record, before
+the blocker is attempted on the tracker, so the run says what stopped it even
+when that write fails — and the docket entry, the item's notes, and the refusal
+of `yoyo triage resume` all name the conflict and `yoyo triage repair` from that
+record rather than from the error's prose. A replay the harness itself killed —
+timed out, cancelled, or stalled — is not a conflict, although it leaves the same
+half-applied state: it is abandoned so the worktree is back on its branch, and
+recorded as the environmental stop below rather than handed to a person.
 
 **An environmental stop after approval costs nothing.** Not everything that
 stops an approved change short of the target branch is a verdict on it, and
@@ -465,8 +471,9 @@ anything is written, because an environment that has refused one promotion
 that often is a machine somebody has to look at rather than a run to resume
 again. The one thing that leaves the path before that is a replay that
 conflicts, which re-enters the conflict
-path above — the run stops, both sides survive, and a person decides — and is
-never recorded as a stop the harness can resume past. Before this existed
+path above — handed back to the change's developer while the run has a repair
+attempt, and stopped for a person with both sides intact where it has none — and
+is never recorded as a stop the harness can resume past. Before this existed
 every verb that could pick such a run up spent something for it, and
 yoyodyne-ifd.309's approved change cost four operator overrides to reach the
 target, none of them for a verdict.

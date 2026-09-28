@@ -82,6 +82,8 @@ var structuredStrings = map[string]string{
 	"integration_stop.phase":               "an enumeration",
 	"replay_conflict.target_branch":        "a local branch name",
 	"replay_conflict.phase":                "an enumeration",
+	"replay_conflict.target_commit":        "matched against the commit pattern",
+	"replay_conflict.paths[]":              "repository paths the replay stopped on, bounded in number",
 	"integration_resumptions[].cause":      "an enumeration",
 	"integration_resumptions[].superseded_refusal.cause":            "an enumeration",
 	"integration_resumptions[].superseded_refusal.round_charged_by": "a run id",

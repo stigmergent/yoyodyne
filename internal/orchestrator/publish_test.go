@@ -2233,3 +2233,153 @@ func TestPipelineRepublishesAReplayedChangeOntoItsPullRequest(t *testing.T) {
 		t.Fatalf("durable pull request = %#v", state.PullRequest)
 	}
 }
+
+// conflictedPublishedRun is a published run whose approved change conflicts
+// when its promotion is replayed: once the pull request is opened, the target
+// takes a different answer on the same line and the remote carries it. The
+// first developer attempt writes this run's answer; every later one is the
+// reconciliation, handed to reconcile, which runs the given hook before
+// writing both answers reconciled. It reports the commit the run first
+// published, once the pull request has been opened.
+func conflictedPublishedRun(t *testing.T, repository string, forge *orchestratortest.Forge, reconciling func(request backend.RunRequest)) (*orchestratortest.Backend, *string) {
+	t.Helper()
+	published := ""
+	attempts := 0
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		attempts++
+		path := filepath.Join(request.WorkingDirectory, "feature.txt")
+		if attempts == 1 {
+			return os.WriteFile(path, []byte("this run's version\n"), 0o600)
+		}
+		reconciling(request)
+		return os.WriteFile(path, []byte("both versions, reconciled\n"), 0o600)
+	}, approveVerdict)
+	forge.OnEnsure = func() {
+		if published != "" {
+			return
+		}
+		published = publishedCommit(t, forge.Remote, "yoyodyne/yoyodyne-task/01234567")
+		writePipelineFile(t, repository, "feature.txt", "someone else's version\n")
+		runPipelineGit(t, repository, "add", "feature.txt")
+		runPipelineGit(t, repository, "commit", "-m", "a conflicting edit on main")
+		runPipelineGit(t, repository, "push", "origin", "refs/heads/main:refs/heads/main")
+	}
+	return provider, &published
+}
+
+// yoyodyne-ifd.132 on a published run: an approved change whose replay
+// conflicts is moved onto the target and handed back to its developer, and the
+// branch the pull request carries is no longer an ancestor of what that
+// attempt commits. So the attempt replaces the remote run branch rather than
+// extending it, by compare-and-swap from exactly the commit the harness
+// published there — and never pushes it while the attempt is uncommitted, when
+// the worktree's HEAD is the bare target and a pull request whose head sits
+// inside its own base reads to a forge as already merged. The same request
+// then carries the reconciled commit, and that is what merges.
+func TestPipelineReplacesAPublishedBranchWithTheReconciledReplayConflict(t *testing.T) {
+	t.Parallel()
+
+	repository, remote := publishedRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	forge := &orchestratortest.Forge{Remote: remote}
+	var remoteWhileReconciling, headWhileReconciling, targetWhileReconciling string
+	var markersSeen bool
+	provider, published := conflictedPublishedRun(t, repository, forge, func(request backend.RunRequest) {
+		content, err := os.ReadFile(filepath.Join(request.WorkingDirectory, "feature.txt"))
+		if err != nil {
+			t.Errorf("read the conflicted file: %v", err)
+		}
+		markersSeen = strings.Contains(string(content), "<<<<<<<")
+		remoteWhileReconciling = publishedCommit(t, remote, "yoyodyne/yoyodyne-task/01234567")
+		headWhileReconciling = gitLine(t, request.WorkingDirectory, "rev-parse", "HEAD")
+		targetWhileReconciling = gitLine(t, repository, "rev-parse", "refs/heads/main")
+	})
+	pipeline, store := newPublishingPipeline(t, repository, tracker, provider, forge, []string{"test -f feature.txt"})
+
+	outcome, err := pipeline.Run(context.Background(), "yoyodyne-task")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if *published == "" || outcome.Integration == nil || outcome.PublishFailure != "" {
+		t.Fatalf("Run() outcome = %#v, published = %q; want the reconciled change promoted and published", outcome, *published)
+	}
+	developers := provider.RequestsForRole(domain.RoleDeveloper)
+	if len(developers) != 2 || developers[1].SessionID != provider.DeveloperSession {
+		t.Fatalf("developer invocations = %d, want the first attempt and one reconciliation in the same session", len(developers))
+	}
+	if !markersSeen || !strings.Contains(developers[1].Prompt, "Integration conflict: repair required") {
+		t.Fatalf("the reconciling developer was not handed the conflict (markers seen = %t):\n%s", markersSeen, developers[1].Prompt)
+	}
+	// While the attempt was uncommitted, the worktree stood on the bare target
+	// and the remote run branch was left exactly where the harness had published
+	// it: neither the target nor anything else was pushed in its place.
+	if headWhileReconciling != targetWhileReconciling {
+		t.Fatalf("worktree HEAD while reconciling = %q, want the moved target %q", headWhileReconciling, targetWhileReconciling)
+	}
+	if remoteWhileReconciling != *published {
+		t.Fatalf("remote run branch while reconciling = %q, want the commit first published %q", remoteWhileReconciling, *published)
+	}
+	// The one pull request carries the reconciled commit, built on the target,
+	// and that is what the forge merged.
+	reconciled := outcome.PullRequest.HeadCommit
+	if len(forge.Opened) != 1 || forge.Number != 1 {
+		t.Fatalf("forge saw %d requests, want the one request carried through", len(forge.Opened))
+	}
+	if reconciled == *published || reconciled != outcome.Integration.SourceCommit {
+		t.Fatalf("published head = %q, want the promoted reconciled commit %q rather than %q", reconciled, outcome.Integration.SourceCommit, *published)
+	}
+	if remoteBranch := publishedCommit(t, remote, "yoyodyne/yoyodyne-task/01234567"); remoteBranch != "" && remoteBranch != reconciled {
+		t.Fatalf("remote run branch = %q, want the reconciled commit %q or the branch cleaned up after the merge", remoteBranch, reconciled)
+	}
+	if parent := gitLine(t, repository, "rev-parse", reconciled+"^"); parent != targetWhileReconciling {
+		t.Fatalf("reconciled commit's parent = %q, want the moved target %q", parent, targetWhileReconciling)
+	}
+	if len(forge.Merges) != 1 || forge.Merges[0].Number != 1 || forge.Merges[0].HeadCommit != reconciled {
+		t.Fatalf("forge merges = %#v, want the reconciled commit merged through the same request", forge.Merges)
+	}
+	assertRemoteCarriesPromotion(t, repository, remote, "main", outcome.Integration.TargetCommit)
+	if integrated := gitLine(t, remote, "show", "main:feature.txt"); integrated != "both versions, reconciled" {
+		t.Fatalf("remote main:feature.txt = %q, want the reconciliation", integrated)
+	}
+	state, err := store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.ReplayConflict != nil || state.PullRequest == nil || state.PullRequest.HeadCommit != reconciled {
+		t.Fatalf("durable state = conflict %#v, pull request %#v; want the conflict settled and the reconciled head recorded", state.ReplayConflict, state.PullRequest)
+	}
+}
+
+// The replacement is a compare-and-swap from the commit the harness published,
+// not a force: a remote run branch that carries anything else by the time the
+// reconciled attempt is pushed — somebody else pushed to it — is refused rather
+// than overwritten, and the run stops with nothing promoted or merged.
+func TestPipelineRefusesToReplaceAPublishedBranchSomebodyElseMoved(t *testing.T) {
+	t.Parallel()
+
+	repository, remote := publishedRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	forge := &orchestratortest.Forge{Remote: remote}
+	foreign := ""
+	var published *string
+	var provider *orchestratortest.Backend
+	provider, published = conflictedPublishedRun(t, repository, forge, func(backend.RunRequest) {
+		foreign = strings.TrimSpace(gitOutput(t, repository, "commit-tree", *published+"^{tree}", "-p", *published, "-m", "somebody else's push"))
+		runPipelineGit(t, repository, "push", "--force", "origin", foreign+":refs/heads/yoyodyne/yoyodyne-task/01234567")
+	})
+	pipeline, _ := newPublishingPipeline(t, repository, tracker, provider, forge, []string{"test -f feature.txt"})
+
+	outcome, err := pipeline.Run(context.Background(), "yoyodyne-task")
+	if err == nil || !strings.Contains(err.Error(), "republish") {
+		t.Fatalf("Run() error = %v, want the replacement refused", err)
+	}
+	if foreign == "" {
+		t.Fatal("the reconciling attempt never ran, so nothing was moved under the published branch")
+	}
+	if outcome.Integration != nil || len(forge.Merges) != 0 || tracker.Closed {
+		t.Fatalf("Run() outcome = %#v, merges = %#v, closed = %t; want nothing promoted or merged", outcome, forge.Merges, tracker.Closed)
+	}
+	if remoteBranch := publishedCommit(t, remote, "yoyodyne/yoyodyne-task/01234567"); remoteBranch != foreign {
+		t.Fatalf("remote run branch = %q, want somebody else's push %q left standing", remoteBranch, foreign)
+	}
+}

@@ -763,10 +763,12 @@ budget, and an item with no rounds left never gets a grant to carry out at all.
 Five more things refuse it. The stopped run has to be really over, terminal and
 still standing on whichever of the two docketed it, read from the run's own
 record rather than from the docket
-entry. The run has to have recorded a repair input — a run whose provider kept
-refusing, whose replay conflicted, or that died before anything judged its work,
-never had a failure returned to its developer, so there is no repair loop to
-re-enter; a re-run is what those need. The one exception is a stall — a provider
+entry. The run has to have recorded a repair input — a replay conflict is one,
+recorded on the run before it stops, so the continuation hands the same
+developer the same conflict to reconcile on top of the target
+(yoyodyne-ifd.132); a run whose provider kept refusing, or that died before
+anything judged its work, never had a failure returned to its developer, so
+there is no repair loop to re-enter, and a re-run is what those need. The one exception is a stall — a provider
 the harness stopped on time, settled by the sweep with the developer session
 preserved — which is continued at the step it stalled in: the developer attempt
 in that session, or, for a run stopped at its checks or its review, that step

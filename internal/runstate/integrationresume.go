@@ -122,8 +122,18 @@ func (s IntegrationStop) ResumeSays(runID string) string {
 
 // ReplayConflict is this run's approved change having conflicted when it was
 // replayed onto what its target branch had become. It is the one outcome that
-// leaves the resumed path, and it is a person's to settle exactly as it always
-// was: the environment did not stop the change, the target moved under it.
+// leaves the resumed path: the environment did not stop the change, the target
+// moved under it, and which side is right is a decision about the change.
+//
+// That decision is asked of the developer that wrote the change first
+// (yoyodyne-ifd.132). The record is the repair input it is handed: the change
+// is moved onto the target with the disagreement left in the worktree, and the
+// same developer session is continued to reconcile the two, after which the
+// change re-earns the whole gate. It is cleared by the checks passing on the
+// reconciled change, because a change that passes on top of the target is the
+// settlement. A run whose budget leaves no attempt to hand it stops blocked with
+// the record standing, so a repair triage grants afterwards hands the same
+// developer the same disagreement.
 //
 // It is recorded as its own fact rather than left to the blocker, because the
 // blocker is a write to the tracker and the tracker can fail to take it. On
@@ -137,14 +147,29 @@ func (s IntegrationStop) ResumeSays(runID string) string {
 // record refuses rather than trusts.
 type ReplayConflict struct {
 	// TargetBranch is the branch the replay was onto, which is what the change
-	// conflicts with.
+	// conflicts with, and TargetCommit is where that branch had got to: the
+	// other side of the disagreement.
 	TargetBranch string `json:"target_branch"`
-	// Detail is the failure the replay ended on, folded to a line. It is evidence
-	// for whoever reads the record rather than a second classification of it.
+	TargetCommit string `json:"target_commit,omitempty"`
+	// Paths are the repository-relative paths the replay stopped on, in the
+	// order Git listed them, and Omitted is how many further ones the bound
+	// dropped. A replay refused for something other than content can name none.
+	Paths   []string `json:"paths,omitempty"`
+	Omitted int      `json:"omitted,omitempty"`
+	// Detail is Git's own account of the refusal, bounded. It is evidence for
+	// whoever reads the record rather than a second classification of it.
 	Detail string `json:"detail,omitempty"`
-	// Phase is the phase the run stopped in.
+	// Phase is the phase the run was in when the conflict was decided.
 	Phase      Phase     `json:"phase"`
 	RecordedAt time.Time `json:"recorded_at"`
+	// Moved says the change has already been put onto the target with the
+	// disagreement left in the worktree as conflict markers, which is the state
+	// the developer is asked to reconcile it in. It is recorded because the move
+	// and the attempt after it are two steps a process can die between, and a
+	// run continued afterwards — by an interrupted process being picked up, or
+	// by a repair triage granted once the run's own budget was spent — has to
+	// know whether the move is still owed before it invokes anybody.
+	Moved bool `json:"moved,omitempty"`
 }
 
 // Validate reports every contract violation in the record at once.
@@ -152,9 +177,25 @@ func (c ReplayConflict) Validate() error {
 	var problems []error
 	if strings.TrimSpace(c.TargetBranch) == "" {
 		problems = append(problems, errors.New("target_branch is required, because it is what the change conflicts with"))
+	} else if !validLocalBranch(c.TargetBranch) {
+		problems = append(problems, errors.New("target_branch must be a local branch name"))
 	}
-	if len(c.Detail) > MaxEnvironmentalDetailBytes {
-		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(c.Detail), MaxEnvironmentalDetailBytes))
+	if c.TargetCommit != "" && !commitPattern.MatchString(c.TargetCommit) {
+		problems = append(problems, errors.New("target_commit must be a full commit hash"))
+	}
+	if len(c.Paths) > MaxConflictedPaths {
+		problems = append(problems, fmt.Errorf("%d conflicted paths are recorded, which exceeds the bound of %d", len(c.Paths), MaxConflictedPaths))
+	}
+	for index, conflicted := range c.Paths {
+		if strings.TrimSpace(conflicted) == "" {
+			problems = append(problems, fmt.Errorf("paths[%d] is empty", index))
+		}
+	}
+	if c.Omitted < 0 {
+		problems = append(problems, errors.New("omitted cannot be negative"))
+	}
+	if len(c.Detail) > MaxConflictDetailBytes {
+		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(c.Detail), MaxConflictDetailBytes))
 	}
 	if c.Phase != PhaseReviewing && c.Phase != PhaseIntegrating {
 		problems = append(problems, fmt.Errorf("phase %q is not one an approved change is replayed in", c.Phase))
@@ -171,8 +212,8 @@ func (c ReplayConflict) Describe() string {
 }
 
 // Says is the one sentence every surface says of this conflict: that the run's
-// change is approved, what it conflicted with, and that a person or the
-// repair-continue moves next rather than `yoyo triage resume`. It is the
+// change is approved, what it conflicted with, and that the repair-continue or a
+// person moves next rather than `yoyo triage resume`. It is the
 // docket's own wording, for the reason IntegrationStop.ResumeSays is.
 func (c ReplayConflict) Says(runID string) string {
 	return triage.ReplayConflictSays(runID, c.TargetBranch)

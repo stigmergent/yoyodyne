@@ -895,9 +895,10 @@ func TestAnApprovedChangeStoppedByTheEnvironmentResumesToAMergedPullRequestCharg
 }
 
 // A replay that conflicts is the one outcome that leaves the resumed path, and
-// it leaves it exactly as a first promotion's conflict does: the run stops for
-// a person, both sides preserved, with nothing charged and no environmental stop
-// recorded for a conflict the environment does not answer for.
+// it leaves it exactly as a first promotion's conflict does. With no repair
+// attempt left to hand it to its developer, the run stops for a person, both
+// sides preserved, with nothing charged and no environmental stop recorded for a
+// conflict the environment does not answer for.
 func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *testing.T) {
 	t.Parallel()
 
@@ -917,7 +918,9 @@ func TestAResumedPromotionWhoseReplayConflictsStopsForAPersonChargingNothing(t *
 		return serve(request)
 	}
 	build := func() Pipeline {
-		return automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
+		pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
+		pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
+		return pipeline
 	}
 	outcome, err := build().Run(context.Background(), tracker.Item.ID)
 	if err == nil || !errors.Is(err, gitworktree.ErrPrimaryNotReady) {
