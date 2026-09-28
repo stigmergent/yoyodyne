@@ -2511,10 +2511,10 @@ remote gained, which is by definition work this repository has never seen.
 
 ```text
 Running (2 developer runs):
-  yoyodyne-ifd.194 (The four-line status: running, working, not-startable-with-reasons, needs-a-human) — developing, 12m elapsed, $3.41 so far
+  yoyodyne-ifd.194 (The four-line status: running, working, not-startable-with-reasons, needs-a-human) — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far
   yoyodyne-ifd.201 (The invariant loader skips the directory README, as everything else already documents) — reviewing, 3m elapsed, cost unknown (its event log is gone)
 Working (1 conversation):
-  product-manager — product-manager, a turn in flight for 40s after 270 recorded turns
+  product-manager — product-manager, on claude-opus-5 at medium effort, a turn in flight for 40s after 270 recorded turns
 Not startable (4 of 7 admitted items; 1 awaits the development manager's decision, 1 awaits the harness carrying out a decision already recorded):
   yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked

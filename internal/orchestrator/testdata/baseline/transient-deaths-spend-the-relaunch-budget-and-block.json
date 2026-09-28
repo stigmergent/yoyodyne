@@ -55,6 +55,7 @@
     "branch": "yoyodyne/yoyodyne-task/01234567",
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "effort_settled": true,
     "failure": "the provider ended this run without judging the work after 2 of 2 permitted relaunch(es): api_error: API Error: the provider ended this invocation and named no reason for it",
     "last_sequence": 0,
     "phase": "developing",

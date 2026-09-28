@@ -122,6 +122,7 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "effort_settled": true,
     "failure": "the change replayed onto its moved target stopped on the change with 1 of 0 permitted replay stop(s) spent: independent review requires repair: the change misses the acceptance criteria",
     "harness_commit": "\u003ccommit-2\u003e",
     "integration_retries": 1,

@@ -120,6 +120,7 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "effort_settled": true,
     "failure": "independent review requires repair after 2 of 2 permitted attempt(s): the change misses the acceptance criteria",
     "harness_commit": "\u003ccommit-2\u003e",
     "last_sequence": 12,

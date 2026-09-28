@@ -166,8 +166,8 @@ func (s Standing) renderRunning() string {
 	if len(s.Running) > 0 {
 		listed, further := bound(len(s.Running))
 		for _, run := range s.Running[:listed] {
-			fmt.Fprintf(&rendered, "  %s — %s, %s elapsed, %s%s\n",
-				run.WorkItemID, phaseOf(run), age(run.Elapsed), spendOf(run), slotOf(run))
+			fmt.Fprintf(&rendered, "  %s — %s%s, %s elapsed, %s%s\n",
+				run.WorkItemID, phaseOf(run), atEffort(run.Model, run.Effort), age(run.Elapsed), spendOf(run), slotOf(run))
 		}
 		rendered.WriteString(remainder(further, "developer run"))
 	}
@@ -244,8 +244,8 @@ func (s Standing) renderWorking() string {
 		fmt.Fprintf(&rendered, "Working (%s):\n", count(len(s.Working), "conversation"))
 		listed, further := bound(len(s.Working))
 		for _, turn := range s.Working[:listed] {
-			fmt.Fprintf(&rendered, "  %s — %s, a turn in flight for %s after %s\n",
-				turn.Agent, turn.Role, age(turn.Elapsed), count(turn.Turns, "recorded turn"))
+			fmt.Fprintf(&rendered, "  %s — %s%s, a turn in flight for %s after %s\n",
+				turn.Agent, turn.Role, atEffort(turn.Model, turn.Effort), age(turn.Elapsed), count(turn.Turns, "recorded turn"))
 		}
 		rendered.WriteString(remainder(further, "conversation"))
 	}
@@ -594,4 +594,19 @@ func (s Standing) StaleProgramManagersLine() string {
 		return ""
 	}
 	return fmt.Sprintf("Program managers stale: %d of %d (%s)\n", len(stale), len(s.ProgramManagers), strings.Join(stale, ", "))
+}
+
+// atEffort is the model a line's invocation asked for and the effort level it
+// asked at, said in the words `yoyo agent list` uses, and nothing where no level
+// was recorded: a record naming none asked for none, and a line that named the
+// model alone would be saying something it never said before this level existed.
+func atEffort(model, effort string) string {
+	effort = strings.TrimSpace(effort)
+	if effort == "" {
+		return ""
+	}
+	if model = strings.TrimSpace(model); model == "" {
+		return ", at " + effort + " effort"
+	}
+	return ", on " + model + " at " + effort + " effort"
 }

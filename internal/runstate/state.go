@@ -2240,6 +2240,11 @@ type State struct {
 	// developer agent that configured none, and every run recorded before the
 	// level was configurable; either way the provider resolved its own.
 	ProviderEffort string `json:"provider_effort,omitempty"`
+	// EffortSettled says ProviderEffort was settled when this run was reserved,
+	// so an empty one means the developer agent named no level then rather than
+	// that the run predates the field. It is what keeps an edit to the level from
+	// reaching a run already in flight.
+	EffortSettled bool `json:"effort_settled,omitempty"`
 	// DeveloperModel is the selector execution.developer_models chose for this
 	// run from the labels its item carried, and DeveloperModelReason is why that
 	// entry rather than another or than none. They are settled once, when the run

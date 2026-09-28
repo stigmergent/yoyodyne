@@ -108,6 +108,7 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "effort_settled": true,
     "harness_commit": "\u003ccommit-2\u003e",
     "integration": {
       "previous_target_commit": "\u003ccommit-1\u003e",

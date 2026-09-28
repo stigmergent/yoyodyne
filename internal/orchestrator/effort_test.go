@@ -157,3 +157,47 @@ func TestABranchReviewAsksForTheReviewersEffortAndRecordsIt(t *testing.T) {
 		t.Fatalf("recorded reviews = %#v, want one recording max", recorded)
 	}
 }
+
+// A level settled at reservation is the run's for its whole life, an empty one
+// included: an agent that named none when the run started does not start asking
+// for one on the repair because somebody added it to the file mid-run.
+func TestAnEffortEditedMidRunReachesNoRunInFlight(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Work", Status: "open"}}
+	var agents map[string]config.AgentConfig
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		// The operator edits the level while the first attempt is under way.
+		for name, agent := range agents {
+			if agent.Role == domain.RoleDeveloper {
+				agent.Effort = "high"
+				agents[name] = agent
+			}
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, repairVerdict, approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	agents = pipeline.Config.Agents
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	attempts := provider.RequestsForRole(domain.RoleDeveloper)
+	if len(attempts) < 2 {
+		t.Fatalf("the run made %d developer attempt(s), want the first and its repair", len(attempts))
+	}
+	for index, request := range attempts {
+		if request.Effort != "" {
+			t.Fatalf("developer attempt %d asked at %q, want the level settled at reservation, which was none", index, request.Effort)
+		}
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !state.EffortSettled || state.ProviderEffort != "" {
+		t.Fatalf("recorded settled=%v effort=%q, want the empty level recorded as settled", state.EffortSettled, state.ProviderEffort)
+	}
+}

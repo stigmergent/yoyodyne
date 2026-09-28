@@ -4070,7 +4070,8 @@ provider a project [declares](provider-plugins.md) accepts whatever its adapter
 does.
 
 **Every record says what was asked.** A run records the developer's level at
-reservation — read back by every attempt, as its account and model are — and
+reservation — read back by every attempt, as its account and model are, so an
+edit to the key reaches the next run and never one already in flight — and
 the reviewer's with its verdict; both appear in the item's notes beside the
 models. A conversation records the level of its last turn, an exchange round and
 a side thread record theirs, a recurring or program manager pass records its
@@ -4078,9 +4079,11 @@ pass's, and a branch review records its reviewer's. Every line in the cost log
 carries the level its invocation asked for, so each turn is pinned to one even
 where the conversation's own record has moved on. An absent level means none was
 asked. `yoyo config show` prints the key beside the model, `yoyo agent list`
-says `model opus at medium effort`, `yoyo status --json` carries it on each
-running run and conversation in flight, and the dashboard shows it beside the
-model on a run's card.
+says `model opus at medium effort`, `yoyo status` says it beside the model on
+the line of each running run and each conversation in flight — `developing, on
+claude-opus-5 at medium effort` — and carries it under `--json`, and the
+dashboard shows it beside the model on a run's card. A line whose record names
+no level says nothing of one, and reads as it did before the key existed.
 
 ## Relaunching a run the provider killed
 

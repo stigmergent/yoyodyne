@@ -565,6 +565,7 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	// in flight. A mapped model keeps the agent's level: the mapping chooses the
 	// model, and nothing in it is a decision about how hard it is asked to think.
 	state.ProviderEffort = strings.TrimSpace(p.developer().Effort)
+	state.EffortSettled = true
 	lease, err := p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
 	if err != nil {
 		// The wrapping is the reservation's own, so that what a caller reports about
@@ -3581,12 +3582,15 @@ func (a *activeRun) developerModel() string {
 }
 
 // developerEffort is the effort level this run's developer invocations ask for,
-// read off the run's own record for the reason the model is. A run reserved
-// before the level was recorded asks for the developer agent's configured level.
+// read off the run's own record for the reason the model is -- including an
+// empty one, which is the agent having named no level when the run was
+// reserved. Only a run reserved before the level was recorded asks for the
+// developer agent's configured level, settling it on that first reading.
 func (a *activeRun) developerEffort() string {
-	if effort := strings.TrimSpace(a.state.ProviderEffort); effort != "" {
-		return effort
+	if a.state.EffortSettled {
+		return strings.TrimSpace(a.state.ProviderEffort)
 	}
+	a.state.EffortSettled = true
 	return strings.TrimSpace(a.pipeline.developer().Effort)
 }
 
