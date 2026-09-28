@@ -25,6 +25,15 @@ term's parts are spaced, and
 is what this document is now written against: **25 occurrences of 6 terms** in
 the prose the check reads, every one of them a term with a row below.
 
+That sweep measured the terms it already knew. The whole of the harness's own
+vocabulary — every term of art in the printed strings, the role contracts and
+personas, the guides, and the governed documents, with where each appears, how
+often, what it means, and whether it is proposed for replacing or for a row
+here — is [the vocabulary inventory](vocabulary-inventory.md), written by
+`go run ./scripts/vocabulary` so it can be measured again. A term it proposes
+to register is not registered until its row is written here, and one it
+proposes to replace is not replaced until it is listed below.
+
 ## The register
 
 
