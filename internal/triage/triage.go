@@ -1861,6 +1861,7 @@ func (e Entry) renderEscalation() string {
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "      Nothing was integrated: the %s judged this item cannot be met as it stands, in the round it reached, and raised it for your decision — replan, park, resequence, or redirect.\n",
 		raised.RaisedBy.Title())
+	rendered.WriteString("      This is a raise rather than a stopped run, so a repair is refused on it. Once the item's owner has amended it and released the raise's parking, \"rerun\" starts it again from this run's preserved change where its branch still stands, and \"retire-raise\" ends the raise where the amendment makes that change moot.\n")
 	rendered.WriteString(indented("Why the "+raised.RaisedBy.Title()+" says it cannot be met", raised.Reason))
 	return rendered.String()
 }

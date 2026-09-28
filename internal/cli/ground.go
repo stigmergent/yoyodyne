@@ -514,6 +514,16 @@ func (r conversationStoppedRuns) WorkItemOf(_ context.Context, runID string) (st
 	return state.WorkItemID, nil
 }
 
+// Raised reports the run having ended by raising its item as unmeetable, read
+// from the run's own record, which is where each role writes the verb.
+func (r conversationStoppedRuns) Raised(_ context.Context, runID string) (bool, error) {
+	state, err := r.store.Read(runID)
+	if err != nil {
+		return false, err
+	}
+	return state.Escalated(), nil
+}
+
 // UnlandedChange reports the change an item's own work produced that never
 // reached the integration target, which is the substrate a child decomposed out
 // of that item would be written against.

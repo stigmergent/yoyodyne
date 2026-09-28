@@ -65,6 +65,13 @@ const (
 	// anyway: nothing is asked of the run, and the decision is the record that she
 	// looked and chose not to stop it. Like a stop, it decides no stoppage.
 	TriageDecisionProceed = "proceed"
+	// TriageDecisionRetireRaise ends an item a role raised as unmeetable where the
+	// item's owner amended it so that what the raising run left is moot: the item
+	// goes back to the queue to be started from the target branch, and nothing
+	// lifts the raising run's change into the run that does it. It answers a raise
+	// and nothing else — a stopped run has no raise to retire — and it spends
+	// nothing, because it buys no attempt.
+	TriageDecisionRetireRaise = "retire-raise"
 )
 
 // TriageDecisionVocabulary lists the decisions in the order the development
@@ -73,7 +80,7 @@ func TriageDecisionVocabulary() []string {
 	return []string{
 		TriageDecisionRepair, TriageDecisionRerun, TriageDecisionRescope,
 		TriageDecisionRearm, TriageDecisionWait, TriageDecisionEscalate,
-		TriageDecisionStop, TriageDecisionProceed,
+		TriageDecisionStop, TriageDecisionProceed, TriageDecisionRetireRaise,
 	}
 }
 
@@ -291,7 +298,7 @@ func (c TriageCounters) AwaitingCarryOut(runID string) bool {
 }
 
 // RecordDecision records a triage decision that spends nothing: a re-scope, a
-// wait, an escalation, or a stop. The three that buy another attempt are recorded by the
+// wait, an escalation, a stop, a proceed, or a raise retired. The three that buy another attempt are recorded by the
 // operation that spends their budget, in the same write, so that a decision and
 // the spend it authorizes can never be one without the other.
 func (s *TriageStore) RecordDecision(ctx context.Context, workItemID string, decision TriageDecision, at time.Time) (TriageCounters, error) {
@@ -380,7 +387,7 @@ func validTriageDecision(decision string) error {
 	switch decision {
 	case TriageDecisionRepair, TriageDecisionRerun, TriageDecisionRescope,
 		TriageDecisionRearm, TriageDecisionWait, TriageDecisionEscalate,
-		TriageDecisionStop, TriageDecisionProceed:
+		TriageDecisionStop, TriageDecisionProceed, TriageDecisionRetireRaise:
 		return nil
 	default:
 		return fmt.Errorf("%q is not a triage decision; the decisions are %s",

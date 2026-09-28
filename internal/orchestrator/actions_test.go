@@ -1018,6 +1018,12 @@ var notAStep = map[string]string{
 	// and could not be reordered into one: it changes nothing about the work, and
 	// what it creates is outside the worktree and can never enter the change.
 	"prepareScratch": "cuts the run the scratch directory its developer contract names",
+	// What a fresh worktree starts from is part of cutting it, and it is decided
+	// by the run's recorded selection rather than by anything a definition could
+	// order: a re-run of a raise starts from the raising run's preserved change,
+	// every other run from the target branch alone, and nothing has been
+	// delivered yet either way.
+	"liftPreserved": "starts the worktree from the preserved change the run's selection names",
 
 	// After the delivery. The landing checks run once the run is terminal, its
 	// item settled and its artifacts gone, over the target branch rather than

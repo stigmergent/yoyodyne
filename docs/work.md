@@ -776,11 +776,19 @@ reason, and on the triage docket.
 
 The item neither closes nor goes back bare-pullable. It is parked, in the words
 of whichever role raised it, and the parking reason says who releases it: the
-development manager, once she has decided. And the escalation is docketed as the
-run ends, so it reaches her the way a stopped run does — as an *item raised as
+item's owner, once it has amended the item so it can be met, or the development
+manager, by retiring the raise. And the escalation is docketed as the run ends,
+so it reaches her the way a stopped run does — as an *item raised as
 unmeetable* on the triage docket, carrying the account, what was preserved, and
 what the item has spent. The decision she takes is hers: replan, park,
-resequence, or redirect.
+resequence, or redirect. Once the item is amended, what becomes of the raising
+run's change is hers too, and a repair is not among the answers, because the run
+did not stop: `rerun` starts the item again from that change once the owner has
+released the parking, and `retire-raise` ends the raise where the amendment made
+the change moot. The owner's release ends the raise and clears any blocked
+status left while it stood, so a pull can select the item.
+[Deciding what becomes of stopped work](conversation.md#deciding-what-becomes-of-stopped-work)
+is the whole of it.
 
 An escalation takes no `blocked_by`. A developer that can name the impediment as
 another work item has the evidence landing above for exactly that; this verb is

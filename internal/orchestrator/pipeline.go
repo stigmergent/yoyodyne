@@ -1291,6 +1291,9 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		return run.fail(fmt.Errorf("create isolated worktree: %w", err), runstate.StatusFailed)
 	}
 	run.recordWorktree(worktree)
+	if err := run.liftPreserved(ctx); err != nil {
+		return run.fail(err, runstate.StatusFailed)
+	}
 	if err := run.prepareScratch(); err != nil {
 		return run.fail(err, runstate.StatusFailed)
 	}
@@ -6754,6 +6757,44 @@ func (a *activeRun) recordWorktree(worktree gitworktree.Worktree) {
 	a.outcome.WorktreePath = worktree.Path
 	a.outcome.Branch = worktree.Branch
 	a.outcome.BaseCommit = worktree.BaseCommit
+}
+
+// ChangeLifter applies a change an earlier run of the item left on its branch
+// into a fresh worktree, uncommitted. It is satisfied by *gitworktree.Manager,
+// and asked for only by a run whose selection names a lift, so a manager that
+// does not offer it costs every other run nothing.
+type ChangeLifter interface {
+	LiftChange(ctx context.Context, worktree gitworktree.Worktree, branch string) (gitworktree.Lift, error)
+}
+
+// liftPreserved starts this run from the preserved change its selection names,
+// before its developer is invoked, and records the commit it started from.
+//
+// A lift that could not be made ends the run rather than going on without it.
+// The run was started to carry that change forward, and a developer handed an
+// empty worktree in its place would re-derive it or deliver nothing, which is
+// the failure a fresh run over a preserved change always had. The one ending
+// that is not a failure is a branch carrying nothing past the target: there is
+// no change to start from, so the run starts from the target as any run does.
+func (a *activeRun) liftPreserved(ctx context.Context) error {
+	selection := a.state.Selection
+	if selection == nil || selection.Lift == nil {
+		return nil
+	}
+	lift := *selection.Lift
+	lifter, ok := a.pipeline.Worktrees.(ChangeLifter)
+	if !ok {
+		return fmt.Errorf("this run was selected to start from run %s's change on %s, and the worktree manager it was given cannot lift one", lift.RunID, lift.Branch)
+	}
+	lifted, err := lifter.LiftChange(ctx, a.worktree, lift.Branch)
+	if errors.Is(err, gitworktree.ErrNothingToLift) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("start from run %s's preserved change on %s: %w", lift.RunID, lift.Branch, err)
+	}
+	a.state.LiftedCommit = lifted.Commit
+	return nil
 }
 
 // prepareScratch cuts this run the directory its contract names, before the

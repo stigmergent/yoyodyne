@@ -60,6 +60,42 @@ type Selection struct {
 	By     string    `json:"by"`
 	Reason string    `json:"reason"`
 	At     time.Time `json:"at"`
+	// Lift names a change an earlier run of the item left on its branch that this
+	// run starts from rather than from the target branch alone. It is set by one
+	// selection only — the development manager's re-run of an item a role raised
+	// as unmeetable, once its owner amended and released it — and it is recorded
+	// with the rest of the selection because what a run was given to start from is
+	// part of why it came out the way it did.
+	Lift *Lift `json:"lift,omitempty"`
+}
+
+// Lift is the preserved change a run starts from: the earlier run that made it
+// and the branch it stands on. What is lifted is what the branch carries past
+// where it and the target branch last agreed, applied to the fresh worktree
+// uncommitted, so the fresh run's change is judged whole against the target
+// exactly as any other run's is.
+type Lift struct {
+	RunID  string `json:"run_id"`
+	Branch string `json:"branch"`
+}
+
+// maxLiftBranchBytes bounds the branch a lift names, which is a branch the
+// harness cut for an earlier run and so far shorter than this.
+const maxLiftBranchBytes = 256
+
+// Validate refuses a lift that names nothing to start from.
+func (l Lift) Validate() error {
+	var problems []error
+	if !ValidRunID(strings.TrimSpace(l.RunID)) {
+		problems = append(problems, fmt.Errorf("lift run %q is not a run identifier", l.RunID))
+	}
+	switch branch := strings.TrimSpace(l.Branch); {
+	case branch == "":
+		problems = append(problems, errors.New("a lift names the branch the preserved change stands on"))
+	case len(branch) > maxLiftBranchBytes || strings.ContainsAny(branch, " \t\r\n"):
+		problems = append(problems, fmt.Errorf("lift branch %q is not a branch name the harness cut", l.Branch))
+	}
+	return errors.Join(problems...)
 }
 
 // Validate rejects a selection that could not account for a run. Every field is
@@ -78,6 +114,11 @@ func (s Selection) Validate() error {
 	}
 	if s.At.IsZero() {
 		problems = append(problems, errors.New("selection at is required"))
+	}
+	if s.Lift != nil {
+		if err := s.Lift.Validate(); err != nil {
+			problems = append(problems, err)
+		}
 	}
 	return errors.Join(problems...)
 }
@@ -103,7 +144,7 @@ func (s Selection) Stamped(at time.Time) (Selection, bool) {
 	if !s.Stated() {
 		return Selection{}, false
 	}
-	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At}
+	stamped := Selection{By: strings.TrimSpace(s.By), Reason: boundReason(strings.TrimSpace(s.Reason)), At: s.At, Lift: s.Lift}
 	if stamped.At.IsZero() {
 		stamped.At = at.UTC()
 	}

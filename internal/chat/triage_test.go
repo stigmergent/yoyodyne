@@ -1286,6 +1286,10 @@ type fakeStoppedRuns struct {
 	// unreadable is the item whose records will not be read, so a gate that
 	// cannot establish anything is a state a test can produce.
 	unreadable string
+	// raised is every run that ended by raising its item as unmeetable. A run
+	// missing from it stopped, which is every run in every test that is not about
+	// a raise.
+	raised map[string]bool
 }
 
 func (f fakeStoppedRuns) WorkItemOf(_ context.Context, runID string) (string, error) {
@@ -1294,6 +1298,13 @@ func (f fakeStoppedRuns) WorkItemOf(_ context.Context, runID string) (string, er
 		return "", fmt.Errorf("no run %s is recorded", runID)
 	}
 	return workItemID, nil
+}
+
+func (f fakeStoppedRuns) Raised(_ context.Context, runID string) (bool, error) {
+	if _, recorded := f.items[runID]; !recorded {
+		return false, fmt.Errorf("no run %s is recorded", runID)
+	}
+	return f.raised[runID], nil
 }
 
 func (f fakeStoppedRuns) UnlandedChange(_ context.Context, workItemID string) (UnlandedChange, bool, error) {

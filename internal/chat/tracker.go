@@ -1897,6 +1897,9 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		}
 		outcome.applied("parked %s, so nothing selects it until it is released: %s", id, singleLine(parking.Reason(), maxTrackerFailureBytes))
 	case actionUnpark:
+		// Whether the parking being released is an unmeetable raise's is read
+		// before it is released, because afterwards nothing on the item says so.
+		raise := s.raiseBeingReleased(ctx, id)
 		released := domain.WorkItemParking("")
 		change := beads.WorkItemChange{
 			Parking:     &released,
@@ -1906,7 +1909,12 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			outcome.fail(err)
 			return
 		}
-		outcome.applied("released %s back into the queue, where it is selected in the order its priority puts it", id)
+		ended, err := s.endReleasedRaise(ctx, id, raise)
+		if err != nil {
+			outcome.fail(err)
+			return
+		}
+		outcome.applied("released %s back into the queue, where it is selected in the order its priority puts it%s", id, ended)
 	case actionLink:
 		dependsOn := strings.TrimSpace(action.DependsOn)
 		if err := s.options.Tracker.AddBlocker(ctx, id, dependsOn); err != nil {

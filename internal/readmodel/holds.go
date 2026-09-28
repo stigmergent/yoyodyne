@@ -273,6 +273,16 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		if escalation.WorkItemID == "" || strings.TrimSpace(escalation.Decision) != "" {
 			continue
 		}
+		// A raise is held by the parking it placed, which is the owner's to release,
+		// and the release is what ends it. Holding it here as well is what kept an
+		// amended, released raise out of every pull whenever its delivery was
+		// answered without a decision recorded against it — a development manager
+		// who read the raise and waited for the owner's amendment left exactly
+		// that. What she may still decide about the raising run's change is
+		// answered below, where a decided re-run holds the item until it starts.
+		if escalation.DocketKey == triage.Key(triage.ClassEscalation, escalation.RunID) {
+			continue
+		}
 		// Never a carry-out: an escalation with nothing recorded against it is by
 		// construction one nobody has decided, so what it waits on is the decision
 		// itself however much triage has decided about the item's other stoppages.
@@ -341,6 +351,24 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 			continue
 		}
 		reasons[workItemID] = heldFor(preservedChange(run, found), carryOut, problem, stoppedAt(run))
+	}
+	// A raise whose re-run the development manager has decided and the harness
+	// has still to carry out. The run that raised the item succeeded, so none of
+	// the stoppage rules above holds it, and once the item's owner has released
+	// the raise's parking nothing else does either: a pull would start the item
+	// from the target beside the re-run that is to start it from the raise's
+	// preserved change. It is the harness's move, as every decided carry-out is.
+	//
+	// It asks of the item's latest run rather than of its latest raise, because
+	// the decision stands on the record after it is carried out: once the re-run
+	// has started, the item's latest run is that re-run and nothing is held here.
+	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool { return run.WorkItemID != "" }) {
+		if _, held := reasons[workItemID]; held || !run.Status.Terminal() || !run.Escalated() {
+			continue
+		}
+		if carryOut, _ := decided(workItemID, run.RunID); carryOut {
+			reasons[workItemID] = heldFor(raiseRerun(run), true, "", stoppedAt(run))
+		}
 	}
 	// The merged publications last. Only these know the change reached everywhere
 	// it was going, so only these may say there is nothing left to do about it —
@@ -524,6 +552,15 @@ func stoppage(run runstate.State) bool {
 		return false
 	}
 	return strings.TrimSpace(run.Blocker) != "" || run.DiedInItsOwnProcess() || run.StoppedAtStageBound()
+}
+
+// raiseRerun says why an item a role raised as unmeetable is held once the
+// development manager has decided to run it again: the re-run starts from what
+// the raising run left, and a pull would start from nothing beside it.
+func raiseRerun(run runstate.State) string {
+	return fmt.Sprintf(
+		"run %s raised it as one that cannot be met as it stands, and a re-run of it that starts from that run's preserved change is decided; a fresh pull would start over beside it",
+		run.RunID)
 }
 
 // preservedChange says why an item with work still on a branch is not something

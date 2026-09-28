@@ -86,6 +86,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -120,6 +121,11 @@ const (
 	// decisionEscalate hands the entry to the operator, which is the only
 	// decision that asks a person for anything.
 	decisionEscalate = runstate.TriageDecisionEscalate
+	// decisionRetireRaise ends an item a role raised as unmeetable where the
+	// owner's amendment made the raising run's change moot: the item goes back to
+	// the queue to start from the target branch, and nothing lifts that change.
+	// It answers a raise and nothing else.
+	decisionRetireRaise = runstate.TriageDecisionRetireRaise
 	// decisionStop stops a run still in flight whose work is superseded,
 	// narrowed, or mis-launched, with its change preserved. It names a run that
 	// has not stopped, which is the one way it differs from every decision above.
@@ -183,6 +189,9 @@ var triageSettles = map[string]triageSettlement{
 	// decision about it, which is the one entry a run has before it stops.
 	decisionStop:    {classes: []triage.Class{triage.ClassProductDecision}},
 	decisionProceed: {classes: []triage.Class{triage.ClassProductDecision}},
+	// Retiring a raise answers the raise, and only a raise: it is refused on a run
+	// that raised nothing before it gets this far.
+	decisionRetireRaise: {classes: []triage.Class{triage.ClassEscalation}},
 }
 
 // runEntryClasses are the docket entries a decision about a run answers: what a
@@ -214,6 +223,10 @@ var triageVerbs = map[string]string{
 	decisionEscalate: "Escalated to the operator by triage",
 	decisionStop:     "Triaged: stopped in flight, with its change preserved",
 	decisionProceed:  "Triaged: left to finish in flight",
+	// A retired raise is written in its own sentence where it is carried out,
+	// because what it did to the item's parking and status is the half a reader
+	// needs; this is the entry the vocabulary check reads.
+	decisionRetireRaise: "Triaged: its unmeetable raise retired, the raising run's change moot under the amended item",
 	// The crossing's own sentence is built where it is recorded rather than taken
 	// from here, because which cap was crossed and which of the five crossings this
 	// was are the whole of what makes the note answerable. This is the fallback
@@ -331,6 +344,11 @@ type DocketClosure struct {
 type Stoppages interface {
 	// WorkItemOf reports the work item the named run was made for.
 	WorkItemOf(ctx context.Context, runID string) (string, error)
+	// Raised reports the named run having ended by raising its item as one that
+	// cannot be met as it stands. Such a run did not stop — raising is what it was
+	// for — so the decisions that answer it are not the ones that answer a
+	// stoppage, and this is what tells the two apart.
+	Raised(ctx context.Context, runID string) (bool, error)
 	// UnlandedChange reports the change one work item's own runs made that never
 	// reached the integration target, and whether there is one at all. Work the
 	// harness never ran, and work whose change is on the target branch, both
@@ -575,6 +593,11 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		s.carryOutProceed(ctx, outcome, id, run)
 		return
 	}
+	raised, err := s.refuseMisfitRaiseDecision(ctx, decision, run)
+	if err != nil {
+		outcome.refused(err)
+		return
+	}
 	spent, err := s.recordTriageDecision(ctx, id, runstate.TriageDecision{
 		Decision: decision,
 		RunID:    run,
@@ -614,13 +637,107 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 			id, run, s.closeDocketEntry(ctx, decision, run, action.Reason))
 		return
 	}
+	if decision == decisionRetireRaise {
+		s.carryOutRetiredRaise(ctx, outcome, id, run, note)
+		return
+	}
 	if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note}); err != nil {
 		outcome.fail(err)
 		s.settleTrackerNote(ctx, outcome, id, note, "the decision recorded on the item")
 		return
 	}
-	outcome.applied("triaged %s as %q, on the stopped work of run %s%s%s",
-		id, decision, run, spent.clause, s.closeDocketEntry(ctx, decision, run, action.Reason))
+	lifted := ""
+	if raised && decision == decisionRerun {
+		lifted = "; it is a re-run of a raise, so it starts from the raising run's preserved change where its branch still stands, once the item's owner has amended the item and released the raise's parking"
+	}
+	outcome.applied("triaged %s as %q, on the stopped work of run %s%s%s%s",
+		id, decision, run, spent.clause, lifted, s.closeDocketEntry(ctx, decision, run, action.Reason))
+}
+
+// raiseDecisions is the sentence that names what answers a raise, said wherever
+// a decision that does not is refused on one.
+func raiseDecisions(runID string) string {
+	return fmt.Sprintf(
+		"run %s raised its item as one that cannot be met as it stands rather than stopping, so there is no stopped run here for a repair to continue; the two decisions that apply to an unmeetable raise are %q, once the item's owner has amended the item and released the raise's parking, which starts the item again from the raising run's preserved change where one stands, and %q, where the amendment makes that change moot and the item is to start from the target branch",
+		runID, decisionRerun, decisionRetireRaise)
+}
+
+// refuseMisfitRaiseDecision refuses the decision that cannot be carried out on
+// a raise, and the one that means nothing on anything else, and reports whether
+// the run raised its item.
+//
+// A repair continues a run that stopped, and a run that raised its item did not
+// stop: it succeeded at saying the item cannot be met. Recording one spends a
+// repair grant nothing will ever carry out, which is what yoyodyne-ifd.437.13's
+// repair of 2026-09-27 cost, so it is refused before anything is spent, in the
+// sentence that names the two decisions that do apply. Retiring a raise is the
+// converse: on a run that raised nothing there is nothing to retire.
+//
+// A conversation with no run records wired cannot tell, and records the
+// decision unchecked, exactly as it records every other decision unchecked; the
+// carry-out then refuses what it cannot act on.
+func (s *Session) refuseMisfitRaiseDecision(ctx context.Context, decision, runID string) (bool, error) {
+	if s.options.Stoppages == nil {
+		return false, nil
+	}
+	if decision != decisionRepair && decision != decisionRetireRaise && decision != decisionRerun {
+		return false, nil
+	}
+	raised, err := s.options.Stoppages.Raised(ctx, runID)
+	if err != nil {
+		return false, fmt.Errorf("whether run %s raised its item as unmeetable could not be read, so nothing was recorded and nothing was spent: %w", runID, err)
+	}
+	switch {
+	case raised && decision == decisionRepair:
+		return raised, fmt.Errorf("%s; nothing was recorded and nothing was spent", raiseDecisions(runID))
+	case !raised && decision == decisionRetireRaise:
+		return raised, fmt.Errorf("run %s did not raise its item as unmeetable, so there is no raise to retire; nothing was recorded", runID)
+	}
+	return raised, nil
+}
+
+// carryOutRetiredRaise ends a raise the development manager judged moot under
+// the owner's amendment, and puts the item back in the queue to start from the
+// target branch.
+//
+// The parking it lifts is the raise's own and no other: the raise placed it to
+// hold the item for her decision, and this is that decision. A parking anybody
+// else placed since is theirs, and is left exactly as it is with the item saying
+// so. A blocked status the raise left — the escalation that followed it, most
+// often — is cleared with it, because the raise is what it was holding the item
+// for, and an item left reading blocked on nobody's account reads to every
+// surface as waiting on somebody.
+func (s *Session) carryOutRetiredRaise(ctx context.Context, outcome *TrackerOutcome, id, run, note string) {
+	item, err := s.options.Tracker.Show(ctx, id)
+	if err != nil {
+		outcome.fail(fmt.Errorf("read %s before retiring the raise: %w", id, err))
+		return
+	}
+	change := beads.WorkItemChange{AppendNotes: note}
+	released := ""
+	if raisedBy, raisedHere := runstate.RaisedBy(item.Parking.Reason()); raisedHere && raisedBy == run {
+		unparked := domain.WorkItemParking("")
+		change.Parking = &unparked
+		released = "; the parking the raise placed is lifted"
+	} else if item.Parking.Parked() {
+		released = fmt.Sprintf("; its parking is not the raise's and was left as it is, so it is not selected until that parking is released: %s",
+			singleLine(item.Parking.Reason(), maxTrackerFailureBytes))
+	}
+	if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
+		outcome.fail(err)
+		s.settleTrackerNote(ctx, outcome, id, note, "the retired raise recorded on the item")
+		return
+	}
+	if strings.TrimSpace(item.Status) == blockedWorkItemStatus {
+		cleared := s.trackerProvenance(fmt.Sprintf("Blocked status cleared: it was left by the unmeetable raise of run %s, which the development manager retired", run), "the raise it held the item for is retired")
+		if _, err := s.options.Tracker.Unblock(ctx, id, cleared); err != nil {
+			outcome.fail(fmt.Errorf("the raise is retired and recorded on %s, and its blocked status could not be cleared: %w", id, err))
+			return
+		}
+		released += "; the blocked status it left is cleared"
+	}
+	outcome.applied("retired the unmeetable raise of run %s on %s%s, so the item starts from the target branch when it is next pulled and nothing lifts that run's change%s",
+		run, id, released, s.closeDocketEntry(ctx, decisionRetireRaise, run, outcome.Action.Reason))
 }
 
 // settleTrackerNote asks the tracker whether a write it reported as failed
@@ -1025,4 +1142,63 @@ func (s *Session) recordTriageDecision(ctx context.Context, workItemID string, d
 			landed: fmt.Sprintf("the merge re-arm is spent against publication %s's durable budget: %d re-arm(s) of it are now recorded", rearmed.Publication, rearmed.Rearms()),
 		}, nil
 	}
+}
+
+// releasedRaise is what an item's parking said about an unmeetable raise at the
+// moment its owner released it: the run that raised it, and whether the item
+// read blocked then.
+type releasedRaise struct {
+	runID   string
+	blocked bool
+	// unread is why the item could not be read before the release, which leaves
+	// the release carried out and the raise not ended by it.
+	unread string
+}
+
+// raiseBeingReleased reads the item a release names for the raise its parking
+// records, if it records one.
+func (s *Session) raiseBeingReleased(ctx context.Context, id string) releasedRaise {
+	item, err := s.options.Tracker.Show(ctx, id)
+	if err != nil {
+		return releasedRaise{unread: err.Error()}
+	}
+	runID, raised := runstate.RaisedBy(item.Parking.Reason())
+	if !raised {
+		return releasedRaise{}
+	}
+	return releasedRaise{runID: runID, blocked: strings.TrimSpace(item.Status) == blockedWorkItemStatus}
+}
+
+// endReleasedRaise ends an unmeetable raise whose parking the item's owner has
+// just released, and says what that came to.
+//
+// The release is the owner saying the item has been amended so that it can be
+// met: the raise said it could not be as it stood, and the parking the raise
+// placed was waiting on exactly that. So the release ends the raise. What the
+// raise left on the item goes with it — a blocked status written while it stood,
+// most often the escalation that followed it, which nothing else rewrites and
+// which would otherwise leave the amended item reading blocked on nobody's
+// account, as yoyodyne-ifd.437.13 did after its release on 2026-09-27.
+//
+// What it does not do is decide what becomes of the raising run's change. The
+// development manager decides that — a re-run that starts from it, or retiring
+// the raise where the amendment made it moot — and until she does, a pull that
+// reaches the item starts it from the target branch like any other.
+func (s *Session) endReleasedRaise(ctx context.Context, id string, raise releasedRaise) (string, error) {
+	if raise.unread != "" {
+		return fmt.Sprintf("; whether its parking was an unmeetable raise's could not be read beforehand (%s), so any raise it ended is not said here", raise.unread), nil
+	}
+	if raise.runID == "" {
+		return "", nil
+	}
+	ended := fmt.Sprintf("; that ends the unmeetable raise of run %s", raise.runID)
+	if raise.blocked {
+		note := s.trackerProvenance(fmt.Sprintf("Blocked status cleared: it was left while the unmeetable raise of run %s stood, and the item's owner has amended the item and released the raise's parking", raise.runID),
+			"the release ends the raise the status was holding the item for")
+		if _, err := s.options.Tracker.Unblock(ctx, id, note); err != nil {
+			return "", fmt.Errorf("%s is released from the raise's parking, and the blocked status the raise left could not be cleared, so it still reads blocked: %w", id, err)
+		}
+		ended += ", and the blocked status it left is cleared"
+	}
+	return ended + fmt.Sprintf("; what becomes of that run's preserved change is the development manager's, as %q to start from it or %q where it is moot", decisionRerun, decisionRetireRaise), nil
 }
