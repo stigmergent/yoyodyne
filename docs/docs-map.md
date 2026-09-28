@@ -31,12 +31,18 @@ habit — the `adoption` job in `.github/workflows/ci.yml` installs `bd` and run
 `make adoption` on every pull request, so the claim the README makes about its
 own getting-started section is executed on every change.
 
-The README stands at 844 lines: 600 of them the README the split was aiming at,
-and 244 the `## Configuring a project` block held back for the configuration
-split — see [the disposition
-table](#disposition-of-every-current-readme-section). The configuration guide is
-untouched and has grown to 3,848 lines, so its own tables below are re-measured
-against a file half again the size they were reconciled against.
+The README stood at 844 lines at the end of the split: 600 of them the README
+the split was aiming at, and 244 the `## Configuring a project` block held back
+for the configuration split — see [the disposition
+table](#disposition-of-every-current-readme-section). **yoyodyne-ifd.437.13
+rewrote it on 2026-09-26 to 344 lines (15 KB, from 45 KB)**, taking that block
+out with the rest; [the rewrite's own
+table](#the-2026-09-26-rewrite-what-left-the-readme-and-where) records every
+move. The configuration guide has not been split. It was 3,848 lines at the end
+of the README split, the split-era figure its tables below were re-measured
+against, and measured on 2026-09-27 it is 6,770 lines, so those tables describe
+a file little more than half its current size. The disposition table's own
+section counts are older still, drawn from the 2,989-line file of 2026-08-24.
 
 ## What each document is for
 
@@ -235,7 +241,14 @@ tree, then across `.beads/issues.jsonl`, and read the two protected homes
 separately, because a citation from one of those is Tier 1 whatever the anchor
 says.
 
-The README's own citations are now these seven, across six anchors:
+**Superseded by the 2026-09-26 rewrite; do not execute against this set.** The
+README now cites six anchors, once each: `#recurring-tasks`,
+`#where-the-tracker-syncs`, `#what-init-proposes-for-checks`,
+`#how-long-a-check-may-take`, `#keeping-the-configuration-outside-the-repository`,
+and `#publishing-through-pull-requests`. `#provider-accounts`, `#checks`, and
+`#when-the-repository-ignores-the-configuration` are no longer among them, and
+`#recurring-tasks` has no row in the tier table below. Before the rewrite, the
+README's own citations were these seven, across six anchors:
 
 | README line | Anchor |
 |---|---|
@@ -249,10 +262,10 @@ The README's own citations are now these seven, across six anchors:
 
 One more than the last pass found, and the new one matters: `#provider-accounts`
 is cited from `### Running several Claude accounts`, a README section that has
-never had a row in the disposition table at all. It is inside the held-back
-`## Configuring a project` block, so the configuration split inherits it along
-with the rest — but it had to be found rather than assumed, and finding it is
-what added its row below.
+never had a row in the disposition table at all. It was inside the held-back
+`## Configuring a project` block, which the 2026-09-26 rewrite took out of the
+README — but it had to be found rather than assumed, and finding it is what
+added its row below.
 
 **Twenty-five of the thirty-one rows have no README citation at all**, the
 section that made it having moved into one of the six landed documents. That is
@@ -342,8 +355,8 @@ it had moved again.
 | `#further-reading` | `skills/yoyo-setup/SKILL.md:21`, `internal/doclink/doclink.go:354`, and the back-link each of `docs/conversation.md:4` (and `:94`), `work.md:4`, `artifacts.md:4`, `reporting.md:4`, `operations.md:4`, `developing-yoyo.md:4` (and `:179`), `delivery-pipeline-baseline.md:4`, `releases/README.md:4`, and `configuration.md:539` opens with | — | section stays; no move to service |
 | `#getting-started` | `.github/release-notes-preamble.md:28`; **recorded prose** in closed yoyodyne-ifd.156 and yoyodyne-ifd.159 | **1** | stays in the README — Tier 1 on the preamble alone |
 | `#3-yoyo-chat--establish-the-brief-and-the-goals` | `skills/yoyo-setup/SKILL.md:220`; **recorded prose** in closed yoyodyne-ifd.125.4 | — | section stays; no move to service |
-| `#keeping-the-configuration-out-of-the-repository` | `docs/configuration.md:153`; **recorded prose** in closed yoyodyne-ifd.76 | 2 | merges into the `docs/configuration.md` index with the rest of `## Configuring a project` |
-| `#running-several-claude-accounts` | `docs/configuration.md:3460` | 2 | merges with the same block — **new to this pass** |
+| `#keeping-the-configuration-out-of-the-repository` | `docs/configuration.md:153`; **recorded prose** in closed yoyodyne-ifd.76 | 2 | **retired** by the 2026-09-26 rewrite; content in `docs/configuration.md#keeping-the-configuration-outside-the-repository` |
+| `#running-several-claude-accounts` | `docs/configuration.md:3460` | 2 | **retired** by the 2026-09-26 rewrite; content in `docs/multi-account-quickstart.md` |
 | `#talking-to-the-other-agents` | nothing in the working tree; **recorded prose** in open yoyodyne-ifd.117.1 and closed yoyodyne-ifd.121.2 | — | **spent** — repointed by ifd.160 to `conversation.md#talking-to-the-other-agents` |
 
 **Six items mention a README anchor, and none of the six freezes one.** Every
@@ -374,27 +387,27 @@ recorded prose rather than as citations since drafting. The reading itself is
 [question 2 for the architect](#what-the-architect-is-being-asked), because the
 README's no-stub conclusion is what rests on it.
 
-**Only the fourth and fifth rows name a section that still has to move**, and
-both are cited by exactly one live citer, `docs/configuration.md` — the document
-those sections merge into. So the run that breaks each link is the run that
-repairs it, which is Tier 2 by definition. Neither dangles meanwhile: ifd.160
-held `## Configuring a project` and its two children back in the README precisely
-because their destination does not exist yet.
-`#running-several-claude-accounts` is the one this pass added, and it is the same
-case — a child of the held-back block, cited once, from the guide that will
-absorb it.
+**The fourth and fifth rows are spent.** When this sweep ran, they named the
+only sections that still had to move, each cited by exactly one live citer,
+`docs/configuration.md` — the document those sections were to merge into.
+ifd.160 had held `## Configuring a project` and its two children back in the
+README because their destination did not exist yet. The 2026-09-26 rewrite
+(yoyodyne-ifd.437.13) took all three out of the README instead and rewrote every
+citing file in the same change, so `#configuring-a-project`,
+`#running-several-claude-accounts`, and
+`#keeping-the-configuration-out-of-the-repository` are retired rather than
+waiting on the configuration split: [the rewrite's
+table](#the-2026-09-26-rewrite-what-left-the-readme-and-where) says where each
+one's content went.
 
 So `#getting-started` is still the sole Tier 1 README anchor, frozen by the
 release preamble rather than by anything in the backlog, and the section it names
-stays — so **the README acquires no stub** and the split lands without one. That
-conclusion now rests on a judgement rather than on an absence, so it is stated as
-one: were a backlog *item's own text* to cite
+stays — so **the README acquires no stub**. The judgement this rested on was
+whether a backlog *item's own text* cited
 `#keeping-the-configuration-out-of-the-repository` or
-`#running-several-claude-accounts`, that anchor would be Tier 1 and the
-configuration split would owe the README a redirect stub. Nothing does today. The
-tranche that merges the block should re-run this sweep before it deletes the
-sections, because the backlog is the one input to it that can change without a
-commit here.
+`#running-several-claude-accounts`; the 2026-09-27 search before the rewrite
+landed found them, and `#configuring-a-project`, only as quoted text in recorded
+review notes, so no stub is owed for any of the three.
 
 One Go file cites a README anchor, twice: `internal/doclink/doclink.go:354` and
 `:363`, both comments using `../README.md#further-reading` as the worked example
@@ -435,15 +448,13 @@ count in this effort — 62 links as of 2026-09-05, down from the 91 counted on
 carried them — so they are the likeliest thing for an execution run to miss.
 
 **The README's share of that is settled.** It linked into itself 54 times across
-32 anchors at drafting, 10 times across 9 anchors after yoyodyne-ifd.160's trim,
-and 10 times across 9 anchors now: `#install` twice, and once each
-`#getting-started`, the three numbered step headings,
-`#optional-publishing-and-auto-merge`, `#further-reading`,
-`#configuring-a-project`, and `#keeping-the-configuration-out-of-the-repository`.
-Seven of the nine name sections that stay. The last two name the held-back block
-and become links into the configuration index when that split merges it. Every
-other anchor became a relative link into one of the six documents, or went with
-the section that carried it, and
+32 anchors at drafting, 10 times across 9 anchors after yoyodyne-ifd.160's trim
+and on 2026-09-05, and 6 times across 6 anchors after the 2026-09-26 rewrite:
+once each `#install`, `#getting-started`, the three numbered step headings, and
+`#optional-publishing-and-auto-merge`. The two links into the held-back block,
+`#configuring-a-project` and `#keeping-the-configuration-out-of-the-repository`,
+went with that block. Every other anchor became a relative link into one of the
+six documents, or went with the section that carried it, and
 `TestThisRepositoryOwnDocumentationLinksResolve` passes over the result — so
 this line is now checked on every run rather than asserted here.
 
@@ -488,17 +499,17 @@ heard of, which is the clearest single measure of how far the file has moved.
 
 ## What the README becomes
 
-The README keeps four things and links out for everything else: the value
-proposition, the testimonials, everything a newcomer needs to reach a working
-first run, and the index. It keeps **nothing extra to service a link** — no
+The README keeps three things and links out for everything else: the value
+proposition, everything a newcomer needs to reach a working first run, and the
+index. It kept a fourth, the testimonials, until the 2026-09-26 rewrite
+(yoyodyne-ifd.437.13) removed them. It keeps **nothing extra to service a link** — no
 Tier 1 stub of its own — and that is a result of the sweep above rather than an
-assumption. Precisely: the two README anchors whose sections still move are each
-cited by exactly one file, `docs/configuration.md`, which is the document those
-sections merge into, so the run that breaks each link repairs it. Nothing this
-repository cannot rewrite cites either of them, and the tracker's mentions of
-them are [recorded prose rather than
-citations](#citations-of-readmemd-anchors). Change any of that and the README
-owes a stub.
+assumption. The two README anchors whose sections were held back for the
+configuration split, and `#configuring-a-project` above them, were retired by the
+2026-09-26 rewrite after every file citing them was rewritten in the same change.
+Nothing this repository cannot rewrite cited any of them, and the tracker's
+mentions of them are [recorded prose rather than
+citations](#citations-of-readmemd-anchors), so **no README stub is owed**.
 
 Install and Getting started **stay in the README**, for two independent reasons.
 The first is the goal: a newcomer reaches a working first run *using the readme
@@ -515,18 +526,21 @@ the sections below the quick start are what carry the weight of the reduction.
 
 **What it actually landed at, on 2026-09-05: 600 lines**, counting the whole file
 and then deducting the 244 lines of `## Configuring a project` and its two
-children, which are held back for the configuration split. That is a 20% overrun
+children, which were then held back for the configuration split. That is a 20% overrun
 on a 500-line budget the map itself says is a size budget for review rather than
 a target to write to, and the reason is the one the budget was set against: the
 README the split started from was 3,792 lines rather than the 2,602 the budget
-was drawn from. Nothing here should be trimmed to reach 500. The 844 lines the
-file physically holds fall to 600 when the configuration split takes the block
-it is owed.
+was drawn from. The 844 lines the file then held were meant to fall to 600 when
+the configuration split took the block it was owed. That is superseded: the
+2026-09-26 rewrite took the block out itself and brought the README to 344
+lines, recorded in [its own
+table](#the-2026-09-26-rewrite-what-left-the-readme-and-where).
 
 Target order. **The line ranges below are the README as it stood before
 yoyodyne-ifd.160 executed this section; they are the plan's own citations rather
-than a description of the file as it now reads**, and the trimmed README follows
-this order with `## Configuring a project` held back between steps 8 and 9:
+than a description of the file as it now reads**, and the trimmed README followed
+this order with `## Configuring a project` held back between steps 8 and 9 until
+the 2026-09-26 rewrite removed it:
 
 1. `# yoyo` — the value proposition, unchanged (README.md:1–31).
 2. **User testimonials**, unchanged (:32–49).
@@ -582,6 +596,50 @@ prose the README split writes:
   what a release is.
 ```
 
+### The 2026-09-26 rewrite: what left the README, and where
+
+yoyodyne-ifd.437.13 rewrote the README from 45 KB to 15 KB on the Lead Product
+Manager's review of that day, keeping the order a newcomer needs: what it is,
+the three gates, a quick start with `yoyo setup` first, what is bounded today,
+`## Install`, `## Getting started` with its three steps and `### Optional:
+publishing and auto-merge`, and `## Further reading`. The Tier 1 anchor
+`#getting-started` is unchanged, and so are `#further-reading`, `#install`,
+`#optional-publishing-and-auto-merge`, and the three step anchors, which
+`skills/yoyo-setup/SKILL.md` cites. Three README anchors were removed:
+`#configuring-a-project`, `#running-several-claude-accounts`, and
+`#keeping-the-configuration-out-of-the-repository`. Each file that cited one of
+the last two now cites the page that holds its content. The only link to
+`#configuring-a-project` was the README's own step 2, removed with the heading;
+a search of the repository on 2026-09-27 finds it nowhere else except as quoted
+text in recorded review notes (the tracker export and a test fixture copied from
+it), which no link follows.
+
+| What left | Where it lives now |
+|---|---|
+| **User testimonials** | Removed. They quoted AI tools' output about the repository as if from users. |
+| The bounds' "none of them act without you" and "nothing decomposes a design on its own" | Replaced: both were false. The bounds now say the development manager decides stopped work, `yoyo work` carries it out, and recurring tasks and program managers can be configured. |
+| "Days of merged work pass between them" | Replaced by what the harness brings to you. |
+| The long `yoyo run` / `review` / `status` / … command sentence | `yoyo help`. |
+| `yoyo setup`'s idempotence, `--yes` / `--json` detail | Kept in one sentence; the rest is `docs/operations.md#setting-up-with-yoyo-setup`, new in this change. |
+| The artifact-home index paragraph | One sentence in step 2; the detail is `docs/artifacts.md#the-index-at-the-door-of-each-home`, new in this change. |
+| Tracker-sync consequences (repository size, `refs/dolt/data`, team caveat) | `docs/configuration.md#where-the-tracker-syncs`. |
+| The three headings `init` writes beside `checks` | One sentence in step 2; the table is `docs/configuration.md#what-init-proposes-for-checks`. |
+| Check budgets and the stage bound | `docs/configuration.md#how-long-a-check-may-take` and the sections after it. |
+| "If you ignored it" warning detail | `docs/configuration.md#when-the-repository-ignores-the-configuration`. |
+| The `.beads/` README aside | Removed; it described a redirect that no longer needs saying. |
+| "What the Lead Product Manager can see" and its eight-document list | `docs/configuration.md#what-the-lead-product-manager-sees-besides-them-and-what-it-does-not`. |
+| Optional publishing's `integration: human` behaviour, dropped merges | `docs/configuration.md#publishing-through-pull-requests` and `docs/work.md`. |
+| `## Configuring a project` | `docs/configuration.md`, which already carried its content. |
+| `### Running several Claude accounts` (`#running-several-claude-accounts`, removed) | `docs/multi-account-quickstart.md`, which gained the browser-profile warning, the by-hand login, and the state directory. `docs/configuration.md` now links there. |
+| `### Keeping the configuration out of the repository` (`#keeping-the-configuration-out-of-the-repository`, removed) | `docs/configuration.md#keeping-the-configuration-outside-the-repository`, which gained the `.git/info/exclude` route and the artifact-home index exclusion. `docs/configuration.md` and `docs/configuration/setup.md` now link there. |
+
+Also corrected in the rewrite: `init` copies six personas, not five; the
+`yoyo version` example names no fixed tag; the repository's home is
+`github.com/stigmergent/yoyodyne` in every clone and release line, and the
+install lines keep the module path `github.com/mason-bryant/yoyodyne`, which
+installs through GitHub's redirect; and "harness" is defined where it is first
+used.
+
 ### Disposition of every current README section
 
 Every section, with its destination. Nothing is dropped; a run that finds
@@ -589,21 +647,24 @@ content with no row here stops and reports rather than choosing a home.
 
 **This table was executed by yoyodyne-ifd.160 on 2026-08-24, and every row
 marked `stays` or naming one of the six landed documents is now spent.** The
-README carries the value proposition, the testimonials, the gates, the quick
-start, the bounds, `## Install`, `## Getting started` with its three steps and
+README carries the value proposition, the gates, the quick start, the bounds, `## Install`, `## Getting started` with its three steps and
 `Optional: publishing and auto-merge`, and the index — plus one section the
-table did not have a landed home for, below. Its counts were the README as it
+table did not have a landed home for, below. It also carried the testimonials
+until the 2026-09-26 rewrite (yoyodyne-ifd.437.13) removed them. Its counts were the README as it
 stood at 2,602 lines rather than the 3,792 it reached before the trim, and they
 are left as drafted because what they were for has happened.
 
-**One row was not executed, deliberately.** `## Configuring a project` and its
-two children — `### Running several Claude accounts` and `### Keeping the
-configuration out of the repository` — are still in the README, because their
-destination is the `docs/configuration.md` index that the configuration split has
-not yet built: merging them is that split's work, and dropping them ahead of it
-would have lost content to no home. They are the whole of the README's overrun —
-844 lines against the 500 budget, 600 without them — so the tranche that merges
-them is also the one that closes the gap.
+**One row was not executed by ifd.160, deliberately.** `## Configuring a
+project` and its two children — `### Running several Claude accounts` and
+`### Keeping the configuration out of the repository` — stayed in the README,
+because their destination was the `docs/configuration.md` index that the
+configuration split had not yet built, and dropping them ahead of it would have
+lost content to no home. They were the whole of the README's overrun — 844 lines
+against the 500 budget, 600 without them. **The 2026-09-26 rewrite executed
+these three rows** without waiting for the split: their content went to
+`docs/configuration.md` and `docs/multi-account-quickstart.md`, as [its
+table](#the-2026-09-26-rewrite-what-left-the-readme-and-where) records, so the
+configuration split owes the README nothing.
 
 **`### Running several Claude accounts` had no row at all**, and
 yoyodyne-ifd.121.6's sweep is what found it: it is `README.md:644–710`, 67 lines,
@@ -628,11 +689,13 @@ already extracted and landed in `conversation.md`, `reporting.md`, and
 trim deleted them with the sections around them; the sixth is one of the three
 held back above.
 
-**The table below now has a row for every heading the README carries**, which it
-did not before yoyodyne-ifd.121.6: the two rows that tranche added are the second
-and third of the held-back block. The counts in the older rows are still the
-2,602-line README's and are left as drafted, because what they were for has
-happened; the two new rows count the README as it stands.
+**The table below had a row for every heading the README carried** as of
+yoyodyne-ifd.121.6: the two rows that tranche added are the second and third of
+the held-back block. The counts in the older rows are still the 2,602-line
+README's and are left as drafted, because what they were for has happened; the
+two new rows count the README as it stood on 2026-09-05. The 2026-09-26 rewrite
+is recorded in [its own table](#the-2026-09-26-rewrite-what-left-the-readme-and-where)
+rather than here.
 
 | Current section | Lines | Destination |
 |---|---|---|
