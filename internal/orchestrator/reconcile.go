@@ -376,14 +376,16 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// start holds it, and this is never reached.
 	//
 	// The same holds for every other park a run returns from and lets its process
-	// exit — waiting on work its item depends on, on an unresolved directive, on
-	// a tracker that would not answer, on a provider nobody could reach, or on the
-	// operator's pause once it is lifted. Nothing in the harness continues any of
-	// those either, so each is settled the same way once its record has sat still
-	// for the grace. On 2026-09-26 a run parked on a dependency held developer
-	// slot 1 for twenty hours, read as resumable by every sweep, because only a
-	// provider stop was settled here
-	// (docs/diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md).
+	// exit — waiting on an unresolved directive, on a tracker that would not
+	// answer, on a provider nobody could reach, or on the operator's pause once it
+	// is lifted. Nothing in the harness continues any of those either, so each is
+	// settled the same way once its record has sat still for the grace. On
+	// 2026-09-26 a run parked on a dependency held developer slot 1 for twenty
+	// hours, read as resumable by every sweep, because only a provider stop was
+	// settled here (docs/diagnoses/yoyodyne-ifd-428-49-dead-run-held-its-slot.md).
+	// A park on work its item depends on was settled here too until a watching
+	// session's pull came to continue it once that work closes
+	// (yoyodyne-ifd.428.51); it is a wait on that work now, and left to the pull.
 	//
 	// A stop somebody asked for comes first and does not wait for the grace: the
 	// run was going to end at its next boundary, no process will reach one, and
@@ -462,11 +464,12 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// A run waiting on work its item depends on is not an interrupted run either.
 	// It recorded what it waits for and is owed the rest of the gate once that
 	// work is closed or unlinked, so settling it here would cancel work somebody
-	// only made wait.
+	// only made wait. Nor is it a park nothing continues: a watching session's
+	// pull continues it once that work closes, however long the wait.
 	if pausedForDependency(state) {
 		result := reconciliationOf(state, ActionResumable)
-		result.Detail = fmt.Sprintf("the run is paused because %s waits on unfinished work and can continue once it is closed: %s; with no process holding it, a sweep after %s of its record not moving settles it as a stopped run",
-			state.WorkItemID, state.DependencyPause.Summary(), r.vanishedGrace())
+		result.Detail = fmt.Sprintf("the run is paused because %s waits on unfinished work: %s; a watching `yoyo work` session continues it at the first pull after that work closes",
+			state.WorkItemID, state.DependencyPause.Summary())
 		return result, nil
 	}
 	// A run parked because the tracker would not answer the read a gate boundary
@@ -1278,14 +1281,16 @@ type recordedPark struct {
 }
 
 // parkNothingServes reports a run parked on something the harness itself will
-// never continue, which is every park but two. A usage limit or an overloaded
+// never continue, which is every park but three. A usage limit or an overloaded
 // provider is continued by the sweep's own last step once its deadline passes
-// (ContinueWaits), and before then is the bounded wait it recorded. The
+// (ContinueWaits), and before then is the bounded wait it recorded. Work the
+// item waits on is continued by a watching session's pull once that work closes
+// (Scheduler.nextContinuations), and is a wait on that work until then. The
 // operator's pause is theirs while it stands. Everything else — a provider the
-// harness stopped on time, work the item waits on, an unresolved directive, a
-// tracker that would not answer, a provider nobody could reach, and the
-// operator's pause once lifted — waits on somebody typing `yoyo run`, which is
-// the wait that held a slot for twenty hours on 2026-09-26.
+// harness stopped on time, an unresolved directive, a tracker that would not
+// answer, a provider nobody could reach, and the operator's pause once lifted —
+// waits on somebody typing `yoyo run`, which is the wait that held a slot for
+// twenty hours on 2026-09-26.
 //
 // It is asked only under the run's lease, so a park a live process is serving —
 // asleep on the operator's pause, or waiting out an outage in-process — never
@@ -1314,8 +1319,6 @@ func (r Reconciler) parkNothingServes(state runstate.State) (recordedPark, bool)
 		return recordedPark{says: "it was waiting out " + runstate.DescribePause(state.PauseCause, state.UsageLimitKind) + ", and nothing asked the provider again at its recorded probe", since: since}, true
 	case stoppedProviderIsResumable(state):
 		return recordedPark{says: "the harness stopped its provider because " + describeProviderStop(state.ProviderStop), since: since}, true
-	case pausedForDependency(state):
-		return recordedPark{says: "it paused because " + state.WorkItemID + " waits on unfinished work: " + state.DependencyPause.Summary(), since: since}, true
 	case pausedForDirective(state):
 		return recordedPark{says: "it paused for unresolved directive " + state.DirectivePause.DirectiveID, since: since}, true
 	case pausedForTracker(state):

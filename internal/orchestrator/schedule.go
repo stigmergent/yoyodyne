@@ -700,7 +700,11 @@ type Pull struct {
 	// like everything else here, so an item whose design lands is closed at the
 	// first pull after the revision is in the tree.
 	Landings ScheduleLandings
-	Start    Starter
+	// Continuations is what a pull reads to continue a run paused on work its
+	// item waits on once that work has closed. Optional; see
+	// ScheduleContinuations.
+	Continuations ScheduleContinuations
+	Start         Starter
 }
 
 // ScheduleOutages is the product's record of the provider answering nobody, as
@@ -999,6 +1003,11 @@ type Schedule struct {
 	// is fired or refused, and both say so; this is the ending that said nothing
 	// until yoyodyne-ifd.428.39, and two re-runs sat in it for a week.
 	CarryOutUnattempted []CarriedOut `json:"carry_out_unattempted,omitempty"`
+	// ContinuationProblem names a run paused on work its item waits on that the
+	// pass could not read or could not record continuing. It costs the pass
+	// nothing it was doing, so it is reported beside the pull rather than stopping
+	// it, and the paused run is read again at the next pull.
+	ContinuationProblem string `json:"continuation_problem,omitempty"`
 	// Fired is the recurring tasks this pass woke a role for, and what came back.
 	// It is on the schedule for the reason the escalations are: a pass that woke a
 	// role and spent turns doing it is a pass that did something, and an operator
@@ -1280,11 +1289,27 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// from one that had died — and the watchdog said exactly that.
 	var window providerWindow
 	running := 0
+	// continuing is the started entries that are continuations of a run paused on
+	// work its item waited on, against that run, and refusedContinuations is the
+	// continuations this session attempted that did not get the run going, so a
+	// pull leaves each for continuationRetry rather than attempting it every poll.
+	continuing := map[int]string{}
+	refusedContinuations := map[string]refusedContinuation{}
 
 	// settle takes one finished run into the schedule: what became of it, what it
 	// cost, and what it does to the storm the brake is counting.
 	settle := func(done completed) {
 		started := &schedule.Started[done.index]
+		if runID, continuation := continuing[done.index]; continuation {
+			delete(continuing, done.index)
+			record := *started
+			record.record(done)
+			if why, refused := continuationRefused(done, record); refused {
+				refusedContinuations[runID] = refusedContinuation{at: s.now(), why: why}
+			} else {
+				delete(refusedContinuations, runID)
+			}
+		}
 		// A carry-out of the development manager's decision accounts for itself
 		// before anything else is decided about it, because whether it is a run at
 		// all is what it answers. One that fired is a run like any other from here
@@ -1941,6 +1966,42 @@ pulling:
 			}(task)
 		}
 		s.recordUnattempted(ctx, &schedule, pull, passedCarryOuts)
+
+		// A run paused on work its item waits on is continued here once that work
+		// has closed, beside the decisions above and for the same reason: its item
+		// is claimed rather than pullable, so nothing below would ever reach it, and
+		// before this the only thing that did was somebody typing `yoyo run`. It is
+		// not attempted under the operator's pause, which the continued run would
+		// only meet again at its first step, nor while intake is held: picking a
+		// paused run back up is the harness choosing what to spend a slot on, as
+		// carrying out a decision is, so it waits for the hold to lift exactly as a
+		// recorded repair does.
+		if !paused && !held {
+			continuations, err := s.nextContinuations(ctx, pull, occupied, mine, refusedContinuations, free, len(schedule.Started), passOver)
+			if err != nil {
+				schedule.ContinuationProblem = err.Error()
+			} else {
+				schedule.ContinuationProblem = ""
+			}
+			for _, continuation := range continuations {
+				workItemID := continuation.state.WorkItemID
+				delete(deferred, workItemID)
+				index := len(schedule.Started)
+				continuing[index] = continuation.state.RunID
+				selection := runstate.Selection{By: runstate.SelectedByScheduler, Reason: continuation.reason}
+				schedule.Started = append(schedule.Started, Started{WorkItemID: workItemID, Reason: selection.Reason})
+				occupied[workItemID] = continuation.state
+				mine[workItemID] = index
+				running++
+				if !continuation.holdsOne {
+					free--
+				}
+				go func(workItemID string) {
+					outcome, err := pull.Start(session.dispatching(ctx), workItemID, selection)
+					completions <- completed{index: index, outcome: outcome, err: err}
+				}(workItemID)
+			}
+		}
 
 		// probing is this pull starting the brake's probe run under the hold: one
 		// item, chosen exactly as any other would be, and named on the hold's own
@@ -4858,6 +4919,12 @@ func (s Schedule) Render() string {
 	}
 	if s.CarryOutReadProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.CarryOutReadProblem)
+	}
+	// A paused run the pass could not read for continuing is said beside the
+	// decisions, for the same reason: a continuation that quietly never happens
+	// is the stall it exists to end.
+	if s.ContinuationProblem != "" {
+		fmt.Fprintf(&rendered, "a run paused on work its item waits on was not continued: %s\n", s.ContinuationProblem)
 	}
 	// And what the pass woke on a cadence, said beside both: a session that spent
 	// turns on a sweep is a session that did something, and the whole account of

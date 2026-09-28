@@ -125,6 +125,14 @@ func TestDeadRunRemedyNamesWhatActuallyEndsTheRun(t *testing.T) {
 		t.Fatalf("remedy for a usage-limit wait = %q, want the continuation at its deadline named", says)
 	}
 
+	// A run paused on work its item waits on is continued by the watch's pull
+	// once that work closes, and the sweep never settles it.
+	waiting := base
+	waiting.DependencyPause = &DependencyPause{Blockers: []string{"yoyodyne-ifd.2"}}
+	if says := DeadRunRemedy(waiting, grace); !strings.Contains(says, "continues it at the first pull after that work closes") || strings.Contains(says, "settles") {
+		t.Fatalf("remedy for a dependency pause = %q, want the pull's continuation named", says)
+	}
+
 	// An outage wait is settled like any park, so it reads as one.
 	away := limited
 	away.PauseCause = PauseProviderUnauthenticated

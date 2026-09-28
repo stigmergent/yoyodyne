@@ -189,11 +189,11 @@ func TestADependencyLinkedDuringARepairAttemptStopsTheRunBeforeItPromotes(t *tes
 }
 
 // A run reconciliation walks past is left alone when it is waiting on work its
-// item depends on, inside the grace. It is owed the rest of its gate once that
-// work closes, so settling it the moment it parked would cancel work somebody
-// only made wait — the same mistake settling a directive pause would be.
-// TestTheSweepSettlesADependencyPausedRunNothingContinued is the other half:
-// past the grace with no process behind it, the park is settled.
+// item depends on. It is owed the rest of its gate once that work closes, so
+// settling it would cancel work somebody only made wait — the same mistake
+// settling a directive pause would be. TestTheSweepLeavesADependencyPausedRunToThePull
+// holds the same past the grace, and TestAPullContinuesARunPausedOnADependencyOnceItCloses
+// is what continues it.
 func TestReconciliationLeavesADependencyPausedRunResumable(t *testing.T) {
 	t.Parallel()
 

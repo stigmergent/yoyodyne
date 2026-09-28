@@ -1690,6 +1690,14 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		if err := run.clearDependencyPause(); err != nil {
 			return run.fail(err, runstate.StatusFailed)
 		}
+		// The item says the run is going again, written here where the pause is
+		// actually lifted rather than by whoever asked for the continuation, so a
+		// continuation refused before it got this far writes nothing and one
+		// retried writes one note per run that really went on. A note that cannot
+		// be written costs the run nothing: the lifted pause is already durable.
+		recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, _ = p.Tracker.RecordOutcome(recordCtx, state.WorkItemID, renderDependencyContinuedNotes(state, p.Selection, p.clock().Now()))
+		cancel()
 	}
 	// A recorded tracker park is lifted on the same evidence: the read that went
 	// unanswered is the one the dispatch above has just made for itself, and
@@ -8087,9 +8095,26 @@ func renderDependencyPauseNotes(outcome Outcome, waiting runstate.DependencyPaus
 	}
 	lines = append(lines,
 		"This item stays claimed and its branch, worktree, and developer session are all preserved.",
-		"Closing the work above, or removing the dependency link, is what lifts the pause; running Yoyodyne on this item after that continues the same run.",
+		"Closing the work above, or removing the dependency link, is what lifts the pause; a watching `yoyo work` session then continues the same run at its next pull, with nobody having to run anything.",
 	)
 	return strings.Join(lines, "\n")
+}
+
+// renderDependencyContinuedNotes records a run paused on work its item waited on
+// going again once that work closed: which run, what it had waited on, and who
+// continued it — the harness, with its reason, or whoever named the item.
+func renderDependencyContinuedNotes(state runstate.State, selection runstate.Selection, at time.Time) string {
+	harness := selection.Stated() && selection.SelectedByHarness()
+	by := "by a run named for this item"
+	if harness {
+		by = "by the harness"
+	}
+	note := fmt.Sprintf("Continued %s at %s: run %s had paused waiting on %s, which has closed; it goes on in its own worktree and developer session.",
+		by, at.UTC().Format(time.RFC3339), state.RunID, state.DependencyPause.Summary())
+	if harness {
+		note += "\nWhy: " + strings.TrimSpace(selection.Reason)
+	}
+	return note
 }
 
 // renderTrackerPauseNotes describes a run parked because the tracker did not

@@ -97,7 +97,10 @@ slot 1 for the whole twenty hours.
 its lease, kills that process, writes a decided stop, and checks that the sweep
 cancels the run at once, keeps its change, dockets the decided stop, and frees
 the slot. `TestTheSweepSettlesADependencyPausedRunNothingContinued` checks that a
-dependency park is settled after the grace and not before.
+dependency park is settled after the grace and not before. (Superseded by
+yoyodyne-ifd.428.51: a watching session's pull now continues a dependency park
+once the work closes, so the sweep leaves it, and
+`TestTheSweepLeavesADependencyPausedRunToThePull` checks that instead.)
 
 ## What this does not cover
 
