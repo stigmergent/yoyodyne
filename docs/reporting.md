@@ -618,6 +618,35 @@ starting over. Anything filed at `critical` jumps the walk, because something
 already costing somebody has to be read today rather than when the walk reaches
 it.
 
+**A critical report does not wait for a turn to come round.** The pull after it
+is filed — within a minute on a watching session — the harness wakes the Lead
+Product Manager for it as a turn of its own: a firing of her report task out of
+its cadence, ahead of anything else the schedule has due, with the critical
+report in the message rather than somewhere in the pile. Each critical is
+delivered that way once, and the pass records which it carried. From then on the
+pass holds her to it: an account that says the pass is complete while any
+critical it was shown — in that message, or carried into a turn ahead of the
+walk — stands unhandled is refused as complete, naming the reports, and she is
+asked for another turn; a pass that spends every turn without handling it is
+recorded as partial. A critical is ended the way every report is, by a
+handling, and one that has already resolved is handled by saying so. Her own
+critical reports are not delivered back to her this way, because she filed them
+in the conversation it would go into. It needs a task that wakes her — the one
+[working the pile on a cadence](#whether-the-pile-is-draining) is — and a
+project with none delivers a critical to her only in the next conversation
+somebody opens, as it did before.
+
+The bar was set by the night of 2026-09-27. A program manager's critical,
+"Nothing is landing on the protected main", filed at 23:22 Pacific, was shown at
+the head of the 03:40 sweep's slice and passed over while the sweep handled
+other reports, and waited more than eight hours.
+
+A program manager's warnings and notes have a softer version of the same
+guarantee. One that has stood unhandled through two of her passes is named on
+the next pass's message under **Overdue reports**, with how many passes it has
+stood through, so a report about a whole lane cannot sit behind a pass that
+keeps choosing others.
+
 That ordering is the difference between a bound and a bottleneck, and this
 project learned it the expensive way. Delivering the worst ten of a worst-first
 listing takes the same ten every turn until somebody decides about one of them,
@@ -722,11 +751,14 @@ about a week rather than about a moment, so every listing of the pile leads with
 the two numbers that answer it:
 
 ```text
-reports: 564 of 1313 collected report(s) are unhandled, the oldest filed 22d ago, worst critical
+reports: 564 of 1313 collected report(s) are unhandled, the oldest filed 22d ago, 3 of them critical
 ```
 
-Both numbers come from one derivation, so the terminal and the channel cannot
-disagree about them. A pile that is draining says nothing anywhere else; one
+Where any unhandled report was filed at `critical`, the line counts them in
+place of naming the worst severity, because each one is somebody having to act
+and "worst critical" reads the same for one as for five. Every number on it
+comes from one derivation, so the terminal and the channel cannot disagree
+about them. A pile that is draining says nothing anywhere else; one
 whose oldest undecided report has been waiting more than a week is named on
 `yoyo status`'s "needs a human" line as the Lead Product Manager's. That line is what
 catches both failures a single reading cannot tell apart: a cadence that has

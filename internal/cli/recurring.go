@@ -77,6 +77,13 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			Build:        buildinfo.Commit(),
 		},
 	}
+	// The pile and what became of it, so a critical report is delivered to the
+	// Lead Product Manager as a turn of its own the pull after it is filed, a pass
+	// shown one cannot end complete while it stands unhandled, and a program
+	// manager's report her passes have left standing is named as overdue.
+	if parts.reports != nil {
+		trigger.Pile = parts.reports
+	}
 	// The docket a development manager's pass carries, built by the docketer her
 	// conversation builds it with and rendered by the section her conversation
 	// renders, so the two never disagree about what is waiting on her.
@@ -256,6 +263,9 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		CostUSD:        session.TurnCostUSD(),
 		Model:          servingModel(evidence),
 		Effort:         evidence.Effort,
+		// The criticals the conversation carried in of its own accord, so a pass
+		// that ends complete over one of them is refused as complete.
+		CriticalReports: session.CriticalReportsShown(),
 	}
 	if err != nil {
 		return turn, notWoken(err)

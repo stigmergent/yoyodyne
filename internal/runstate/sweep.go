@@ -88,6 +88,11 @@ const MaxSweepTextBytes = 4 << 10
 // what it records to it rather than lose the pass's report over the model.
 const MaxSweepModelBytes = 1 << 10
 
+// MaxSweepCriticals bounds how many critical reports one pass records as
+// delivered. It is exported so the writer holds one firing's delivery to it;
+// the criticals past it are delivered on the next pull.
+const MaxSweepCriticals = 10
+
 // SweepClaim is the durable record of one recurring task's cadence: when it last
 // fired, and what stopped that firing where something did.
 //
@@ -232,6 +237,13 @@ type Sweep struct {
 	// cadence fired, which is nearly every pass, and it is on the record so a
 	// reader of the log can tell a summoned pass from the hourly one beside it.
 	Summoned string `json:"summoned,omitempty"`
+	// Criticals are the critical reports this pass was fired to deliver, by
+	// identifier, where a critical report is what fired it. They are the key a
+	// later pull reads to know which criticals have already been put in front of
+	// the Lead Product Manager as a turn of their own, so each is delivered that
+	// way once; what keeps one in front of her after that is the pass refusing to
+	// end complete while it stands unhandled. Absent on every other pass.
+	Criticals []string `json:"criticals,omitempty"`
 	// NotStarted is why the firing failed before its first turn was put to the
 	// provider, where it did: the harness refused its own message, could not
 	// open the role's conversation, or could not assemble what the turn would
@@ -508,6 +520,14 @@ func (s Sweep) Validate() error {
 		}
 		if count < 1 {
 			problems = append(problems, fmt.Errorf("events of class %q is %d, and a class is recorded only when the pass carried one", class, count))
+		}
+	}
+	if len(s.Criticals) > MaxSweepCriticals {
+		problems = append(problems, fmt.Errorf("%d critical reports delivered by one pass, limit is %d", len(s.Criticals), MaxSweepCriticals))
+	}
+	for i, id := range s.Criticals {
+		if strings.TrimSpace(id) == "" || len(id) > MaxSweepModelBytes {
+			problems = append(problems, fmt.Errorf("criticals[%d] must name a report", i))
 		}
 	}
 	if len(s.Model) > MaxSweepModelBytes {

@@ -509,6 +509,41 @@ func TestTheContractTellsTheProductManagerWhatToDoWithReports(t *testing.T) {
 
 // collectedReport is one report in the pile, distinguished only by what a test
 // needs to tell them apart.
+// A recurring pass reads which criticals its turn was shown, so it can refuse an
+// account that ends complete over one: the turn that carried a critical ahead of
+// the walk says so, and a later turn that carried none says nothing.
+func TestATurnSaysWhichCriticalReportsItCarried(t *testing.T) {
+	t.Parallel()
+
+	reports := &fakeReports{}
+	seedReports(t, reports,
+		collectedReport("report-00000000000000000000000000000001", report.SeverityNote, "a stale document", 1),
+		collectedReport("report-00000000000000000000000000000002", report.SeverityCritical, "nothing is landing on main", 2),
+	)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{FinalText: "looking", SessionID: "session-1"},
+		{FinalText: "still looking", SessionID: "session-1"},
+	}}
+	options := testOptions(t, provider)
+	options.Reports = reports
+	session, err := Open(options)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if _, err := session.Send(context.Background(), "work the pile"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if shown := session.CriticalReportsShown(); len(shown) != 1 || shown[0] != "report-00000000000000000000000000000002" {
+		t.Fatalf("CriticalReportsShown() = %v, want the critical the turn carried", shown)
+	}
+	if _, err := session.Send(context.Background(), "carry on"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if shown := session.CriticalReportsShown(); len(shown) != 0 {
+		t.Fatalf("CriticalReportsShown() = %v after a turn that carried none", shown)
+	}
+}
+
 func collectedReport(id string, severity report.Severity, message string, minute int) report.Report {
 	return report.Report{
 		SchemaVersion: report.SchemaVersion,

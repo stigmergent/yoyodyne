@@ -170,6 +170,12 @@ type Turn struct {
 	// read — so a problem here does not by itself mean the turn's account is
 	// missing.
 	ResultProblem string `json:"result_problem,omitempty"`
+	// CriticalReports are the critical reports the conversation carried into
+	// this turn of its own accord, by identifier: the ones its delivery of the
+	// unhandled pile put ahead of the walk. A pass is not accepted as complete
+	// while any report it was shown this way stands unhandled; see
+	// criticalreports.go.
+	CriticalReports []string `json:"critical_reports,omitempty"`
 }
 
 // ErrRoleUnreachable reports a firing that failed before the role was asked
@@ -322,7 +328,13 @@ type Trigger struct {
 	// Attribution is the product, repository, and build a miss report is filed
 	// under. The role and the run it names are the miss's own.
 	Attribution report.Attribution
-	Clock       execution.Clock
+	// Pile is the collected reports and what became of them. Optional: a trigger
+	// wired without it delivers no critical report as a turn of its own, refuses
+	// no pass as complete over one, and names no report as overdue, which is what
+	// every trigger did before a critical report could wait eight hours through a
+	// pass that had been shown it. See criticalreports.go.
+	Pile  RecurringPile
+	Clock execution.Clock
 }
 
 // RecurringBreakage is the report pile as a missed cadence files into it. It is
@@ -681,6 +693,20 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 	if err != nil {
 		problems = append(problems, err)
 	}
+	// A critical report nobody has put in front of the Lead Product Manager is
+	// delivered ahead of anything the cadence has due, as a firing of her own
+	// task: it is the one thing on this path that must not wait its turn. A
+	// provider answering nobody leaves it undelivered rather than recorded as
+	// delivered into a refusal, so it goes the first pull the provider answers.
+	if !away {
+		fired, took, err := t.deliverCriticals(ctx)
+		if err != nil {
+			problems = append(problems, err)
+		}
+		if took {
+			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
+		}
+	}
 	for _, name := range t.names() {
 		task := t.Tasks[name]
 		if !task.Enabled {
@@ -704,7 +730,7 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 			fired := t.refuse(ctx, name, task, outage)
 			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
 		}
-		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, t.docketFor(task))})
+		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, t.docketFor(task), t.overdueFor(task))})
 		return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
 	}
 	// The program manager instances come after the tasks and share their bound:
@@ -890,6 +916,9 @@ type firing struct {
 	agent string
 	// events counts what the pass was handed, by class.
 	events map[string]int
+	// criticals are the critical reports the firing was made to deliver, and
+	// empty on every firing a critical report did not make.
+	criticals []string
 	// finish is called once the turns are over and before anything is recorded,
 	// with whether every turn the pass asked for was answered. What it returns is
 	// a problem for the record. A program manager's pass moves its cursor there,
@@ -909,6 +938,14 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		StartedAt: t.now(),
 		Summoned:  f.summoned,
 		Events:    f.events,
+		Criticals: f.criticals,
+	}
+	// shown is every critical report the pass has been put in front of: the ones
+	// its firing was made for, and the ones its conversation carried into a turn.
+	// The pass is not accepted as complete while any of them stands unhandled.
+	shown := map[string]bool{}
+	for _, id := range f.criticals {
+		shown[id] = true
 	}
 	var merged *sweep.Result
 	var problems []string
@@ -958,6 +995,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		}
 		fired.Turns++
 		recorded.Turns++
+		for _, id := range answered.CriticalReports {
+			shown[id] = true
+		}
 		if answered.ResultProblem != "" {
 			problems = append(problems, answered.ResultProblem)
 		}
@@ -974,7 +1014,29 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			merged = &folded
 		}
 		if answered.Result.Status != sweep.StatusMore {
-			break
+			standing, problem := t.standingCriticals(shown)
+			if problem != "" {
+				problems = append(problems, problem)
+			}
+			if len(standing) == 0 {
+				break
+			}
+			// The account said complete, and a critical it was shown is still
+			// undecided. That is refused rather than recorded: the pass is marked as
+			// having more to do, and the next turn is asked for the criticals by name.
+			merged.Status = sweep.StatusMore
+			if turn+1 >= task.Turns() {
+				fired.Truncated = true
+				problems = append(problems, fmt.Sprintf(
+					"the pass of the recurring task %s said it was complete while the critical report(s) %s it was shown stand unhandled, and all %d of its turns are spent, so it is recorded as partial and they wait on the next pass",
+					name, strings.Join(standing, ", "), task.Turns()))
+				break
+			}
+			problems = append(problems, fmt.Sprintf(
+				"turn %d of the recurring task %s said the pass was complete while the critical report(s) %s it was shown stand unhandled, so the harness refused it as complete and asked for another turn",
+				turn+1, name, strings.Join(standing, ", ")))
+			message = criticalsOutstandingMessage(name, standing)
+			continue
 		}
 		if turn+1 >= task.Turns() {
 			// The bound ended the pass rather than the work. Said out loud in both
@@ -1253,13 +1315,14 @@ func describeFailedTurn(name string, role domain.AgentRole, turn int, err error)
 // so a pass between deliveries saw none of them: on 2026-09-25 three passes ran
 // after an approved change stopped at integration, and decided nothing about it
 // or the two that stopped after it.
-func wakeMessage(name string, task config.RecurringTask, docket string) string {
+func wakeMessage(name string, task config.RecurringTask, docket, overdue string) string {
 	lines := []string{
 		fmt.Sprintf("The harness woke you for the recurring task %q, which runs every %s. Nobody is waiting at a terminal for this: what you produce is recorded and read later.", name, task.Every),
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra, and nothing about being woken on a schedule widens what you may decide or change.",
 		"Before you file anything, check it against the work already admitted. A duplicate admission costs a whole run and the reviews after it, and a task that runs on a cadence files the same duplicate on every cadence.",
 	}
 	lines = append(lines, docketLines(docket)...)
+	lines = append(lines, overdueLines(overdue)...)
 	lines = append(lines,
 		"",
 		strings.TrimSpace(task.Prompt),

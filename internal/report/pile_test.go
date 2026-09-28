@@ -197,6 +197,18 @@ func TestThePileSaysHowDeepItIsAndHowOldItsOldestUndecidedReportIs(t *testing.T)
 	if described := summarized.Describe(); described != "2 of 3 collected report(s) are unhandled, the oldest filed 2d ago, worst warning" {
 		t.Fatalf("Describe() = %q", described)
 	}
+	// Unhandled criticals are counted on the line rather than folded into the
+	// worst, because each one is somebody having to act.
+	critical := Summarize(pile, nil, filedAt.Add(48*time.Hour))
+	if critical.Critical != 1 {
+		t.Fatalf("Critical = %d, want the one unhandled critical", critical.Critical)
+	}
+	if described := critical.Describe(); described != "3 of 3 collected report(s) are unhandled, the oldest filed 2d ago, 1 of them critical" {
+		t.Fatalf("Describe() = %q", described)
+	}
+	if summarized.Critical != 0 {
+		t.Fatalf("Critical = %d once the critical is handled, want 0", summarized.Critical)
+	}
 	// A pile nobody is waiting on says so rather than reporting an age of nothing.
 	settled := Summarize(pile, []Handling{{ReportID: reportID(1)}, {ReportID: reportID(2)}, {ReportID: reportID(3)}}, filedAt)
 	if settled.Draining() || settled.Describe() != "nobody is waiting on any of the 3 collected report(s)" {

@@ -167,6 +167,11 @@ type Pile struct {
 	// empty where there are none. It is what says whether a deep pile is deep with
 	// notes or deep with things already costing somebody.
 	Worst Severity `json:"worst,omitempty"`
+	// Critical is how many of the unhandled reports were filed at critical. It is
+	// a count rather than folded into Worst because "worst critical" says one
+	// thing is costing somebody when it may be five, and a critical is the
+	// severity that means somebody has to act — each one of them.
+	Critical int `json:"critical,omitempty"`
 }
 
 // Draining reports whether there is anything left to work through.
@@ -187,7 +192,10 @@ func (p Pile) Describe() string {
 	}
 	described := fmt.Sprintf("%d of %d collected report(s) are unhandled, the oldest filed %s ago",
 		p.Unhandled, p.Collected, pileAge(p.OldestAge))
-	if p.Worst != "" {
+	switch {
+	case p.Critical > 0:
+		described += fmt.Sprintf(", %d of them critical", p.Critical)
+	case p.Worst != "":
 		described += ", worst " + string(p.Worst)
 	}
 	return described
@@ -230,6 +238,9 @@ func SummarizeHandled(reports []Report, handled map[string]Handling, now time.Ti
 		pile.Unhandled++
 		if pile.Oldest.IsZero() || reported.RecordedAt.Before(pile.Oldest) {
 			pile.Oldest = reported.RecordedAt
+		}
+		if reported.Severity == SeverityCritical {
+			pile.Critical++
 		}
 		if pile.Worst == "" || reported.Severity.rank() < pile.Worst.rank() {
 			pile.Worst = reported.Severity
