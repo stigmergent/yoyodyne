@@ -1915,9 +1915,11 @@ the queue was landing them.
   is handed back as below, saying the forge ended it. A job waiting on a
   person's approval is not re-run. Neither is a step that failed: GitHub files
   "Process completed with exit code 2" on `.github` too, and that is what a
-  genuine red test looks like, so a failed step annotated only there is handed
-  back as below, described as a step that failed without naming a file, with
-  the forge's log of the run named as where to look.
+  genuine red test looks like, so a failed step annotated only there is not
+  re-run. It names no file the change touches, so on a head level with its
+  target it is the target's failure and is filed and waited on as the next
+  bullet says, with the forge's log of the job carried on the filed item; on a
+  head behind its target it is brought up to date as the bullet above says.
 - **A head level with its target whose failing checks name no file the change
   touches.** Nothing but the change differs from the target, so bringing the
   head up to date would change nothing, and the failure is the target's own — a
@@ -1950,9 +1952,14 @@ the queue was landing them.
   re-arm carry-out at its next pull, with nobody deciding anything and no re-arm
   spent. `yoyo reconcile` says what each waiting publication came to on every
   pass, and `--json` carries it under `red_targets`. Until that arming, `yoyo triage rearm` refuses the publication while an
-  item it waits on is open, naming the item. Until yoyodyne-m5p this case was
-  handed back like the one below, and on 2026-09-28 a red adoption check on
-  main made pull request 863 a hand step.
+  item it waits on is open, naming the item. A head still level whose only
+  failures are jobs the forge ended itself is neither of those: the jobs are
+  run again on the same head, at most twice, with the wait standing meanwhile,
+  and a job ended again past that, or one the forge will not run again, is
+  handed back as below, saying the forge ended it. Until filing a red forge
+  check as the target's own failure (yoyodyne-m5p) this case was handed back
+  like the one below, and on 2026-09-28 a red adoption check on main made pull
+  request 863 a hand step.
 - **Anything else red** — a failing check whose annotations name a file the
   change touches — is handed back. The queued merge is withdrawn and the run is
   settled as a merge the forge dropped: a blocker on the item naming the failing

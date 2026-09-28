@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -355,5 +356,58 @@ func TestTheWatchRearmsAMergeWaitingOnTheTargetOnceItsItemClosesWithNoDecision(t
 	}
 	if tracker.Record().Blocked {
 		t.Error("the item was handed to a person on the way")
+	}
+}
+
+// A closed wait whose level head is still red, but only on a job the forge ended
+// itself, is neither the target's failure to file again nor a head the watch
+// can arm: the job is run again within its bound, the wait standing meanwhile,
+// and a job ended again past the bound is handed back as a queued merge's is —
+// never left for a re-arm that its own checks gate would refuse forever.
+func TestAClosedWaitWhoseHeadTheForgeEndedIsRunAgainThenHandedBack(t *testing.T) {
+	t.Parallel()
+
+	filer := &recordingFiler{}
+	fixture, forge, tracker, reconciler, _ := redTargetSweep(t, filer)
+	if _, err := reconciler.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	tracker.AlsoHolds = map[string]beads.WorkItem{"yoyodyne-red-1": {ID: "yoyodyne-red-1", Status: "closed"}}
+
+	for sweep := 1; sweep <= runstate.MaxCheckReruns; sweep++ {
+		checkRun := int64(5300 + sweep)
+		forge.reading = jobFailure(checkRun)
+		resumed, err := reconciler.ResumeRedTargets(context.Background())
+		if err != nil {
+			t.Fatalf("sweep %d: ResumeRedTargets() error = %v", sweep, err)
+		}
+		if len(resumed) != 1 || resumed[0].Action != ActionWaitingOnTarget || !strings.Contains(resumed[0].Detail, "asked it to run them again") {
+			t.Fatalf("sweep %d: resumptions = %#v, want the ended job run again and the wait kept", sweep, resumed)
+		}
+		if len(forge.reruns) != sweep || forge.reruns[sweep-1] != checkRun {
+			t.Fatalf("sweep %d: re-runs = %v, want check run %d run again", sweep, forge.reruns, checkRun)
+		}
+		if waiting := loadRun(t, fixture.store, pipelineRunID); !waiting.WaitingOnRedTarget() || tracker.Record().Blocked {
+			t.Fatalf("sweep %d: waiting = %t, blocked = %t; a job being run again keeps the wait and hands nothing back", sweep, waiting.WaitingOnRedTarget(), tracker.Record().Blocked)
+		}
+	}
+
+	forge.reading = jobFailure(5399)
+	resumed, err := reconciler.ResumeRedTargets(context.Background())
+	if err != nil {
+		t.Fatalf("ResumeRedTargets() error = %v", err)
+	}
+	if len(resumed) != 1 || resumed[0].Action != ActionBlocked {
+		t.Fatalf("resumptions = %#v, want the merge handed back once the re-runs are spent", resumed)
+	}
+	if len(forge.reruns) != runstate.MaxCheckReruns || len(filer.filed) != 1 {
+		t.Errorf("re-runs = %v, filed = %d; want no re-run past the bound and nothing filed again", forge.reruns, len(filer.filed))
+	}
+	handed := loadRun(t, fixture.store, pipelineRunID)
+	if handed.WaitingOnRedTarget() || handed.PullRequest.TargetRed != nil || handed.MergeDrop == nil {
+		t.Fatalf("record = target red %#v, drop %#v; want the wait ended and the drop recorded", handed.PullRequest.TargetRed, handed.MergeDrop)
+	}
+	if !tracker.Record().Blocked || !strings.Contains(tracker.Record().BlockReason, "ended by the forge before any step failed") {
+		t.Errorf("blocked = %t, reason = %q; want it handed back saying the forge ended the job", tracker.Record().Blocked, tracker.Record().BlockReason)
 	}
 }

@@ -358,12 +358,61 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 		return r.updateQueuedHead(ctx, state, result, true)
 	case checks.Red() && !checks.FailedInTheJob():
 		return r.waitOnRedTarget(ctx, state, checks, true)
+	case checks.Red():
+		return r.rerunEndedJobsAfterRedTarget(ctx, state, checks)
 	default:
 		result := reconciliationOf(state, ActionWaitingOnTarget)
 		result.Detail = fmt.Sprintf("every item pull request %d waited on for %s's red check is closed and its head is level with %s (%s), so the watch's re-arm carry-out arms its merge at its next pull",
 			published.Number, target, target, checks.Describe(target))
 		return result, nil
 	}
+}
+
+// rerunEndedJobsAfterRedTarget decides a closed wait whose level head is red
+// only on jobs the forge ended itself — cancelled, timed out, or never started.
+// Nothing in the tree decided those, so they are neither the target's failure to
+// file again nor a head the re-arm can arm: they are run again on the same head
+// within runstate.MaxCheckReruns, as a merge still queued has its ended jobs
+// run again, and the wait stands meanwhile, so the next sweep reads the re-run.
+// Ended again past the bound, or refused a re-run, the merge is handed back
+// saying the forge ended it, as a queued one is.
+func (r Reconciler) rerunEndedJobsAfterRedTarget(ctx context.Context, state runstate.State, checks runstate.PullRequestChecks) (Reconciliation, error) {
+	published := *state.PullRequest
+	target := state.Integration.TargetBranch
+	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
+		checks.Reruns = prior.Reruns
+		checks.RerunChecks = append([]int64(nil), prior.RerunChecks...)
+	}
+	record := func(detail string) (Reconciliation, error) {
+		published.Checks = &checks
+		state.PullRequest = &published
+		state.UpdatedAt = r.clock().Now()
+		if err := r.Store.Save(state); err != nil {
+			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the checks of pull request %d on run %s: %w", published.Number, state.RunID, err)
+		}
+		result := reconciliationOf(state, ActionWaitingOnTarget)
+		result.Detail = detail
+		return result, nil
+	}
+	answered := fmt.Sprintf("every item pull request %d waited on for %s's red check is closed; %s", published.Number, target, checks.Describe(target))
+	if checks.AwaitingRerun() {
+		return record(answered + "; the forge has not yet started the re-run the harness asked for, so it goes on waiting and the next sweep reads it")
+	}
+	refused := ""
+	if checks.Reruns < runstate.MaxCheckReruns {
+		if refused = r.rerunFailedJobs(ctx, checks); refused == "" {
+			checks.RecordRerun()
+			return record(fmt.Sprintf("%s; the forge ended the failed jobs before any step failed, so the harness asked it to run them again (%d of %d on this head) and the next sweep reads the re-run",
+				answered, checks.Reruns, runstate.MaxCheckReruns))
+		}
+	}
+	why := fmt.Sprintf("were ended by the forge before any step failed, and ended that way again on each of %d re-run(s) of this head", checks.Reruns)
+	if refused != "" {
+		why = fmt.Sprintf("were ended by the forge before any step failed, and the forge would not run them again (%s)", refused)
+	}
+	return r.handBackRedMerge(ctx, state, fmt.Sprintf(
+		"the items pull request %d waited on for %s's red check are closed, and its checks %s: %s. The forge's log of those runs says why it ended them, and the pull request needs a person",
+		published.Number, target, why, checks.Describe(target)))
 }
 
 // openRedTargetItems is the items a wait on a red target still waits on.

@@ -1276,6 +1276,40 @@ func TestGitHubRerunCheckAsksTheForgeToRunTheJobAgain(t *testing.T) {
 	}
 }
 
+// A failing job's log is read as its tail, trailing blank lines dropped, and a
+// forge that will not give it says so.
+func TestGitHubJobLogTailReadsTheLastLinesOfTheJobsLog(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "one\ntwo\nthree\nfour\n\n\n"})
+	tail, err := (GitHub{Runner: runner}).JobLogTail(context.Background(), 4215, 2)
+	if err != nil {
+		t.Fatalf("JobLogTail() error = %v", err)
+	}
+	if tail != "three\nfour" {
+		t.Fatalf("tail = %q, want the last two lines and no trailing blank ones", tail)
+	}
+	calls := runner.matching("actions/jobs/4215/logs")
+	if len(calls) != 1 || !contains(calls[0], "GET") {
+		t.Fatalf("calls = %v, want one GET of the job's log", calls)
+	}
+	if whole := logTail("a\nb\n", 60); whole != "a\nb" {
+		t.Errorf("logTail of a short log = %q, want all of it", whole)
+	}
+
+	refused := &scriptedRunner{}
+	refused.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	refused.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 410: logs expired\n"})
+	if _, err := (GitHub{Runner: refused}).JobLogTail(context.Background(), 4215, 60); err == nil || !strings.Contains(err.Error(), "HTTP 410") {
+		t.Errorf("JobLogTail() refused = %v, want the forge's refusal", err)
+	}
+	if _, err := (GitHub{Runner: runner}).JobLogTail(context.Background(), 0, 60); err == nil {
+		t.Error("JobLogTail() of no check run returned no error")
+	}
+}
+
 // Withdrawing a queued merge is the forge's disable-auto, and a request with
 // nothing armed has nothing to withdraw.
 func TestGitHubDisableAutoMergeWithdrawsTheQueuedMerge(t *testing.T) {

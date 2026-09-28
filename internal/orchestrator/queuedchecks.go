@@ -225,6 +225,9 @@ func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, 
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("withdraw the red queued merge of pull request %d for run %s: %w", published.Number, state.RunID, err)
 	}
 	published.MergeQueued = false
+	// A merge handed back is no longer waiting on its target's red check: it is a
+	// dropped merge somebody decides about, and every surface has to say so.
+	published.TargetRed = nil
 	state.PullRequest = &published
 	state.PublishFailure = reason
 	state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: reason}
