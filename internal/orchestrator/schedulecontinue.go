@@ -81,10 +81,12 @@ type pausedContinuation struct {
 // recorded on it: a stop is honoured before any continuation, and the sweep ends
 // such a run at once, so this never picks it up.
 //
-// A paused run counted among the runs in flight already holds a developer slot,
-// and continuing it takes no other; one not counted there takes a free slot
-// exactly as a pulled item does. Either way the reservation's own capacity
-// check is what finally decides, when the continued run is adopted.
+// A run paused this way gave its developer slot back as it recorded the pause
+// (runstate.State.HoldsDeveloperSlot), so the pull's occupied runs do not count
+// it and continuing it takes a free slot exactly as a pulled item does. A run
+// that is counted there already holds one and takes no other. Either way the
+// store's own capacity check is what finally decides, when the continued run is
+// adopted and takes its slot back (Store.ReclaimSlot).
 //
 // free and started are this pull's free slots and how many runs the session has
 // started; both are what the carry-outs above left of them.

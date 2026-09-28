@@ -216,8 +216,10 @@ func (s *Store) Reserve(ctx context.Context, state State, maxConcurrent int) (*L
 			return nil, ExistingWorkItemError{State: existing}
 		}
 	}
-	if len(active) >= maxConcurrent {
-		return nil, CapacityError{Limit: maxConcurrent, Active: len(active)}
+	// A run paused on work its item waits on is in flight for the duplicate check
+	// above and holds no slot here: see State.HoldsDeveloperSlot.
+	if holding := HoldingDeveloperSlots(active); holding >= maxConcurrent {
+		return nil, CapacityError{Limit: maxConcurrent, Active: holding}
 	}
 	// The lease is taken before the state exists, so no run is ever recorded as
 	// in flight without an owner holding it.
@@ -232,6 +234,63 @@ func (s *Store) Reserve(ctx context.Context, state State, maxConcurrent int) (*L
 		return nil, errors.Join(fmt.Errorf("create reserved run state: %w", err), lease.Release())
 	}
 	return lease, nil
+}
+
+// HoldingDeveloperSlots counts the runs among states that hold a developer slot,
+// which is what the configured limit is measured against.
+func HoldingDeveloperSlots(states []State) int {
+	holding := 0
+	for _, state := range states {
+		if state.HoldsDeveloperSlot() {
+			holding++
+		}
+	}
+	return holding
+}
+
+// ReclaimSlot is how a run paused on work its item waits on takes a developer
+// slot again before it continues. It is the reservation's capacity check made
+// for a run that already exists: under the same lock, against the same limit,
+// counting every other run that holds a slot, and it refuses with the same
+// CapacityError a fresh reservation does, so a continuation waits for a slot
+// exactly as a fresh pull does. On success the pause is cleared and saved in the
+// same critical section, which is what makes the slot this run's rather than one
+// a reservation beside it could also have counted free. A refusal changes
+// nothing: the run stays paused and holds no slot.
+//
+// The caller holds the run's lease, as it does for every write to the run.
+func (s *Store) ReclaimSlot(ctx context.Context, state State, maxConcurrent int) (State, error) {
+	if maxConcurrent < 1 {
+		return state, errors.New("max concurrent developers must be greater than zero")
+	}
+	if state.DependencyPause == nil {
+		return state, nil
+	}
+	release, err := s.lockReservations(ctx)
+	if err != nil {
+		return state, err
+	}
+	defer release()
+
+	active, err := s.Incomplete()
+	if err != nil {
+		return state, fmt.Errorf("discover incomplete runs while reclaiming a developer slot: %w", err)
+	}
+	holding := 0
+	for _, existing := range active {
+		if existing.RunID != state.RunID && existing.HoldsDeveloperSlot() {
+			holding++
+		}
+	}
+	if holding >= maxConcurrent {
+		return state, CapacityError{Limit: maxConcurrent, Active: holding}
+	}
+	reclaimed := state
+	reclaimed.DependencyPause = nil
+	if err := s.Save(reclaimed); err != nil {
+		return state, fmt.Errorf("clear the dependency pause: %w", err)
+	}
+	return reclaimed, nil
 }
 
 // Adopt takes exclusive ownership of the run already in flight for a work item,

@@ -374,6 +374,12 @@ type RunningRun struct {
 	// configured capacity, which no slot holds.
 	Slot        int      `json:"developer_slot,omitempty"`
 	SlotPrefers []string `json:"slot_prefers,omitempty"`
+	// WaitingOn is the unfinished work a run paused on a dependency is waiting
+	// for, as its record names it, and PausedSince when it last wrote its record,
+	// which for such a run is when it recorded the pause. Both are carried only
+	// on Standing.PausedRuns.
+	WaitingOn   string    `json:"waiting_on,omitempty"`
+	PausedSince time.Time `json:"paused_since,omitempty"`
 }
 
 // DeveloperSlotStanding is one configured developer slot as the standing status
@@ -485,6 +491,13 @@ type Standing struct {
 
 	Running        []RunningRun `json:"running"`
 	RunningProblem string       `json:"running_problem,omitempty"`
+	// PausedRuns is the runs in flight paused on work their items wait on. Such a
+	// run has no process, spends nothing, and holds no developer slot
+	// (runstate.State.HoldsDeveloperSlot), so it is said here rather than on the
+	// running line, and the slot it gave up is counted free wherever capacity is
+	// said. It keeps its claim, branch, worktree, and session, and continuing it
+	// takes a slot again.
+	PausedRuns []RunningRun `json:"paused_runs,omitempty"`
 	// Dispatching is every dispatch a watch session started that is waiting out a
 	// tracker failure before it has claimed anything, as WaitingOnTracker reads it
 	// from the watch log. Such a dispatch holds a developer slot with no run
@@ -631,8 +644,8 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		NeedsHuman:   []Attention{},
 	}
 
-	running, runningProblem := readRunning(sources, now)
-	standing.Running, standing.RunningProblem = running, runningProblem
+	running, paused, runningProblem := readRunning(sources, now)
+	standing.Running, standing.PausedRuns, standing.RunningProblem = running, paused, runningProblem
 	standing.Dispatching, standing.DispatchingProblem = readDispatching(sources, now)
 	// Which slot each run occupies, and which slots are free, from the reading
 	// the scheduler makes. It is read only where a slot prefers a label, and
@@ -821,15 +834,20 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 // that this count is the status's own whatever listing it was handed. The
 // scheduler reads the same predicate for the slots and epics already taken,
 // which is what lets its refusals be checked against this line.
-func readRunning(sources Sources, now time.Time) ([]RunningRun, string) {
+//
+// A run paused on work its item waits on is returned apart, as the second list:
+// it holds no developer slot, so counting it as running would say a slot is
+// taken that the scheduler will fill.
+func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, string) {
 	if sources.Runs == nil {
-		return nil, "nothing was wired to read the runs in flight"
+		return nil, nil, "nothing was wired to read the runs in flight"
 	}
 	states, err := sources.Runs.Incomplete()
 	if err != nil {
-		return nil, fmt.Sprintf("the runs in flight could not be read: %v", err)
+		return nil, nil, fmt.Sprintf("the runs in flight could not be read: %v", err)
 	}
 	running := make([]RunningRun, 0, len(states))
+	var paused []RunningRun
 	for _, state := range states {
 		if !state.Status.InFlight() {
 			continue
@@ -874,15 +892,25 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, string) {
 				break
 			}
 		}
+		if !state.HoldsDeveloperSlot() {
+			if state.DependencyPause != nil {
+				run.WaitingOn = state.DependencyPause.Summary()
+			}
+			run.PausedSince = state.UpdatedAt
+			paused = append(paused, run)
+			continue
+		}
 		running = append(running, run)
 	}
-	sort.SliceStable(running, func(first, second int) bool {
-		if !running[first].StartedAt.Equal(running[second].StartedAt) {
-			return running[first].StartedAt.Before(running[second].StartedAt)
-		}
-		return running[first].RunID < running[second].RunID
-	})
-	return running, ""
+	for _, runs := range [][]RunningRun{running, paused} {
+		sort.SliceStable(runs, func(first, second int) bool {
+			if !runs[first].StartedAt.Equal(runs[second].StartedAt) {
+				return runs[first].StartedAt.Before(runs[second].StartedAt)
+			}
+			return runs[first].RunID < runs[second].RunID
+		})
+	}
+	return running, paused, ""
 }
 
 // readDispatching is the dispatches standing in a wait on the tracker. A reading
