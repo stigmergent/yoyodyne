@@ -146,7 +146,7 @@ func TestAnEmptyDiffRoundTheEnvironmentRefusedSpendsNothing(t *testing.T) {
 		t.Fatalf("docket entry environmental = %#v, want the refusal carried onto it", entry.Environmental)
 	}
 	rendered := entry.Render()
-	for _, want := range []string{"environmentally refused", string(runstate.CauseHandbackMissingChange), "stands where it did before the round"} {
+	for _, want := range []string{"ended by something outside the work", string(runstate.CauseHandbackMissingChange), "stands where it did before the round"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("the docket entry does not say %q:\n%s", want, rendered)
 		}

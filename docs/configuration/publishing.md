@@ -454,8 +454,8 @@ A replay the harness itself ended — its local Git budget ran out, its context
 was cancelled, or it went silent past its liveness bound — is **not** a
 conflict, although it leaves the same half-applied state behind. It is told
 apart by how the rebase stopped, abandoned the same way so the worktree is back
-on its branch before anything is recorded, and reported as an environmental
-integration stop of cause `replay-killed` that
+on its branch before anything is recorded, and reported as an integration stop
+by something outside the work, of cause `replay-killed`, that
 `yoyo triage resume` picks up, rather than as a conflict for a person to settle.
 
 Two more stops of an approved change before its promotion are integration stops

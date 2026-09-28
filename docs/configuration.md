@@ -2961,7 +2961,8 @@ because nobody is logged into it or nobody can reach it. That is
 [a wait](operations.md#waiting-out-a-provider-nobody-can-reach) no run can end,
 and a brake tripped on it prescribes a decision about a change nobody judged —
 which is what happened on 2026-09-17 over an expired login, again on
-2026-09-19 when two of the three stops that tripped it were environmental, and
+2026-09-19 when two of the three stops that tripped it came from outside the
+work, and
 again on 2026-09-21 when all three were one diverged target.
 
 **The brake's hold does not wait on you while the harness is still working
@@ -3751,9 +3752,9 @@ into the same refusal.
 A reset beyond what the run has left of `usage_limit_max_pause` — including the
 probe a limit with no reset time would wait for — is a wait the harness will not
 take rather than anything a person has to decide, so it blocks nothing. The run
-ends cancelled as an environmental stop of cause `usage-window` that records the
-reset, gives its claim back so the item is ready again, and keeps its branch and
-worktree. It counts toward nothing: not the failure-storm brake, not the
+ends cancelled, recorded as ended by something outside the work (cause
+`usage-window`) with the reset it is waiting for; it gives its claim back so the
+item is ready again, and keeps its branch and worktree. It counts toward nothing: not the failure-storm brake, not the
 item's review rounds, repair grant, or re-run, and not a watching session's
 memory of what it has tried. A watching session holds the item only until the
 reset passes and then pulls it again by itself. The item's notes, the run's
@@ -4386,8 +4387,8 @@ A replay the harness itself ended — its local Git budget ran out, its context
 was cancelled, or it went silent past its liveness bound — is **not** a
 conflict, although it leaves the same half-applied state behind. It is told
 apart by how the rebase stopped, abandoned the same way so the worktree is back
-on its branch before anything is recorded, and reported as an environmental
-integration stop of cause `replay-killed` that
+on its branch before anything is recorded, and reported as an integration stop
+by something outside the work, of cause `replay-killed`, that
 `yoyo triage resume` picks up, rather than as a conflict for a person to settle.
 
 Two more stops of an approved change before its promotion are integration stops

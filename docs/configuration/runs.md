@@ -658,7 +658,8 @@ because nobody is logged into it or nobody can reach it. That is
 [a wait](../operations.md#waiting-out-a-provider-nobody-can-reach) no run can end,
 and a brake tripped on it prescribes a decision about a change nobody judged —
 which is what happened on 2026-09-17 over an expired login, again on
-2026-09-19 when two of the three stops that tripped it were environmental, and
+2026-09-19 when two of the three stops that tripped it came from outside the
+work, and
 again on 2026-09-21 when all three were one diverged target.
 
 **The brake's hold does not wait on you while the harness is still working

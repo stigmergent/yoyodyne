@@ -1819,7 +1819,7 @@ func TestRunReportHeadlineDistinguishesAStallFromAnExhaustedBudget(t *testing.T)
 		stop string
 		want string
 	}{
-		{name: "stalled", stop: ProviderStopStalled, want: "stopped emitting events"},
+		{name: "stalled", stop: ProviderStopStalled, want: "produced no output for longer than the harness allows"},
 		{name: "budget exhausted", stop: ProviderStopBudgetExhausted, want: "total budget ran out"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

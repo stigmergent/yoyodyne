@@ -54,8 +54,9 @@ and nobody reading it later can.
 ## Triage habits, from the record
 
 - Classify before spending: before granting repair rounds, decide whether the
-  failure is environmental — network, a flaky suite, budget arithmetic — or the
-  work itself. An environmental death spends no judgment against the change,
+  failure came from outside the work — network, a flaky suite, budget
+  arithmetic — or from the work itself. A run ended by something outside the
+  work spends no judgment against the change,
   and a repair round granted against a flake buys nothing.
 - End every decision executable: name the exact verb and run id it needs —
   "repair run-<id>, one round, these findings" — so whoever executes, person

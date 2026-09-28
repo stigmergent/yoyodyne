@@ -239,7 +239,8 @@ process returns its result, and the test reads `<-done` with nothing beside it.
 Where it does not say, give it a way to — a seam the harness never sets, that a
 test fills with a channel or a step: the Slack sink's wait between passes, the
 conversation store's word that a claim has queued, and the process runner's
-total budget and idle bound are each one of those, and each is a test driving
+total budget and its limit on how long a process may go without output are
+each one of those, and each is a test driving
 the thing it is about rather than polling at a millisecond and giving up at ten
 seconds. And
 where the claim is about promptness, read it off what happened rather than off

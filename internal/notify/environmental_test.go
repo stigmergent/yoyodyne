@@ -70,7 +70,7 @@ func TestTheThreadSaysARefusedRoundGaveItsBudgetBack(t *testing.T) {
 	})
 	body := blockerBody(t, after)
 	for _, want := range []string{
-		"environmentally refused",
+		"ended by something outside the work",
 		string(runstate.CauseHandbackMissingChange),
 		"review round it was charged and the granted repair round it consumed were both returned",
 		after.Failure,
@@ -103,7 +103,7 @@ func TestTheThreadSaysWhenARefusedRoundCouldNotBePaidBack(t *testing.T) {
 	})
 	body := blockerBody(t, after)
 	for _, want := range []string{
-		"environmentally refused",
+		"ended by something outside the work",
 		"could not be written",
 		"counters are higher than the round cost it",
 	} {
@@ -252,7 +252,7 @@ func TestTheThreadIsSilentOnACauseThatDidNotRefuseTheRound(t *testing.T) {
 		refusal.Refused = false
 	})
 	body := blockerBody(t, after)
-	if strings.Contains(body, "environmentally refused") {
+	if strings.Contains(body, "ended by something outside the work") {
 		t.Fatalf("the thread calls an unrefused round refused:\n%s", body)
 	}
 	if !strings.Contains(body, after.Failure) {

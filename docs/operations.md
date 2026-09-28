@@ -622,9 +622,9 @@ naming the cycles spent and what stopped the last probe, and starts no further
 probe. So the brake hold that waits on you is one she escalated, which she
 does by recording the decision and reporting it at `warning` severity so it
 reaches you, or one the harness escalated at that bound. Only verdicts and
-check failures against a change that was present count toward the trip — an
-environmental stop, a dirty checkout or a transport that did not answer, is a
-verdict on nothing and counts toward nothing, and neither does a provider
+check failures against a change that was present count toward the trip — a run
+ended by something outside the work, a dirty checkout or a transport that did
+not answer, is a verdict on nothing and counts toward nothing, and neither does a provider
 answering nobody. A
 promotion refused because the target branch
 [diverged from the forge](#unwedging-a-target-branch-that-diverged-from-the-forge)
@@ -715,8 +715,9 @@ discipline, whether or not a deadline was quoted. A reset that is not in the
 future is one the harness genuinely cannot wait for, so it stops the run and
 records a blocker rather than guessing a wait. A reset that no longer fits the
 run's remaining budget is different: the wait is well defined, only longer than
-the harness will take, so nobody has anything to decide. The run ends cancelled
-as an environmental stop of cause `usage-window` naming the reset, gives its
+the harness will take, so nobody has anything to decide. The run ends cancelled,
+recorded as ended by something outside the work (cause `usage-window`) and
+naming the reset; it gives its
 claim back, and keeps its branch and worktree. It spends nothing — no brake
 count, no review round, repair grant, or re-run — and a watching session holds
 the item under "waiting on the provider's usage window" until the reset passes,
@@ -1338,7 +1339,7 @@ code, and a stderr holding nothing but the checkout's progress meter, one
 stopped at 87% of 1099 files — each leaving a half-written registration, holding
 a developer slot until the claim audit gave the item back half an hour later,
 and one of them spending a recorded re-run on a run no developer ever saw. A
-creation that is ended anyway is [an environmental refusal](work.md): the run's
+creation that is ended anyway is [a round refused from outside the work](work.md): the run's
 record says so in one sentence naming the tree and the budget rather than
 reprinting the progress, the item is charged neither a round nor the re-run that
 started it, and the stoppage is docketed like any other.
@@ -1351,7 +1352,7 @@ bounded as an uncounted tree — so an operator reading a creation that dies lat
 knows the bound was a stand-in rather than the tree's own size. A count the
 harness itself ended is the one that does stop it, and it stops it in exactly the
 class above: a count killed by the load is the same machine-too-busy death as an
-add killed by it, refused environmentally and charged nothing.
+add killed by it, refused as a cause outside the work and charged nothing.
 
 **The run is left in flight for half an hour, and then it is settled.** Nothing
 in the harness continues a stopped run on its own — the scheduler chooses from
@@ -2365,8 +2366,8 @@ whatever it was parked on, once thirty minutes have passed since its record last
 moved with nothing continuing it — measured, for a provider nobody could reach,
 from the probe it recorded — and the lease it takes to settle a run is what says
 no process holds it, since a continuation somebody did start would be holding
-that lease. It settles it as an environmental stop rather than as a verdict on
-anything. The run's record
+that lease. It ends the run and records the cause as outside the work, rather than
+as a verdict on anything. The run's record
 and the work item both carry what the sweep observed and nothing more: that no
 live process held the run, that no ending was recorded, when the record last
 moved, and what the run was parked on. Three parks are left out, because each
@@ -2397,7 +2398,7 @@ whole of it. The
 slot the run was holding and the in-flight guard's hold over the items beside it
 release with the record going terminal. `yoyo status <item>` reads the run as
 `stopped` with that reason under it. Whether the round it ends spent anything
-is decided as every environmental round is: one that left a change behind spent
+is decided as every round ended from outside the work is: one that left a change behind spent
 what it spent, and one that left nothing gives back the repair grant that bought
 it. What you never do is open a run's JSON and change `status` yourself: a
 record edited by hand carries no account of who ended the run or why, the

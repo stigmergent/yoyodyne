@@ -1041,7 +1041,7 @@ func TestReconcileLeavesARunWithAStoppedProviderAlone(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionResumable {
 		t.Fatalf("reconciliation = %#v, want the stopped run left resumable", results)
 	}
-	if !strings.Contains(results[0].Detail, "stopped emitting events") {
+	if !strings.Contains(results[0].Detail, "produced no output for longer than the harness allows") {
 		t.Fatalf("reconciliation did not report why the provider was stopped: %q", results[0].Detail)
 	}
 	// The sweep says how long the run is left resumable, because a reading that
@@ -1077,7 +1077,7 @@ func TestReconcileLeavesARunWithAStoppedProviderAlone(t *testing.T) {
 // in-flight guard refuses every item beside it, the claim audit leaves it as a
 // wait, and every sweep reports it resumable while nothing resumes it. Two of
 // these did exactly that from 2026-09-20 07:20 until somebody asked. Past the
-// grace the sweep settles it as an environmental stop naming what it observed,
+// grace the sweep ends it, naming what it observed and the cause as outside the work,
 // the item is blocked with the same account, the artifacts are left exactly as
 // they were, and the stoppage is docketed — so the development manager's
 // repair-continue has an entry to carry out against, and the slot is free.
@@ -1123,9 +1123,23 @@ func TestReconcileSettlesAStoppedRunNothingContinued(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionBlocked || results[0].Failure != "" {
 		t.Fatalf("reconciliation = %#v, want the vanished run settled as blocked", results)
 	}
-	for _, want := range []string{"no live process behind it", "stopped emitting events", "no ending was ever recorded", "the harness settled it as an environmental stop"} {
+	for _, want := range []string{"no live process behind it", "produced no output for longer than the harness allows", "no ending was ever recorded", "so the harness ended the run. The cause was outside the work"} {
 		if !strings.Contains(results[0].Detail, want) {
 			t.Fatalf("reconciliation detail %q does not say %q", results[0].Detail, want)
+		}
+	}
+	// A run ended by its idle bound is said to a person in ordinary words: what the
+	// AI session did, what the harness did about it, and that the cause was
+	// outside the work. The harness's own names for it — an idle bound, an
+	// environmental stop — are nowhere in it.
+	plain := fmt.Sprintf("the run was recorded as running in the %s phase with no live process behind it: at %s the harness stopped the AI session running it because it produced no output for longer than the harness allows, no ending was ever recorded, and nothing continued the run within %s of that, so the harness ended the run. The cause was outside the work, so nothing about the change was judged, and the change was kept: the branch and worktree are left exactly as the run left them",
+		stopped.Phase, stopped.UpdatedAt.UTC().Format(time.RFC3339), DefaultVanishedGrace)
+	if !strings.Contains(results[0].Detail, plain) {
+		t.Fatalf("reconciliation detail does not say it plainly:\n got: %s\nwant: %s", results[0].Detail, plain)
+	}
+	for _, retired := range []string{"idle bound", "environmental stop", "environmental", "stall continuation"} {
+		if strings.Contains(strings.ToLower(results[0].Detail), retired) {
+			t.Fatalf("reconciliation detail says %q to a person:\n%s", retired, results[0].Detail)
 		}
 	}
 	if results[0].Outcome != runstate.OutcomeStopped {
@@ -1142,7 +1156,7 @@ func TestReconcileSettlesAStoppedRunNothingContinued(t *testing.T) {
 	if !settled.Status.Terminal() || settled.CompletedAt == nil || settled.Blocker == "" || settled.ProviderStop != "" {
 		t.Fatalf("settled run = %#v, want a terminal record carrying the blocker and no provider stop", settled)
 	}
-	if !strings.Contains(settled.Failure, "the harness settled it as an environmental stop") {
+	if !strings.Contains(settled.Failure, "so the harness ended the run. The cause was outside the work") {
 		t.Fatalf("settled run's reason does not say the harness settled it: %q", settled.Failure)
 	}
 	// The settlement's end is when the sweep noticed, so the record keeps when the
@@ -1154,7 +1168,7 @@ func TestReconcileSettlesAStoppedRunNothingContinued(t *testing.T) {
 	if refusal == nil || refusal.Cause != runstate.CauseProcessVanished || !refusal.Settled {
 		t.Fatalf("environmental refusal = %#v, want the vanished process recorded and settled", refusal)
 	}
-	for _, want := range []string{"no live process held run " + paused.RunID, "no ending was recorded", stopped.UpdatedAt.UTC().Format(time.RFC3339), "stopped emitting events"} {
+	for _, want := range []string{"no live process held run " + paused.RunID, "no ending was recorded", stopped.UpdatedAt.UTC().Format(time.RFC3339), "produced no output for longer than the harness allows"} {
 		if !strings.Contains(refusal.Detail, want) {
 			t.Fatalf("refusal detail %q does not say %q", refusal.Detail, want)
 		}
@@ -1171,7 +1185,7 @@ func TestReconcileSettlesAStoppedRunNothingContinued(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(settled.WorktreePath, "partial.txt")); err != nil {
 		t.Fatalf("the stopped attempt's work is not where it was left: %v", err)
 	}
-	if !tracker.Blocked || !strings.Contains(tracker.BlockReason, "the harness settled it as an environmental stop") {
+	if !tracker.Blocked || !strings.Contains(tracker.BlockReason, "so the harness ended the run. The cause was outside the work") {
 		t.Fatalf("item blocked = %t with reason %q, want the item blocked with the sweep's account", tracker.Blocked, tracker.BlockReason)
 	}
 
@@ -1198,7 +1212,7 @@ func TestReconcileSettlesAStoppedRunNothingContinued(t *testing.T) {
 	if entry.Environmental == nil || entry.Environmental.Cause != string(runstate.CauseProcessVanished) || entry.Environmental.Account == "" {
 		t.Fatalf("docketed environmental = %#v, want the vanished process and its accounting", entry.Environmental)
 	}
-	if !strings.Contains(entry.Blocker, "the harness settled it as an environmental stop") {
+	if !strings.Contains(entry.Blocker, "so the harness ended the run. The cause was outside the work") {
 		t.Fatalf("docketed blocker is not the sweep's account:\n%s", entry.Blocker)
 	}
 	if entry.Artifacts.WorktreePath != stopped.WorktreePath || entry.Artifacts.Branch != stopped.Branch || entry.Artifacts.WorktreeRemoved || entry.Artifacts.BranchRemoved {

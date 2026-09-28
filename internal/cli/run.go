@@ -972,7 +972,7 @@ func reportRunPause(stdout, stderr io.Writer, outcome orchestrator.Outcome, err 
 		// A stall and an exhausted budget are different facts about the run, and
 		// only one of them is worth investigating.
 		if outcome.ProviderStop == runstate.ProviderStopStalled {
-			fmt.Fprintln(stdout, "the provider stopped emitting events and was stopped; it reported no failure")
+			fmt.Fprintln(stdout, "the AI session running it produced no output for longer than the harness allows, so the harness stopped it; the cause was outside the work, and it reported no failure")
 		} else {
 			fmt.Fprintln(stdout, "the provider was still working when its total budget ran out; it reported no failure")
 		}

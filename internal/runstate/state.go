@@ -3260,7 +3260,7 @@ func (s State) Validate() error {
 	}
 	if s.Environmental != nil {
 		if err := s.Environmental.Validate(); err != nil {
-			problems = append(problems, fmt.Errorf("environmental: %w", err))
+			problems = append(problems, fmt.Errorf("stop outside the work: %w", err))
 		}
 	}
 	problems = append(problems, s.validateIntegrationResume()...)

@@ -503,6 +503,32 @@ func TestGuidesAreHeldToTheRegisterForATermMarkedGuides(t *testing.T) {
 	}
 }
 
+// The three words retired for reaching the operator with nothing saying what
+// they meant are refused in the guides in every form they were written in —
+// `environmental refusal`, `environmental cause`, and `refused environmentally`
+// are the same coinage as `environmental stop` — and an idle boundary, which is
+// ordinary English, is not mistaken for the idle bound.
+func TestGuidesRefuseTheRetiredRunStopWordsInEveryForm(t *testing.T) {
+	t.Parallel()
+
+	guide := map[string]string{
+		"docs/work.md": "# Work\n\nAn environmental stop.\n\nAn environmental refusal.\n\nAn environmental cause.\n\nRefused environmentally.\n\nThe idle bound ran out.\n\nA stall continuation.\n\nTaken over at idle boundaries.\n",
+	}
+	problems, err := Check(root(t, register(), guide))
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	want := map[int]string{3: "environmental stop", 5: "environmental stop", 7: "environmental stop", 9: "environmental stop", 11: "idle bound", 13: "stall continuation"}
+	if len(problems) != len(want) {
+		t.Fatalf("Check() reported %v, want one problem on each of lines %v", problems, want)
+	}
+	for _, problem := range problems {
+		if problem.Path != "docs/work.md" || want[problem.Line] != problem.Term {
+			t.Errorf("Check() reported %+v, want %q on line %d", problem, want[problem.Line], problem.Line)
+		}
+	}
+}
+
 // A home a project has not created is intent not yet written rather than a
 // defect, which is the judgement the goals check already makes about an absent
 // artifact home.
