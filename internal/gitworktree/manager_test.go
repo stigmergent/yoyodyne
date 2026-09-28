@@ -900,6 +900,109 @@ func TestManagerRunsAnyGitCommandAgainWhenItCrossesARemoval(t *testing.T) {
 	}
 }
 
+// A creation is what a neighbour's cleanup costs most: the add is the step a run
+// cannot start without, and a removal crossing it fails the run before its
+// developer is ever asked for anything. Git says so in each of the removal's
+// forms from inside the add itself — the entry it walks gone under it, or
+// worktrees/ gone between the add making it and making its entry there, when the
+// removal took the last entry and Git deleted the directory with it. Each is run
+// again rather than failing the creation, and each is said where the caller asked
+// to hear about crossings, naming the add, the attempt Git refused, and Git's own
+// words, so a crossing absorbed is still one somebody can read.
+func TestManagerRunsAWorktreeAddAgainWhenItCrossesARemoval(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct{ stderr, refusal string }{
+		"the entry it walks": {
+			stderr:  "Preparing worktree (checking out 'yoyodyne/yoyodyne-crossed-add/run')\nfatal: Invalid path '.git/worktrees/yoyodyne-ifd-12-0b1434ad': No such file or directory\n",
+			refusal: "Invalid path '.git/worktrees/yoyodyne-ifd-12-0b1434ad'",
+		},
+		"the directory it makes its entry in": {
+			stderr:  "fatal: could not create directory of '.git/worktrees/run-0b1434ad': No such file or directory\n",
+			refusal: "could not create directory of '.git/worktrees/run-0b1434ad': No such file or directory",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			repository := newRepository(t)
+			runner := &listRefusingRunner{delegate: execution.OSProcessRunner{}, refusals: 1, command: []string{"worktree", "add"}, stderr: tc.stderr}
+			manager, err := New(Options{
+				Runner:         runner,
+				RepositoryRoot: repository,
+				WorktreeRoot:   filepath.Join(t.TempDir(), "worktrees"),
+				Timeout:        testGitBudget,
+			})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			var (
+				mu        sync.Mutex
+				crossings []Crossing
+			)
+			ctx := WithCrossings(context.Background(), func(crossing Crossing) {
+				mu.Lock()
+				defer mu.Unlock()
+				crossings = append(crossings, crossing)
+			})
+			worktree, err := manager.Create(ctx, CreateRequest{
+				RunID:      testRunID,
+				WorkItemID: "yoyodyne-crossed-add",
+				BaseRef:    "HEAD",
+			})
+			if err != nil {
+				t.Fatalf("Create() error = %v, want the add that crossed a removal to have been run again", err)
+			}
+			if adds, refused := runner.observed(); refused != 1 || adds != 2 {
+				t.Fatalf("adds = %d after %d refusal(s), want the one refusal followed by one more add", adds, refused)
+			}
+			if inspection, err := manager.Inspect(context.Background(), worktree); err != nil || !inspection.Registered {
+				t.Fatalf("Inspect() = %#v, %v, want the worktree the second add made", inspection, err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			want := Crossing{Command: "git worktree add", Attempt: 1, Attempts: registrationWalkAttempts, Refusal: tc.refusal}
+			if len(crossings) != 1 || crossings[0] != want {
+				t.Fatalf("crossings said = %#v, want exactly %#v", crossings, want)
+			}
+		})
+	}
+}
+
+// A crossing is said only where somebody asked to hear it, and a refusal that is
+// not one is said nowhere: it is Git's answer and is believed, not run again.
+func TestManagerSaysNoCrossingForARefusalItDoesNotRunAgain(t *testing.T) {
+	t.Parallel()
+
+	repository := newRepository(t)
+	runner := &listRefusingRunner{
+		delegate: execution.OSProcessRunner{},
+		refusals: 1,
+		command:  []string{"worktree", "add"},
+		stderr:   "fatal: could not create directory of '.git/worktrees/run-0b1434ad': Permission denied\n",
+	}
+	manager, err := New(Options{
+		Runner:         runner,
+		RepositoryRoot: repository,
+		WorktreeRoot:   filepath.Join(t.TempDir(), "worktrees"),
+		Timeout:        testGitBudget,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	var crossings []Crossing
+	ctx := WithCrossings(context.Background(), func(crossing Crossing) { crossings = append(crossings, crossing) })
+	if _, err := manager.Create(ctx, CreateRequest{RunID: testRunID, WorkItemID: "yoyodyne-refused-add", BaseRef: "HEAD"}); err == nil {
+		t.Fatal("Create() succeeded over an add Git refused for a reason that does not pass")
+	}
+	if adds, _ := runner.observed(); adds != 1 {
+		t.Fatalf("adds = %d, want the refusal believed the first time", adds)
+	}
+	if len(crossings) != 0 {
+		t.Fatalf("crossings said = %#v, want none for a refusal that was not run again", crossings)
+	}
+}
+
 // The pattern is Git's wording and nothing wider: a refusal naming a file or a
 // path that is not one entry of the registrations is Git's answer about
 // something else, and running it again would only make it slower.
@@ -920,6 +1023,14 @@ func TestACrossedRegistrationIsGitsWordingForAnEntryAndNothingElse(t *testing.T)
 		{"fatal: failed to read /Users/me/Application Support/My Repos/x/.git/worktrees/loop-3/commondir: Result too large", true},
 		{"fatal: failed to read '/Users/me/Application Support/My Repos/x/.git/worktrees/loop-3/locked': No such file or directory", true},
 		{"fatal: Invalid path '/Users/me/Application Support/My Repos/x/.git/worktrees/loop-3': No such file or directory", true},
+		{"fatal: could not create directory of '.git/worktrees/yoyodyne-ifd-12-0b1434ad': No such file or directory", true},
+		{"fatal: could not create directory of '/Users/me/Application Support/My Repos/x/.git/worktrees/loop-3': No such file or directory", true},
+		{`fatal: could not create directory of 'C:\repository\.git\worktrees\loop-3': No such file or directory`, true},
+		// An add refused its entry for any reason but the directory having gone is
+		// not an instant that passes, and neither is a directory that is not the
+		// registrations'.
+		{"fatal: could not create directory of '.git/worktrees/loop-3': Permission denied", false},
+		{"fatal: could not create directory of '/tmp/repository/src/worktrees/loop-3': No such file or directory", false},
 		{"fatal: failed to read .git/worktrees/loop-3/gitdir: Is a directory", false},
 		{"fatal: Invalid path '/tmp/repository/src': No such file or directory", false},
 		// A directory that happens to be called worktrees is not the

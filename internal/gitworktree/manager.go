@@ -120,8 +120,8 @@ const (
 // walking the worktree registrations and dying on an entry that changed under
 // it. It is Git's own wording, and it names the entry, which is what lets a
 // listing that keeps failing be checked against the bookkeeping rather than
-// believed. Git has three ways of saying it, one for an entry being written and
-// two for an entry going away.
+// believed. Git has four ways of saying it, one for an entry being written and
+// three for an entry going away.
 //
 // An entry being written: `failed to read .git/worktrees/<id>/commondir`, from
 // the one place Git reads a registration's commondir, over a file an add has
@@ -159,9 +159,24 @@ const (
 // in .git, which a primary checkout's and a bare repository's both do — because
 // Git names every other path it cannot resolve the same way, and a refusal over
 // /repo/src/worktrees/foo is Git's answer about something else.
+//
+// The last is the add's own, and it is a removal taking worktrees/ itself. Git
+// deletes that directory when the entry it removes is the last one there, and
+// an add creates the directory and then makes its entry inside it, so a removal
+// landing between the two leaves the add nothing to make its entry in: Git dies
+// as "could not create directory of '<common>/worktrees/<id>': No such file or
+// directory". The add has made nothing by then — its entry is the first thing it
+// writes — so running it again is running it. It is matched on the same terms as
+// the invalid path, and on the missing directory alone, because an add refused
+// that directory for any other reason is not an instant that passes.
+// yoyodyne-ifd.429.33 added it, from Git's source rather than from a failure:
+// the creation loop the concurrent-runs tests run holds one entry for the whole
+// test, so it cannot produce this form, and a machine running one run beside
+// another's cleanup can.
 var crossedRegistration = regexp.MustCompile(
 	`failed to read '?(?:.*[/\\])?worktrees[/\\][^/\\\s]+[/\\](?:commondir|locked'?: No such file or directory)` +
-		`|Invalid path '[^']*\.git[/\\]worktrees[/\\][^/\\']+'`)
+		`|Invalid path '[^']*\.git[/\\]worktrees[/\\][^/\\']+'` +
+		`|could not create directory of '[^']*\.git[/\\]worktrees[/\\][^/\\']+': No such file or directory`)
 
 // maintenanceOptions stop a Git command from handing this repository to Git's
 // automatic maintenance, and every command the harness runs carries them.
@@ -3803,12 +3818,64 @@ func (m *Manager) runBounded(ctx context.Context, environment []string, timeout 
 		if result.Status != execution.ProcessFailed || !crossedRegistration.MatchString(result.Stderr) || attempt >= registrationWalkAttempts {
 			return result, nil
 		}
+		crossedAgain(ctx, Crossing{
+			Command:  describeGitCommand(args),
+			Attempt:  attempt,
+			Attempts: registrationWalkAttempts,
+			Refusal:  strings.TrimSpace(crossedRegistration.FindString(result.Stderr)),
+		})
 		select {
 		case <-ctx.Done():
 			return execution.ProcessResult{}, ctx.Err()
 		case <-time.After(registrationWalkRetryWait):
 		}
 	}
+}
+
+// Crossing is one Git command run again because it crossed another worktree's
+// creation or removal: which command, which attempt Git refused, out of how
+// many, and Git's own words for the refusal. It is said rather than kept quiet
+// because a crossing is the one failure the manager absorbs without anybody
+// having asked it to, and a run that took three tries to get its worktree is
+// worth knowing about when it takes four.
+type Crossing struct {
+	Command  string
+	Attempt  int
+	Attempts int
+	Refusal  string
+}
+
+// crossingsKey carries, on a context, where the Git commands run under it say a
+// crossing they ran again.
+type crossingsKey struct{}
+
+// WithCrossings is ctx carrying where the manager says each crossing it runs a
+// Git command again over. It travels on the context rather than on the manager,
+// because one manager serves every run a process hosts while the reader who
+// wants to hear about a crossing — a watch session, for the dispatch it
+// started — is one of them.
+func WithCrossings(ctx context.Context, record func(Crossing)) context.Context {
+	return context.WithValue(ctx, crossingsKey{}, record)
+}
+
+// crossedAgain says one crossing where the context asked for them, and nowhere
+// where it did not. Saying it never touches the command: the re-run is decided
+// before this is called and goes ahead whatever became of it.
+func crossedAgain(ctx context.Context, crossing Crossing) {
+	if record, wired := ctx.Value(crossingsKey{}).(func(Crossing)); wired && record != nil {
+		record(crossing)
+	}
+}
+
+// describeGitCommand names a Git command as a reader would recognise it — `git
+// worktree add`, `git rebase` — and without its paths, which are a run's own
+// and say nothing about which step crossed.
+func describeGitCommand(args []string) string {
+	subcommand, rest := gitSubcommand(args)
+	if subcommand == "worktree" && len(rest) > 0 {
+		return "git worktree " + rest[0]
+	}
+	return "git " + subcommand
 }
 
 // registrationWalkers are the Git subcommands that read the worktree

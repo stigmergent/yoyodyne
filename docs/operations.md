@@ -2304,8 +2304,25 @@ Git takes to write a handful of small files, so running the command again is
 usually enough. The same instant has a second face at the other end, when the
 add finishes: Git sees the entry's `locked` file, the add removes it, and Git
 dies reading it — `failed to read '.git/worktrees/<entry>/locked': No such file
-or directory` — so that is run again too. Only those two refusals are run again:
-every other answer Git gives is believed the first time.
+or directory` — so that is run again too. A removal crosses a walk the same
+way, from the other side, and Git has two words for that. The entry itself can
+go between Git reading it and resolving the repository through it — `Invalid
+path '.git/worktrees/<entry>': No such file or directory` — and when the
+removal takes the last entry, Git deletes `worktrees/` with it, so an add that
+had just made the directory finds nowhere to make its own entry: `could not
+create directory of '.git/worktrees/<entry>': No such file or directory`. Both
+pass once the removal beside them returns, and the add has made nothing when it
+dies of either, so both are run again. Those four refusals are the only ones
+run again, within the same three attempts: every other answer Git gives is
+believed the first time.
+
+A command run again that way leaves nothing behind once it succeeds, so where a
+watch session started the run, each re-run is written on the watch log as it is
+taken: the item the run is for, the Git command (`git worktree add`, `git
+rebase`, …), which attempt Git refused out of how many, and Git's own words.
+It is a note on the log rather than a change in what the session is doing, so
+`yoyo status` and the channel read past it; it is what tells a repository whose
+runs cross each other more and more from one where they never do.
 
 What neither can cover is the entry that stays that way. An add whose
 process was killed leaves the entry exactly as it stood, and nothing Git has

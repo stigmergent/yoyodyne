@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -361,6 +362,18 @@ type WatchTransition struct {
 	// of the field, will take it for — and a session with a dispatch in flight is
 	// one choosing work.
 	DispatchWait *DispatchWait `json:"dispatch_wait,omitempty"`
+	// WorktreeCrossing is a Git command a dispatch this session started ran again
+	// because it crossed another worktree's creation or removal — a `git worktree
+	// add` meeting a neighbour's cleanup, most often. Like a dispatch wait it is a
+	// note about one dispatch rather than a transition of the session, and is
+	// written as a watching entry for the same reason.
+	//
+	// It is here because the re-run is otherwise invisible: a crossing absorbed on
+	// the second attempt leaves nothing behind, so a repository whose runs cross
+	// each other more and more looks exactly like one where they never do, until
+	// the day one takes more attempts than it is given and a run fails over a
+	// neighbour's cleanup (yoyodyne-ifd.429.33).
+	WorktreeCrossing *WorktreeCrossing `json:"worktree_crossing,omitempty"`
 }
 
 // RetryingRead reports a poll that chose nothing because the harness's store
@@ -379,7 +392,45 @@ func (t WatchTransition) RetryingRead() bool {
 // dispatch's own goroutine while the session goes on polling, so taking one as
 // the session's latest word would report a session idle over an empty queue as
 // one still choosing, for as long as nothing else it did was news.
-func (t WatchTransition) Note() bool { return t.DispatchWait != nil }
+func (t WatchTransition) Note() bool { return t.DispatchWait != nil || t.WorktreeCrossing != nil }
+
+// WorktreeCrossing is one Git command a dispatch ran again over another
+// worktree's creation or removal: which item the dispatch was for, which command,
+// which attempt Git refused out of how many it is given, and Git's own words.
+type WorktreeCrossing struct {
+	WorkItemID string    `json:"work_item_id"`
+	Command    string    `json:"command"`
+	Attempt    int       `json:"attempt"`
+	Attempts   int       `json:"attempts"`
+	At         time.Time `json:"at"`
+	Refusal    string    `json:"refusal,omitempty"`
+}
+
+// Says is the crossing in the words the watch log's reason carries.
+func (c WorktreeCrossing) Says() string {
+	return fmt.Sprintf("the dispatch for %s ran `%s` again after attempt %d of %d crossed another worktree's creation or removal: %s",
+		c.WorkItemID, c.Command, c.Attempt, c.Attempts, c.Refusal)
+}
+
+func (c WorktreeCrossing) validate() error {
+	var problems []error
+	if err := domain.ValidateIdentifier("worktree crossing work item id", c.WorkItemID); err != nil {
+		problems = append(problems, err)
+	}
+	if strings.TrimSpace(c.Command) == "" {
+		problems = append(problems, errors.New("a worktree crossing names the Git command that was run again"))
+	}
+	if c.Attempt < 1 || c.Attempts < c.Attempt {
+		problems = append(problems, fmt.Errorf("a worktree crossing on attempt %d of %d is not an attempt", c.Attempt, c.Attempts))
+	}
+	if c.At.IsZero() {
+		problems = append(problems, errors.New("a worktree crossing records when it was run again"))
+	}
+	if len(c.Refusal) > MaxWatchReasonBytes {
+		problems = append(problems, fmt.Errorf("a worktree crossing's refusal is %d bytes, which exceeds the %d byte bound", len(c.Refusal), MaxWatchReasonBytes))
+	}
+	return errors.Join(problems...)
+}
 
 // DispatchWait is one wait a dispatch took out on a tracker failure before it
 // claimed anything: which item it was dispatched for, which boundary failed,
@@ -532,6 +583,20 @@ func (t WatchTransition) Validate() error {
 			problems = append(problems, fmt.Errorf("a %s entry cannot carry a dispatch's wait, which is written only as a watching one", t.State))
 		}
 		if err := t.DispatchWait.validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	// A crossing is written only as a watching entry, for the dispatch wait's
+	// reason, and one entry is one note: an entry carrying both would be read as
+	// whichever a surface happened to look for.
+	if t.WorktreeCrossing != nil {
+		if t.State != WatchWatching {
+			problems = append(problems, fmt.Errorf("a %s entry cannot carry a worktree crossing, which is written only as a watching one", t.State))
+		}
+		if t.DispatchWait != nil {
+			problems = append(problems, errors.New("an entry carries a dispatch wait and a worktree crossing, and a note is one or the other"))
+		}
+		if err := t.WorktreeCrossing.validate(); err != nil {
 			problems = append(problems, err)
 		}
 	}

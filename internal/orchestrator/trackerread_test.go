@@ -239,6 +239,8 @@ func (w *watchLog) Record(transition SessionState) error {
 		At:            transition.At,
 		Reason:        transition.Reason,
 		DispatchWait:  transition.DispatchWait,
+		// The other note a dispatch writes, from the same goroutines.
+		WorktreeCrossing: transition.WorktreeCrossing,
 	})
 }
 
@@ -303,7 +305,7 @@ func TestAPreClaimTrackerWaitIsReadableFromTheSurfacesWhileItStands(t *testing.T
 		return nil
 	}
 
-	outcome, err := pipeline.Run(session.dispatching(context.Background()), tracker.Item.ID)
+	outcome, err := pipeline.Run(session.dispatching(context.Background(), tracker.Item.ID), tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}

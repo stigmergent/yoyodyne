@@ -166,6 +166,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/readiness"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -415,6 +416,11 @@ type SessionState struct {
 	// dispatch's own goroutine as the wait is taken; see
 	// runstate.WatchTransition.Note.
 	DispatchWait *runstate.DispatchWait
+	// WorktreeCrossing is a Git command a dispatch this session started ran again
+	// because it crossed another worktree's creation or removal. It is a note
+	// about that dispatch in the same way a dispatch wait is; see
+	// runstate.WatchTransition.WorktreeCrossing.
+	WorktreeCrossing *runstate.WorktreeCrossing
 }
 
 // WatchSessions is where a watch session says what it is doing, for the reader
@@ -1961,7 +1967,7 @@ pulling:
 			}
 			carrying = true
 			go func(task CarryOutTask) {
-				carried, outcome, err := pull.CarryOut.Carry(session.dispatching(ctx), task)
+				carried, outcome, err := pull.CarryOut.Carry(session.dispatching(ctx, task.WorkItemID), task)
 				completions <- completed{index: index, outcome: outcome, err: err, carriedOut: &carried}
 			}(task)
 		}
@@ -1997,7 +2003,7 @@ pulling:
 					free--
 				}
 				go func(workItemID string) {
-					outcome, err := pull.Start(session.dispatching(ctx), workItemID, selection)
+					outcome, err := pull.Start(session.dispatching(ctx, workItemID), workItemID, selection)
 					completions <- completed{index: index, outcome: outcome, err: err}
 				}(workItemID)
 			}
@@ -2215,7 +2221,7 @@ pulling:
 			running++
 			started++
 			go func(workItemID string) {
-				outcome, err := pull.Start(session.dispatching(ctx), workItemID, selection)
+				outcome, err := pull.Start(session.dispatching(ctx, workItemID), workItemID, selection)
 				completions <- completed{index: index, outcome: outcome, err: err}
 			}(entry.ID)
 			return true
@@ -4508,11 +4514,32 @@ func freedLine(freed []freedSlot) string {
 // state the session is in is unchanged by it, and a note that could not be
 // written costs that wait its visibility and nothing else, so it is not put on
 // the schedule the session goroutine owns.
-func (w *watchSession) dispatching(ctx context.Context) context.Context {
+//
+// The same holds for a Git command the dispatch ran again because it crossed
+// another worktree's creation or removal: the re-run absorbs it, so this log is
+// the only place a crossing is ever said, and it is said against the item the
+// dispatch was for.
+func (w *watchSession) dispatching(ctx context.Context, workItemID string) context.Context {
 	if w.to == nil {
 		return ctx
 	}
-	to := w.to
+	to, now := w.to, w.now
+	ctx = gitworktree.WithCrossings(ctx, func(crossed gitworktree.Crossing) {
+		crossing := runstate.WorktreeCrossing{
+			WorkItemID: workItemID,
+			Command:    crossed.Command,
+			Attempt:    crossed.Attempt,
+			Attempts:   crossed.Attempts,
+			At:         now(),
+			Refusal:    boundedFailureDetail(crossed.Refusal),
+		}
+		_ = to.Record(SessionState{
+			State:            runstate.WatchWatching,
+			At:               crossing.At,
+			Reason:           crossing.Says(),
+			WorktreeCrossing: &crossing,
+		})
+	})
 	return withDispatchWaits(ctx, func(wait runstate.DispatchWait) {
 		_ = to.Record(SessionState{
 			State:        runstate.WatchWatching,
