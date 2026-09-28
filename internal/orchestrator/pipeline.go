@@ -1659,7 +1659,12 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// A redeploy stop is spent by being picked up: this process is the
 	// continuation it promised, whichever session or command it is. Left
 	// standing it would have the next session re-adopt a run that is already
-	// being carried.
+	// being carried. What it was is kept as the re-adoption the run went on
+	// from, because a stall later in the run began in the session it resumed.
+	if state.RedeployStop != nil {
+		readopted := *state.RedeployStop
+		state.Readopted = &readopted
+	}
 	state.RedeployStop = nil
 	// The invariants are re-read rather than carried in run state: they are the
 	// repository's current constraints, and a resumed attempt must be held to what
@@ -1927,7 +1932,7 @@ func resumedDeveloperPrompt(state runstate.State, persona, invariants, bundle, s
 // afterwards hand the same developer the same conflict in the same session
 // rather than leaving a re-run as the only way on.
 func handedBackRepair(state runstate.State) bool {
-	return state.ReplayConflict != nil || state.PathRefusal != nil || owesVerification(state) || state.CheckFailure != nil || len(state.ReviewFindingDetails) > 0
+	return state.HandedBack()
 }
 
 // owesVerification reports a run holding the execution-evidence gate's refusal:

@@ -1644,6 +1644,7 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("check_stage.narrowed", "check_stage.narrowed", &s.CheckStage.Narrowed, MaxRecordedTextBytes)
 	}
 	own("check_stage_continuation_refused", &s.CheckStageContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
+	own("stall_continuation_refused", &s.StallContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	if s.LandingChecks != nil {
 		for index := range s.LandingChecks.Checks {
 			nested("landing_checks.checks[].output", at("landing_checks.checks", index, "output"), &s.LandingChecks.Checks[index].Output, MaxCheckOutputBytes)
@@ -2042,12 +2043,20 @@ type RepairContinuation struct {
 	// counter somebody forgot to move. The item's grant is still consumed, so one
 	// decision still buys one continuation and no more.
 	Stall bool `json:"stall,omitempty"`
+	// ByHarness says nobody decided this continuation: it is the harness carrying
+	// on a first silent-stream stall itself, which it does at most
+	// MaxHarnessStallContinuations times for one run. It spends no grant, so it
+	// records none, and it is always a stall.
+	ByHarness bool `json:"by_harness,omitempty"`
 }
 
 // Validate reports every contract violation in the recorded continuation at once.
 func (c RepairContinuation) Validate() error {
 	var problems []error
-	if c.GrantedAttempts < 1 {
+	switch {
+	case c.ByHarness && (!c.Stall || c.GrantedAttempts != 0):
+		problems = append(problems, errors.New("a continuation the harness made itself carries on a stall and grants no repair attempt"))
+	case !c.ByHarness && c.GrantedAttempts < 1:
 		problems = append(problems, errors.New("a continuation grants at least one repair attempt"))
 	}
 	if strings.TrimSpace(c.Reason) == "" {
@@ -2899,6 +2908,18 @@ type State struct {
 	// exactly here, with every counter as it was. It is written only when what
 	// the run leaves behind can be continued, and cleared as the run resumes.
 	RedeployStop *RedeployStop `json:"redeploy_stop,omitempty"`
+	// Readopted is the most recent redeploy stop this run was continued from:
+	// the stop above as it stood when the run resumed and cleared it. It is kept
+	// because the stop itself is cleared, and a stall later in the run is read
+	// differently once it is known to have begun in the session a re-adoption
+	// resumed.
+	Readopted *RedeployStop `json:"readopted,omitempty"`
+	// StallContinuationRefused is why the harness declined to continue a first
+	// silent-stream stall itself, where what declined it is something only a
+	// person settles — a worktree somebody has been in, a change that is no
+	// longer there. It hands the stoppage to the development manager rather than
+	// having the harness ask again on every pull.
+	StallContinuationRefused string `json:"stall_continuation_refused,omitempty"`
 	// Changes is what the run's worktree held when it was last summarized. It is
 	// absent from a run that never got as far as producing one, and it outlives
 	// the worktree it describes, which is the whole reason it is here rather than
@@ -3429,6 +3450,14 @@ func (s State) Validate() error {
 			problems = append(problems, errors.New("redeploy_stop requires a run that is still in flight"))
 		}
 	}
+	if s.Readopted != nil {
+		if err := s.Readopted.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("readopted: %w", err))
+		}
+	}
+	if len(s.StallContinuationRefused) > MaxBlockerBytes {
+		problems = append(problems, fmt.Errorf("stall_continuation_refused is %d bytes, which exceeds the %d byte bound", len(s.StallContinuationRefused), MaxBlockerBytes))
+	}
 	if s.TargetBranch != "" && !validLocalBranch(s.TargetBranch) {
 		problems = append(problems, errors.New("target_branch must be a local branch name"))
 	}
@@ -3661,6 +3690,11 @@ func (s *State) ReturnGrantedRound() bool {
 	// A settle asked twice for the same round finds the return already made: the
 	// record is what the caller wanted it to be, and nothing more is given back.
 	if last < 0 || s.RepairContinuations[last].Returned {
+		return false
+	}
+	// A continuation the harness made itself spent no grant, so there is none
+	// to give back.
+	if s.RepairContinuations[last].ByHarness {
 		return false
 	}
 	s.RepairContinuations[last].Returned = true

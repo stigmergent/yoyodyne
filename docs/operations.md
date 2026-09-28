@@ -1411,6 +1411,38 @@ session and whatever the stalled attempt had left uncommitted in the preserved
 worktree. `yoyo triage rerun` is still the right verb where the ground has moved
 and the work is to be done again; it is no longer the only one available.
 
+**The harness continues a first silent-stream stall itself, once.** A run whose
+provider stream went silent in its first developer attempt, or in its review
+after that attempt finished, with nothing handed back to its developer, does
+not wait on her decision any more. Once the sweep has settled it, its docket
+entry says the harness stopped the provider and nothing was judged, names the
+harness as the next mover, and a watching `yoyo work` session's next pull with
+a developer slot free continues it itself — in the same worktree and developer
+session, at the phase it stalled in, exactly as `yoyo triage repair` would —
+with no decision recorded and no review round, repair attempt, repair grant, or
+re-run spent. The continuation is recorded on the run (a repair continuation
+marked `by_harness`, granting nothing) and noted on the item, the entry is
+closed in the harness's name, and while it stands `yoyo status` holds the item
+as the harness's move rather than as a decision waiting on anybody. The
+operator's pause and the intake hold stop it exactly as they stop a recorded
+decision's carry-out; a decision she records about the stoppage first is
+carried out instead. It is held to what her repair of a stall is held to: the
+worktree has to be as the harness left it, and a stall at the review has to
+still hold the change. One that fails either is written onto the run
+(`stall_continuation_refused`), the item is told, and the stoppage is docketed
+again for her. **The harness does this at most once for one run.** A run that
+stalls again after the harness carried it on is settled and docketed as before,
+and its entry says the harness's continuation is spent and what happens next is
+her decision. A stall inside the repair loop, and a provider stopped for
+running out of its total budget rather than for going silent, are not
+continued this way. Where the run had been stopped for a
+[redeploy](#a-session-draining-to-restart-into-a-deployed-build) and
+re-adopted before it stalled, the entry and the item's note say so, since the
+stall then began in the session that re-adoption resumed. Until yoyodyne-a0s
+every such stall waited on her decision after the half hour — two runs in two
+days, yoyodyne-ifd.428.44 and yoyodyne-ifd.430.13.8, each for a continuation
+its own docket entry said cost nothing.
+
 ## When a run says more than the harness keeps
 
 There is a third bound beside those two, and it is not a deadline: how much of a
@@ -2415,7 +2447,11 @@ repair attempt because a stall judges nothing; one stopped at its review or its
 checks after the attempt finished is continued at that step, with no developer
 invoked — the entry says which, and
 [what a stall is owed](#when-a-provider-stalls-or-runs-out-of-budget) is the
-whole of it. The
+whole of it. A first stall of a provider stream that went silent, outside the
+repair loop, is the exception to waiting on her: the harness continues it
+itself at a watching session's next pull, once per run, and only a second
+stall is hers — [the same section](#when-a-provider-stalls-or-runs-out-of-budget)
+says how. The
 slot the run was holding and the in-flight guard's hold over the items beside it
 release with the record going terminal. `yoyo status <item>` reads the run as
 `stopped` with that reason under it. Whether the round it ends spent anything

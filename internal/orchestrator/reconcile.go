@@ -1316,6 +1316,10 @@ func (r Reconciler) abandon(ctx context.Context, state runstate.State, observati
 type recordedPark struct {
 	says  string
 	since time.Time
+	// providerStop is why the harness stopped the provider, where the park was
+	// that stop. It outlives the park on the settled run's record, because a
+	// first silent-stream stall is one the harness continues itself.
+	providerStop string
 }
 
 // parkNothingServes reports a run parked on something the harness itself will
@@ -1356,7 +1360,7 @@ func (r Reconciler) parkNothingServes(state runstate.State) (recordedPark, bool)
 		}
 		return recordedPark{says: "it was waiting out " + runstate.DescribePause(state.PauseCause, state.UsageLimitKind) + ", and nothing asked the provider again at its recorded probe", since: since}, true
 	case stoppedProviderIsResumable(state):
-		return recordedPark{says: "the harness stopped the AI session running it because " + describeProviderStop(state.ProviderStop), since: since}, true
+		return recordedPark{says: "the harness stopped the AI session running it because " + describeProviderStop(state.ProviderStop), since: since, providerStop: state.ProviderStop}, true
 	case pausedForDirective(state):
 		return recordedPark{says: "it paused for unresolved directive " + state.DirectivePause.DirectiveID, since: since}, true
 	case pausedForTracker(state):
@@ -1455,8 +1459,9 @@ func vanishedRefusal(state *runstate.State, observation gitworktree.Observation,
 			"no live process held run %s, no ending was recorded on it, and it last wrote to its record at %s, when %s",
 			state.RunID, park.since.UTC().Format(time.RFC3339), park.says),
 			runstate.MaxEnvironmentalDetailBytes),
-		RecordedAt: now,
-		Settled:    true,
+		RecordedAt:   now,
+		ProviderStop: park.providerStop,
+		Settled:      true,
 	}
 	delivered := state.WorktreePath != "" &&
 		(observation.WorktreeDirty ||

@@ -276,6 +276,15 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 			}
 			remains.Mover = whose + " — " + says
 		}
+		// A silent-stream stall the sweep settled says the same way that the harness
+		// stopped it rather than anything judging the change, and whose move follows.
+		if says := after.StallStopSays(); says != "" {
+			whose := "the development manager's"
+			if mover == readmodel.MoverHarness {
+				whose = "the harness's"
+			}
+			remains.Mover = whose + " — " + says
+		}
 		if outcome := after.Outcome(); outcome == runstate.OutcomeStopped {
 			sayWith(KindBlockerRecorded, stoppageSeverity(after, mover), Harness(), remains, endingReason(after))
 		} else {

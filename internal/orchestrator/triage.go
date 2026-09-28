@@ -1654,8 +1654,13 @@ func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, f
 		CheckStageStop:         singleLine(state.CheckStageStopSays(), triage.MaxMessageBytes),
 		CheckStageFailure:      stageBoundFailure(state),
 		HarnessContinuesChecks: state.HarnessContinuesCheckStage(),
-		ReplayConflict:         docketReplayConflict(state.ReplayConflict),
-		Counters:               counters,
+		// A silent-stream stall says so in the run's own sentence, whether it began
+		// in a session a re-adoption resumed, and whether the harness still
+		// continues it itself.
+		StallStop:             singleLine(state.StallStopSays(), triage.MaxMessageBytes),
+		HarnessContinuesStall: state.HarnessContinuesStall(),
+		ReplayConflict:        docketReplayConflict(state.ReplayConflict),
+		Counters:              counters,
 	}
 	if err := entry.Validate(); err != nil {
 		return triage.Entry{}, fmt.Errorf("docket the stoppage of run %s: %w", state.RunID, err)

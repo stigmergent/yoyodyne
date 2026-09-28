@@ -157,6 +157,26 @@ type CarryOutCheckStages interface {
 // there, because nobody's decision is waiting on it.
 const DecisionContinueChecks = "continue-checks"
 
+// CarryOutStalls continues a run the harness stopped for a silent provider
+// stream, once, in the session and at the phase it stalled in. Like a check
+// stage the bound stopped, it is fired with nobody having decided it. It is
+// satisfied by StallContinuer.
+type CarryOutStalls interface {
+	Due(runID string) (bool, error)
+	Continue(ctx context.Context, request StallContinueRequest) (StallContinueResult, error)
+}
+
+// DecisionContinueStall is the task a carry-out fires for a first silent-stream
+// stall. Like DecisionContinueChecks it is not a word from the development
+// manager's vocabulary and is never written onto an item's triage record.
+const DecisionContinueStall = "continue-stall"
+
+// harnessOwnTask reports a task the harness fires with nobody having decided
+// it, which is never recorded against the item's triage record as a decision.
+func harnessOwnTask(decision string) bool {
+	return decision == DecisionContinueChecks || decision == DecisionContinueStall
+}
+
 // CarryOut fires the decisions the development manager recorded. It decides
 // nothing, spends nothing, and grants nothing: what it does is find a decision
 // somebody else made that the harness has not acted on, hand it to the action
@@ -194,6 +214,11 @@ type CarryOut struct {
 	// decided nothing about it. Optional: a carry-out wired without it leaves such
 	// a stoppage on the docket for her, which is what it was before.
 	CheckStages CarryOutCheckStages
+	// Stalls continues a run the harness stopped for a silent provider stream,
+	// once, where she has decided nothing about it. Optional: a carry-out wired
+	// without it leaves such a stoppage on the docket for her, which is what it
+	// was before yoyodyne-a0s.
+	Stalls CarryOutStalls
 	// Holds is the operator's pause over everything the harness spends. Optional,
 	// and a carry-out wired without one is one nothing can pause, which is what
 	// every provider invocation was before the switch existed.
@@ -360,12 +385,19 @@ func (c CarryOut) read() (carryOutReading, error) {
 			}
 		}
 		if !outstanding {
+			task, outstanding, err = c.stallTask(entry, item)
+			if err != nil {
+				problems = append(problems, err)
+				return
+			}
+		}
+		if !outstanding {
 			return
 		}
 		if running, busy := inFlight[entry.WorkItemID]; busy {
 			// A repair continues the run it was granted for, so that run going again
 			// is the decision being carried out rather than something keeping it back.
-			if running == entry.RunID || task.Decision == DecisionContinueChecks {
+			if running == entry.RunID || harnessOwnTask(task.Decision) {
 				return
 			}
 			reading.held = append(reading.held, heldDecision{
@@ -489,7 +521,7 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	}
 	for _, held := range candidates {
 		task := held.task
-		if task.Decision == DecisionContinueChecks || task.DecidedAt.IsZero() || now.Sub(task.DecidedAt) < poll {
+		if harnessOwnTask(task.Decision) || task.DecidedAt.IsZero() || now.Sub(task.DecidedAt) < poll {
 			continue
 		}
 		record, seen := counters[task.WorkItemID]
@@ -695,6 +727,30 @@ func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (Carr
 	}, true, nil
 }
 
+// stallTask reports a first silent-stream stall the harness continues itself
+// now, and whether there is one. A decision the development manager recorded
+// about the stoppage is hers to have carried out instead, so only an entry
+// nobody decided anything about is taken.
+func (c CarryOut) stallTask(entry triage.Entry, item outstandingItem) (CarryOutTask, bool, error) {
+	if c.Stalls == nil || !entry.HarnessContinuesStall {
+		return CarryOutTask{}, false, nil
+	}
+	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() {
+		return CarryOutTask{}, false, nil
+	}
+	due, err := c.Stalls.Due(entry.RunID)
+	if err != nil || !due {
+		return CarryOutTask{}, false, err
+	}
+	return CarryOutTask{
+		WorkItemID: entry.WorkItemID,
+		RunID:      entry.RunID,
+		DocketKey:  entry.Key,
+		Decision:   DecisionContinueStall,
+		Reason:     "the harness stopped this run for a silent provider stream, and continues it itself once",
+	}, true, nil
+}
+
 // rerunOutstanding reports a re-run decision the harness has not acted on. Both
 // halves are the question, and they are the ones the re-run action itself asks:
 // this stoppage's own claim is what makes the once-per-stoppage bound, and the
@@ -757,6 +813,9 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (CarriedOut, Out
 	}
 	if task.Decision == DecisionContinueChecks {
 		return c.continueChecks(ctx, task, carried)
+	}
+	if task.Decision == DecisionContinueStall {
+		return c.continueStall(ctx, task, carried)
 	}
 	hold, held, err := c.paused()
 	if err != nil {
@@ -882,6 +941,51 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	case !result.Continued:
 		carried.Gate = runstate.TriageGateHarness
 		carried.Problem = fmt.Sprintf("the harness did not continue the check stage the bound stopped on run %s: %s", task.RunID, strings.TrimSpace(refusalText(runErr)))
+		return carried, Outcome{}, nil
+	}
+	carried.Carried = true
+	carried.Reason = result.Reason
+	return carried, result.Outcome, runErr
+}
+
+// continueStall continues a run the harness stopped for a silent provider
+// stream. As with a check stage, nothing it meets is written onto the item's
+// triage record, because nobody's decision is waiting on it: a wait is said on
+// the pass and asked again at the next pull, and a refusal is written onto the
+// run by the action itself, which hands the stoppage to the development manager.
+// The operator's pause and the intake hold stop it exactly as they stop a
+// recorded decision's carry-out.
+func (c CarryOut) continueStall(ctx context.Context, task CarryOutTask, carried CarriedOut) (CarriedOut, Outcome, error) {
+	waiting := func(gate, what string) (CarriedOut, Outcome, error) {
+		carried.Gate = gate
+		carried.Waiting = true
+		carried.Problem = fmt.Sprintf("the harness's continuation of run %s after its stall is waiting on %s: %s; nothing was spent, and the next pull asks again", task.RunID, gate, what)
+		return carried, Outcome{}, nil
+	}
+	if c.Stalls == nil {
+		carried.Gate = runstate.TriageGateHarness
+		carried.Problem = fmt.Sprintf("nothing is wired to this harness to continue run %s after its stall", task.RunID)
+		return carried, Outcome{}, nil
+	}
+	hold, held, err := c.paused()
+	if err != nil {
+		carried.Gate = runstate.TriageGateHarness
+		carried.Problem = fmt.Sprintf("the harness's continuation of run %s after its stall was not attempted: %v", task.RunID, err)
+		return carried, Outcome{}, nil
+	}
+	if held {
+		return waiting(runstate.TriageGateSpendingPause, fmt.Sprintf("the operator has paused everything the harness spends, since %s", hold.HeldAt.UTC().Format(time.RFC3339)))
+	}
+	result, runErr := c.Stalls.Continue(ctx, StallContinueRequest{Run: task.RunID})
+	carried.RecordProblem = result.RecordProblem
+	switch {
+	case result.IntakeHeld != nil:
+		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
+	case result.CapacityFull != nil:
+		return waiting(runstate.TriageGateCapacity, fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit))
+	case !result.Continued:
+		carried.Gate = runstate.TriageGateHarness
+		carried.Problem = fmt.Sprintf("the harness did not continue run %s after its stall: %s", task.RunID, strings.TrimSpace(refusalText(runErr)))
 		return carried, Outcome{}, nil
 	}
 	carried.Carried = true
@@ -1067,6 +1171,9 @@ func (carried CarriedOut) Render() string {
 	switch {
 	case carried.Carried && carried.Decision == DecisionContinueChecks:
 		fmt.Fprintf(&rendered, "continued the check stage the bound stopped on run %s of %s, at its checks on the change it already has\n",
+			carried.RunID, carried.WorkItemID)
+	case carried.Carried && carried.Decision == DecisionContinueStall:
+		fmt.Fprintf(&rendered, "continued run %s of %s after the harness stopped it for a silent provider stream, in its own session and at the phase it stalled in\n",
 			carried.RunID, carried.WorkItemID)
 	case carried.Carried:
 		fmt.Fprintf(&rendered, "carried out the %q the development manager decided about %s, on the stopped work of run %s\n",
