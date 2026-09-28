@@ -652,9 +652,9 @@ func (a *activeRun) blockOnUnlandedPullRequest(integration gitworktree.Integrati
 	unlanded := fmt.Errorf("the change was not landed on %s: %s",
 		integration.TargetBranch, nonEmpty(a.outcome.PublishFailure, "the forge did not merge its pull request"))
 	if err := a.block(renderUnlandedPullRequestNotes(a.outcome, integration, unlanded.Error())); err != nil {
-		return errors.Join(unlanded, fmt.Errorf("record the unlanded pull request as a blocker: %w", err))
+		return stoppedBy(runstate.StopPublish, errors.Join(unlanded, fmt.Errorf("record the unlanded pull request as a blocker: %w", err)))
 	}
-	return unlanded
+	return stoppedBy(runstate.StopPublish, unlanded)
 }
 
 // replayUnlandedChange answers a remote target that moved after the landing was
@@ -756,6 +756,8 @@ func (a *activeRun) catchUpTarget(ctx context.Context, targetBranch string) {
 func (a *activeRun) recordPublishFailure(cause error) {
 	a.outcome.PublishFailure = cause.Error()
 	a.state.PublishFailure = a.outcome.PublishFailure
+	a.outcome.StopClass = runstate.StopPublish
+	a.state.StopClass = a.outcome.StopClass
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		a.outcome.PublishFailure = errors.Join(cause, fmt.Errorf("record the outstanding publication: %w", err)).Error()

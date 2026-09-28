@@ -72,6 +72,7 @@
         "review_summary": "the change misses the acceptance criteria",
         "run_id": "run-0123456789abcdef0123456789abcdef",
         "status": "failed",
+        "stop_class": "integration",
         "summary": "implemented the work item",
         "verification": {
           "checks": [
@@ -154,6 +155,7 @@
     "schema_version": 1,
     "started_at": "\u003ctime\u003e",
     "status": "failed",
+    "stop_class": "integration",
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {
