@@ -427,6 +427,14 @@ type SessionState struct {
 	// about that dispatch in the same way a dispatch wait is; see
 	// runstate.WatchTransition.WorktreeCrossing.
 	WorktreeCrossing *runstate.WorktreeCrossing
+	// Draining marks every transition the session makes while it waits out the
+	// runs it hosts to restart into a build deployed over it, with the bound on
+	// that wait. It is beside the state rather than a state because draining is
+	// about the runs the session hosts and not about what it is otherwise doing:
+	// a draining session polls, pulls into free seats, and fires its recurring
+	// tasks exactly as it did, and each of those lines is owed the drain beside
+	// it.
+	Draining *runstate.WatchDrain
 }
 
 // WatchSessions is where a watch session says what it is doing, for the reader
@@ -721,7 +729,14 @@ type Pull struct {
 	// pull wired without it chooses into a wedged target exactly as it did, and
 	// each run it starts stops on the divergence itself.
 	Divergences ScheduleDivergences
-	Start       Starter
+	// RedeployDrainLimit is execution.redeploy_drain_limit as this pull read it:
+	// how long a session that has found a build deployed over it waits out the
+	// runs it hosts before restarting anyway, with those runs stopped and
+	// preserved for the session that comes back. It is re-read at every pull like
+	// everything else here, so a bound lengthened under a draining session moves
+	// its deadline at the next pull. A drain never reads it.
+	RedeployDrainLimit time.Duration
+	Start              Starter
 }
 
 // ScheduleOutages is the product's record of the provider answering nobody, as
@@ -757,6 +772,11 @@ func (p Pull) validate(needs pullNeeds) error {
 	var problems []error
 	if needs.waits && p.Poll <= 0 {
 		problems = append(problems, fmt.Errorf("a watch interval of %s reads the queue with nothing between the readings", p.Poll))
+	}
+	// A drain with no bound is a session that waits on whatever its hosted run
+	// happens to be doing, which is the two-hour silence the bound exists to end.
+	if needs.waits && p.RedeployDrainLimit <= 0 {
+		problems = append(problems, fmt.Errorf("a redeploy drain limit of %s never restarts a session that is hosting a run", p.RedeployDrainLimit))
 	}
 	// A budget with nothing to measure it against is the one refusal here that
 	// is about the operator rather than about the harness: they asked for a
@@ -811,6 +831,10 @@ type Scheduler struct {
 	// Sessions is where the session's state transitions are recorded. Optional;
 	// see WatchSessions.
 	Sessions WatchSessions
+	// SessionID names this session where a run it stops for its own redeploy
+	// records which session stopped it. Optional; a run stopped by a session
+	// that gave none records none.
+	SessionID string
 	// Deployment is how a watching session finds out that the binary it is
 	// executing has been deployed over. Optional; see ScheduleDeployment. It is
 	// consulted only while watching, because a drain is a command somebody is
@@ -881,6 +905,20 @@ type Started struct {
 	// says why that slot took it, so a reader checking a slot's preference against
 	// what it actually pulled has both in one place.
 	Slot int `json:"developer_slot,omitempty"`
+	// Readopted names the run this start continued rather than began: one the
+	// session before this one stopped for its own redeploy, picked up from
+	// durable state at its recorded phase with every counter as it was. It is
+	// on the record because a reader of the schedule is owed the difference
+	// between a run this session chose and one it was handed.
+	Readopted string `json:"readopted,omitempty"`
+	// Readoptions counts how many times this session tried to pick that run up.
+	// A re-adoption the pipeline never took — a lease another process held at
+	// that moment, a tracker that would not answer — leaves the run's record
+	// carrying its stop, and the session tries again at its next pull rather
+	// than leaving a run whose note promises a re-adoption nobody is going to
+	// make. The count is how a reader tells one such refusal from a run that
+	// keeps being refused.
+	Readoptions int `json:"readoptions,omitempty"`
 	// awayCause is set when Failure is the provider turning the dispatch away —
 	// a login nobody has renewed, an API nothing reaches — which the settle reads
 	// to count the start toward nothing. It is not on the record because the
@@ -1138,6 +1176,11 @@ type Schedule struct {
 	// work because it could not stat a file would be a worse failure than the
 	// staleness it is guarding against.
 	RedeployProblem string `json:"redeploy_problem,omitempty"`
+	// Drain is the account of the session having found a build deployed over it
+	// and waited out the runs it hosted: since when, for how long at most, and
+	// what became of the runs still going when that bound ran out. It is absent
+	// from a session nothing was deployed over.
+	Drain *ScheduleDrain `json:"drain,omitempty"`
 	// SessionProblem names a transition that could not be recorded. It costs the
 	// session its visibility rather than its work, so it is reported beside the
 	// pass rather than failing it — the alternative is a session that stops
@@ -1161,6 +1204,49 @@ type Schedule struct {
 	// contended reading an hour earlier would otherwise report that reading as
 	// what stopped it, in the log this exists to make worth trusting.
 	ReadFailure string `json:"read_failure,omitempty"`
+}
+
+// ScheduleDrain is what a session did about a build deployed over it. It is on
+// the schedule for the reason the started runs are: a session that stopped two
+// runs on its own clock did something to them, and an operator reading what the
+// session did must not have to infer it from the runs' own records.
+type ScheduleDrain struct {
+	// Since is when the session found the deploy and stopped waiting on nothing
+	// but the runs it hosted, and Bound is how long it was willing to wait.
+	Since time.Time     `json:"since"`
+	Bound time.Duration `json:"bound"`
+	// BoundReached reports the wait having run out with runs still going, and
+	// Stopped names the work items whose runs were stopped and preserved for the
+	// session that comes back. A session whose runs all ended inside the bound
+	// reports neither.
+	BoundReached bool     `json:"bound_reached,omitempty"`
+	Stopped      []string `json:"stopped,omitempty"`
+	// Landings names the work items whose runs had already landed and were
+	// running their landing checks when the bound ran out. Those checks were
+	// stopped, so each landing is recorded as unverified; nothing is left for
+	// the session that comes back.
+	Landings []string `json:"landings,omitempty"`
+	// Skipped counts the pulls the session declined to make into a free seat
+	// because the bound was closer than one poll interval away, and Problem
+	// names a reading of the hosted runs that failed while the bound was being
+	// applied. Both are said because a pull the session did not make is
+	// otherwise indistinguishable from one it found nothing for.
+	Skipped int    `json:"skipped,omitempty"`
+	Problem string `json:"problem,omitempty"`
+}
+
+// Chosen is how many runs this pass chose and began, which is what a `--limit`
+// counts. A run re-adopted from the session before this one was chosen by that
+// session and counted there; counting it again here would spend the operator's
+// bound on a continuation every deploy hands over.
+func (s Schedule) Chosen() int {
+	chosen := 0
+	for _, started := range s.Started {
+		if started.Readopted == "" {
+			chosen++
+		}
+	}
+	return chosen
 }
 
 // Schedule pulls ready work and runs it, up to the capacity the configuration
@@ -1205,10 +1291,6 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// cadence is what this pass knows about why a recurring task might not have
 	// fired when it fell due; see recurringWatch.
 	cadence := recurringWatch{opened: s.now(), missed: map[string]time.Time{}}
-	// lastPull is the most recent pull this pass opened. A session waiting out a
-	// redeploy opens none, and reads the schedule it last read to know when a
-	// task falls due while it waits.
-	var lastPull Pull
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
 	// reading: nothing is ever removed, because a run that ends without moving the
@@ -1292,11 +1374,41 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	var summons ScheduleSummons
 	var cooldown time.Duration
 	var cycleBound int
-	// redeploying is the session having found a build deployed over the one it is
-	// executing. From that point it claims nothing more and waits out what it
-	// already started, which is the whole of how a restart reaches the machine
-	// without cancelling a run.
-	redeploying := false
+	// drain is the session having found a build deployed over the one it is
+	// executing. From that point it restarts the moment it hosts nothing, and
+	// until then carries on — polling, pulling into free seats, firing its
+	// recurring tasks — for at most the bound the configuration puts on the wait.
+	// Past the bound the runs it hosts are stopped where they are and preserved
+	// for the session that comes back. Draining is about the runs the session
+	// hosts and not about the scheduler's other duties: the two-hour silence of
+	// 2026-09-19 was a session that had stopped everything to wait on one run's
+	// checks under load, with the second seat empty and two recurring passes
+	// missed.
+	var drain redeployDrain
+	// hosted is how each run this pass started is stopped for the drain bound, by
+	// its index on the schedule. Each run has a context of its own rather than
+	// sharing one so that a run at its promotion can be left to finish while the
+	// ones at their checks are stopped.
+	hosted := make(map[int]context.CancelCauseFunc)
+	// landings is which of those runs are over and in their landing checks, as
+	// each run's pipeline says so on the context it is hosted under. A run in its
+	// landing has no in-flight record to read a phase off, and is told apart
+	// from one still before its claim by this alone.
+	landings := &hostedLandings{}
+	// boundSaid is the bound running out having been said in the watch log,
+	// which is done once however many looks at the top of the loop apply it.
+	boundSaid := false
+	// runs is the durable run state as the last pull read it, held outside the
+	// loop because the drain bound is applied at the top of the loop, before a
+	// pull is opened, and applying it means reading which phase each hosted run
+	// is at.
+	var runs ScheduleRuns
+	// readopted is every run this session has tried to pick up from a session
+	// before it, by run id, against its entry on the schedule. The entry is kept
+	// so a re-adoption made again is one line reporting its latest attempt rather
+	// than a line per poll: what decides whether it is made again is the run's
+	// own record, which carries the stop until a pipeline consumes it.
+	readopted := make(map[string]int)
 	// retries is the run of harness readings that have failed with none
 	// succeeding between them. See readRetries: it is what lets a watch ride
 	// through the store contention a reconcile or a settling run makes, and what
@@ -1350,6 +1462,12 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			}
 		}
 		started.record(done)
+		// The run's own context is released with it, whether or not the drain
+		// bound cancelled it first.
+		if cancel, live := hosted[done.index]; live {
+			cancel(nil)
+			delete(hosted, done.index)
+		}
 		// What became of the start is written into the exclusion it made, before
 		// anything else is decided about it. A start this session made is the only
 		// thing keeping the item out of the pulls that follow, so an exclusion that
@@ -1382,7 +1500,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			schedule.ProviderAway++
 			delete(tried, started.WorkItemID)
 			held = false
-		} else if unstartedAttempt(*started) {
+		} else if unstartedAttempt(*started) && started.Readopted == "" {
+			// A re-adoption the pipeline never took is not a dispatch that never
+			// became a run: the run exists, its record says so, and the next pull
+			// tries it again.
 			recorded, problem := recordAttempt(docket, *started, excluded, s.Watching)
 			excluded.reason = recorded
 			if problem != "" && schedule.AttemptProblem == "" {
@@ -1418,6 +1539,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			// the brake on 2026-09-19 were of this class, all three on 2026-09-21
 			// were the one diverged target, and a brake tripped on them summons a
 			// decision about a change nobody judged.
+		case started.Readopted != "" && unstartedAttempt(*started):
+			// A re-adoption that never reached the run says nothing about the
+			// machine either, and is tried again at the next pull.
 		case started.blockedRun():
 			blockedInARow++
 			if blockedInARow > schedule.BlockedInARow {
@@ -1458,48 +1582,105 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		}
 	}
 
-	// collect takes one finished run. It reports false when the context ended
-	// first, which stops the pulling; the runs still in flight are waited out
-	// below either way.
-	collect := func() bool {
+	// poll is the interval the last pull read, held outside the loop because
+	// collect below wakes on it before a pull is opened.
+	var poll time.Duration
+	// collect takes one finished run, or one poll interval passing with none
+	// finished. It reports false when the context ended first, which stops the
+	// pulling; the runs still in flight are waited out below either way.
+	//
+	// The interval is why a session hosting a run is not a session doing nothing
+	// else. Until 2026-09-19 this waited on the run alone, so a session whose
+	// seats were full, or whose queue had nothing more to start beside the run
+	// it hosted, fired no recurring task and noticed no deploy until that run
+	// ended — which for a race suite under load was two hours. Waking once a
+	// poll costs what an idle poll costs, and it is what lets the loop's top
+	// look at the deploy and the cadences again.
+	collect := func(wake time.Duration) bool {
+		var woken <-chan time.Time
+		if wake > 0 {
+			timer := time.NewTimer(wake)
+			defer timer.Stop()
+			woken = timer.C
+		}
 		select {
 		case done := <-completions:
 			finish(done)
+			return true
+		case <-woken:
+			return ctx.Err() == nil
+		case <-drain.due:
+			// The drain bound ran out while the session was waiting on a run. The
+			// wait is over: the loop applies the bound at its top, and a session
+			// that went on waiting here would be the unbounded drain this closes.
+			drain.reached()
 			return true
 		case <-ctx.Done():
 			return false
 		}
 	}
 
-	// collectUntilDue is collect bounded by the recurring schedule: it takes one
-	// finished run, or returns when the next recurring task falls due, whichever
-	// comes first, so the pass goes back round to fire it. A run is not a bound
-	// on a cadence. On 2026-09-13 this session's wait was collect alone, one run
-	// of its own took twenty hours, and the development manager's hourly task
-	// fired nothing in any of them — the session was live throughout and the
-	// cadence resumed seven seconds after the run ended.
+	// recheckSoon marks a drain bound applied with a hosted run still before its
+	// claim, which the next look at the top of the loop stops. The wait below
+	// comes back sooner than a poll while it is set.
+	recheckSoon := false
+	// wake is how long a wait on a hosted run lasts before the loop looks again.
+	wake := func() time.Duration {
+		if recheckSoon {
+			return min(poll, drainRecheck)
+		}
+		return poll
+	}
+
+	// collectUntilDue is collect bounded by the recurring schedule as well as by
+	// the poll: it takes one finished run, or returns when the next recurring
+	// task falls due or the poll interval passes, whichever comes first, so the
+	// pass goes back round to fire it. A run is not a bound on a cadence. On
+	// 2026-09-13 this session's wait was on the run alone, one run of its own
+	// took twenty hours, and the development manager's hourly task fired nothing
+	// in any of them — the session was live throughout and the cadence resumed
+	// seven seconds after the run ended.
 	//
 	// A pull whose schedule cannot say when it is next due is waited on exactly
 	// as collect waits.
 	collectUntilDue := func(pull Pull) bool {
-		wake, bounded := s.nextFiring(ctx, pull)
+		due, bounded := s.nextFiring(ctx, pull)
 		if !bounded {
-			return collect()
+			return collect(wake())
+		}
+		var woken <-chan time.Time
+		if w := wake(); w > 0 {
+			timer := time.NewTimer(w)
+			defer timer.Stop()
+			woken = timer.C
 		}
 		waiting, stopWaiting := context.WithCancel(ctx)
 		defer stopWaiting()
 		interval := make(chan bool, 1)
 		go func() {
-			interval <- s.sleep(waiting, wake)
+			interval <- s.sleep(waiting, due)
 		}()
-		select {
-		case done := <-completions:
-			// The wait is stopped and then waited for, so nothing this pass started
-			// is still sleeping once it has moved on. What it answers is not read:
-			// it was stopped here, and a stop this pass made is not the operator's.
+		// The wait is stopped and then waited for whichever way it ends early, so
+		// nothing this pass started is still sleeping once it has moved on. What it
+		// answers then is not read: it was stopped here, and a stop this pass made
+		// is not the operator's.
+		stop := func() {
 			stopWaiting()
 			<-interval
+		}
+		select {
+		case done := <-completions:
+			stop()
 			finish(done)
+			return true
+		case <-woken:
+			stop()
+			return ctx.Err() == nil
+		case <-drain.due:
+			// The drain bound ran out while the session was waiting on a run; see
+			// collect.
+			stop()
+			drain.reached()
 			return true
 		case slept := <-interval:
 			return slept && ctx.Err() == nil
@@ -1590,6 +1771,12 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			select {
 			case done := <-completions:
 				finish(done)
+			case <-drain.due:
+				// The drain bound ran out while the provider was away. The runs in
+				// flight are each asleep on the same provider, and the bound stops
+				// them exactly as it stops a run at its checks.
+				drain.reached()
+				return ctx.Err() == nil
 			case <-interval:
 				return ctx.Err() == nil
 			case <-ctx.Done():
@@ -1668,7 +1855,7 @@ pulling:
 			retries = readRetries{}
 		}
 		retries.failed = false
-		if s.Limit > 0 && len(schedule.Started) >= s.Limit {
+		if s.Limit > 0 && schedule.Chosen() >= s.Limit {
 			schedule.Stopped = ScheduleLimitReached
 			break
 		}
@@ -1702,7 +1889,7 @@ pulling:
 		// rather than after a run settles because those are the same moment seen
 		// from either side — this is the top of the loop a settled run returns to,
 		// and it is the last point before the next item is claimed.
-		if !redeploying && s.Watching && s.Deployment != nil {
+		if !drain.active && s.Watching && s.Deployment != nil {
 			replaced, err := s.Deployment.Replaced()
 			switch {
 			case err != nil:
@@ -1710,37 +1897,54 @@ pulling:
 					schedule.RedeployProblem = fmt.Sprintf("whether a build has been deployed over this session could not be read, so it goes on running what it was started with: %v", err)
 				}
 			case replaced:
-				redeploying = true
+				drain.begin(s.now())
+				schedule.Drain = &ScheduleDrain{Since: drain.since, Bound: drain.limit}
+				session.draining(drain.record(running))
+				session.note(drain.found(running), running)
 			}
 		}
-		if redeploying {
-			// A live run is never interrupted for a redeploy. Waiting one out is
-			// bounded by the run rather than by the queue, because the session has
-			// already stopped claiming: the window an external restart could never
-			// find is one this makes rather than waits for.
-			//
-			// It fires nothing while it waits, since what it is waiting for is the
-			// restart, but it does not go quiet about the schedule either. The wait is
-			// bounded by when the next task falls due, as a live session's is, and a
-			// task that goes a whole interval unfired in it is recorded as missed here,
-			// under this cause, before the restart — a restarted session opens after
-			// the task fell due and could only say that nothing was running.
-			if running > 0 {
-				if !collectUntilDue(lastPull) {
-					schedule.Stopped = ScheduleCancelled
-					break
-				}
-				cadence.hold(recurringHold{why: fmt.Sprintf("the session was waiting out %s of its own before restarting into a newly deployed build, and fires nothing while it does", plural(running, "run", "runs")), at: s.now()})
-				s.missed(ctx, &schedule, lastPull, &cadence)
-				continue
+		if drain.active {
+			// The restart is made the moment the session hosts nothing: the window
+			// an external restart could never find is one this makes rather than
+			// waits for, and nothing is pulled into it first.
+			if running == 0 {
+				schedule.Stopped = ScheduleRedeployed
+				break
 			}
-			schedule.Stopped = ScheduleRedeployed
-			break
+			// Past the bound the session hosts nothing more. The runs still going
+			// are stopped where they are — each at a phase the session that comes
+			// back can continue from — and preserved. A run at its promotion is the
+			// one exception: it holds the target branch's lease, and stopping it
+			// would leave a promotion only the repository could say the outcome of,
+			// so it is waited out — and the wait is the session's ordinary loop,
+			// not a silence: the pull below is still opened, its recurring tasks
+			// still fire on their cadence, and only new starts are declined. A
+			// forge outage can hold a promotion for hours, and a session that
+			// stopped everything to wait on it would be the 07:35Z silence again
+			// with a different run at the bottom of it.
+			if drain.expired(s.now()) {
+				// Marked as reached before it is said, so the lines that say it
+				// carry the mark `yoyo status` names the restart from — whichever
+				// of the timer and the clock found the bound out.
+				drain.reached()
+				reached := drain.record(running)
+				session.draining(reached)
+				// Said once, as it happens, in whatever state the session is in:
+				// the runs it stops go on holding their seats in flight, so no
+				// pull that follows need write a line of its own, and `yoyo status`
+				// would otherwise go on reading a drain inside its bound.
+				if !boundSaid {
+					boundSaid = true
+					session.note("the watch session is "+reached.Says(), running)
+				}
+				// A run still before its claim has no phase to read and nothing yet
+				// to preserve, so it is left to reach one and stopped at the next
+				// look rather than cancelled into a dispatch that never became a
+				// run — and the look comes sooner than a poll.
+				recheckSoon = s.stopHosted(&schedule, &drain, hosted, landings, mine, runs) > 0
+			}
 		}
 		pull, err := s.Open(ctx)
-		if err == nil {
-			lastPull = pull
-		}
 		if err != nil {
 			if !unreadable(fmt.Errorf("open a pull: %w", err)) {
 				break
@@ -1759,6 +1963,16 @@ pulling:
 		spend = pull.Spend
 		docket = pull.Triage
 		brake, summons, cooldown, cycleBound = pull.Brake, pull.Summons, pull.BrakeCooldown, pull.BrakeEscalationCycles
+		runs = pull.Runs
+		poll = pull.Poll
+		// The bound is read at every pull like everything else, so a session
+		// draining under a bound somebody lengthens moves its deadline at the next
+		// pull rather than at the next deploy.
+		drain.arm(pull.RedeployDrainLimit, s.now())
+		if drain.active {
+			schedule.Drain.Bound = drain.limit
+			session.draining(drain.record(running))
+		}
 		// Stopped work reaches the development manager here, rather than by
 		// somebody carrying it to her. It is done before the brake and before the
 		// hold, because it chooses nothing and starts nothing: what it produces is
@@ -1916,6 +2130,49 @@ pulling:
 			}
 			continue
 		}
+		// The runs a session before this one stopped for its own redeploy are
+		// picked up here, before anything new is chosen and before the intake hold
+		// is acted on: each already holds a seat and a claim, so continuing it
+		// chooses no work — a held intake lets what is running finish, and a
+		// stopped run is running work put down for a moment — and it is exactly the
+		// work the restart was made to preserve. Nothing is pulled into a seat a
+		// re-adopted run holds, because the seat was never free.
+		//
+		// A draining session re-adopts nothing, and no session re-adopts a run it
+		// stopped itself. The runs a draining session finds carrying a stop are the
+		// ones it put down for the session that comes back, and picking one up
+		// again would resume it only to stop it at the next look — once a poll for
+		// as long as a promotion beside it is waited out, each round re-running the
+		// run's checks and noting another redeploy stop on its item.
+		if s.Watching && !drain.active {
+			for id, state := range occupied {
+				if _, ours := mine[id]; ours || state.RedeployStop == nil {
+					continue
+				}
+				if s.SessionID != "" && state.RedeployStop.SessionID == s.SessionID {
+					continue
+				}
+				selection := runstate.Selection{
+					By:     runstate.SelectedByScheduler,
+					Reason: readoptionReason(state),
+				}
+				// A run this session already tried and the pipeline never took is
+				// tried again on the same entry. The record still carrying its stop
+				// is what says the pipeline never took it: a resumed run clears the
+				// stop as it is picked up.
+				index, tried := readopted[state.RunID]
+				if tried {
+					schedule.Started[index] = Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: schedule.Started[index].Readoptions + 1}
+				} else {
+					index = len(schedule.Started)
+					schedule.Started = append(schedule.Started, Started{WorkItemID: id, Reason: selection.Reason, Readopted: state.RunID, Readoptions: 1})
+					readopted[state.RunID] = index
+				}
+				mine[id] = index
+				running++
+				s.host(session.dispatching(ctx, id), pull, id, index, selection, hosted, landings, completions)
+			}
+		}
 		for id := range mine {
 			// A run this session started and that has not reserved yet is in flight
 			// with no identifier to name; one that has reserved is already here under
@@ -1975,6 +2232,11 @@ pulling:
 		// own thread: it is one merge request rather than a run, so it takes no slot
 		// and leaves nothing to wait out.
 		s.carryOutRearms(ctx, &schedule, pull, held)
+		//
+		// A draining session that has stopped pulling into free seats does not
+		// carry a decision out either: the run it would start is one the drain
+		// stops at its next look, and the record offers the decision again to the
+		// session that comes back.
 		closed := closedGates{intake: held, pause: paused, capacity: free < 1}
 		carrying := false
 		// A session bounded by --limit is bounded here too: every decision fired is
@@ -1983,7 +2245,12 @@ pulling:
 		if s.Limit > 0 {
 			remaining = s.Limit - len(schedule.Started)
 		}
-		tasks, passedCarryOuts := s.nextCarryOuts(&schedule, pull, occupied, waitingOn, closed, free, remaining)
+		var tasks []CarryOutTask
+		var passedCarryOuts map[string]string
+		_, declining := drain.declinesStarts(pull.Poll, s.now())
+		if !declining {
+			tasks, passedCarryOuts = s.nextCarryOuts(&schedule, pull, occupied, waitingOn, closed, free, remaining)
+		}
 		for _, task := range tasks {
 			index := len(schedule.Started)
 			schedule.Started = append(schedule.Started, Started{
@@ -2005,12 +2272,23 @@ pulling:
 				filledByCarryOut++
 			}
 			carrying = true
+			// Hosted like any run this session starts, so a drain bound that runs
+			// out stops a carried-out run at its checks exactly as it stops a chosen
+			// one, rather than waiting it out past the bound.
+			runCtx, cancel := context.WithCancelCause(session.dispatching(ctx, task.WorkItemID))
+			runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
+			hosted[index] = cancel
 			go func(task CarryOutTask) {
-				carried, outcome, err := pull.CarryOut.Carry(session.dispatching(ctx, task.WorkItemID), task)
+				carried, outcome, err := pull.CarryOut.Carry(runCtx, task)
 				completions <- completed{index: index, outcome: outcome, err: err, carriedOut: &carried}
 			}(task)
 		}
-		s.recordUnattempted(ctx, &schedule, pull, passedCarryOuts)
+		// A declining drain attempted nothing and is within a poll of its restart,
+		// so a decision it left standing is the returning session's to fire or to
+		// record as unattempted, rather than this one's to write up as passed over.
+		if !declining {
+			s.recordUnattempted(ctx, &schedule, pull, passedCarryOuts)
+		}
 
 		// A run paused on work its item waits on is continued here once that work
 		// has closed, beside the decisions above and for the same reason: its item
@@ -2020,8 +2298,10 @@ pulling:
 		// only meet again at its first step, nor while intake is held: picking a
 		// paused run back up is the harness choosing what to spend a slot on, as
 		// carrying out a decision is, so it waits for the hold to lift exactly as a
-		// recorded repair does.
-		if !paused && !held {
+		// recorded repair does. A declining drain continues nothing either, for the
+		// reason it carries no decision out: the run would be one the drain stops
+		// at its next look, and the returning session continues it instead.
+		if !paused && !held && !declining {
 			continuations, err := s.nextContinuations(ctx, pull, occupied, mine, refusedContinuations, free, len(schedule.Started), passOver)
 			if err != nil {
 				schedule.ContinuationProblem = err.Error()
@@ -2041,10 +2321,9 @@ pulling:
 				if !continuation.holdsOne {
 					free--
 				}
-				go func(workItemID string) {
-					outcome, err := pull.Start(session.dispatching(ctx, workItemID), workItemID, selection)
-					completions <- completed{index: index, outcome: outcome, err: err}
-				}(workItemID)
+				// Hosted like any run this session starts, so a drain bound that runs
+				// out stops a continued run exactly as it stops a chosen one.
+				s.host(session.dispatching(ctx, workItemID), pull, workItemID, index, selection, hosted, landings, completions)
 			}
 		}
 
@@ -2128,6 +2407,33 @@ pulling:
 				reason:  "every developer slot is held by a run this session did not start",
 				running: len(occupied),
 			}) {
+				schedule.Stopped = ScheduleCancelled
+				break
+			}
+			continue
+		}
+
+		// A draining session pulls into its free seats right up to the restart,
+		// with two exceptions it says out loud. A pull made with the bound closer
+		// than one poll away would start a run only to stop it, so the seat is
+		// left for the session that comes back; and past the bound, while a run
+		// at its promotion is waited out, a run started now would be stopped at
+		// the next look. Skipped rather than found empty, and said as skipped,
+		// because the two are otherwise the same silence — and marked on the
+		// drain as well as said, so the read model names the poll as the session
+		// restarting rather than as an idle session over a queue with work in it.
+		if remaining, declined := drain.declinesStarts(pull.Poll, s.now()); declined {
+			schedule.Drain.Skipped++
+			skipped := drain.record(running)
+			skipped.PullSkipped = true
+			session.draining(skipped)
+			reason := fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound is %s away, which is less than one poll, so the session that comes back pulls them; %s",
+				free, remaining.Round(time.Second), skipped.Says())
+			if drain.boundReached {
+				reason = fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound has run out and %s still going at its promotion, or still being stopped, is waited out rather than joined, so the session that comes back pulls them; %s",
+					free, plural(running, "run", "runs"), skipped.Says())
+			}
+			if !wait(pull, runstate.WatchIdle, account{reason: reason, running: len(occupied)}) {
 				schedule.Stopped = ScheduleCancelled
 				break
 			}
@@ -2259,14 +2565,11 @@ pulling:
 			startedNow[entry.ID] = true
 			running++
 			started++
-			go func(workItemID string) {
-				outcome, err := pull.Start(session.dispatching(ctx, workItemID), workItemID, selection)
-				completions <- completed{index: index, outcome: outcome, err: err}
-			}(entry.ID)
+			s.host(session.dispatching(ctx, entry.ID), pull, entry.ID, index, selection, hosted, landings, completions)
 			return true
 		}
 		bounded := func() bool {
-			return started == len(freeSlots) || (s.Limit > 0 && len(schedule.Started) >= s.Limit)
+			return started == len(freeSlots) || (s.Limit > 0 && schedule.Chosen() >= s.Limit)
 		}
 
 		// racedNow is the entries this pull found racing work in flight. The
@@ -2503,9 +2806,11 @@ pulling:
 		running--
 		settle(done)
 	}
+	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
 	// restarted into the build deployed over it is waiting on nothing and nobody,
 	// and a reader told otherwise is being handed the chore this exists to end.
+	session.draining(drain.record(0))
 	session.stop(stopping(schedule), schedule.Redeploying())
 	return schedule, failure
 }
@@ -2526,6 +2831,27 @@ func stopping(schedule Schedule) string {
 		return schedule.Stopped + ": " + schedule.SpendProblem
 	case schedule.Stopped == ScheduleUnreadable && schedule.ReadFailure != "":
 		return schedule.Stopped + ": " + schedule.ReadFailure
+	case schedule.Stopped == ScheduleRedeployed && schedule.Drain != nil && schedule.Drain.BoundReached:
+		// A restart made with runs stopped for it says so, and names them: the
+		// session that comes back re-adopts them, and a reader of this line is
+		// owed what that session is about to pick up. A bound that ran out over
+		// nothing but promotions stopped nothing, and says that instead.
+		said := schedule.Stopped
+		switch {
+		case len(schedule.Drain.Stopped) > 0:
+			said = fmt.Sprintf("%s; the drain bound of %s ran out with %d run(s) still going, which were stopped and preserved for the session that comes back: %s",
+				said, schedule.Drain.Bound, len(schedule.Drain.Stopped), strings.Join(schedule.Drain.Stopped, ", "))
+		case len(schedule.Drain.Landings) == 0:
+			return fmt.Sprintf("%s; the drain bound of %s ran out with only a run at its promotion still going, which was waited out rather than stopped",
+				said, schedule.Drain.Bound)
+		default:
+			said = fmt.Sprintf("%s; the drain bound of %s ran out", said, schedule.Drain.Bound)
+		}
+		if len(schedule.Drain.Landings) > 0 {
+			said += fmt.Sprintf("; the landing checks of %d run(s) that had already landed were stopped, so each landing is recorded as unverified: %s",
+				len(schedule.Drain.Landings), strings.Join(schedule.Drain.Landings, ", "))
+		}
+		return said
 	}
 	return schedule.Stopped
 }
@@ -4297,6 +4623,10 @@ type account struct {
 	// mover is whose move a braked poll is, in the hold's own words, where the
 	// hold carries them. It is empty everywhere else.
 	mover string
+	// drain is the session's drain as this account was said under it, filled in
+	// by the session rather than the caller: a bound reached is news even where
+	// nothing else about the poll changed.
+	drain runstate.WatchDrain
 }
 
 // same reports two accounts as the same account, which is what makes a poll that
@@ -4306,7 +4636,7 @@ type account struct {
 func (a account) same(other account) bool {
 	if a.reason != other.reason || a.running != other.running ||
 		a.executor != other.executor || a.unreadable != other.unreadable ||
-		a.window != other.window || a.mover != other.mover {
+		a.window != other.window || a.mover != other.mover || a.drain != other.drain {
 		return false
 	}
 	if a.passedOver.Admitted != other.passedOver.Admitted ||
@@ -4379,12 +4709,244 @@ func windowReason(window providerWindow, found string) string {
 	return said + "; " + found
 }
 
+// drainRecheck is how long a session whose drain bound has run out waits before
+// looking again at a hosted run that had not reached its claim when the bound
+// was applied. Such a run is seconds from a phase it can be stopped at, so the
+// look is cheap to repeat and expensive to make into a cancelled dispatch.
+const drainRecheck = 5 * time.Second
+
+// redeployDrain is the session's wait to restart into a build deployed over it:
+// since when, under what bound, and whether the bound has run out.
+//
+// The bound is watched two ways, and both are needed. The timer is what ends a
+// wait the session is inside — a collect blocked on a run in its second hour —
+// and the clock is what catches a bound that ran out while the session was busy
+// with something else, a recurring firing say, and only now got back to the top
+// of its loop.
+type redeployDrain struct {
+	active       bool
+	since        time.Time
+	limit        time.Duration
+	boundReached bool
+	// due fires when the bound runs out. It is nil until the drain is armed with
+	// a bound, and a nil channel is one a select never chooses.
+	due   <-chan time.Time
+	timer *time.Timer
+}
+
+// begin is the deploy having been found. The bound the last pull read is what
+// the drain starts under; a session that finds the deploy before its first pull
+// is armed by that pull instead.
+func (d *redeployDrain) begin(now time.Time) {
+	d.active = true
+	d.since = now
+	limit := d.limit
+	d.limit = 0
+	d.arm(limit, now)
+}
+
+// arm gives the drain its bound, or a new one where the configuration moved
+// under it. Before the deploy is found it only remembers the bound the pull
+// read. The timer runs from now for what is left of the bound rather than for
+// the whole of it, so a bound read a poll after the deploy was found does not
+// extend the wait by a poll.
+func (d *redeployDrain) arm(limit time.Duration, now time.Time) {
+	if limit <= 0 || limit == d.limit {
+		return
+	}
+	d.limit = limit
+	if !d.active {
+		return
+	}
+	if d.timer != nil {
+		d.timer.Stop()
+	}
+	d.timer = time.NewTimer(max(d.deadline().Sub(now), 0))
+	d.due = d.timer.C
+}
+
+func (d redeployDrain) deadline() time.Time { return d.since.Add(d.limit) }
+
+// reached marks the bound as having run out, however that was found.
+func (d *redeployDrain) reached() { d.boundReached = true }
+
+// stop releases the timer, for a session ending however it ends.
+func (d *redeployDrain) stop() {
+	if d.timer != nil {
+		d.timer.Stop()
+	}
+}
+
+// expired reports the bound having run out: the timer fired, or the clock has
+// passed the deadline. A drain not yet armed with a bound has not expired,
+// whatever the clock says, because a bound of nothing is not a bound of zero.
+func (d redeployDrain) expired(now time.Time) bool {
+	if !d.active || d.limit <= 0 {
+		return false
+	}
+	return d.boundReached || !now.Before(d.deadline())
+}
+
+// declinesStarts reports the drain being too close to its bound, or past it,
+// for a pull into a free seat to be worth making — a run started now would only
+// be stopped — and how far off the bound is, which is nothing once it has run
+// out.
+func (d redeployDrain) declinesStarts(poll time.Duration, now time.Time) (time.Duration, bool) {
+	if !d.active || d.limit <= 0 {
+		return 0, false
+	}
+	if d.boundReached {
+		return 0, true
+	}
+	remaining := d.deadline().Sub(now)
+	if remaining > poll {
+		return remaining, false
+	}
+	return max(remaining, 0), true
+}
+
+// found is what the session says the moment it finds the deploy: what it will
+// do, and under what bound.
+func (d redeployDrain) found(hosting int) string {
+	said := "a build was deployed over the one this session was started from; it restarts into it the moment it hosts no run"
+	if recorded := d.record(hosting); recorded != nil {
+		return said + ", and is " + recorded.Says()
+	}
+	return said + ", and is draining under the bound its next pull reads"
+}
+
+// record is the drain as the watch log carries it, against the runs the session
+// is hosting at that moment. A drain not yet armed with a bound records the
+// bound it will be given at the next pull as nothing, which the log refuses, so
+// it is recorded only once armed; the transition before that carries the
+// deploy in its reason.
+func (d redeployDrain) record(hosting int) *runstate.WatchDrain {
+	if !d.active || d.limit <= 0 {
+		return nil
+	}
+	return &runstate.WatchDrain{
+		Since:        d.since,
+		BoundSeconds: int64(d.limit / time.Second),
+		Until:        d.deadline(),
+		Hosting:      hosting,
+		BoundReached: d.boundReached,
+	}
+}
+
+// host starts one run under a context of its own, so the drain bound can stop
+// it without stopping the session, and carries what became of it back to the
+// scheduling goroutine.
+func (s Scheduler) host(ctx context.Context, pull Pull, workItemID string, index int, selection runstate.Selection, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, completions chan<- completed) {
+	runCtx, cancel := context.WithCancelCause(ctx)
+	runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
+	hosted[index] = cancel
+	go func() {
+		outcome, err := pull.Start(runCtx, workItemID, selection)
+		completions <- completed{index: index, outcome: outcome, err: err}
+	}()
+}
+
+// stopHosted applies the drain bound to the runs this session hosts: each one
+// at a phase the session that comes back can continue from is cancelled with
+// the drain as the cause, which its pipeline reads and records as a stop rather
+// than a failure. It reports how many hosted runs were left going for want of a
+// phase to read — runs still before their claim — so the caller can look again
+// rather than wait on them.
+//
+// A run at its promotion or past it is left to finish. It holds the target
+// branch's lease and is minutes from its end, and a promotion interrupted
+// part-way is the one boundary durable state cannot describe.
+//
+// A run that is over and in its landing checks is stopped too. Nothing about
+// the run is at stake by then — it has landed, its item is settled, and a
+// landing check stopped short judged nothing, so the landing is recorded as
+// unverified and files nothing — while the suite it is running is the one the
+// landing budget allows hours for, which is exactly the wait this bound exists
+// to refuse.
+func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, mine map[string]int, runs ScheduleRuns) int {
+	drain.reached()
+	schedule.Drain.BoundReached = true
+	if runs == nil {
+		return 0
+	}
+	inFlight, err := occupiedItems(runs)
+	if err != nil {
+		// The runs cannot be told apart, so none is stopped on this look: a
+		// promotion cancelled because a listing failed would be worse than one
+		// more interval of the wait. It is said, and the next look asks again.
+		schedule.Drain.Problem = fmt.Sprintf("which phase each hosted run is at could not be read, so none was stopped on this look: %v", err)
+		return len(mine)
+	}
+	unstopped := 0
+	for id, index := range mine {
+		cancel, live := hosted[index]
+		if !live {
+			continue
+		}
+		state, recorded := inFlight[id]
+		if !recorded {
+			if landings.landingAt(index) {
+				cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
+				delete(hosted, index)
+				schedule.Drain.Landings = append(schedule.Drain.Landings, id)
+				continue
+			}
+			unstopped++
+			continue
+		}
+		switch state.Phase {
+		case runstate.PhaseIntegrating, runstate.PhaseCompleting, runstate.PhaseCleaningUp, runstate.PhaseComplete:
+			continue
+		}
+		cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
+		delete(hosted, index)
+		schedule.Drain.Stopped = append(schedule.Drain.Stopped, id)
+	}
+	slices.Sort(schedule.Drain.Stopped)
+	slices.Sort(schedule.Drain.Landings)
+	return unstopped
+}
+
+// readoptionReason is what a run picked up from the session before this one
+// records as why it was chosen: it was not chosen, it was handed over, and the
+// reason says by what and from where.
+func readoptionReason(state runstate.State) string {
+	return fmt.Sprintf("re-adopted by the watch session that restarted into the deployed build: run %s was stopped at its %s phase at %s by the session before this one, after that session had drained for its bound of %s to restart; the run continues from durable state with every counter as it was",
+		state.RunID, state.RedeployStop.Phase, state.RedeployStop.At.UTC().Format(time.RFC3339), state.RedeployStop.Bound())
+}
+
 type watchSession struct {
 	to       WatchSessions
 	now      func() time.Time
 	schedule *Schedule
 	state    runstate.WatchState
 	said     account
+	// drain is the session's wait to restart into a build deployed over it, as
+	// every transition carries it while it lasts. It is nil for a session nothing
+	// was deployed over, which is most of them.
+	drain *runstate.WatchDrain
+}
+
+// draining sets what every transition from here on carries about the drain. A
+// drain that has not changed writes nothing on its own; what writes a line is
+// the next transition, or note below.
+func (w *watchSession) draining(drain *runstate.WatchDrain) {
+	w.drain = drain
+}
+
+// note records the session saying something in the state it is already in,
+// which is what the deploy being found is: nothing about what the session is
+// doing changed, and a reader is still owed the line.
+func (w *watchSession) note(reason string, running int) {
+	if w.to == nil {
+		return
+	}
+	state := w.state
+	if state == "" {
+		state = runstate.WatchWatching
+	}
+	w.state, w.said = state, account{reason: reason, running: running}
+	w.record(SessionState{State: state, Reason: reason, Running: running, Draining: w.drain})
 }
 
 // enter records the session arriving in a state. The same state said the same
@@ -4398,6 +4960,9 @@ type watchSession struct {
 // somebody reading an idle line, and both are bounded by the poll interval,
 // because a pass records at most one transition per poll.
 func (w *watchSession) enter(state runstate.WatchState, said account) {
+	if w.drain != nil {
+		said.drain = *w.drain
+	}
 	if w.to == nil || (w.state == state && w.said.same(said)) {
 		return
 	}
@@ -4410,6 +4975,7 @@ func (w *watchSession) enter(state runstate.WatchState, said account) {
 		Unreadable: said.unreadable,
 		PassedOver: said.passedOver,
 		Mover:      said.mover,
+		Draining:   w.drain,
 	}
 	if said.window.waiting {
 		transition.ProviderWindow = true
@@ -4431,7 +4997,7 @@ func (w *watchSession) stop(reason string, restarting bool) {
 		return
 	}
 	w.state, w.said = runstate.WatchStopped, account{reason: reason}
-	w.record(SessionState{State: runstate.WatchStopped, Reason: reason, Restarting: restarting})
+	w.record(SessionState{State: runstate.WatchStopped, Reason: reason, Restarting: restarting, Draining: w.drain})
 }
 
 // resume records the session choosing work again after a wait. It leaves the
@@ -4443,7 +5009,7 @@ func (w *watchSession) resume(reason string) {
 		return
 	}
 	w.state, w.said = runstate.WatchWatching, account{reason: reason}
-	w.record(SessionState{State: runstate.WatchResumed, Reason: reason})
+	w.record(SessionState{State: runstate.WatchResumed, Reason: reason, Draining: w.drain})
 }
 
 // filled records a poll that started work. After a wait it is the session
@@ -4951,6 +5517,9 @@ func (s Schedule) Render() string {
 			fmt.Fprintln(&rendered, "  the intake brake's probe run, started under its hold")
 		}
 		fmt.Fprintf(&rendered, "  chosen because %s\n", started.Reason)
+		if started.Readoptions > 1 {
+			fmt.Fprintf(&rendered, "  re-adopted %d times this session: the run's record still carried its stop after each earlier try, and this line is the latest\n", started.Readoptions)
+		}
 		if started.Outcome.Integration != nil {
 			fmt.Fprintf(&rendered, "  integrated into %s: %s\n",
 				started.Outcome.Integration.TargetBranch, started.Outcome.Integration.TargetCommit)
@@ -5098,6 +5667,30 @@ func (s Schedule) Render() string {
 	if s.RedeployProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.RedeployProblem)
 	}
+	// What the session did about a build deployed over it: the drain, its bound,
+	// and what became of the runs still going when the bound ran out. A session
+	// whose runs all ended inside the bound says the drain and nothing more.
+	if s.Drain != nil {
+		fmt.Fprintf(&rendered, "a build was deployed over this session at %s; it drained to restart into it, bounded at %s\n",
+			s.Drain.Since.UTC().Format("2006-01-02 15:04:05Z"), s.Drain.Bound)
+		switch {
+		case s.Drain.BoundReached && len(s.Drain.Stopped) == 0 && len(s.Drain.Landings) == 0:
+			rendered.WriteString("the drain bound ran out with only a run at its promotion still going, which was waited out rather than stopped\n")
+		case s.Drain.BoundReached && len(s.Drain.Stopped) > 0:
+			fmt.Fprintf(&rendered, "the drain bound ran out with %d run(s) still going, stopped and preserved for the session that comes back: %s\n",
+				len(s.Drain.Stopped), strings.Join(s.Drain.Stopped, ", "))
+		}
+		if s.Drain.BoundReached && len(s.Drain.Landings) > 0 {
+			fmt.Fprintf(&rendered, "the landing checks of %d run(s) that had already landed were stopped at the drain bound, so each landing is recorded as unverified: %s\n",
+				len(s.Drain.Landings), strings.Join(s.Drain.Landings, ", "))
+		}
+		if s.Drain.Skipped > 0 {
+			fmt.Fprintf(&rendered, "%d poll(s) pulled nothing into a free seat because the bound was less than one poll away\n", s.Drain.Skipped)
+		}
+		if s.Drain.Problem != "" {
+			fmt.Fprintf(&rendered, "%s\n", s.Drain.Problem)
+		}
+	}
 	if s.StalenessProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.StalenessProblem)
 	}
@@ -5133,6 +5726,11 @@ func (s Started) state() string {
 		// No run reached a status, so there is no ending to name: the start itself
 		// is what failed.
 		return "failed"
+	case s.Outcome.Paused && s.Outcome.RedeployStop != nil:
+		// Stopped by this session for its own restart rather than by anything
+		// about the run, and said as that: a reader of "paused" goes looking for
+		// a provider window or a directive, and there is neither.
+		return "stopped for the redeploy and preserved"
 	case s.Outcome.Paused:
 		return "paused"
 	case s.Outcome.Integration != nil:
