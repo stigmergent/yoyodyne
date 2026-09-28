@@ -610,6 +610,14 @@ var doneMarker = regexp.MustCompile(`(?i)\bdone means\b|\bdone:|\bdone when\b`)
 // paragraphEnd is where a done-means paragraph stops: a blank line.
 var paragraphEnd = regexp.MustCompile(`\n[ \t]*\n`)
 
+// DoneConditions is doneConditions for a reader outside this package: the
+// review evidence reads the same spans for what a criterion quotes, so what a
+// reviewer is shown matched against and what admission reads as a condition
+// cannot come apart.
+func DoneConditions(description, acceptanceCriteria string) []string {
+	return doneConditions(description, acceptanceCriteria)
+}
+
 // doneConditions is the spans of an item's text that state what done means:
 // each done-means paragraph of the description, and the acceptance criteria
 // whole, because every clause of that field is a condition by construction.

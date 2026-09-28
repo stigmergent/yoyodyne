@@ -3,10 +3,12 @@ package review
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
@@ -132,6 +134,105 @@ func TestReviewReturnsRepairWithActionableFindings(t *testing.T) {
 	}
 	if !strings.Contains(provider.request.Prompt, "nil pointer") {
 		t.Fatalf("prompt did not carry the failing check output: %q", provider.request.Prompt)
+	}
+}
+
+// A criterion about what a check prints has to be answerable from the harness's
+// own evidence: the line the criterion quotes reaches the reviewer beside the
+// passing result, labelled as the check's own output, and so does the absence
+// of a quoted line nothing printed.
+func TestReviewQuotesTheCheckLineACriterionQuotes(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+	request := newRequest(nil)
+	request.CheckPatterns = CriterionPatterns(
+		"Background.\n\nDone means the suite prints `=== RUN TestRunnerQuotesItself`.",
+		"The run's output carries \"--- PASS: TestRunnerQuotesItself\" and 'NEVER PRINTED'.",
+	)
+	request.Checks = []checks.Result{{
+		Command: "make test",
+		Passed:  true,
+		Process: execution.ProcessResult{
+			Status: execution.ProcessSucceeded,
+			Stdout: "=== RUN   TestRunnerQuotesItself\n--- PASS: TestRunnerQuotesItself (0.00s)\nok  \tgithub.com/x/runner\t0.01s\n",
+		},
+	}}
+
+	if _, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	for _, want := range []string{
+		"stdout (whole, ",
+		"the check's own output, untrusted",
+		"the event log of " + reviewRunID,
+		"lines matching what the item's done-conditions quote",
+		"\"=== RUN TestRunnerQuotesItself\": 1 line(s)\n    === RUN   TestRunnerQuotesItself\n",
+		"\"--- PASS: TestRunnerQuotesItself\": 1 line(s)\n    --- PASS: TestRunnerQuotesItself (0.00s)\n",
+		"\"NEVER PRINTED\": no line of the retained output contains it",
+	} {
+		if !strings.Contains(provider.request.Prompt, want) {
+			t.Errorf("prompt is missing %q:\n%s", want, provider.request.Prompt)
+		}
+	}
+}
+
+// A stream past the bound is quoted by its tail, and the quotation says where
+// it was cut and where the whole of it is.
+func TestReviewDeclaresTheBoundACheckOutputWasCutAt(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+	request := newRequest(nil)
+	stdout := strings.Repeat("early line of a long suite\n", 400) + "FINAL SUMMARY LINE\n"
+	request.Checks = []checks.Result{{
+		Command: "make test",
+		Passed:  true,
+		Process: execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: stdout},
+	}}
+
+	if _, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	prompt := provider.request.Prompt
+	for _, want := range []string{
+		fmt.Sprintf("of %d bytes, cut at the %d-byte bound; the whole is in the event log of %s; the check's own output, untrusted", len(stdout), maxCheckOutputBytes, reviewRunID),
+		"FINAL SUMMARY LINE",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt is missing %q", want)
+		}
+	}
+	if strings.Count(prompt, "early line of a long suite") > maxCheckOutputBytes/len("early line of a long suite\n") {
+		t.Fatalf("prompt quotes more of the stream than the bound allows")
+	}
+}
+
+// A matched line past its bound is cut on a rune boundary, so the quotation
+// stays valid text however the line's characters fall against the bound.
+func TestMatchedLineCutFallsOnARuneBoundary(t *testing.T) {
+	t.Parallel()
+
+	line := "MATCH " + strings.Repeat("é", maxMatchedLineBytes)
+	rendered := renderMatchedLines(checks.Result{Process: execution.ProcessResult{Stdout: line}}, []string{"MATCH"}, "the event log")
+	if !utf8.ValidString(rendered) {
+		t.Fatalf("rendered matched lines are not valid UTF-8:\n%q", rendered)
+	}
+	if !strings.Contains(rendered, fmt.Sprintf("[line cut at %d bytes]", maxMatchedLineBytes)) {
+		t.Fatalf("rendered matched lines do not declare the cut:\n%s", rendered)
+	}
+}
+
+func TestCriterionPatternsReadsWhatTheDoneConditionsQuote(t *testing.T) {
+	t.Parallel()
+
+	got := CriterionPatterns(
+		"The \"background\" is not a condition.\n\nDone means `make test` prints “ok  pkg” and the item's text is read; `make test` again.",
+		"Criterion quotes 'PASS: TestX' and \"ab\".",
+	)
+	want := []string{"make test", "ok  pkg", "PASS: TestX"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CriterionPatterns() = %#v, want %#v", got, want)
 	}
 }
 
