@@ -865,6 +865,18 @@ what the agent discussing it could see, which is the point: the two of you are
 reading the same item rather than two accounts of it. Beneath the item it prints
 what the item cost, broken down by the runs it took.
 
+A read of an item, by any role that reads one and by `/show`, carries the runs
+made for it after the item: each run's identifier, when it started and ended,
+what became of it, and whether its change is preserved, newest first. It also
+says what is holding the item after a stopped run, and which run that hold is
+about. That run is marked in the list. The runs come from the harness's own
+records rather than the notes, and the list is bounded at ten runs rather than
+cut with the notes. It says how many older runs it left out, and the run the
+hold is about is always listed. A record that could not be read is said as
+unread rather than left out. On 2026-09-26 the development manager could not
+find the run to record a decision on for `yoyodyne-ifd.430.13.4`, because the
+note naming it was in the part of the notes the read cut.
+
 An item too long to carry whole is cut, and the cut is declared where it falls.
 The notes are cut from their beginning rather than their end, and are guaranteed
 room whatever else the item carries: notes are only appended to, so their end is
@@ -872,7 +884,7 @@ what was written most recently, and a reader checking whether something was just
 recorded is asking about that end. Cutting the other way is how two operator
 directions written onto `yoyodyne-ifd.283` came to read as writes that never
 landed — both were durable, and both were outside the window this rendering
-showed.
+showed. The runs section above is outside that cut.
 
 ## Directives, and the work they pause
 

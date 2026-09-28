@@ -171,9 +171,17 @@ type RunPrice struct {
 	Outcome   string    `json:"outcome,omitempty"`
 	Phase     string    `json:"phase,omitempty"`
 	StartedAt time.Time `json:"started_at"`
+	// CompletedAt is when the run ended, and nil on one still going or one whose
+	// record names no end.
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	// Integrated reports the attempt that promoted its work, which is what
 	// separates the run that finished the item from the ones that did not.
 	Integrated bool `json:"integrated,omitempty"`
+	// Remains is what the run's record says survives of its change, in the
+	// phrase the run records derive: "work preserved", "work removed", or "no
+	// artifacts recorded". It is empty on a price assembled before that was
+	// carried, and a reader says so rather than guessing.
+	Remains string `json:"remains,omitempty"`
 	// Invocations counts the provider invocations behind the cost: the
 	// developer's, the reviewer's, and one more for every repair attempt.
 	Invocations int     `json:"invocations,omitempty"`
