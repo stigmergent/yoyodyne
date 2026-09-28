@@ -438,13 +438,18 @@ func (p *product) stop(ctx context.Context, stdout, stderr io.Writer, jsonOutput
 // this machine has it, and records that it did. It returns what to say about a
 // retirement made, or why one could not be made; both are empty where there was
 // no job. A job that could not be retired never stops the product starting: the
-// supervisor still runs, and `yoyo doctor` goes on naming the job.
+// supervisor still runs, and `yoyo doctor` goes on naming the job. Neither does
+// a job left in place because this build has no owner for something it does,
+// which is said naming each such duty.
 func (p *product) retireMaintenanceJob(ctx context.Context, by string) (said, problem string) {
 	retirement, err := p.machine.Retire(ctx)
 	if err != nil {
 		return "", fmt.Sprintf("the operator's maintenance job %s could not be retired, so it and the supervisor both manage the product's parts until it is: %v; `yoyo doctor` names it", maintenancejob.Label, err)
 	}
 	if !retirement.Acted() {
+		if held := retirement.DescribeHeld(); held != "" {
+			return "", held
+		}
 		if retirement.Left != "" && retirement.Found.Loaded {
 			return "", fmt.Sprintf("the maintenance job was not retired: %s", retirement.Left)
 		}

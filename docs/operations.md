@@ -41,7 +41,10 @@ the line says which work adopts each: the dashboard is `yoyodyne-ifd.414`, and
 the maintenance pass — the resident that replaces the hand-rolled job — is
 `yoyodyne-ifd.413`. Until those land, `yoyo dashboard` and a scheduled
 `yoyo reconcile` are still yours, and the supervisor says so rather than
-starting a part it does not know how to.
+starting a part it does not know how to. On a machine that has the operator's
+old maintenance job, that job goes on doing both until then, because the
+supervisor does not retire it while anything it does has no owner in the
+product ([below](#starting-the-product-and-stopping-it)).
 
 **A second start while the product is running says so and does nothing.**
 Whether a supervisor is running is its lease's answer, an advisory lock the
@@ -113,47 +116,83 @@ and the launchd job that runs it at login is the resident item,
 `yoyodyne-ifd.413`, whose form is `yoyo start --foreground` — the same verb,
 being the supervisor in the calling process rather than detaching one.
 
-**Starting the supervisor retires the operator's old maintenance job.** Before
-the supervisor, a launchd job of the operator's own, `com.yoyodyne.maintenance`,
-ran a script every ten minutes that started and restarted the scheduler,
-restarted the Slack sink, started the dashboard, ran `yoyo reconcile`, and
-rebuilt `bin/yoyo` after a landing. Beside a supervisor it is a second manager of
-the same processes, and the two start, kill, and restart them against each
-other: on 2026-09-26 its bounce-when-idle step killed the watch 32 times,
-cancelling the pulls and recurring passes in it. So `yoyo start` — and the
-foreground supervisor, whichever starts first — boots that job out of launchd
-and removes its property list from `~/Library/LaunchAgents`, and says so:
+**Starting the supervisor retires the operator's old maintenance job, once the
+product owns everything it did.** Before the supervisor, a launchd job of the
+operator's own, `com.yoyodyne.maintenance`, ran a script every ten minutes that
+started the scheduler, restarted the Slack sink, started the dashboard, ran
+`yoyo reconcile`, rebuilt `bin/yoyo` after a landing, merged the harness's
+finished pull requests, carried out the development manager's repair and
+re-run decisions, and killed and restarted a part it judged stalled. Beside a
+supervisor it is a second manager of the same processes, and the two start,
+kill, and restart them against each other: on 2026-09-26 its bounce-when-idle
+step killed the watch 32 times, cancelling the pulls and recurring passes in it.
+So `yoyo start` — and the foreground supervisor, whichever starts first — boots
+that job out of launchd and removes its property list from
+`~/Library/LaunchAgents`, and says so:
 
 ```text
-retired the operator's maintenance job com.yoyodyne.maintenance, a second manager of the product's parts: booted it out of launchd and removed …/Library/LaunchAgents/com.yoyodyne.maintenance.plist; it starts, kills, and restarts the scheduler …; the job's script …/yoyodyne-maintenance.sh is the operator's file and is left where it is; nothing runs it any more; recorded in …/products/yoyodyne/supervisor/retired-jobs.jsonl
+retired the operator's maintenance job com.yoyodyne.maintenance, a second manager of the product's parts: booted it out of launchd and removed …/Library/LaunchAgents/com.yoyodyne.maintenance.plist; it starts the scheduler (`yoyo work --watch`) where it is not running, which the supervisor's scheduler child does; …; the job's script …/yoyodyne-maintenance.sh is the operator's file and is left where it is; nothing runs it any more; recorded in …/products/yoyodyne/supervisor/retired-jobs.jsonl
 ```
 
-Nothing about it is typed by hand. The record keeps the job's property list
-whole, what it ran, and what of the product it duplicated, so what was removed
-is written down rather than only gone; the script it ran is left where it is.
-Only the job this user's `LaunchAgents` installed is retired: one of the same
-label that launchd loaded from anywhere else is left loaded and named, and
-[`yoyo doctor`](#checking-the-installation) gives the command for it. A job
-that could not be retired does not stop the product starting; the line says
-why, and the doctor goes on naming the job until it is gone.
+**Each thing the job did has an owner in the product, and the job is not
+retired while any of them is missing from the running build.** A retirement
+that left one of its duties to a person would be a hand step, which is a
+defect, so the retirement waits for the replacements. The owners are:
 
-**The one duty of that job the product still needed is the supervisor's own:
-rebuilding the binary when the target branch lands.** Where the binary the
-supervisor was started from lives inside the checkout that builds it — the
-harness developing itself, with `bin/yoyo` in its own checkout — the supervisor
-looks every thirty seconds at where the checkout's branch stands and at the
-revision the binary was built from, and where the branch has landed something
-under `cmd`, `internal`, `go.mod`, or `go.sum` since, it runs `make build` into
-that binary and says so in its log. A landing of only documentation builds
-nothing, a checkout with uncommitted changes to those paths is not built over
-until they are gone, and a build that fails is tried again when the branch next
-moves. What takes the build up is what already did: the watch re-executes itself
-into a replaced binary between runs. The job's other steps are not carried: its
-bounce-when-idle compared a process's start time with the binary's, which is
-wrong for a watch that re-executes itself in place, and restarting parts into a
-deployed build is `yoyodyne-ifd.434.3`'s. Until `yoyodyne-ifd.413` and
-`yoyodyne-ifd.414` land, what the job did for reconcile and the dashboard is
-the maintenance line's and the dashboard line's hand steps above.
+| what the job did | who does it instead | in this build |
+| --- | --- | --- |
+| started the scheduler | the supervisor's scheduler child | yes |
+| restarted the Slack sink | the supervisor's slack child | yes |
+| rebuilt `bin/yoyo` after a landing | the supervisor's rebuild, below | yes |
+| merged the harness's finished pull requests | the harness's own publication: each run asks the forge to merge its own pull request, [`yoyo reconcile`](#recovering-interrupted-runs) makes the merge request for a promotion whose record holds none, and a publication nothing asked the forge to merge goes on the development manager's docket, whose re-arm the watch carries out | yes |
+| carried out the development manager's repair and re-run decisions | the watch, which carries out every recorded repair, re-run, and re-arm on its next pull; a sweep that stops passing is a missed pass on `yoyo sweeps` and a failing task on `yoyo status` | yes |
+| ran `yoyo reconcile` on a schedule | the supervisor's periodic pass | once `yoyodyne-ifd.413` lands |
+| started the dashboard | the supervisor's dashboard child | once `yoyodyne-ifd.414` lands |
+| restarted a part it judged stalled or older than the binary | the supervisor's own pass | once `yoyodyne-ifd.434.3` lands |
+
+The courier's merge and the verification pass were checked against what the
+harness already does rather than given new owners: the courier merged a
+mergeable request directly, which the merge queue the target branch now has
+refuses anyway, and the verification pass existed to fire the decisions the
+sweep named, which the watch now fires itself. What the job's script does is
+read from it, step by step, and the build's own table of owners is the answer
+for the build the supervisor is running. Where the script does anything the
+build has no owner for, the job is left loaded and installed, and the line
+says which duties hold it and what work supplies each owner:
+
+```text
+the operator's maintenance job com.yoyodyne.maintenance was not retired: 3 of its duties have no owner in this build, and retiring it would leave them to a hand — it starts the dashboard, which nothing in this build does: the supervisor's dashboard child does it once yoyodyne-ifd.414 lands; runs `yoyo reconcile` on a schedule, which nothing in this build does: the supervisor's periodic pass does it once yoyodyne-ifd.413 lands; kills and restarts a part it judges stalled or older than the binary, which nothing in this build does: the supervisor's own pass does it once yoyodyne-ifd.434.3 lands; it goes on running beside the supervisor, and the first start of a build that owns every duty retires it
+```
+
+That is the state this build is in, so the job keeps running beside the
+supervisor, with the collision described above still possible, until those
+three land; the first `yoyo start` — or supervisor start — on a build that owns
+all of them retires it with nobody typing anything more.
+
+Nothing about the retirement is typed by hand. The record keeps the job's
+property list whole, what it ran, and what of the product it duplicated, so
+what was removed is written down rather than only gone; the script it ran is
+left where it is. Only the job this user's `LaunchAgents` installed is retired:
+one of the same label that launchd loaded from anywhere else is left loaded and
+named, and [`yoyo doctor`](#checking-the-installation) gives the command for
+it. A job that could not be retired, or was left for want of an owner, does not
+stop the product starting; the line says why, and the doctor goes on naming the
+job until it is gone.
+
+**Rebuilding the binary when the target branch lands is the supervisor's
+own.** Where the binary the supervisor was started from lives inside the
+checkout that builds it — the harness developing itself, with `bin/yoyo` in its
+own checkout — the supervisor looks every thirty seconds at where the
+checkout's branch stands and at the revision the binary was built from, and
+where the branch has landed something under `cmd`, `internal`, `go.mod`, or
+`go.sum` since, it runs `make build` into that binary and says so in its log. A
+landing of only documentation builds nothing, a checkout with uncommitted
+changes to those paths is not built over until they are gone, and a build that
+fails is tried again when the branch next moves. What takes the build up is what
+already did: the watch re-executes itself into a replaced binary between runs.
+The job's bounce-when-idle is not carried: it compared a process's start time
+with the binary's, which is wrong for a watch that re-executes itself in place,
+and restarting parts into a deployed build is `yoyodyne-ifd.434.3`'s.
 
 ## Checking the installation
 
@@ -273,13 +312,15 @@ it runs:
 
 ```text
 warning  maintenance-job        the launchd job com.yoyodyne.maintenance is loaded, a second manager of the product's parts beside the supervisor
-                                it starts, kills, and restarts the scheduler (`yoyo work --watch`), which the supervisor's scheduler child does; …
+                                it starts the scheduler (`yoyo work --watch`) where it is not running, which the supervisor's scheduler child does; …; `yoyo start` leaves it where it is while 3 of its duties have no owner in this build (dashboard, maintenance, restart), because retiring it would leave them to a hand, and retires it on the first build that owns every one
                                 fix: yoyo start
 ```
 
 The remedy is the verb because the verb is what retires it
-([starting the product](#starting-the-product-and-stopping-it)); the doctor
-itself only asks `launchctl` and reads the files.
+([starting the product](#starting-the-product-and-stopping-it)); where the
+build has no owner yet for something the job does, the finding names those
+duties, and the verb retires the job on the first build that owns them all. The
+doctor itself only asks `launchctl` and reads the files.
 
 It changes nothing. Nothing here installs, authenticates, restarts, or edits a
 configuration, and no credential is ever read: whether a secret is stored is
