@@ -1584,8 +1584,9 @@ func TestARepairContinuesAFirstAttemptStalledInItsReviewAtTheReview(t *testing.T
 		t.Fatalf("settled run = %#v, want a vanished-process stoppage at the review", settled)
 	}
 
-	// The entry says the repair continues the run at its review, and names that
-	// as the next mover's verb.
+	// The entry says the repair continues the run at its review. A first stall
+	// is the harness's to continue itself (yoyodyne-a0s), so the harness is the
+	// next mover; a repair she records first is what is carried out instead.
 	if len(docket.entries) != 1 {
 		t.Fatalf("docket = %#v, want the stalled review docketed once", docket.entries)
 	}
@@ -1597,8 +1598,8 @@ func TestARepairContinuesAFirstAttemptStalledInItsReviewAtTheReview(t *testing.T
 	for _, want := range []string{
 		"`yoyo triage repair " + paused.RunID + "` continues the run at the reviewing phase",
 		"with no developer attempt",
-		"Next mover: you",
-		"a repair (`yoyo triage repair " + paused.RunID + "`) continues it at the reviewing phase it stalled in",
+		"Next mover: the harness",
+		"continues the run itself at the reviewing phase it stalled in",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("entry does not say %q:\n%s", want, rendered)
@@ -1746,7 +1747,7 @@ func TestARepairContinuesAFirstAttemptStalledAtItsChecksAtTheChecks(t *testing.T
 	if !entry.SessionResumable || entry.ResumesAt != string(runstate.PhaseChecking) {
 		t.Fatalf("entry = %#v, want the stall reported resumable at the checks", entry)
 	}
-	if rendered := entry.Render(); !strings.Contains(rendered, "continues it at the checking phase it stalled in") {
+	if rendered := entry.Render(); !strings.Contains(rendered, "continues the run at the checking phase") || !strings.Contains(rendered, "continues the run itself at the checking phase it stalled in") {
 		t.Fatalf("entry does not name the checks as where the repair continues it:\n%s", rendered)
 	}
 

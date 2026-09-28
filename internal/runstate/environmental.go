@@ -301,6 +301,13 @@ type EnvironmentalRefusal struct {
 	// one, because no other cause is a wait with an end.
 	ResetsAt     *time.Time `json:"resets_at,omitempty"`
 	ResetUnknown bool       `json:"reset_unknown,omitempty"`
+	// ProviderStop is why the harness had stopped the provider, on a run the
+	// sweep settled as vanished while it was parked on that stop: stalled for a
+	// silent stream, or budget_exhausted. The settlement clears the park itself,
+	// because a terminal record carries none, so this is what says afterwards that
+	// the stoppage was the harness's own and which kind — a first silent-stream
+	// stall is one the harness continues itself (see stallcontinue.go).
+	ProviderStop string `json:"provider_stop,omitempty"`
 	// Settled says the round this cause belongs to has ended and the class was
 	// decided on it. It is what makes the settle one-shot: a cause recorded on a
 	// round the harness turned away without charging it is settled there and then,
@@ -364,6 +371,14 @@ func (r EnvironmentalRefusal) Validate() error {
 	}
 	if r.ResetUnknown && r.ResetsAt == nil {
 		problems = append(problems, errors.New("a reset the provider did not name requires the probe recorded in its place"))
+	}
+	if r.ProviderStop != "" {
+		if r.ProviderStop != ProviderStopStalled && r.ProviderStop != ProviderStopBudgetExhausted {
+			problems = append(problems, fmt.Errorf("provider_stop %q is not a way the harness stops a provider", r.ProviderStop))
+		}
+		if r.Cause != CauseProcessVanished {
+			problems = append(problems, fmt.Errorf("a provider stop is recorded only on a %s refusal, not on %q", CauseProcessVanished, r.Cause))
+		}
 	}
 	// Something given back is something that was classified, and a classification
 	// is something a settle made. A record the other way round could not have been

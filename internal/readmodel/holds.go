@@ -212,6 +212,9 @@ func standingDecisions(decisions Decisions) standing {
 const (
 	awaitingDecisionClause = "the development manager decides what happens to it, and nothing pulls it until she has"
 	awaitingCarryOutClause = "the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision"
+	// harnessContinuesStallClause closes the hold of a first silent-stream stall,
+	// which nobody decides: the harness continues it itself, once.
+	harnessContinuesStallClause = "the harness stopped its provider for a silent stream and nothing was judged, so the harness continues the run itself, in its own session and at the phase it stalled in, at the next pull with a developer slot free — it waits on the harness rather than on a decision"
 )
 
 // heldFor is one item's hold: the account of what stopped it, closed by whose
@@ -351,6 +354,13 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		carryOut, problem := decided(workItemID, run.RunID)
 		if run.IntegrationStop != nil {
 			reasons[workItemID] = heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), carryOut, problem, stoppedAt(run))
+			continue
+		}
+		// A first silent-stream stall nobody has decided about is the harness's to
+		// continue, with no decision to wait on: it is held as the harness's move,
+		// in words that say so rather than as a decision already recorded.
+		if preserved && !carryOut && problem == "" && run.HarnessContinuesStall() {
+			reasons[workItemID] = backlog.Hold{Reason: preservedChange(run, found) + "; " + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 			continue
 		}
 		if !preserved {
@@ -515,6 +525,11 @@ func StoppageMover(run runstate.State, found *triage.Found, awaitingCarryOut boo
 	// A check stage its bound stopped is continued by the harness at its checks
 	// until its continuations are spent, with nobody deciding anything.
 	if run.HarnessContinuesCheckStage() {
+		return MoverHarness
+	}
+	// A first silent-stream stall is continued by the harness itself, once, with
+	// nobody deciding anything; a second is hers.
+	if run.HarnessContinuesStall() {
 		return MoverHarness
 	}
 	return MoverDevelopmentManager

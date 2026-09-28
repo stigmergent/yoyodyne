@@ -4172,6 +4172,9 @@ func carryingOutReason(task CarryOutTask) string {
 	if task.Decision == DecisionContinueChecks {
 		return fmt.Sprintf("the check stage bound stopped run %s under load and the harness is continuing it at its checks", task.RunID)
 	}
+	if task.Decision == DecisionContinueStall {
+		return fmt.Sprintf("the harness stopped run %s for a silent provider stream and is continuing it itself, once, at the phase it stalled in", task.RunID)
+	}
 	return fmt.Sprintf("the development manager recorded a %q about the stoppage of run %s and the harness is carrying it out",
 		task.Decision, task.RunID)
 }

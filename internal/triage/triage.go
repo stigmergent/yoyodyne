@@ -1107,6 +1107,19 @@ type Entry struct {
 	// anybody: the stage bound stopped it, and the harness's own continuations
 	// of it are not yet spent. Validate holds it to an entry that says so.
 	HarnessContinuesChecks bool `json:"harness_continues_checks,omitempty"`
+	// StallStop is the run's own account of a stoppage made by the harness
+	// stopping a provider stream that had gone silent, in its first developer
+	// attempt or at its checks or review after it: that nothing was judged,
+	// whether the stall began in a session a re-adoption resumed, and what
+	// happens to it next — the harness's own continuation, or the development
+	// manager's decision once that is spent. It is the sentence the channel says
+	// too. Empty on every other stoppage.
+	StallStop string `json:"stall_stop,omitempty"`
+	// HarnessContinuesStall reports a stall the harness continues itself, in the
+	// same worktree and session at the phase it stalled in, with no decision asked
+	// of anybody: its one continuation by the harness is not yet spent. Validate
+	// holds it to an entry that says so.
+	HarnessContinuesStall bool `json:"harness_continues_stall,omitempty"`
 	// ResumesAt is the phase a resumable stall is continued at, where that is not
 	// a developer attempt: the checks or the review, which a run reaches only once
 	// its developer attempt is complete. It is empty for a stall mid-attempt,
@@ -1427,6 +1440,12 @@ func (e Entry) Validate() error {
 	if e.HarnessContinuesChecks && strings.TrimSpace(e.CheckStageStop) == "" {
 		problems = append(problems, errors.New("harness_continues_checks: only a stoppage the check stage bound made is continued at its checks, so it requires check_stage_stop"))
 	}
+	if len(e.StallStop) > MaxMessageBytes {
+		problems = append(problems, fmt.Errorf("stall_stop is %d bytes, limit is %d", len(e.StallStop), MaxMessageBytes))
+	}
+	if e.HarnessContinuesStall && strings.TrimSpace(e.StallStop) == "" {
+		problems = append(problems, errors.New("harness_continues_stall: only a stall the harness stopped is continued by the harness, so it requires stall_stop"))
+	}
 	if len(e.Summary) > MaxMessageBytes {
 		problems = append(problems, fmt.Errorf("summary is %d bytes, limit is %d", len(e.Summary), MaxMessageBytes))
 	}
@@ -1739,6 +1758,9 @@ func (e Entry) Render() string {
 		if e.CheckStageFailure != "" {
 			rendered.WriteString(indented("Where the bound stopped it", e.CheckStageFailure))
 		}
+	}
+	if e.StallStop != "" {
+		rendered.WriteString(indented("Stopped by the harness for a silent provider stream", e.StallStop))
 	}
 	if e.Summary != "" {
 		rendered.WriteString(indented("Review summary", e.Summary))
@@ -2069,6 +2091,15 @@ func (e Entry) renderNextMover() string {
 	// harness carries out instead.
 	if e.HarnessContinuesChecks {
 		return "      Next mover: the harness — load stopped this run's check stage rather than the change, so the harness re-runs the checks on the change it already has at the next pull with a slot free and the load low enough; nothing here needs a decision unless you want it to go some other way.\n"
+	}
+	// A first silent-stream stall is continued by the harness itself, once, with
+	// nobody deciding anything; a second is the development manager's, below.
+	if e.HarnessContinuesStall {
+		step := "the developer attempt it stalled in, in the same session"
+		if e.ResumesAt != "" {
+			step = fmt.Sprintf("the %s phase it stalled in, on the change it has", e.ResumesAt)
+		}
+		return fmt.Sprintf("      Next mover: the harness — the harness stopped this run's provider for a silent stream and nothing was judged, so it continues the run itself at %s, at the next pull with a developer slot free; nothing here needs a decision unless you want it to go some other way.\n", step)
 	}
 	// Nothing of the change left and nothing decided is the one case the pull's
 	// hold lets go of: it holds a stop only while a worktree survives or a

@@ -272,6 +272,26 @@ func checkStageContinuerFrom(parts components) orchestrator.CheckStageContinuer 
 	}
 }
 
+// stallContinuerFrom wires the harness's own continuation of a first
+// silent-stream stall over parts that are already built, as the check stage's
+// is: the docket it reads and settles, the runs it proves the stall from, the
+// worktree it proves the change from, and the pipeline it continues. It is
+// wired with no triage budget, because it spends none.
+func stallContinuerFrom(parts components) orchestrator.StallContinuer {
+	return orchestrator.StallContinuer{
+		Docket:    parts.docket,
+		Redocket:  docketerFrom(parts),
+		Runs:      parts.store,
+		Intake:    parts.intake,
+		Items:     parts.tracker(),
+		Worktrees: parts.worktrees,
+		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
+		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
+			return pipelineFrom(parts).Continue(ctx, workItemID, runID)
+		},
+	}
+}
+
 // reportResume describes what the action did. A refusal before anything was
 // written, an intake hold, a full harness, and a resumption whose run then
 // stopped again are four different things for an operator to do something about.
@@ -714,6 +734,9 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		// stopped, continued by the harness at its checks on the change the run
 		// already has. It spends nothing, so no triage budget is wired to it.
 		CheckStages: checkStageContinuerFrom(parts),
+		// The other: a first silent-stream stall, continued by the harness once in
+		// the session and at the phase it stalled in. It spends nothing either.
+		Stalls: stallContinuerFrom(parts),
 		// The same pause every run and every turn reads. A carry-out spends on a
 		// provider, so `yoyo pause` covers it exactly as it covers them — and it is
 		// read here rather than left to the pipeline because a repair writes to the

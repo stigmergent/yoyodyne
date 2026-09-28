@@ -826,3 +826,39 @@ func TestAnItemADecidedStopSupersededIsHeldWhileItsChangeStands(t *testing.T) {
 		t.Fatalf("an operator's stop held its item: %q", reason)
 	}
 }
+
+// A first silent-stream stall the sweep settled is the harness's to continue,
+// so the hold `yoyo status` reads says so and names the harness as the one to
+// move rather than a decision anybody owes. Once the harness has continued it
+// and it has stalled again, its continuation is spent, and the same run is held
+// as the development manager's decision like any other stoppage.
+func TestAFirstStallIsHeldAsTheHarnessesMoveUntilItsContinuationIsSpent(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 9, 28, 19, 41, 0, 0, time.UTC)
+	stall := preservedRun("run-008b0e25", "yoyodyne-ifd.430.13.8", stopped)
+	stall.Phase = runstate.PhaseDeveloping
+	stall.BaseCommit, stall.TargetBranch, stall.ProviderSessionID = "c", "main", "session"
+	stall.Environmental = &runstate.EnvironmentalRefusal{
+		Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopStalled, RecordedAt: stopped, Settled: true,
+	}
+
+	first := heldForAPerson([]runstate.State{stall}, nil, nothingDecided, asRecorded)
+	reason := heldReason(t, first, stall.WorkItemID)
+	if !first.Decided(stall.WorkItemID) || !strings.Contains(reason, harnessContinuesStallClause) || strings.Contains(reason, awaitingDecisionClause) {
+		t.Fatalf("a first stall is held for %q (harness's move: %t), want it the harness's to continue", reason, first.Decided(stall.WorkItemID))
+	}
+	if mover := StoppageMover(stall, nil, false); mover != MoverHarness {
+		t.Fatalf("StoppageMover() = %s, want the harness", mover)
+	}
+
+	stall.RepairContinuations = []runstate.RepairContinuation{{Reason: "continued after a stall", ContinuedAt: stopped.Add(-time.Hour), Stall: true, ByHarness: true}}
+	spent := heldForAPerson([]runstate.State{stall}, nil, nothingDecided, asRecorded)
+	reason = heldReason(t, spent, stall.WorkItemID)
+	if spent.Decided(stall.WorkItemID) || strings.Contains(reason, harnessContinuesStallClause) || !strings.Contains(reason, awaitingDecisionClause) {
+		t.Fatalf("a second stall is held for %q (harness's move: %t), want it the development manager's decision", reason, spent.Decided(stall.WorkItemID))
+	}
+	if mover := StoppageMover(stall, nil, false); mover != MoverDevelopmentManager {
+		t.Fatalf("StoppageMover() = %s, want the development manager", mover)
+	}
+}
