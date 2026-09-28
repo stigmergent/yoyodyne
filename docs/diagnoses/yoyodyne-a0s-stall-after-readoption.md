@@ -1,4 +1,4 @@
-# yoyodyne-a0s: the program manager pass-and-query run stalled in the session its re-adoption resumed
+# The harness continuing first stalls itself (yoyodyne-a0s): the program manager pass-and-query run stalled in the session its re-adoption resumed
 
 The work item that made the harness continue a first silent-stream stall itself
 (yoyodyne-a0s) asked one question about the second of the two stalls it was
@@ -43,15 +43,15 @@ checks it had started in the background kept it running. The harness's liveness
 bound counts silence on the stream, so it read a finished turn with a live
 process as a stall.
 
-Under yoyodyne-a0s the harness now continues such a run itself, once, in the
-same session. That is the right answer for the run: the developer is handed its
+Since the harness began continuing first stalls itself (yoyodyne-a0s), such a
+run is continued once, in the same session, with nobody deciding it. That is the right answer for the run: the developer is handed its
 session back and can read what its checks said. The run still spends the
 harness's one continuation, though, on a turn that had actually ended. Telling
 "the stream went silent mid-turn" apart from "the turn ended and the process
 lingered" is work for the provider adapters' classification of a stopped
-invocation, and is not part of yoyodyne-a0s.
+invocation, and is not part of that item.
 
-From yoyodyne-a0s on, a run's record keeps the redeploy stop it was re-adopted
+Since that item, a run's record keeps the redeploy stop it was re-adopted
 from, as `readopted`. The docket entry for a stall after one says so. It says
 the stall began in the resumed session only where the run stalled at the phase
 it was re-adopted at; otherwise it says only that the run had been re-adopted

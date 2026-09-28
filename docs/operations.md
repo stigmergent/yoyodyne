@@ -1446,9 +1446,10 @@ this was built on:
 [the account of run-008b0e25](diagnoses/yoyodyne-a0s-stall-after-readoption.md)
 shows it stalled in the session its re-adoption resumed, after that session had
 already written its final reply and was kept alive by background checks it had
-started. Until yoyodyne-a0s
+started. Until the harness continued first stalls itself (yoyodyne-a0s),
 every such stall waited on her decision after the half hour — two runs in two
-days, yoyodyne-ifd.428.44 and yoyodyne-ifd.430.13.8, each for a continuation
+days, on the unmeetable-item-returns item (yoyodyne-ifd.428.44) and the program
+manager pass-and-query item (yoyodyne-ifd.430.13.8), each for a continuation
 its own docket entry said cost nothing.
 
 ## When a run says more than the harness keeps
@@ -3653,7 +3654,7 @@ comes from a small fixed set:
 | word | what it means |
 | --- | --- |
 | `succeeded` | the work landed |
-| `stopped` | it ended on a durable blocker: the item carries it, the development manager decides what happens next, and nothing was discarded |
+| `stopped` | it ended on a durable blocker: the item carries it and nothing was discarded; the development manager decides what happens next, except for a first stall of a silent provider stream outside the repair loop, which the harness [continues once itself](#when-a-provider-stalls-or-runs-out-of-budget) and which becomes hers only if it stalls again |
 | `cancelled` | something stopped it rather than judged it — the operator, or a killed process |
 | `timed out` | the harness stopped it on time; nothing judged the change, and only a check stage its bound stopped is acted on afterwards — [continued at its checks by the harness](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs), then the development manager's once those continuations are spent |
 | `failed` | it ended without succeeding and without leaving anybody a blocker |
