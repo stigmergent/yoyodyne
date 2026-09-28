@@ -1376,9 +1376,10 @@ func recordedStaleBlockClear(cleared *beads.StaleBlockClear) *runstate.StaleBloc
 		return nil
 	}
 	return &runstate.StaleBlockClear{
-		Outcome: cleared.Outcome,
-		Reads:   cleared.Reads,
-		Status:  cleared.Status,
+		Outcome:       cleared.Outcome,
+		Reads:         cleared.Reads,
+		Status:        cleared.Status,
+		ClaimsRefused: cleared.ClaimsRefused,
 	}
 }
 

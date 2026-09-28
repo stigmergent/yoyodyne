@@ -845,7 +845,8 @@ var staleBlockedRefusal = regexp.MustCompile(`(?i)not claimable: status blocked`
 //
 // The correction is confirmed before it is relied on. The status is read back
 // after the write and the claim is made only once a read returns open, retrying
-// within a bounded wait; the account of that read-back is returned beside the
+// within a bounded wait — and a claim bd still refuses on the status is retried
+// on a later read within the same wait; the account of that read-back is returned beside the
 // item, and beside the error where no read confirmed it, so the run's record
 // can say which of its three endings the clear had. On 2026-09-20 the claim on
 // yoyodyne-ifd.415 recorded the clear as made and bd refused the claim that
@@ -886,6 +887,9 @@ type StaleBlockClear struct {
 	// Status is what the last read returned: open where a read confirmed the
 	// clear, and whatever the tracker still held where none did.
 	Status string
+	// ClaimsRefused is how many claims bd refused on the status after a read had
+	// returned open, each of them retried on a later read within the bound.
+	ClaimsRefused int
 }
 
 // staleBlockClearReadBack bounds how the clear of a stale blocked status is
@@ -962,7 +966,8 @@ func (c Client) claim(ctx context.Context, id string) (WorkItem, error) {
 // The write is not the correction; the read that returns open is. The note the
 // write carries says the harness is clearing the status and that the claim
 // follows once the tracker reads it back as open, and the claim is made on that
-// read and on nothing else. Where no read within the bound returns open, the
+// read and on nothing else, again on a later read where bd refuses it on the
+// status. Where no claim within the bound is taken, the
 // clear is reported as unconfirmed with the status the tracker returned, a note
 // saying so is appended, and the item is left for the next pull rather than
 // claimed — a claim made on a status the tracker still holds as blocked is the
@@ -996,13 +1001,17 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 	if _, err := c.run(ctx, "update", id, "--status=open", "--append-notes="+corrected, "--json"); err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, fmt.Errorf("clear the stale blocked status on %s: %w", id, err))
 	}
-	account, err := c.confirmStaleBlockClear(ctx, id)
+	claimed, account, err := c.claimOnConfirmedClear(ctx, id)
 	if err != nil {
 		return WorkItem{}, account, errors.Join(refusal, err)
 	}
 	if account.Outcome == domain.StaleBlockClearUnconfirmed {
 		returned := fmt.Sprintf("%d read(s) over %s returned status %q rather than open",
 			account.Reads, c.readBack.settled().span(account.Reads), account.Status)
+		if account.ClaimsRefused > 0 {
+			returned = fmt.Sprintf("%d read(s) over %s, the last returning status %q, and bd refused the claim on the status %d time(s) after a read that returned open",
+				account.Reads, c.readBack.settled().span(account.Reads), account.Status, account.ClaimsRefused)
+		}
 		unconfirmed := fmt.Errorf(
 			"the clear of the stale blocked status on %s was never confirmed: %s, so the item is left for the next pull rather than claimed",
 			id, returned)
@@ -1016,41 +1025,57 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 		}
 		return WorkItem{}, account, errors.Join(refusal, unconfirmed)
 	}
-	claimed, err := c.claim(ctx, id)
-	if err != nil {
-		return WorkItem{}, account, errors.Join(refusal, fmt.Errorf("claim %s after its stale blocked status was read back as open: %w", id, err))
-	}
 	return claimed, account, nil
 }
 
-// confirmStaleBlockClear reads the status back after the clear was written,
-// within the bound, and says what it found. The account is returned however
-// the reads ended: a read that could not be made is an error beside the reads
-// that were, so the record still says how far the confirmation got.
-func (c Client) confirmStaleBlockClear(ctx context.Context, id string) (*StaleBlockClear, error) {
+// claimOnConfirmedClear reads the status back after the clear was written and
+// claims the item on a read that returns open, within the bound, and says what
+// it found. The account is returned however the reads ended: a read that could
+// not be made is an error beside the reads that were, so the record still says
+// how far the confirmation got.
+//
+// A claim bd still refuses on the status after a read returned open is retried
+// on a later read within the same bound, rather than ending the claim. That is
+// the ending the read-back alone did not cover: on 2026-09-22 and 2026-09-23 a
+// re-run the development manager recorded cleared the status on
+// yoyodyne-ifd.432.10 and on yoyodyne-ifd.117.3, and bd then refused the claim
+// with "issue not claimable: status blocked", so the carry-out spent its pull
+// and a later pull claimed each item. The clear is confirmed only by the claim
+// the read made room for: where no claim within the bound is taken, the clear
+// is reported as unconfirmed, with how many claims bd refused, and the item is
+// left for the next pull.
+func (c Client) claimOnConfirmedClear(ctx context.Context, id string) (WorkItem, *StaleBlockClear, error) {
 	readBack := c.readBack.settled()
 	account := &StaleBlockClear{Outcome: domain.StaleBlockClearUnconfirmed}
 	for attempt := 1; attempt <= readBack.reads; attempt++ {
 		if attempt > 1 {
 			if err := readBack.sleep(ctx, readBack.interval); err != nil {
-				return account, fmt.Errorf("wait to read %s's status back after clearing its stale blocked status: %w", id, err)
+				return WorkItem{}, account, fmt.Errorf("wait to read %s's status back after clearing its stale blocked status: %w", id, err)
 			}
 		}
 		item, err := c.Show(ctx, id)
 		if err != nil {
-			return account, fmt.Errorf("read %s's status back after clearing its stale blocked status: %w", id, err)
+			return WorkItem{}, account, fmt.Errorf("read %s's status back after clearing its stale blocked status: %w", id, err)
 		}
 		account.Reads = attempt
 		account.Status = item.Status
-		if item.Status == statusOpen {
+		if item.Status != statusOpen {
+			continue
+		}
+		claimed, err := c.claim(ctx, id)
+		if err == nil {
 			account.Outcome = domain.StaleBlockClearConfirmed
 			if attempt > 1 {
 				account.Outcome = domain.StaleBlockClearConfirmedLate
 			}
-			return account, nil
+			return claimed, account, nil
 		}
+		if !staleBlockedRefusal.MatchString(err.Error()) {
+			return WorkItem{}, account, fmt.Errorf("claim %s after its stale blocked status was read back as open: %w", id, err)
+		}
+		account.ClaimsRefused++
 	}
-	return account, nil
+	return WorkItem{}, account, nil
 }
 
 // span is how long the given number of reads took to space out: the intervals

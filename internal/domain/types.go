@@ -221,13 +221,16 @@ func (c ProviderChannel) Valid() bool {
 type StaleBlockClearOutcome string
 
 const (
-	// StaleBlockClearConfirmed is the first read after the write returning open.
+	// StaleBlockClearConfirmed is the first read after the write returning open,
+	// and the claim made on it taken.
 	StaleBlockClearConfirmed StaleBlockClearOutcome = "confirmed"
 	// StaleBlockClearConfirmedLate is a read after the first, within the bounded
-	// wait, returning open.
+	// wait, returning open and the claim made on it taken — later because the
+	// earlier reads returned another status, or because the tracker refused the
+	// claims made on them.
 	StaleBlockClearConfirmedLate StaleBlockClearOutcome = "confirmed_late"
-	// StaleBlockClearUnconfirmed is no read within the bounded wait returning
-	// open. The item was not claimed and is left for the next pull.
+	// StaleBlockClearUnconfirmed is no claim within the bounded wait taken on a
+	// read returning open. The item was not claimed and is left for the next pull.
 	StaleBlockClearUnconfirmed StaleBlockClearOutcome = "unconfirmed"
 )
 

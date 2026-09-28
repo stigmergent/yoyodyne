@@ -905,13 +905,27 @@ The write is not the clear; the read that returns `open` is. After the write the
 claim reads the status back, up to five times a second apart, and takes the item
 only on a read that returns `open`. On 2026-09-20 the claim on yoyodyne-ifd.415
 recorded its clear as made and the tracker refused the claim that followed on the
-same status, so the re-run tripped on its own correction. A clear no read confirms
-within that bound is reported as unconfirmed, with the status the tracker
-returned and never as cleared; a note saying so is appended to the item, and the
-item is left for the next pull rather than claimed. Either way the run's record
-says which of the three endings the clear had — confirmed on the first read,
-confirmed on a later one, or never confirmed — and `yoyo status` prints it on
-the run.
+same status, so the re-run tripped on its own correction. A claim the tracker
+still refuses on the status after a read returned `open` is retried on a later
+read within the same bound rather than ending the claim: on 2026-09-22 and
+2026-09-23 two recorded re-runs (yoyodyne-ifd.432.10 and yoyodyne-ifd.117.3)
+cleared the status, read it back, and were refused the claim with `issue not
+claimable: status blocked`, and each item was claimed only by a later pull. A
+clear no claim within that bound is taken on is reported as unconfirmed, with
+the status the tracker returned and how many claims it refused, and never as
+cleared; a note saying so is appended to the item, and the item is left for the
+next pull rather than claimed. Either way the run's record says which of the
+three endings the clear had — confirmed on the first read, confirmed on a later
+one, or never confirmed — with the refused claims counted beside it, and `yoyo
+status` prints it on the run.
+
+**This is the same claim on every path that starts a run.** A pull choosing the
+item, you naming it with `yoyo run`, and the harness carrying out a re-run the
+development manager recorded all claim through it, so a re-run carried out
+against an item at `blocked` clears the status, confirms it, and claims the item
+on the pull that cleared it, under the same bound and with the same account on
+the item and the run. The carry-out reads the item before it claims its re-run,
+and accepts `blocked` there because the claim is what corrects it.
 
 What still holds a blocked item back is a **hold**, which is the harness's own
 durable record rather than a field: a run that stopped on the item and whose
