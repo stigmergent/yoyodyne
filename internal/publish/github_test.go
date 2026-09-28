@@ -1208,9 +1208,9 @@ func TestGitHubChecksReadsTheHeadItsChecksAndHowFarBehindItIs(t *testing.T) {
 	runner.reply("pr view 713", execution.ProcessResult{Status: execution.ProcessSucceeded,
 		Stdout: `{"headRefOid":"` + head + `","files":[{"path":"internal/feature.go"}]}`})
 	runner.reply("/check-runs?per_page", execution.ProcessResult{Status: execution.ProcessSucceeded,
-		Stdout: `{"check_runs":[{"id":9,"name":"go test","status":"completed","conclusion":"failure"},{"id":10,"name":"vet","status":"completed","conclusion":"success"},{"id":11,"name":"race","status":"in_progress","conclusion":null}]}`})
+		Stdout: `{"check_runs":[{"id":9,"name":"go test","status":"completed","conclusion":"failure","html_url":"https://example.invalid/acme/thing/actions/runs/1/job/9"},{"id":10,"name":"vet","status":"completed","conclusion":"success"},{"id":11,"name":"race","status":"in_progress","conclusion":null}]}`})
 	runner.reply("check-runs/9/annotations", execution.ProcessResult{Status: execution.ProcessSucceeded,
-		Stdout: `[{"path":"internal/other/other_test.go"},{"path":".github"},{"path":"internal/other/other_test.go"}]`})
+		Stdout: `[{"path":"internal/other/other_test.go","start_line":12,"annotation_level":"failure","message":"TestOther failed"},{"path":".github","annotation_level":"failure","message":"Process completed with exit code 1."},{"path":"internal/other/other_test.go"}]`})
 	runner.reply("compare/"+head+"...main", execution.ProcessResult{Status: execution.ProcessSucceeded,
 		Stdout: `{"ahead_by":31,"behind_by":0}`})
 
@@ -1229,6 +1229,12 @@ func TestGitHubChecksReadsTheHeadItsChecksAndHowFarBehindItIs(t *testing.T) {
 	}
 	if paths := reading.Failing[0].Paths; len(paths) != 2 || paths[0] != ".github" || paths[1] != "internal/other/other_test.go" {
 		t.Errorf("annotated paths = %v, want each file once", paths)
+	}
+	if reading.Failing[0].URL != "https://example.invalid/acme/thing/actions/runs/1/job/9" {
+		t.Errorf("url = %q, want the forge's page for the job", reading.Failing[0].URL)
+	}
+	if annotations := reading.Failing[0].Annotations; len(annotations) != 3 || annotations[0] != (Annotation{Path: "internal/other/other_test.go", Line: 12, Level: "failure", Message: "TestOther failed"}) {
+		t.Errorf("annotations = %#v, want each kept whole in the forge's words", annotations)
 	}
 	if reading.Passing != 1 || len(reading.Pending) != 1 || reading.Pending[0] != "race" {
 		t.Errorf("passing = %d, pending = %v", reading.Passing, reading.Pending)
@@ -1307,6 +1313,45 @@ func TestGitHubJobLogTailReadsTheLastLinesOfTheJobsLog(t *testing.T) {
 	}
 	if _, err := (GitHub{Runner: runner}).JobLogTail(context.Background(), 0, 60); err == nil {
 		t.Error("JobLogTail() of no check run returned no error")
+	}
+	if errors.Is(func() error {
+		_, err := (GitHub{Runner: refused}).JobLogTail(context.Background(), 4215, 60)
+		return err
+	}(), ErrForgeAccessRefused) {
+		t.Error("a log the forge no longer holds was read as the token being refused")
+	}
+}
+
+// The failing step's lines are those ending at the last error the log marks,
+// not the forge's clean-up steps after it; a log marking none is read as its
+// tail.
+func TestJobLogTailEndsAtTheFailingStep(t *testing.T) {
+	t.Parallel()
+
+	log := "setup\n##[group]Run make test\n--- FAIL: TestThing\n##[error]Process completed with exit code 2.\nPost job cleanup.\nCleaning up orphan processes\n"
+	if tail := logTail(log, 2); tail != "--- FAIL: TestThing\n##[error]Process completed with exit code 2." {
+		t.Errorf("logTail = %q, want the lines ending at the failing step's error", tail)
+	}
+	if tail := logTail("a\nb\nc\n", 2); tail != "b\nc" {
+		t.Errorf("logTail with no error marked = %q, want the last lines", tail)
+	}
+}
+
+// A token the forge refuses — reading a job's log, or running it again — is
+// told apart from anything else the forge says, so the item can name the grant
+// as the operator's.
+func TestGitHubTellsATokenTheForgeRefusesApart(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "gh: Resource not accessible by integration (HTTP 403)\n"})
+	runner.reply("actions/jobs/4215/rerun", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "gh: Must have admin rights to Repository. (HTTP 403)\n"})
+	if _, err := (GitHub{Runner: runner}).JobLogTail(context.Background(), 4215, 60); !errors.Is(err, ErrForgeAccessRefused) || !strings.Contains(err.Error(), "Resource not accessible") {
+		t.Errorf("JobLogTail() = %v, want the forge refusing the token, in its words", err)
+	}
+	if err := (GitHub{Runner: runner}).RerunCheck(context.Background(), 4215); !errors.Is(err, ErrForgeAccessRefused) {
+		t.Errorf("RerunCheck() = %v, want the forge refusing the token", err)
 	}
 }
 

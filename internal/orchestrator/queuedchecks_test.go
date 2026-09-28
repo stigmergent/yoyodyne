@@ -324,7 +324,7 @@ func TestAQueuedHeadWhoseJobTheForgeEndedIsRunAgainBeforeItIsHandedBack(t *testi
 	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.reruns) != runstate.MaxCheckReruns {
 		t.Fatalf("reconciliation = %#v, re-runs = %v; want it handed back once the re-runs are spent", results, forge.reruns)
 	}
-	for _, want := range []string{"adoption (the forge cancelled the job before any step failed, naming no file)", "ended that way again on each of 2 re-run(s)", "The forge's log of those runs says why", "needs a person"} {
+	for _, want := range []string{"adoption (the forge cancelled the job before any step failed, naming no file)", "ended that way again on each of 2 re-run(s)", "The forge's account of each, read under the harness's forge access, is in this item's notes", "needs a person"} {
 		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
 			t.Errorf("blocker does not say %q:\n%s", want, fixture.tracker.Record().BlockReason)
 		}
@@ -356,7 +356,7 @@ func TestAFailedStepAnnotatedOnlyOnDotGithubIsNotRunAgain(t *testing.T) {
 		t.Fatalf("reconciliation = %#v, re-runs = %v; want a failed step handed back, not run again", results, forge.reruns)
 	}
 	blocker := fixture.tracker.Record().BlockReason
-	if !strings.Contains(blocker, "build (a step failed without naming a file; the forge filed it on .github, and its log of the run says which step)") {
+	if !strings.Contains(blocker, "build (a step failed without naming a file; the forge filed it on .github, and the forge's account of it on the item says which step)") {
 		t.Errorf("blocker does not say a step failed and where to look:\n%s", blocker)
 	}
 	for _, unwanted := range []string{"before any step failed", "which this change does not touch", "do not decide"} {

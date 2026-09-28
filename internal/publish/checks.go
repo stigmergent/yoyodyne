@@ -3,6 +3,7 @@ package publish
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -22,7 +23,47 @@ const (
 	maxAnnotatedChecks = 10
 	// maxAnnotationsRead bounds the annotations read for one failing check.
 	maxAnnotationsRead = 50
+	// maxAnnotationsKept bounds the annotations a failing check carries whole —
+	// path, line, level, and the forge's own message — beside every file named.
+	maxAnnotationsKept = 10
 )
+
+// ErrForgeAccessRefused is the forge refusing the harness's token something it
+// asked for — reading a job's log, or running a job again — as opposed to the
+// thing not being there. Granting the token that access is the operator's, and
+// whoever reads the refusal is told so rather than being sent to fetch it.
+var ErrForgeAccessRefused = errors.New("the forge refused the harness's token access")
+
+// accessRefused recognizes the forge's refusal of a token's permissions in what
+// gh printed: GitHub answers 403 with "Resource not accessible by integration"
+// for an app or fine-grained token without the scope, and "Must have admin
+// rights" where the job needs more than read.
+func accessRefused(stderr string) bool {
+	lowered := strings.ToLower(stderr)
+	return strings.Contains(lowered, "http 403") ||
+		strings.Contains(lowered, "resource not accessible") ||
+		strings.Contains(lowered, "must have admin rights")
+}
+
+// forgeFailure is the error for a forge call that ran and was refused, marked
+// ErrForgeAccessRefused where the refusal was of the token's access.
+func (g GitHub) forgeFailure(what string, result execution.ProcessResult) error {
+	stderr := g.redact(firstLine(strings.TrimSpace(result.Stderr)))
+	if accessRefused(result.Stderr) {
+		return fmt.Errorf("%s: exit code %d: %s: %w", what, result.ExitCode, stderr, ErrForgeAccessRefused)
+	}
+	return fmt.Errorf("%s: exit code %d: %s", what, result.ExitCode, stderr)
+}
+
+// Annotation is one annotation the forge made on a check run: where, how
+// severe, and the forge's own words, which for a failed step is usually the
+// test or the command that failed.
+type Annotation struct {
+	Path    string
+	Line    int
+	Level   string
+	Message string
+}
 
 // FailedCheck is one check the forge reports failing on a pull request's head,
 // with the files its annotations name. The files are what says whose failure it
@@ -36,11 +77,15 @@ const (
 // ID is the forge's check run, which for an Actions job is the job a re-run
 // names. Conclusion is how the forge says the check ended: a job cancelled,
 // timed out, or never started failed in the runner rather than on any file.
+// URL is the forge's page for the check run, which for an Actions job is its
+// log. Annotations are the forge's own account of the failure, bounded.
 type FailedCheck struct {
-	Name       string
-	Paths      []string
-	ID         int64
-	Conclusion string
+	Name        string
+	Paths       []string
+	ID          int64
+	Conclusion  string
+	URL         string
+	Annotations []Annotation
 }
 
 // CheckReading is what the forge says about a pull request's checks at the
@@ -134,6 +179,7 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 			Name       string `json:"name"`
 			Status     string `json:"status"`
 			Conclusion string `json:"conclusion"`
+			HTMLURL    string `json:"html_url"`
 		} `json:"check_runs"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(runs.Stdout)), &reported); err != nil {
@@ -145,13 +191,14 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 		case !strings.EqualFold(run.Status, "completed"):
 			reading.Pending = append(reading.Pending, name)
 		case failingConclusions[strings.ToLower(strings.TrimSpace(run.Conclusion))]:
-			failed := FailedCheck{Name: name, ID: run.ID, Conclusion: strings.ToLower(strings.TrimSpace(run.Conclusion))}
+			failed := FailedCheck{Name: name, ID: run.ID, Conclusion: strings.ToLower(strings.TrimSpace(run.Conclusion)), URL: strings.TrimSpace(run.HTMLURL)}
 			if len(reading.Failing) < maxAnnotatedChecks && run.ID > 0 {
-				paths, err := g.annotatedPaths(ctx, run.ID)
+				paths, annotations, err := g.annotations(ctx, run.ID)
 				if err != nil {
 					return CheckReading{}, fmt.Errorf("ask the forge which files check %q annotates: %w", name, err)
 				}
 				failed.Paths = paths
+				failed.Annotations = annotations
 			}
 			reading.Failing = append(reading.Failing, failed)
 		default:
@@ -182,26 +229,33 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 	return reading, nil
 }
 
-// annotatedPaths reads the files one check run's annotations name, each once
-// and in order.
-func (g GitHub) annotatedPaths(ctx context.Context, checkRun int64) ([]string, error) {
+// annotations reads one check run's annotations: the files they name, each once
+// and in order, and the first of them whole, as the forge wrote them.
+func (g GitHub) annotations(ctx context.Context, checkRun int64) ([]string, []Annotation, error) {
 	result, err := g.api(ctx, fmt.Sprintf("repos/{owner}/{repo}/check-runs/%d/annotations?per_page=%d", checkRun, maxAnnotationsRead))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return nil, fmt.Errorf("exit code %d: %s", result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+		return nil, nil, fmt.Errorf("exit code %d: %s", result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
 	}
-	var annotations []struct {
-		Path string `json:"path"`
+	var reported []struct {
+		Path      string `json:"path"`
+		StartLine int    `json:"start_line"`
+		Level     string `json:"annotation_level"`
+		Message   string `json:"message"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &annotations); err != nil {
-		return nil, fmt.Errorf("decode the annotations of check run %d: %w", checkRun, err)
+	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &reported); err != nil {
+		return nil, nil, fmt.Errorf("decode the annotations of check run %d: %w", checkRun, err)
 	}
 	seen := map[string]bool{}
 	var paths []string
-	for _, annotation := range annotations {
+	var kept []Annotation
+	for _, annotation := range reported {
 		path := strings.TrimSpace(annotation.Path)
+		if len(kept) < maxAnnotationsKept {
+			kept = append(kept, Annotation{Path: path, Line: annotation.StartLine, Level: strings.TrimSpace(annotation.Level), Message: strings.TrimSpace(annotation.Message)})
+		}
 		if path == "" || seen[path] {
 			continue
 		}
@@ -209,7 +263,7 @@ func (g GitHub) annotatedPaths(ctx context.Context, checkRun int64) ([]string, e
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	return paths, nil
+	return paths, kept, nil
 }
 
 // RerunCheck asks the forge to run one failed check again: the Actions job
@@ -218,7 +272,8 @@ func (g GitHub) annotatedPaths(ctx context.Context, checkRun int64) ([]string, e
 // than on the tree stops holding the merge once it passes.
 //
 // A check no Actions job ran — one a third-party app reports — has nothing the
-// forge can re-run, and the forge refusing says so as an error.
+// forge can re-run, and the forge refusing says so as an error. A token the
+// forge will not let re-run jobs is refused with ErrForgeAccessRefused.
 func (g GitHub) RerunCheck(ctx context.Context, checkRun int64) error {
 	if checkRun <= 0 {
 		return fmt.Errorf("check run %d is not a check run", checkRun)
@@ -228,21 +283,26 @@ func (g GitHub) RerunCheck(ctx context.Context, checkRun int64) error {
 		return fmt.Errorf("ask the forge to run check %d again: %w", checkRun, err)
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return fmt.Errorf("ask the forge to run check %d again: exit code %d: %s",
-			checkRun, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+		return g.forgeFailure(fmt.Sprintf("ask the forge to run check %d again", checkRun), result)
 	}
 	return nil
 }
 
-// JobLogTail is the last lines of the forge's log of the job behind a check
-// run, which is what says why a check failed with no file named: GitHub files
-// "Process completed with exit code 2" on .github for a red test and a broken
-// runner alike, and only the log tells them apart. It is read so the item the
-// harness files for a check red on the target carries it, rather than waiting on
-// a person with forge access to go and read it (yoyodyne-xko).
+// JobLogTail is the failing step's lines from the forge's log of the job behind
+// a check run, which is what says why a check failed with no file named: GitHub
+// files "Process completed with exit code 2" on .github for a red test and a
+// broken runner alike, and only the log tells them apart. It is read under the
+// harness's own forge access so the item the merge is withdrawn or handed back
+// on carries it, because a developer run may not reach the forge at all and a
+// person should not have to go and read it (yoyodyne-xko, yoyodyne-ifd.429.35).
+//
+// The lines are those ending at the last error the log marks — the failing
+// step, rather than the clean-up steps the forge runs after it — or the log's
+// last lines where it marks none.
 //
 // A check no Actions job ran has no log, and the forge refusing says so as an
-// error.
+// error. A token the forge will not let read the log is refused with
+// ErrForgeAccessRefused.
 func (g GitHub) JobLogTail(ctx context.Context, checkRun int64, lines int) (string, error) {
 	if checkRun <= 0 {
 		return "", fmt.Errorf("check run %d is not a check run", checkRun)
@@ -252,15 +312,24 @@ func (g GitHub) JobLogTail(ctx context.Context, checkRun int64, lines int) (stri
 		return "", fmt.Errorf("read the forge's log of check %d: %w", checkRun, err)
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return "", fmt.Errorf("read the forge's log of check %d: exit code %d: %s",
-			checkRun, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+		return "", g.forgeFailure(fmt.Sprintf("read the forge's log of check %d", checkRun), result)
 	}
 	return logTail(result.Stdout, lines), nil
 }
 
-// logTail is the last lines of a log, with trailing blank lines dropped.
+// logErrorMarker is how an Actions log marks the line a step failed on.
+const logErrorMarker = "##[error]"
+
+// logTail is the lines of a log ending at the last error it marks, or its last
+// lines where it marks none, with trailing blank lines dropped.
 func logTail(log string, lines int) string {
 	all := strings.Split(strings.TrimRight(log, "\n\r\t "), "\n")
+	for index := len(all) - 1; index >= 0; index-- {
+		if strings.Contains(all[index], logErrorMarker) {
+			all = all[:index+1]
+			break
+		}
+	}
 	if lines > 0 && len(all) > lines {
 		all = all[len(all)-lines:]
 	}

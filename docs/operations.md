@@ -1919,7 +1919,7 @@ the queue was landing them.
   genuine red test looks like, so a failed step annotated only there is not
   re-run. It names no file the change touches, so on a head level with its
   target it is the target's failure and is filed and waited on as the next
-  bullet says, with the forge's log of the job carried on the filed item; on a
+  bullet says, with the forge's account of the job carried on the filed item; on a
   head behind its target it is brought up to date as the bullet above says.
 - **A head level with its target whose failing checks name no file the change
   touches.** Nothing but the change differs from the target, so bringing the
@@ -1929,11 +1929,10 @@ the queue was landing them.
   [red landing](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs) is:
   one bug at priority 0 per target branch and failing check, naming the branch,
   the head, the check, and the run and item that met it, under the goal the item
-  served, with how the forge ended the job and the last sixty lines of the
-  forge's log of it — read through the harness's own forge access — in the
-  item's notes. A later request meeting the same check while that item is open
-  finds it by the `Red forge check: <check> on <branch>` line in its notes and
-  is noted on it rather than filing again. The queued merge is withdrawn, the
+  served, with the forge's account of the check (below) in the item's notes.
+  A later request meeting the same check while that item is open finds it by
+  the `Red forge check: <check> on <branch>` line in its notes and is noted on
+  it rather than filing again. The queued merge is withdrawn, the
   work item is told and made to wait on the filed item in the tracker, and the
   publication is recorded as waiting on it (`target_red` on the pull request)
   with **the harness as the one to move**. Nothing is handed to a person: no
@@ -1970,6 +1969,28 @@ the queue was landing them.
   promoted onto the local target first, or whose worktree or branch is gone,
   cannot be replayed, and is handed back the same way when its head falls
   behind.
+
+**The forge's account of a red check is carried onto the item.** Whenever the
+sweep withdraws a queued merge over a failing check, or hands one back — to
+bring its head up to date, to wait on the target's red check, or to a person —
+the note it writes on the work item carries, for each failing check, what the
+forge says of it, read under the harness's own forge access: the check's name
+and how the forge ended it, the commit it ran on, the forge's own annotations
+(file, line, level, and message), the failing step's lines from the forge's log
+of the job — up to sixty, ending at the last error the log marks rather than at
+the clean-up steps after it — and a link to that log. The item filed for a
+check red on the target carries the same account. A developer run does not
+reach the forge at all — its sandbox refuses `github.com` and `api.github.com` —
+so this record is what a run given the item works from, and nothing on the item
+asks it to fetch anything; until yoyodyne-ifd.429.35 the hand-back said the
+forge's log would say why, and on 2026-09-28 the two logs behind pull requests
+863 and 866 had to be read by a person. Where the forge will not let the
+harness's token read a job's log, or run a job again, the item says so in the
+forge's words and names granting that access as the operator's: reading a log
+needs the token to read the repository's Actions, and a re-run needs it to
+write them. A log the forge no longer holds, or a check no Actions job ran, is
+said as that instead. The link and the annotations are kept on the run's record
+beside the reading, as `url` and `annotations` on each failing check.
 
 **Withdrawing a queued merge takes the request out of the merge queue too.**
 Turning the request's auto-merge off is not enough on a target with a merge
