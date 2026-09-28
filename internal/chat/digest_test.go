@@ -152,15 +152,16 @@ func TestAReplyWithTwoDigestsIsRefused(t *testing.T) {
 
 	pile := &fakeReports{}
 	session, provider := passSession(t, pile, testPass,
-		reportReply("Two things.", digestEntry, digestEntry),
+		reportReply("Two things.", digestEntry, digestEntry, `{"severity":"critical","message":"Nothing has landed for six hours. Every run is stopping at its checks."}`),
 		"Understood.",
 	)
 	reply, err := session.Send(context.Background(), "pass")
 	if err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}
-	if len(pile.appended) != 0 {
-		t.Fatalf("a reply with two digests filed %#v", pile.appended)
+	// Neither digest is filed, and the critical report beside them still is.
+	if len(pile.appended) != 1 || pile.appended[0].Digest != nil || pile.appended[0].Severity != report.SeverityCritical {
+		t.Fatalf("a reply with two digests filed %#v, want the critical report alone", pile.appended)
 	}
 	if !strings.Contains(reply.ReportProblem, "2 digests in one reply, and a pass files one digest") {
 		t.Fatalf("report problem = %q", reply.ReportProblem)
@@ -203,7 +204,8 @@ func TestASecondDigestInOnePassIsRefusedNamingTheFirst(t *testing.T) {
 }
 
 // A digest that does not hold to the shape is refused with every reason, and a
-// digest from a turn no pass woke is refused as well.
+// digest from a turn no pass woke is refused as well; either way a critical
+// report filed beside it is still filed.
 func TestAMalformedDigestIsRefusedWithTheReason(t *testing.T) {
 	t.Parallel()
 
@@ -248,13 +250,14 @@ func TestAMalformedDigestIsRefusedWithTheReason(t *testing.T) {
 			t.Parallel()
 
 			pile := &fakeReports{}
-			session, _ := passSession(t, pile, test.pass, reportReply("A pass.", test.entry))
+			session, _ := passSession(t, pile, test.pass, reportReply("A pass.", test.entry, `{"severity":"critical","message":"Nothing has landed for six hours. Every run is stopping at its checks."}`))
 			reply, err := session.Send(context.Background(), "pass")
 			if err != nil {
 				t.Fatalf("Send() error = %v", err)
 			}
-			if len(pile.appended) != 0 {
-				t.Fatalf("a malformed digest was filed: %#v", pile.appended)
+			// The digest is refused alone: the critical report beside it is filed.
+			if len(pile.appended) != 1 || pile.appended[0].Digest != nil || pile.appended[0].Severity != report.SeverityCritical {
+				t.Fatalf("pile = %#v, want the critical report alone", pile.appended)
 			}
 			for _, want := range test.wants {
 				if !strings.Contains(reply.ReportProblem, want) {

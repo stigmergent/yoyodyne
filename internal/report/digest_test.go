@@ -50,8 +50,33 @@ func TestADigestIsFiledAsOneReportInItsFixedShape(t *testing.T) {
 func TestTwoDigestsInOneBlockAreRefused(t *testing.T) {
 	t.Parallel()
 
-	if _, err := Decode(`{"reports":[` + writtenDigest + `,` + writtenDigest + `]}`); err == nil || !strings.Contains(err.Error(), "2 digests in one reply") {
-		t.Fatalf("Decode() error = %v, want two digests refused", err)
+	entries, err := Decode(`{"reports":[` + writtenDigest + `,` + writtenDigest + `,{"severity":"critical","message":"Nothing is landing."}]}`)
+	if err != nil {
+		t.Fatalf("Decode() error = %v; a block's digests are judged as it is collected, not as it is read", err)
+	}
+	kept, refused := SeparateDigests(entries)
+	if !strings.Contains(refused, "2 digests in one reply") {
+		t.Fatalf("refused = %q, want two digests refused", refused)
+	}
+	if len(kept) != 1 || kept[0].Digest != nil || kept[0].Severity != SeverityCritical {
+		t.Fatalf("kept = %#v, want the critical report alone", kept)
+	}
+}
+
+// A malformed digest is dropped on its own, and the report beside it is kept.
+func TestAMalformedDigestIsDroppedAndTheRestKept(t *testing.T) {
+	t.Parallel()
+
+	entries, err := Decode(`{"reports":[{"severity":"note","digest":{"requests":[{"work":"w","why":"y"}]}},{"severity":"critical","message":"Nothing is landing."}]}`)
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	kept, refused := SeparateDigests(entries)
+	if !strings.Contains(refused, "requests[0].goal is required") {
+		t.Fatalf("refused = %q", refused)
+	}
+	if len(kept) != 1 || kept[0].Severity != SeverityCritical {
+		t.Fatalf("kept = %#v, want the critical report alone", kept)
 	}
 }
 

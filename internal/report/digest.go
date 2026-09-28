@@ -278,3 +278,34 @@ The digest is read by people who do not know your lane's items by number, so say
 
 // DigestFiler is the one role whose reports may be digests.
 const DigestFiler = domain.RoleProgramManager
+
+// SeparateDigests takes the digests out of one block's entries and judges them,
+// leaving every other entry as it was. It returns the entries to file — the
+// ordinary reports, and the one digest where it holds to its shape — and why any
+// digest was refused. A refused digest is dropped on its own, so a critical
+// report filed beside a malformed digest, or beside two of them, is still filed.
+//
+// One digest per pass, and a reply is at most one pass's: a reply carrying two
+// files neither, since which of them the pass meant is not the harness's to
+// guess.
+func SeparateDigests(entries []Entry) ([]Entry, string) {
+	kept := make([]Entry, 0, len(entries))
+	var digests []Entry
+	for _, entry := range entries {
+		if entry.Digest == nil {
+			kept = append(kept, entry)
+			continue
+		}
+		digests = append(digests, entry)
+	}
+	switch {
+	case len(digests) == 0:
+		return kept, ""
+	case len(digests) > 1:
+		return kept, fmt.Sprintf("%d digests in one reply, and a pass files one digest, so neither was filed", len(digests))
+	}
+	if err := digests[0].Digest.validateWritten(digests[0].Severity); err != nil {
+		return kept, err.Error()
+	}
+	return append(kept, digests[0]), ""
+}

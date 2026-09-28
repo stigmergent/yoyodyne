@@ -353,24 +353,14 @@ func Decode(payload string) ([]Entry, error) {
 	if len(decoded.Reports) > MaxEntriesPerReply {
 		return nil, fmt.Errorf("decode reports: %d reports in one reply, limit is %d", len(decoded.Reports), MaxEntriesPerReply)
 	}
+	// A digest's own shape, and how many a reply carried, are not judged here:
+	// a refused digest must not cost the reports filed beside it, so they are
+	// judged as the block is collected, by SeparateDigests.
 	var problems []error
-	digests := 0
 	for i, entry := range decoded.Reports {
 		if err := entry.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("reports[%d]: %w", i, err))
 		}
-		if entry.Digest != nil {
-			digests++
-			if err := entry.Digest.validateWritten(entry.Severity); err != nil {
-				problems = append(problems, fmt.Errorf("reports[%d]: %w", i, err))
-			}
-		}
-	}
-	// One digest per pass, and a reply is at most one pass's: a reply carrying two
-	// is refused whole rather than filing either, since which of them the pass
-	// meant is not the harness's to guess.
-	if digests > 1 {
-		problems = append(problems, fmt.Errorf("%d digests in one reply, and a pass files one digest", digests))
 	}
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("invalid reports: %w", errors.Join(problems...))

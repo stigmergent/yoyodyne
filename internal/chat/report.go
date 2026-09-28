@@ -608,11 +608,21 @@ func reportFiled(out io.Writer, theme console.Theme, role domain.AgentRole, repl
 // collected; this is the part only the conversation knows: its lane, and the
 // pass that woke it.
 func (s *Session) stampDigest(entries []report.Entry) ([]report.Entry, string) {
-	kept := make([]report.Entry, 0, len(entries))
+	// The digest's shape and how many the block carried are judged first, and a
+	// refusal drops the digest alone.
+	candidates, shapeRefusal := report.SeparateDigests(entries)
+	kept := make([]report.Entry, 0, len(candidates))
 	var refused string
-	for _, entry := range entries {
-		if entry.Digest == nil || s.state.Role != report.DigestFiler {
+	if shapeRefusal != "" {
+		refused = "the digest this turn carried was refused and nothing of it was filed: " + shapeRefusal
+	}
+	for _, entry := range candidates {
+		if entry.Digest == nil {
 			kept = append(kept, entry)
+			continue
+		}
+		if s.state.Role != report.DigestFiler {
+			refused = fmt.Sprintf("the digest this turn carried was refused and nothing of it was filed: a digest is filed by the %s alone", report.DigestFiler.Title())
 			continue
 		}
 		if reason := s.digestRefusal(); reason != "" {
