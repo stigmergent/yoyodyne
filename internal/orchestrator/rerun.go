@@ -895,8 +895,8 @@ func slotIsFree(runs RerunRuns, capacity int) (runstate.CapacityError, bool, err
 	if err != nil {
 		return runstate.CapacityError{}, false, fmt.Errorf("read what is already in flight: %w", err)
 	}
-	if len(incomplete) >= capacity {
-		return runstate.CapacityError{Limit: capacity, Active: len(incomplete)}, false, nil
+	if holding := runstate.HoldingDeveloperSlots(incomplete); holding >= capacity {
+		return runstate.CapacityError{Limit: capacity, Active: holding}, false, nil
 	}
 	return runstate.CapacityError{}, true, nil
 }

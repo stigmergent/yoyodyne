@@ -66,6 +66,7 @@ func (s Standing) Render() string {
 func (s Standing) RenderLines() string {
 	var rendered strings.Builder
 	rendered.WriteString(s.renderRunning())
+	rendered.WriteString(s.renderPaused())
 	rendered.WriteString(s.renderWorking())
 	rendered.WriteString(s.renderNotStartable())
 	rendered.WriteString(s.renderNeedsHuman())
@@ -104,6 +105,9 @@ func (s Standing) RenderBrief() string {
 func (s Standing) RenderBriefLines() string {
 	var rendered strings.Builder
 	rendered.WriteString(brief(s.renderRunning()))
+	if paused := s.renderPaused(); paused != "" {
+		rendered.WriteString(brief(paused))
+	}
 	rendered.WriteString(brief(s.renderWorking()))
 	rendered.WriteString(brief(s.renderNotStartable()))
 	rendered.WriteString(brief(s.renderNeedsHuman()))
@@ -217,6 +221,34 @@ func withNoProcess(running []RunningRun) string {
 		return ""
 	}
 	return fmt.Sprintf(", %d with no process behind it", missing)
+}
+
+// renderPaused is the runs paused on work their items wait on, and nothing
+// where there are none. They are said on a line of their own rather than on the
+// running line because they hold no developer slot: a run counted there would be
+// a slot said to be taken that the next pull fills.
+func (s Standing) renderPaused() string {
+	if len(s.PausedRuns) == 0 {
+		return ""
+	}
+	var rendered strings.Builder
+	fmt.Fprintf(&rendered, "Paused, holding no developer slot (%s):\n", count(len(s.PausedRuns), "developer run"))
+	listed, further := bound(len(s.PausedRuns))
+	for _, run := range s.PausedRuns[:listed] {
+		fmt.Fprintf(&rendered, "  %s — waiting on unfinished work it depends on: %s, paused %s\n",
+			run.WorkItemID, run.WaitingOn, pausedAgo(s.ObservedAt, run.PausedSince))
+	}
+	rendered.WriteString(remainder(further, "developer run"))
+	return rendered.String()
+}
+
+// pausedAgo is how long a paused run has been waiting, said as an age, or that
+// its record does not say where it carries no time.
+func pausedAgo(now, since time.Time) string {
+	if since.IsZero() {
+		return "at a time its record does not say"
+	}
+	return age(now.Sub(since)) + " ago"
 }
 
 // dispatches counts dispatches, which count cannot: its plural is the noun with

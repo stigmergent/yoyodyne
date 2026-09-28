@@ -75,7 +75,18 @@ passed over naming what it waits on, and the sweep leaves it alone however long
 that lasts, rather than settling it after half an hour as it does a park
 nothing continues. A stop recorded on such a run is honoured before any
 continuation: the pull does not pick it up, and the next `yoyo reconcile` ends
-it as the stop asked. That matters because a development
+it as the stop asked.
+**A run paused this way gives its developer slot back
+as it records the pause.** A paused run has no process and spends nothing, so a
+slot it held would stand empty for as long as the wait lasts — on 2026-09-27
+one run held the only free slot this way for nineteen hours beside a ready queue.
+So the next pull fills the slot, `yoyo status` lists the run under *Paused,
+holding no developer slot* rather than under *Running*, and the slot counts as
+free wherever capacity is said. Continuing the run takes a slot again under the
+same `execution.max_concurrent_developers` limit, and a harness with no slot
+free turns the continuation away exactly as it turns away a fresh reservation:
+the run stays paused, untouched, until a slot frees — which is the continuation
+declined for want of a slot above. That matters because a development
 manager linking a dependency onto work already moving is precisely how a gate
 gets added late, and a run that answered from selection-time state would develop
 straight through the gate filed to stop it — and spend review rounds on a change
@@ -1186,7 +1197,10 @@ flight means a run whose status is pending or running, whatever phase it is in:
 a run integrating is in flight and holds its epic until the promotion settles.
 That is one predicate, `runstate.Status.InFlight`, and it is the same one the
 store's listing of incomplete runs and the running line of `yoyo status` are
-built on, so a run the guard holds an item behind is a run that line lists. A run
+built on, so a run the guard holds an item behind is a run that line lists — or,
+for a run paused on work its item waits on, the paused line beneath it: such a
+run still holds its epic and its files, because its change is still in its
+worktree, and it holds no developer slot. A run
 whose status is succeeded, failed, cancelled, or timed out is a record of its
 item and holds neither a developer slot nor the epic, whatever branch or pull
 request it left behind and whatever a person has yet to decide about it. And the slot a

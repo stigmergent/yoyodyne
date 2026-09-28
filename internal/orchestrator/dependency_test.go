@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,5 +240,93 @@ func TestReconciliationLeavesADependencyPausedRunResumable(t *testing.T) {
 	}
 	if _, err := os.Stat(after.WorktreePath); err != nil {
 		t.Fatalf("reconciliation removed the paused run's worktree: %v", err)
+	}
+}
+
+// A run paused on a dependency gives its developer slot back as it records the
+// pause, so a fresh run is reserved beside it at a limit of one. Continuing it
+// then takes a slot again under that limit: while the slot is taken the
+// continuation is refused the way a fresh reservation is, with the run left
+// paused and untouched, and once the slot is free the same run carries on.
+func TestAContinuedDependencyPauseWaitsForASlotAsAFreshPullDoes(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if request.Role != domain.RoleDeveloper {
+			return nil
+		}
+		tracker.Item.Dependencies = blockedBy("yoyodyne-blocker")
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
+	pipeline.Config.Execution.MaxConcurrentDevelopers = 1
+
+	paused, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !paused.Paused || paused.PausedByDependency == nil {
+		t.Fatalf("outcome = %#v, want a run paused for what its item waits on", paused)
+	}
+	pausedState, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	// The slot the pause gave back is reserved by other work.
+	otherID, err := runstate.NewRunID()
+	if err != nil {
+		t.Fatalf("NewRunID() error = %v", err)
+	}
+	other := runstate.State{
+		SchemaVersion: runstate.StateSchemaVersion,
+		RunID:         otherID,
+		ProductID:     pausedState.ProductID,
+		RepositoryID:  pausedState.RepositoryID,
+		WorkItemID:    "yoyodyne-other",
+		Backend:       pausedState.Backend,
+		Status:        runstate.StatusPending,
+		StartedAt:     pausedState.StartedAt,
+		UpdatedAt:     pausedState.StartedAt,
+	}
+	lease, err := store.Reserve(context.Background(), other, 1)
+	if err != nil {
+		t.Fatalf("Reserve() beside the paused run error = %v, want the slot the pause gave back", err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+
+	tracker.Item.Dependencies = []beads.Dependency{{ID: "yoyodyne-blocker", Type: blocksDependency, Status: "closed"}}
+	_, err = pipeline.Run(context.Background(), tracker.Item.ID)
+	var capacity runstate.CapacityError
+	if !errors.As(err, &capacity) {
+		t.Fatalf("continued Run() on a full harness error = %v, want the reservation's CapacityError", err)
+	}
+	stillPaused, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stillPaused.DependencyPause == nil || stillPaused.Status.Terminal() {
+		t.Fatalf("a continuation refused a slot changed the paused run: %#v", stillPaused)
+	}
+	if developed := len(provider.RequestsForRole(domain.RoleDeveloper)); developed != 1 {
+		t.Fatalf("developer invocations = %d, want nothing spent on a continuation with no slot", developed)
+	}
+
+	other.Status = runstate.StatusSucceeded
+	completed := other.StartedAt
+	other.CompletedAt = &completed
+	if err := store.Save(other); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	resumed, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("continued Run() with a slot free error = %v", err)
+	}
+	if resumed.RunID != paused.RunID || resumed.Integration == nil || !tracker.Closed {
+		t.Fatalf("the paused run did not continue and finish once a slot was free: %#v (closed=%t)", resumed, tracker.Closed)
 	}
 }

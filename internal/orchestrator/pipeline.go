@@ -198,6 +198,10 @@ type StateStore interface {
 	// run is exactly as exclusive as starting one.
 	Reserve(ctx context.Context, state runstate.State, maxConcurrent int) (*runstate.Lease, error)
 	Adopt(ctx context.Context, workItemID string) (runstate.State, *runstate.Lease, error)
+	// ReclaimSlot takes a developer slot back for an adopted run paused on work
+	// its item waited on, under the limit Reserve enforces and refusing with the
+	// same CapacityError; the pause gave its slot up as it was recorded.
+	ReclaimSlot(ctx context.Context, state runstate.State, maxConcurrent int) (runstate.State, error)
 	// LeasePromotion admits this run to promote into one target branch, waiting
 	// its turn behind whatever is promoting into it now. Development is parallel
 	// and integration is serial, and this is what makes the second half true
@@ -1119,6 +1123,10 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !(p.automatic() && resumableRepair(inFlight)) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
+		inFlight, err = p.reclaimSlot(ctx, inFlight)
+		if err != nil {
+			return Outcome{}, err
+		}
 		return p.resumeRun(ctx, inFlight, item, publishing, skipped)
 	case errors.Is(err, runstate.ErrNoRunInFlight):
 	default:
@@ -1535,7 +1543,50 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 				inFlight.Status, inFlight.Phase),
 		}
 	}
+	inFlight, err = p.reclaimSlot(ctx, inFlight)
+	if err != nil {
+		return Outcome{}, err
+	}
 	return p.resumeRun(ctx, inFlight, item, publishing, skipped)
+}
+
+// recordDependencyContinued tells the item a run paused on work it waited on is
+// going again. It is written where the pause is actually lifted rather than by
+// whoever asked for the continuation, so a continuation refused before it got
+// that far writes nothing and one retried writes one note per run that really
+// went on. A note that cannot be written costs the run nothing: the lifted pause
+// is already durable. state is the run as it stood paused, naming what it waited
+// on.
+func (p Pipeline) recordDependencyContinued(ctx context.Context, state runstate.State) {
+	recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_, _ = p.Tracker.RecordOutcome(recordCtx, state.WorkItemID, renderDependencyContinuedNotes(state, p.Selection, p.clock().Now()))
+}
+
+// reclaimSlot takes a developer slot back for an adopted run whose dependency
+// pause gave its slot up, before anything about the run is resumed, and does
+// nothing for any other run. Nothing reaches here while the item still waits on
+// unfinished work — that was read before the run was adopted — so the pause is
+// over and what is left of it is the slot. A full harness refuses exactly as a
+// fresh reservation does, wrapped the same way, so every caller that waits on a
+// full harness rather than failing — the scheduler's pull, a triage carry-out —
+// waits here too, and the run is left paused, holding no slot, exactly as it
+// was.
+func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runstate.State, error) {
+	if state.DependencyPause == nil {
+		return state, nil
+	}
+	state.UpdatedAt = p.clock().Now()
+	reclaimed, err := p.Store.ReclaimSlot(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
+	if err != nil {
+		return state, fmt.Errorf("reserve developer run: %w", err)
+	}
+	// This is where the pause is lifted, so this is where the item is told the
+	// run is going again — for the reason resumeRun gives for a caller that
+	// lifts it there: a continuation turned away for want of a slot writes
+	// nothing, and one that went on writes one note.
+	p.recordDependencyContinued(ctx, state)
+	return reclaimed, nil
 }
 
 // resumeRun picks up a run this process did not finish: one an interrupted
@@ -1726,19 +1777,14 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// A recorded dependency pause is lifted rather than honored, on the same
 	// evidence and for the same reason: nothing reaches this point while the item
 	// still waits on unfinished work, because what it waits on was read from a
-	// freshly loaded item before the run was adopted.
+	// freshly loaded item before the run was adopted. Both entry points have
+	// already lifted it as they took the run's developer slot back, in
+	// reclaimSlot, so this is only ever a caller that did not.
 	if state.DependencyPause != nil {
 		if err := run.clearDependencyPause(); err != nil {
 			return run.fail(err, runstate.StatusFailed)
 		}
-		// The item says the run is going again, written here where the pause is
-		// actually lifted rather than by whoever asked for the continuation, so a
-		// continuation refused before it got this far writes nothing and one
-		// retried writes one note per run that really went on. A note that cannot
-		// be written costs the run nothing: the lifted pause is already durable.
-		recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, _ = p.Tracker.RecordOutcome(recordCtx, state.WorkItemID, renderDependencyContinuedNotes(state, p.Selection, p.clock().Now()))
-		cancel()
+		p.recordDependencyContinued(ctx, state)
 	}
 	// A recorded tracker park is lifted on the same evidence: the read that went
 	// unanswered is the one the dispatch above has just made for itself, and
@@ -4835,6 +4881,10 @@ func pausedForTracker(state runstate.State) bool {
 // recordDependencyPause makes the pause durable and then reports it, for the
 // reason recordDirectivePause does: a process that dies here must leave a run
 // that can be told from an interrupted one and picked up again.
+//
+// Recording it is also what gives the run's developer slot back: a run carrying
+// a dependency pause holds none (runstate.State.HoldsDeveloperSlot), so the next
+// pull can fill the slot while this run waits with no process behind it.
 func (a *activeRun) recordDependencyPause(blockers []string) error {
 	// The developer's attempt is behind this run and the gate is what it stopped
 	// short of, so the recorded phase says so. Left at developing, a resumed run

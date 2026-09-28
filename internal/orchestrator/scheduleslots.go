@@ -64,6 +64,10 @@ type eligibilityReading struct {
 	read     pulled
 	tried    map[string]attempt
 	occupied map[string]runstate.State
+	// waiting is the runs in flight paused on work their items wait on, which
+	// hold no developer slot and so are not in occupied, and whose items are
+	// still not ones to start a second run of.
+	waiting  map[string]runstate.State
 	schedule *Schedule
 	poll     *idlePoll
 	passOver func(workItemID, reason string)
@@ -101,7 +105,8 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		}
 		return passedOver, nil
 	}
-	if _, busy := reading.occupied[entry.ID]; busy {
+	_, busy := reading.occupied[entry.ID]
+	if _, paused := reading.waiting[entry.ID]; busy || paused {
 		poll.pass(entry.ID, runstate.PassedOverAlreadyInFlight, "")
 		return passedOver, nil
 	}

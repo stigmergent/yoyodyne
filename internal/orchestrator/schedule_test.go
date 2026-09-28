@@ -1436,6 +1436,60 @@ func TestASlotAnotherProcessFreesIsRefilledAtTheNextPollWhileTheSessionIsFull(t 
 	}
 }
 
+// A run that pauses on work its item waits on gives its developer slot back as it
+// records the pause, so the next poll fills the slot rather than leaving it held
+// by a run with no process behind it. On 2026-09-27 run-3b94404c held the only
+// slot this way for nineteen hours beside a ready queue. The paused run is still
+// in flight: it is not cancelled, and its item is not started a second time.
+func TestARunPausedOnADependencyGivesItsSlotBackAndTheNextPollFillsIt(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one")...)
+	harness.capacity = 1
+	harness.inFlight["yoyodyne-paused"] = runstate.State{
+		RunID: "run-paused", WorkItemID: "yoyodyne-paused", Status: runstate.StatusRunning,
+	}
+	sessions := &recordedSessions{}
+	// The first poll finds the one slot held, and the wait after it is the one
+	// the run pauses in. The session stops at the wait after that.
+	harness.onSleep = func(h *scheduleHarness, sleeps int) bool {
+		if sleeps > 1 {
+			return false
+		}
+		h.mu.Lock()
+		paused := h.inFlight["yoyodyne-paused"]
+		paused.DependencyPause = &runstate.DependencyPause{Blockers: []string{"yoyodyne-blocker"}}
+		h.inFlight["yoyodyne-paused"] = paused
+		h.mu.Unlock()
+		return true
+	}
+
+	schedule, err := Scheduler{
+		Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions,
+	}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if harness.sleeps < 1 {
+		t.Fatal("the first poll did not find the slot held by the running run")
+	}
+	if got := harness.pullOrder(); !slices.Equal(got, []string{"yoyodyne-one"}) {
+		t.Fatalf("pulled %v, want the slot the paused run gave back filled with the ready item", got)
+	}
+	if len(schedule.Started) != 1 || schedule.Started[0].WorkItemID != "yoyodyne-one" {
+		t.Fatalf("started = %#v, want the ready item started and the paused one not started again", schedule.Started)
+	}
+	var refill string
+	for _, transition := range sessions.recorded() {
+		if strings.HasPrefix(transition.reason, "filled 1 of 1 free developer slot") {
+			refill = transition.reason
+		}
+	}
+	if !strings.Contains(refill, "1 developer slot freed since the last poll: run-paused over yoyodyne-paused, another process's run") {
+		t.Fatalf("filling line = %q, want it to name the paused run as what freed the slot", refill)
+	}
+}
+
 // A session whose every slot is held by its own runs has nothing but one of
 // those runs ending to wait on, so it waits on that and never on the interval,
 // exactly as it did before a slot held elsewhere was read at each poll.

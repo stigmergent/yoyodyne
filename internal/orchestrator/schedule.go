@@ -2130,6 +2130,11 @@ pulling:
 			}
 			continue
 		}
+		// A run paused on work its item waits on holds no developer slot, so it is
+		// taken out of what counts against the capacity here and kept only for the
+		// race guard below: its change is still in its worktree, and work started
+		// beside it that shares its files would conflict with it when it lands.
+		waitingRuns := waitingOnDependencies(occupied)
 		// The runs a session before this one stopped for its own redeploy are
 		// picked up here, before anything new is chosen and before the intake hold
 		// is acted on: each already holds a seat and a claim, so continuing it
@@ -2477,6 +2482,9 @@ pulling:
 		for id, run := range occupied {
 			flight.take(read.items[id], run.RunID)
 		}
+		for id, run := range waitingRuns {
+			flight.take(read.items[id], run.RunID)
+		}
 		// Which developer slots are free, in the order this pull fills them: the
 		// slots that prefer a label first, so labelled work is pulled into the slot
 		// configured for it before a slot with no preference reaches it. It is
@@ -2511,7 +2519,7 @@ pulling:
 				return answer, nil
 			}
 			answer, err := s.eligibility(entry, eligibilityReading{
-				pull: pull, read: read, tried: tried, occupied: occupied,
+				pull: pull, read: read, tried: tried, occupied: occupied, waiting: waitingRuns,
 				schedule: &schedule, poll: &poll, passOver: passOver,
 			})
 			if err == nil {
@@ -5270,6 +5278,21 @@ func occupiedItems(runs ScheduleRuns) (map[string]runstate.State, error) {
 		occupied[state.WorkItemID] = state
 	}
 	return occupied, nil
+}
+
+// waitingOnDependencies takes the runs paused on work their items wait on out of
+// occupied and returns them. Such a run is in flight and holds no developer slot
+// (runstate.State.HoldsDeveloperSlot), so what is left in occupied is what the
+// capacity is counted against.
+func waitingOnDependencies(occupied map[string]runstate.State) map[string]runstate.State {
+	waiting := map[string]runstate.State{}
+	for id, state := range occupied {
+		if !state.HoldsDeveloperSlot() {
+			waiting[id] = state
+			delete(occupied, id)
+		}
+	}
+	return waiting
 }
 
 // slotsOf reads which developer slot each run in flight occupies and which are

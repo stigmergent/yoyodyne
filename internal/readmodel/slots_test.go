@@ -93,3 +93,53 @@ func TestSlotsAreNotReportedFreeOverRunsNobodyCouldRead(t *testing.T) {
 		t.Fatalf("developer slots = %+v, want none over runs that could not be read", standing.DeveloperSlots)
 	}
 }
+
+// A run paused on work its item waits on holds no developer slot, so status says
+// it as paused rather than running and counts the slot it gave back as free. On
+// 2026-09-27 such a run read as running for nineteen hours while it held the
+// only slot a ready queue could have used.
+func TestARunPausedOnADependencyIsSaidAsPausedAndItsSlotAsFree(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Capacity = 2
+	sources.Slots = []domain.DeveloperSlot{{Prefer: []string{"dashboard"}}, {}}
+	sources.Runs = fakeRuns{
+		incomplete: []runstate.State{
+			{RunID: "run-a", WorkItemID: "yoyodyne-ifd.1", Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment.Add(-2 * time.Hour)},
+			{
+				RunID: "run-b", WorkItemID: "yoyodyne-ifd.428.34", Status: runstate.StatusRunning, Phase: runstate.PhaseChecking,
+				StartedAt: moment.Add(-20 * time.Hour), UpdatedAt: moment.Add(-19 * time.Hour),
+				DependencyPause: &runstate.DependencyPause{Blockers: []string{"yoyodyne-ifd.398"}},
+			},
+		},
+	}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.Running) != 1 || standing.Running[0].RunID != "run-a" {
+		t.Fatalf("running = %+v, want only the run holding a slot", standing.Running)
+	}
+	if len(standing.PausedRuns) != 1 || standing.PausedRuns[0].RunID != "run-b" || standing.PausedRuns[0].WaitingOn != "yoyodyne-ifd.398" {
+		t.Fatalf("paused runs = %+v, want the dependency-paused run naming what it waits on", standing.PausedRuns)
+	}
+	free := 0
+	for _, slot := range standing.DeveloperSlots {
+		if slot.Free() {
+			free++
+		}
+	}
+	if free != 1 {
+		t.Fatalf("developer slots = %+v, want the slot the paused run gave back counted free", standing.DeveloperSlots)
+	}
+	rendered := standing.Render()
+	for _, want := range []string{
+		"Running (1 developer run):\n",
+		"Paused, holding no developer slot (1 developer run):\n",
+		"  yoyodyne-ifd.428.34 — waiting on unfinished work it depends on: yoyodyne-ifd.398, paused 19h00m ago\n",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered:\n%s\nmissing: %q", rendered, want)
+		}
+	}
+	if brief := standing.RenderBrief(); !strings.Contains(brief, "Paused, holding no developer slot (1 developer run)\n") {
+		t.Fatalf("brief rendering:\n%s\nwant the paused head kept", brief)
+	}
+}

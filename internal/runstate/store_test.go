@@ -2264,3 +2264,72 @@ func TestReviewRoundsAreSummedAcrossEveryRunOfOneItem(t *testing.T) {
 		t.Fatalf("ReviewRounds() = %d, error = %v, want no rounds", unrun, err)
 	}
 }
+
+// A run paused on work its item waits on holds no developer slot: a reservation
+// beside it succeeds at a limit of one, and taking the slot back to continue it
+// waits on a full harness exactly as a fresh reservation does, leaving the run
+// paused where it is refused.
+func TestADependencyPausedRunHoldsNoSlotAndReclaimsOneUnderTheSameLimit(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	ctx := context.Background()
+	paused := testState(t, StatusRunning)
+	paused.WorkItemID = "yoyodyne-paused"
+	paused.DependencyPause = &DependencyPause{Blockers: []string{"yoyodyne-blocker"}}
+	if err := store.Create(paused); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if paused.HoldsDeveloperSlot() {
+		t.Fatal("a dependency-paused run is counted as holding a developer slot")
+	}
+
+	fresh := testState(t, StatusPending)
+	fresh.WorkItemID = "yoyodyne-fresh"
+	lease, err := store.Reserve(ctx, fresh, 1)
+	if err != nil {
+		t.Fatalf("Reserve() beside a paused run error = %v, want the slot it gave back reserved", err)
+	}
+	defer lease.Release()
+
+	var capacity CapacityError
+	if _, err := store.ReclaimSlot(ctx, paused, 1); !errors.As(err, &capacity) || capacity.Active != 1 || capacity.Limit != 1 {
+		t.Fatalf("ReclaimSlot() on a full harness error = %v, want the reservation's CapacityError", err)
+	}
+	loaded, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.DependencyPause == nil {
+		t.Fatal("a refused reclaim cleared the pause, want the run left paused holding no slot")
+	}
+
+	fresh.Status = StatusSucceeded
+	completed := fresh.StartedAt
+	fresh.CompletedAt = &completed
+	if err := store.Save(fresh); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	reclaimed, err := store.ReclaimSlot(ctx, paused, 1)
+	if err != nil {
+		t.Fatalf("ReclaimSlot() with a slot free error = %v", err)
+	}
+	if reclaimed.DependencyPause != nil || !reclaimed.HoldsDeveloperSlot() {
+		t.Fatalf("reclaimed = %#v, want the pause cleared and the slot held", reclaimed)
+	}
+	loaded, err = store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.DependencyPause != nil {
+		t.Fatal("the reclaim did not make the cleared pause durable")
+	}
+	another := testState(t, StatusPending)
+	another.WorkItemID = "yoyodyne-another"
+	if _, err := store.Reserve(ctx, another, 1); !errors.As(err, &capacity) {
+		t.Fatalf("Reserve() beside the continued run error = %v, want the slot it reclaimed counted", err)
+	}
+}

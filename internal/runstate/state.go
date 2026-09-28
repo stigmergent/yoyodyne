@@ -4101,6 +4101,21 @@ func (s Status) InFlight() bool {
 	return s == StatusPending || s == StatusRunning
 }
 
+// HoldsDeveloperSlot reports a run counted against
+// execution.max_concurrent_developers: one in flight, and not paused on work its
+// item waits on. A dependency pause is recorded as the run exits, so the run
+// behind it has no process and spends nothing until that work closes, and a slot
+// it went on holding would be throughput lost for as long as the wait lasts — on
+// 2026-09-27 that was nineteen hours beside a ready queue. It keeps its claim,
+// its branch, its worktree, and its session, and is still in flight in every
+// other sense: continuing it takes a slot again under the same limit, through
+// Store.ReclaimSlot. The reservation, the scheduler's free slots, the triage
+// actions' slot check, and the status's running line all count by this, so what
+// each says is free is one fact.
+func (s State) HoldsDeveloperSlot() bool {
+	return s.Status.InFlight() && s.DependencyPause == nil
+}
+
 func DefaultRoot(getenv func(string) string, userHomeDir func() (string, error), goos string) (string, error) {
 	if value := strings.TrimSpace(getenv("YOYODYNE_STATE_HOME")); value != "" {
 		if !filepath.IsAbs(value) {
