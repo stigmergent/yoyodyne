@@ -1342,7 +1342,7 @@ func (r Reconciler) parkNothingServes(state runstate.State) (recordedPark, bool)
 		}
 		return recordedPark{says: "it was waiting out " + runstate.DescribePause(state.PauseCause, state.UsageLimitKind) + ", and nothing asked the provider again at its recorded probe", since: since}, true
 	case stoppedProviderIsResumable(state):
-		return recordedPark{says: "the harness stopped its provider because " + describeProviderStop(state.ProviderStop), since: since}, true
+		return recordedPark{says: "the harness stopped the AI session running it because " + describeProviderStop(state.ProviderStop), since: since}, true
 	case pausedForDirective(state):
 		return recordedPark{says: "it paused for unresolved directive " + state.DirectivePause.DirectiveID, since: since}, true
 	case pausedForTracker(state):
@@ -1462,7 +1462,7 @@ func vanishedRefusal(state *runstate.State, observation gitworktree.Observation,
 // edited this record by hand, the harness settled it, and here is why.
 func vanishedReason(state runstate.State, park recordedPark, grace time.Duration) string {
 	return fmt.Sprintf(
-		"the run was recorded as running in the %s phase with no live process behind it: at %s %s, no ending was ever recorded, and nothing continued the run within %s of that, so the harness settled it as an environmental stop. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them",
+		"the run was recorded as running in the %s phase with no live process behind it: at %s %s, no ending was ever recorded, and nothing continued the run within %s of that, so the harness ended the run. The cause was outside the work, so nothing about the change was judged, and the change was kept: the branch and worktree are left exactly as the run left them",
 		nonEmpty(string(state.Phase), "unrecorded"), park.since.UTC().Format(time.RFC3339), park.says, grace)
 }
 

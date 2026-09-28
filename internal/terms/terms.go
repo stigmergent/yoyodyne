@@ -163,13 +163,20 @@ type Coinage struct {
 // `cadence` which it named in passing as one more, and the six mechanism names
 // it measured for the architect. Every one is recorded in
 // `docs/diagnoses/yoyodyne-ifd-206-coined-terms-sweep.md` with the evidence
-// behind it.
+// behind it. Three more joined after it, under yoyodyne-ifd.437.17: the
+// harness's own names for a run ended by something outside the work, for the
+// harness ending a run whose session went quiet, and for resuming such a run in
+// its session, which reached the operator in one sentence with nothing saying
+// what any of them meant. They are held in the guides as well, because the
+// guides are where they had been written.
 var Vocabulary = []Coinage{
 	{Term: "brake", Match: "brake", PlainWords: "the automatic stop after a set number of blocked runs in a row"},
 	{Term: "cadence", Match: "cadence", PlainWords: "how often it repeats"},
 	{Term: "docket", Match: "docket", PlainWords: "the list of stopped runs waiting on the development manager"},
+	{Term: "environmental stop", Match: "environmental stop", Guides: true, PlainWords: "that the run was ended by something outside the work, naming what it was"},
 	{Term: "handback", Match: "handback", PlainWords: "handing the work back to the developer that made it"},
 	{Term: "heartbeat", Match: "heartbeat", PlainWords: "how often to repeat"},
+	{Term: "idle bound", Match: "idle bound", Whole: true, Guides: true, PlainWords: "that the AI session produced no output for too long, so the harness ended the run"},
 	{Term: "in force", Match: "in force", Whole: true, PlainWords: "active, or still applies"},
 	{Term: "minute zero", Match: "minute zero", PlainWords: "before development begins"},
 	{Term: "pane of glass", Match: "pane of glass", PlainWords: "one window"},
@@ -181,6 +188,7 @@ var Vocabulary = []Coinage{
 	{Term: "soak", Match: "soak", PlainWords: "a trial run kept alongside the old path for comparison"},
 	{Term: "starving", Match: "starv", PlainWords: "stopping"},
 	{Term: "steer", Match: "steer", PlainWords: "direct, or change what is being worked on"},
+	{Term: "stall continuation", Match: "stall continuation", Guides: true, PlainWords: "that the development manager resumed the run in the same AI session"},
 	{Term: "supersession pile", Match: "supersession pile", PlainWords: "the list of superseded pull requests"},
 	{Term: "tranche", Match: "tranche", PlainWords: "stage, or part 1 of 4"},
 	{Term: "wedged", Match: "wedge", PlainWords: "stuck, or say the condition outright"},

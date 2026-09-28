@@ -4055,7 +4055,7 @@ func providerStopReason(status execution.ProcessStatus) (string, bool) {
 func describeProviderStop(reason string) string {
 	switch reason {
 	case runstate.ProviderStopStalled:
-		return "it stopped emitting events"
+		return "it produced no output for longer than the harness allows"
 	case runstate.ProviderStopBudgetExhausted:
 		return "it was still working when its total budget ran out"
 	default:
@@ -8273,7 +8273,7 @@ func renderMissingPreservedChangeNotes(outcome Outcome, failure string) string {
 	lines := []string{
 		"Yoyodyne stopped this item: its run was picked up again to continue a change, and the worktree it was re-entered in holds none of that change.",
 		"Nothing was developed, checked, or reviewed from an empty worktree; continuing a run means continuing a change that already exists, and doing it from nothing is how an empty repair, a review round burned on an empty diff, or a reinvented change gets delivered.",
-		"This round is an environmental refusal: the environment handed it nothing, so whatever it would have spent — a review round against the item's cap, a granted repair round out of the item's grant — is given back as the run settles. This item is no closer to its cap for the round, and the note recorded as the run ends says exactly what was returned.",
+		"This round was ended by something outside the work: what it was handed held none of the change, so whatever it would have spent — a review round against the item's cap, a granted repair round out of the item's grant — is given back as the run settles. This item is no closer to its cap for the round, and the note recorded as the run ends says exactly what was returned.",
 		"Failure: " + failure,
 		"Run: " + outcome.RunID,
 		"Branch: " + outcome.Branch,

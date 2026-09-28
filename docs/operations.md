@@ -622,9 +622,9 @@ naming the cycles spent and what stopped the last probe, and starts no further
 probe. So the brake hold that waits on you is one she escalated, which she
 does by recording the decision and reporting it at `warning` severity so it
 reaches you, or one the harness escalated at that bound. Only verdicts and
-check failures against a change that was present count toward the trip — an
-environmental stop, a dirty checkout or a transport that did not answer, is a
-verdict on nothing and counts toward nothing, and neither does a provider
+check failures against a change that was present count toward the trip — a run
+ended by something outside the work, a dirty checkout or a transport that did
+not answer, is a verdict on nothing and counts toward nothing, and neither does a provider
 answering nobody. A
 promotion refused because the target branch
 [diverged from the forge](#unwedging-a-target-branch-that-diverged-from-the-forge)
@@ -715,8 +715,9 @@ discipline, whether or not a deadline was quoted. A reset that is not in the
 future is one the harness genuinely cannot wait for, so it stops the run and
 records a blocker rather than guessing a wait. A reset that no longer fits the
 run's remaining budget is different: the wait is well defined, only longer than
-the harness will take, so nobody has anything to decide. The run ends cancelled
-as an environmental stop of cause `usage-window` naming the reset, gives its
+the harness will take, so nobody has anything to decide. The run ends cancelled,
+recorded as ended by something outside the work — cause `usage-window` —
+naming the reset, gives its
 claim back, and keeps its branch and worktree. It spends nothing — no brake
 count, no review round, repair grant, or re-run — and a watching session holds
 the item under "waiting on the provider's usage window" until the reset passes,
@@ -2365,8 +2366,8 @@ whatever it was parked on, once thirty minutes have passed since its record last
 moved with nothing continuing it — measured, for a provider nobody could reach,
 from the probe it recorded — and the lease it takes to settle a run is what says
 no process holds it, since a continuation somebody did start would be holding
-that lease. It settles it as an environmental stop rather than as a verdict on
-anything. The run's record
+that lease. It ends the run and records the cause as outside the work, rather than
+as a verdict on anything. The run's record
 and the work item both carry what the sweep observed and nothing more: that no
 live process held the run, that no ending was recorded, when the record last
 moved, and what the run was parked on. Three parks are left out, because each

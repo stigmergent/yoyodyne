@@ -396,7 +396,7 @@ func (r EnvironmentalRefusal) Validate() error {
 // copies of this would be three places for that case to go missing.
 //
 // It never says "spent nothing" on a figure it did not actually give back. A
-// refusal that returned nothing says so, because "environmentally refused" with
+// refusal that returned nothing says so, because "ended by something outside the work" with
 // no accounting after it is exactly the sentence a reader takes on trust.
 //
 // It carries neither the detail nor the problem text. Those are evidence, and a
@@ -409,25 +409,25 @@ func (r EnvironmentalRefusal) Describe() string {
 	}
 	switch {
 	case !r.Settled:
-		return fmt.Sprintf("environmental cause recorded: %s; the round it belongs to has not settled, so nothing has been decided about what it cost", named)
+		return fmt.Sprintf("a cause outside the work was recorded: %s; the round it belongs to has not settled, so nothing has been decided about what it cost", named)
 	case !r.Refused && strings.TrimSpace(r.Problem) != "":
-		return fmt.Sprintf("environmental cause recorded: %s, and whether the round delivered anything could not be read, so it spent as any round does", named)
+		return fmt.Sprintf("a cause outside the work was recorded: %s, and whether the round delivered anything could not be read, so it spent as any round does", named)
 	case !r.Refused:
-		return fmt.Sprintf("environmental cause recorded: %s, and the round delivered a change all the same, so it spent as any round does", named)
+		return fmt.Sprintf("a cause outside the work was recorded: %s, and the round delivered a change all the same, so it spent as any round does", named)
 	case strings.TrimSpace(r.Problem) != "":
-		return fmt.Sprintf("environmentally refused: %s, and what it should have been given back could not be written, so this item's counters are higher than the round cost it", named)
+		return fmt.Sprintf("ended by something outside the work: %s, and what it should have been given back could not be written, so this item's counters are higher than the round cost it", named)
 	case r.RoundReturned && r.GrantReturned:
-		return fmt.Sprintf("environmentally refused: %s, so the review round it was charged and the granted repair round it consumed were both returned, and this item stands where it did before the round", named)
+		return fmt.Sprintf("ended by something outside the work: %s, so the review round it was charged and the granted repair round it consumed were both returned, and this item stands where it did before the round", named)
 	case r.RoundReturned:
-		return fmt.Sprintf("environmentally refused: %s, so the review round it was charged was returned and no repair grant had been consumed, and this item stands where it did before the round", named)
+		return fmt.Sprintf("ended by something outside the work: %s, so the review round it was charged was returned and no repair grant had been consumed, and this item stands where it did before the round", named)
 	case r.RoundLeftSpent && r.GrantReturned:
-		return fmt.Sprintf("environmentally refused: %s, so the granted repair round it consumed was returned, and the review round at the head of this item's record was left spent because %s charged it rather than this one", named, r.roundHolder())
+		return fmt.Sprintf("ended by something outside the work: %s, so the granted repair round it consumed was returned, and the review round at the head of this item's record was left spent because %s charged it rather than this one", named, r.roundHolder())
 	case r.RoundLeftSpent:
-		return fmt.Sprintf("environmentally refused: %s, and the review round at the head of this item's record was left spent because %s charged it rather than this one, so the item stands one round further on than before it", named, r.roundHolder())
+		return fmt.Sprintf("ended by something outside the work: %s, and the review round at the head of this item's record was left spent because %s charged it rather than this one, so the item stands one round further on than before it", named, r.roundHolder())
 	case r.GrantReturned:
-		return fmt.Sprintf("environmentally refused: %s, so the granted repair round it consumed was returned and no review round had been charged, and this item stands where it did before the round", named)
+		return fmt.Sprintf("ended by something outside the work: %s, so the granted repair round it consumed was returned and no review round had been charged, and this item stands where it did before the round", named)
 	default:
-		return fmt.Sprintf("environmentally refused: %s, and it reached nothing that spends, so there was nothing to give back and this item stands where it did before the round", named)
+		return fmt.Sprintf("ended by something outside the work: %s, and it reached nothing that spends, so there was nothing to give back and this item stands where it did before the round", named)
 	}
 }
 

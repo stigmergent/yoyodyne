@@ -2164,7 +2164,7 @@ func (e Entry) renderEnvironmental() string {
 	}
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "      Round: %s\n", nonEmpty(refused.Account,
-		fmt.Sprintf("environmental cause recorded: %s; what it cost this item is not recorded on this entry", refused.Cause)))
+		fmt.Sprintf("a cause outside the work was recorded: %s; what it cost this item is not recorded on this entry", refused.Cause)))
 	if detail := strings.TrimSpace(refused.Detail); detail != "" {
 		rendered.WriteString(indented("What the harness found", detail))
 	}

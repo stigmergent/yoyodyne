@@ -282,10 +282,10 @@ func stalledState() runstate.State {
 	state.ReviewFindings = 0
 	state.ReviewFindingDetails = nil
 	state.CheckFailure = nil
-	state.Blocker = "Yoyodyne stopped this item: the harness stopped its provider because it stopped emitting events, and nothing continued the run within 30m0s of that."
+	state.Blocker = "Yoyodyne stopped this item: the harness stopped its provider because it produced no output for longer than the harness allows, and nothing continued the run within 30m0s of that."
 	state.Environmental = &runstate.EnvironmentalRefusal{
 		Cause:      runstate.CauseProcessVanished,
-		Detail:     "no live process held the run, no ending was recorded on it, and the harness stopped its provider because it stopped emitting events",
+		Detail:     "no live process held the run, no ending was recorded on it, and the harness stopped its provider because it produced no output for longer than the harness allows",
 		RecordedAt: docketedNow.Add(-time.Hour),
 		Settled:    true,
 	}

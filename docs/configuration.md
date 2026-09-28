@@ -3751,8 +3751,8 @@ into the same refusal.
 A reset beyond what the run has left of `usage_limit_max_pause` — including the
 probe a limit with no reset time would wait for — is a wait the harness will not
 take rather than anything a person has to decide, so it blocks nothing. The run
-ends cancelled as an environmental stop of cause `usage-window` that records the
-reset, gives its claim back so the item is ready again, and keeps its branch and
+ends cancelled, recorded as ended by something outside the work — cause
+`usage-window` — with the reset, gives its claim back so the item is ready again, and keeps its branch and
 worktree. It counts toward nothing: not the failure-storm brake, not the
 item's review rounds, repair grant, or re-run, and not a watching session's
 memory of what it has tried. A watching session holds the item only until the

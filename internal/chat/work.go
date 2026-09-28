@@ -927,7 +927,7 @@ func (r RunReport) Headline() string {
 		return fmt.Sprintf("%s is parked because %s; nothing about its change was judged, its claim, branch, worktree, and developer session are all preserved, and /work %s continues the same run once the store answers",
 			item, r.TrackerPause, item)
 	case r.Paused && r.ProviderStop != "":
-		stopped := "its provider stopped emitting events and was stopped"
+		stopped := "the AI session running it produced no output for longer than the harness allows, so the harness stopped it; the cause was outside the work"
 		if r.ProviderStop == ProviderStopBudgetExhausted {
 			stopped = "its provider was still working when its total budget ran out"
 		}

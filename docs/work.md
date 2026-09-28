@@ -421,9 +421,9 @@ of `yoyo triage resume` all name the conflict and `yoyo triage repair` from that
 record rather than from the error's prose. A replay the harness itself killed —
 timed out, cancelled, or stalled — is not a conflict, although it leaves the same
 half-applied state: it is abandoned so the worktree is back on its branch, and
-recorded as the environmental stop below rather than handed to a person.
+recorded as a stop outside the work, below, rather than handed to a person.
 
-**An environmental stop after approval costs nothing.** Not everything that
+**A stop outside the work after approval costs nothing.** Not everything that
 stops an approved change short of the target branch is a verdict on it, and
 the ones that are not spend nothing. A promotion refused because the primary
 checkout carried somebody's uncommitted edit, a tracker read that timed out

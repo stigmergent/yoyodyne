@@ -399,7 +399,7 @@ func snapshotOf(state runstate.State) chat.RunSnapshot {
 		snapshot.Detail = fmt.Sprintf("paused for %s until %s",
 			runstate.DescribePause(state.PauseCause, state.UsageLimitKind), state.UsageLimitResetsAt.UTC().Format(time.RFC3339))
 	case state.ProviderStop == runstate.ProviderStopStalled:
-		snapshot.Detail = "its provider stopped emitting events and was stopped; the run can be continued"
+		snapshot.Detail = "the AI session running it produced no output for longer than the harness allows, so the harness stopped it; the cause was outside the work, and the run can be continued"
 	case state.ProviderStop == runstate.ProviderStopBudgetExhausted:
 		snapshot.Detail = "its provider ran out of total budget while still working; the run can be continued"
 	}

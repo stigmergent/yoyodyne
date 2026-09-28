@@ -64,6 +64,19 @@ yoyodyne-ifd.437.6 retired `posture` on 2026-09-25 because it was unclear to
 him. Both are now listed below as replaced, with the governed documents that
 still carry them named on their rows until the architect amends them.
 
+`environmental stop`, `idle bound`, and `stall continuation` were never
+registered. They are the harness's own names for a run ended by something
+outside the work, for the harness ending a run whose AI session produced no
+output for a set time, and for the development manager resuming such a run in
+the same session. All three reached the operator in one program manager's
+report on 2026-09-27 with nothing saying what any of them meant, so
+yoyodyne-ifd.437.17 replaced them with the plain account of what happened —
+*the AI session running the developer produced no output for five minutes, so
+the harness ended the run; the cause was outside the work, so no repair attempt
+was spent and the change was kept* — and listed them below. Identifiers in the
+code and field names in the records keep their names; only what a person reads
+changed.
+
 One entry is a command's own name. The sweep replaced `re-arm` in the prose of
 the governed documents, but `yoyo triage rearm` is a verb an operator types and
 `yoyo status` counts, and a word a command is called cannot be swept out of the
@@ -126,7 +139,9 @@ longer says.
 | Term                | Write instead                                          | Still written in, until its owner amends it                                                                                                    |
 | ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cadence`           | how often it repeats, or its schedule                  | `docs/designs/v1-harness-design.md`                                                                                                           |
+| `environmental stop` | what happened, with the cause named as outside the work: *the run was ended by something outside the work*, and what that something was |                                                                                                                                                |
 | `held for a person` | the mover named: waiting on the development manager's decision, waiting on the harness carrying out her decision, waiting on the architect's ruling — *a person* or *a human* only where the mover is the operator |                                                                                                                                                |
+| `idle bound`        | what happened: *the AI session running the developer produced no output for five minutes, so the harness ended the run* |                                                                                                                                                |
 | `in force`          | active, or still applies                               |                                                                                                                                                |
 | `one pane of glass` | one window                                             |                                                                                                                                                |
 | `posture`           | tool access, meaning the tools a role may use          |                                                                                                                                                |
@@ -134,6 +149,7 @@ longer says.
 | `sidecar`           | a separate directory outside the repository            |                                                                                                                                                |
 | `soak`              | a trial run kept alongside the old path for comparison |                                                                                                                                                |
 | `starving`          | stopping                                               |                                                                                                                                                |
+| `stall continuation` | what happened: *the development manager resumed the run in the same AI session*, after the harness ended it for producing no output |                                                                                                                                                |
 | `supersession pile` | the list of superseded pull requests                   |                                                                                                                                                |
 | `tranche`           | stage, or part 1 of 4                                  |                                                                                                                                                |
 | `wedged`            | stuck, or the condition said outright                  |                                                                                                                                                |
@@ -195,8 +211,11 @@ It reads the guides for a few terms only, since yoyodyne-ifd.360: the README
 and every Markdown file under `docs/` outside the homes above, this document,
 and the records under `docs/diagnoses`, `docs/experiments`, and
 `docs/releases`. A guide is held to the register only for a term the check
-marks as used in the guides — today `re-arm` and no other — so a guide that
-leans on a row fails once the row is gone, and is not read for any other word.
+marks as used in the guides — today `re-arm`, and the three retired under
+yoyodyne-ifd.437.17, `environmental stop`, `idle bound`, and
+`stall continuation`, which the guides had been written with — so a guide that
+leans on a row fails once the row is gone, a guide that writes one of the
+three retired terms fails outright, and a guide is not read for any other word.
 
 Three things it deliberately does not read. A document's frontmatter is identity
 and revision history, and a revision's recorded reason is what somebody decided
