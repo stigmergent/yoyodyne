@@ -25,7 +25,8 @@ const (
 	MaxRecordedFailingChecks = 20
 	// MaxRecordedCheckPaths bounds the files kept for one failing check.
 	MaxRecordedCheckPaths = 10
-	// maxCheckNameBytes bounds one check's name.
+	// maxCheckNameBytes bounds one check's name, and the forge's word for how
+	// it ended.
 	maxCheckNameBytes = 200
 )
 
@@ -42,7 +43,24 @@ type PullRequestChecks struct {
 	// BehindBy is how many commits the target branch carries that the head does
 	// not, which is what an update onto the target would bring in.
 	BehindBy int `json:"behind_by,omitempty"`
+	// Reruns is how many times the harness has asked the forge to run this
+	// head's failed jobs again because they failed in the job rather than on a
+	// file (InTheJob). It is carried from one reading of the same head to the
+	// next, and bounded by MaxCheckReruns.
+	Reruns int `json:"reruns,omitempty"`
 }
+
+// MaxCheckReruns bounds the re-runs one head is given before a failure in the
+// job is handed to a person. One is enough for a runner that was lost or a run
+// the forge cancelled; a job that fails the same way twice on one head is not
+// the runner having a bad minute.
+const MaxCheckReruns = 2
+
+// jobAnnotationPath is where the forge files an annotation that belongs to the
+// job rather than to any file in the tree: a job cancelled, timed out, never
+// started, lost with its runner, or a step that exited non-zero without naming
+// a file. It is a directory, and nothing a change touches is ever it.
+const jobAnnotationPath = ".github"
 
 // FailingCheck is one check that failed on the head.
 type FailingCheck struct {
@@ -53,10 +71,47 @@ type FailingCheck struct {
 	// does not touch failed on something the change did not bring.
 	Paths    []string `json:"paths,omitempty"`
 	OnChange []string `json:"on_change,omitempty"`
+	// CheckRun is the forge's id for the check run, which is what a re-run
+	// names. Conclusion is how the forge said it ended: failure, cancelled,
+	// timed_out, startup_failure, or action_required.
+	CheckRun   int64  `json:"check_run,omitempty"`
+	Conclusion string `json:"conclusion,omitempty"`
+}
+
+// InTheJob reports a failing check that named no file in the tree: its
+// annotations are only the forge's own, filed against the job, or there are
+// none. Such a failure says nothing about any file — the same job over the same
+// tree can pass once the runner is healthy — so it is re-run before anyone is
+// told the tree is red. A job waiting on a person's approval is not one: running
+// it again waits on the same approval.
+func (f FailingCheck) InTheJob() bool {
+	if len(f.OnChange) > 0 || f.Conclusion == "action_required" {
+		return false
+	}
+	for _, path := range f.Paths {
+		if path != jobAnnotationPath {
+			return false
+		}
+	}
+	return true
 }
 
 // Red reports a reading with a check that failed.
 func (c PullRequestChecks) Red() bool { return len(c.Failing) > 0 }
+
+// FailedInTheJob reports a red reading every one of whose failing checks
+// failed in the job rather than on a file (FailingCheck.InTheJob).
+func (c PullRequestChecks) FailedInTheJob() bool {
+	if !c.Red() {
+		return false
+	}
+	for _, failing := range c.Failing {
+		if !failing.InTheJob() {
+			return false
+		}
+	}
+	return true
+}
 
 // ChangeFails reports a failing check whose annotations name a file the change
 // touches, which is the change's own failure rather than one it met.
@@ -102,17 +157,37 @@ func (c PullRequestChecks) Describe(targetBranch string) string {
 	if len(head) > 12 {
 		head = head[:12]
 	}
-	return fmt.Sprintf("checks %s; head %s %s; read %s", standing, head, behind, c.ReadAt.UTC().Format(time.RFC3339))
+	rerun := ""
+	if c.Reruns > 0 {
+		rerun = fmt.Sprintf("; run again %d time(s) on this head", c.Reruns)
+	}
+	return fmt.Sprintf("checks %s; head %s %s%s; read %s", standing, head, behind, rerun, c.ReadAt.UTC().Format(time.RFC3339))
 }
 
 func (f FailingCheck) describe() string {
 	switch {
 	case len(f.OnChange) > 0:
 		return fmt.Sprintf("%s (on %s, which this change touches)", f.Name, strings.Join(f.OnChange, ", "))
+	case len(f.Paths) > 0 && f.InTheJob():
+		return fmt.Sprintf("%s (the job %s without naming any file; the forge filed it on %s)", f.Name, endedAs(f.Conclusion), jobAnnotationPath)
 	case len(f.Paths) > 0:
 		return fmt.Sprintf("%s (on %s, which this change does not touch)", f.Name, strings.Join(f.Paths, ", "))
 	default:
 		return f.Name + " (naming no file)"
+	}
+}
+
+// endedAs is how the forge's conclusion reads in a sentence about a job.
+func endedAs(conclusion string) string {
+	switch conclusion {
+	case "cancelled":
+		return "was cancelled"
+	case "timed_out":
+		return "ran out of time"
+	case "startup_failure":
+		return "never started"
+	default:
+		return "failed"
 	}
 }
 
@@ -125,7 +200,7 @@ func (c PullRequestChecks) Validate() error {
 	if c.ReadAt.IsZero() {
 		problems = append(problems, errors.New("checks read_at is required"))
 	}
-	if c.Pending < 0 || c.Passing < 0 || c.BehindBy < 0 {
+	if c.Pending < 0 || c.Passing < 0 || c.BehindBy < 0 || c.Reruns < 0 {
 		problems = append(problems, errors.New("checks counts cannot be negative"))
 	}
 	if len(c.Failing) > MaxRecordedFailingChecks {
@@ -134,6 +209,9 @@ func (c PullRequestChecks) Validate() error {
 	for index, failing := range c.Failing {
 		if strings.TrimSpace(failing.Name) == "" || len(failing.Name) > maxCheckNameBytes {
 			problems = append(problems, fmt.Errorf("checks failing[%d] name must be present and at most %d bytes", index, maxCheckNameBytes))
+		}
+		if len(failing.Conclusion) > maxCheckNameBytes {
+			problems = append(problems, fmt.Errorf("checks failing[%d] conclusion must be at most %d bytes", index, maxCheckNameBytes))
 		}
 		if len(failing.Paths) > MaxRecordedCheckPaths || len(failing.OnChange) > MaxRecordedCheckPaths {
 			problems = append(problems, fmt.Errorf("checks failing[%d] names more than %d files", index, MaxRecordedCheckPaths))

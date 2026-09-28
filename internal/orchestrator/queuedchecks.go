@@ -23,6 +23,14 @@ package orchestrator
 //     is found moved and the change is replayed onto it, checked and reviewed
 //     again, and queued again — under the same integration-retry budget a
 //     replay spends, and hosted by the sweep that hosts runs.
+//   - Checks that failed in the job rather than on any file — annotated only on
+//     .github, which is where the forge files a job cancelled, timed out, lost
+//     with its runner, or a step that failed without naming a file — are run
+//     again on the same head, up to runstate.MaxCheckReruns times, and the merge
+//     stays queued. On 2026-09-28 two merges on heads level with main were
+//     handed to a person this way, adoption at 04:15Z and build at 06:08Z,
+//     while four other merges landed through the same checks on main around
+//     them: the jobs had failed, and the tree had not.
 //   - Anything else red — a failing check naming a file the change touches, or a
 //     head already level with its target, where nothing but the change differs
 //     — is the change's own failure, or one no update can fix. The queued merge
@@ -49,10 +57,13 @@ import (
 // landed by the forge the moment its checks turned green — for a rewritten head,
 // a change no reviewer has seen.
 //
+// RerunCheck runs a check that failed in the job again on the same head.
+//
 // It is satisfied by publish.GitHub.
 type ReconcileChecks interface {
 	Checks(ctx context.Context, number int, base string) (publish.CheckReading, error)
 	DisableAutoMerge(ctx context.Context, number int) error
+	RerunCheck(ctx context.Context, checkRun int64) error
 }
 
 // ActionUpdating reports a queued merge whose head fell behind its target and
@@ -81,6 +92,20 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 		return result, nil
 	}
 	checks := recordedChecks(reading, r.clock().Now())
+	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
+		checks.Reruns = prior.Reruns
+	}
+	// A failure in the job is run again before anything is decided on it, and
+	// the merge stays armed meanwhile: the re-run's result is the head's reading
+	// from then on, so a pass lets the forge land it and a second failure is read
+	// by the next sweep.
+	rerun, rerunRefused := false, ""
+	if checks.FailedInTheJob() && checks.Reruns < runstate.MaxCheckReruns {
+		if rerunRefused = r.rerunFailedJobs(ctx, checks); rerunRefused == "" {
+			checks.Reruns++
+			rerun = true
+		}
+	}
 	published.Checks = &checks
 	state.PullRequest = &published
 	state.UpdatedAt = r.clock().Now()
@@ -92,17 +117,46 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	switch {
 	case !checks.Red():
 		return result, nil
+	case rerun:
+		result.Detail += fmt.Sprintf("; the failed checks failed in the job rather than on any file, so the harness asked the forge to run them again (%d of %d on this head) and left the merge queued",
+			checks.Reruns, runstate.MaxCheckReruns)
+		return result, nil
 	case checks.BehindBy > 0 && !checks.ChangeFails():
 		return r.updateQueuedHead(ctx, state, result, false)
 	case checks.ChangeFails():
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail on this change: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
 			published.Number, checks.Describe(target)))
+	case checks.FailedInTheJob():
+		why := fmt.Sprintf("failed in the job rather than on any file, and ran again %d time(s) on this head without passing", checks.Reruns)
+		if rerunRefused != "" {
+			why = fmt.Sprintf("failed in the job rather than on any file, and the forge would not run them again (%s)", rerunRefused)
+		}
+		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
+			"the forge's checks on pull request %d %s: %s. What failed is the forge's run of the job, which the change's files do not decide; the forge's own log of that run says why. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
+			published.Number, why, checks.Describe(target)))
 	default:
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail with its head level with %s, so nothing but this change differs from the target and bringing it up to date would change nothing: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
 			published.Number, target, checks.Describe(target)))
 	}
+}
+
+// rerunFailedJobs asks the forge to run every failed check of a reading again,
+// and says what it refused if it refused any. A check with no check run to name
+// cannot be run again, which is a refusal as well.
+func (r Reconciler) rerunFailedJobs(ctx context.Context, checks runstate.PullRequestChecks) string {
+	var refused []string
+	for _, failing := range checks.Failing {
+		if failing.CheckRun <= 0 {
+			refused = append(refused, fmt.Sprintf("%s names no check run", failing.Name))
+			continue
+		}
+		if err := r.Checks.RerunCheck(ctx, failing.CheckRun); err != nil {
+			refused = append(refused, fmt.Sprintf("%s: %v", failing.Name, err))
+		}
+	}
+	return oneline.Bound(strings.Join(refused, "; "), 400)
 }
 
 // recordedChecks is the forge's reading as the record keeps it: each failing
@@ -124,7 +178,7 @@ func recordedChecks(reading publish.CheckReading, now time.Time) runstate.PullRe
 		if len(checks.Failing) == runstate.MaxRecordedFailingChecks {
 			break
 		}
-		failing := runstate.FailingCheck{Name: boundedCheckName(failed.Name)}
+		failing := runstate.FailingCheck{Name: boundedCheckName(failed.Name), CheckRun: failed.ID, Conclusion: oneline.Bound(failed.Conclusion, 200)}
 		for _, path := range failed.Paths {
 			if touched[path] && len(failing.OnChange) < runstate.MaxRecordedCheckPaths {
 				failing.OnChange = append(failing.OnChange, path)

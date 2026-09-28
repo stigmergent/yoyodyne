@@ -785,6 +785,12 @@ func (g GitHub) Protection(ctx context.Context, branch string) (BranchProtection
 // repository. The API verb takes no --repo flag, so the repository is named in
 // the environment, in the form Contains explains.
 func (g GitHub) api(ctx context.Context, endpoint string) (execution.ProcessResult, error) {
+	return g.apiMethod(ctx, "GET", endpoint)
+}
+
+// apiMethod is api with the request's method named, for the few requests that
+// ask the forge to do something rather than to say something.
+func (g GitHub) apiMethod(ctx context.Context, method, endpoint string) (execution.ProcessResult, error) {
 	url, err := g.remoteURL(ctx, g.remoteName())
 	if err != nil {
 		return execution.ProcessResult{}, err
@@ -795,7 +801,7 @@ func (g GitHub) api(ctx context.Context, endpoint string) (execution.ProcessResu
 	}
 	return g.Runner.Run(ctx, execution.Command{
 		Name:     g.binary(),
-		Args:     []string{"api", "--method", "GET", endpoint},
+		Args:     []string{"api", "--method", method, endpoint},
 		Dir:      g.Dir,
 		Env:      append(execution.ForgeEnvironment(nil), "GH_REPO="+repository),
 		Timeout:  g.timeout(),

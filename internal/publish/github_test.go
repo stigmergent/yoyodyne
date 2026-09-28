@@ -1224,6 +1224,9 @@ func TestGitHubChecksReadsTheHeadItsChecksAndHowFarBehindItIs(t *testing.T) {
 	if len(reading.Failing) != 1 || reading.Failing[0].Name != "go test" {
 		t.Fatalf("failing = %#v, want the one failed check", reading.Failing)
 	}
+	if reading.Failing[0].ID != 9 || reading.Failing[0].Conclusion != "failure" {
+		t.Errorf("failed check run = %d, conclusion = %q; want the run a re-run names and how it ended", reading.Failing[0].ID, reading.Failing[0].Conclusion)
+	}
 	if paths := reading.Failing[0].Paths; len(paths) != 2 || paths[0] != ".github" || paths[1] != "internal/other/other_test.go" {
 		t.Errorf("annotated paths = %v, want each file once", paths)
 	}
@@ -1243,6 +1246,33 @@ func TestGitHubChecksReadsTheHeadItsChecksAndHowFarBehindItIs(t *testing.T) {
 	silent.reply("compare/"+head+"...main", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{}`})
 	if _, err := (GitHub{Runner: silent}).Checks(context.Background(), 713, "main"); err == nil {
 		t.Error("Checks() over a comparison naming no distance returned no error")
+	}
+}
+
+// Running a failed check again is a POST to re-run its Actions job, and a
+// forge that refuses says so.
+func TestGitHubRerunCheckAsksTheForgeToRunTheJobAgain(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("actions/jobs/4215/rerun", execution.ProcessResult{Status: execution.ProcessSucceeded})
+	if err := (GitHub{Runner: runner}).RerunCheck(context.Background(), 4215); err != nil {
+		t.Fatalf("RerunCheck() error = %v", err)
+	}
+	calls := runner.matching("actions/jobs/4215/rerun")
+	if len(calls) != 1 || !contains(calls[0], "POST") {
+		t.Fatalf("calls = %v, want one POST re-running the job", calls)
+	}
+
+	refused := &scriptedRunner{}
+	refused.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	refused.reply("actions/jobs/4215/rerun", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 403: Resource not accessible by integration\n"})
+	if err := (GitHub{Runner: refused}).RerunCheck(context.Background(), 4215); err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+		t.Errorf("RerunCheck() refused = %v, want the forge's refusal", err)
+	}
+	if err := (GitHub{Runner: runner}).RerunCheck(context.Background(), 0); err == nil {
+		t.Error("RerunCheck() of no check run returned no error")
 	}
 }
 

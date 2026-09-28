@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -26,6 +28,18 @@ type checkedForge struct {
 	queuedForge
 	reading   publish.CheckReading
 	withdrawn []int
+	// reruns are the check runs it was asked to run again; refuseRerun, where
+	// set, is its answer to every such request.
+	reruns      []int64
+	refuseRerun error
+}
+
+func (f *checkedForge) RerunCheck(_ context.Context, checkRun int64) error {
+	if f.refuseRerun != nil {
+		return f.refuseRerun
+	}
+	f.reruns = append(f.reruns, checkRun)
+	return nil
 }
 
 func (f *checkedForge) Checks(_ context.Context, number int, _ string) (publish.CheckReading, error) {
@@ -239,6 +253,115 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUnrelatedCheckIsHandedBackOnTheFi
 	}
 	if updates, err := reconciler.ContinueUpdates(context.Background()); err != nil || len(updates) != 0 {
 		t.Errorf("ContinueUpdates() = %#v, %v; a head level with its target has nothing to be brought up to date onto", updates, err)
+	}
+}
+
+// jobFailure is the reading of 2026-09-28 04:15Z (pull request 863): a head level
+// with main whose adoption job failed with its only annotation on .github, the
+// forge's place for an error in the job rather than in any file.
+func jobFailure() publish.CheckReading {
+	return publish.CheckReading{
+		Files:   []string{"feature.txt"},
+		Failing: []publish.FailedCheck{{Name: "adoption", Paths: []string{".github"}, ID: 4215, Conclusion: "cancelled"}},
+		Passing: 1,
+	}
+}
+
+// A head level with its target whose checks failed in the job rather than on a
+// file is run again, and its merge left queued, rather than handed to a person
+// as main being red: the jobs had failed, and the tree had not. A re-run that
+// passes is the forge landing it; failing again on every re-run the bound
+// allows, it is handed back saying what failed was the job.
+func TestAQueuedHeadWhoseChecksFailedInTheJobIsRunAgainBeforeItIsHandedBack(t *testing.T) {
+	t.Parallel()
+
+	fixture, forge, _ := queuedOnProtectedTarget(t)
+	forge.reading = jobFailure()
+	fixture.docket = &memoryDocket{}
+	reconciler := fixture.sweep(t, forge, true)
+
+	for sweep := 1; sweep <= runstate.MaxCheckReruns; sweep++ {
+		results, err := reconciler.Reconcile(context.Background())
+		if err != nil {
+			t.Fatalf("sweep %d: Reconcile() error = %v", sweep, err)
+		}
+		if len(results) != 1 || results[0].Action != ActionQueued || !strings.Contains(results[0].Detail, "asked the forge to run them again") {
+			t.Fatalf("sweep %d: reconciliation = %#v, want the job run again and the merge left queued", sweep, results)
+		}
+		if len(forge.reruns) != sweep || forge.reruns[sweep-1] != 4215 {
+			t.Fatalf("sweep %d: re-runs = %v, want check run 4215 run again once per sweep", sweep, forge.reruns)
+		}
+		if len(forge.withdrawn) != 0 || !forge.HoldsQueuedMerge() || fixture.tracker.Record().Blocked {
+			t.Fatalf("sweep %d: withdrawn = %v, blocked = %t; a job being run again is not withdrawn or handed back", sweep, forge.withdrawn, fixture.tracker.Record().Blocked)
+		}
+		recorded, err := fixture.store.Load(pipelineRunID)
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if recorded.PullRequest.Checks == nil || recorded.PullRequest.Checks.Reruns != sweep {
+			t.Fatalf("sweep %d: checks = %#v, want the re-runs on this head counted", sweep, recorded.PullRequest.Checks)
+		}
+	}
+
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.reruns) != runstate.MaxCheckReruns {
+		t.Fatalf("reconciliation = %#v, re-runs = %v; want it handed back once the re-runs are spent", results, forge.reruns)
+	}
+	for _, want := range []string{"adoption (the job was cancelled without naming any file; the forge filed it on .github)", "ran again 2 time(s) on this head without passing", "the forge's own log of that run", "needs a person"} {
+		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
+			t.Errorf("blocker does not say %q:\n%s", want, fixture.tracker.Record().BlockReason)
+		}
+	}
+	if strings.Contains(fixture.tracker.Record().BlockReason, "which this change does not touch") {
+		t.Errorf("blocker names .github as a file the change did not touch:\n%s", fixture.tracker.Record().BlockReason)
+	}
+}
+
+// A job run again that then passes leaves the merge queued with nothing
+// withdrawn, which is the forge landing it.
+func TestAJobThatPassesWhenRunAgainLeavesTheMergeQueued(t *testing.T) {
+	t.Parallel()
+
+	fixture, forge, _ := queuedOnProtectedTarget(t)
+	forge.reading = jobFailure()
+	reconciler := fixture.sweep(t, forge, true)
+	if results, err := reconciler.Reconcile(context.Background()); err != nil || len(results) != 1 || results[0].Action != ActionQueued {
+		t.Fatalf("Reconcile() = %#v, %v; want the job run again", results, err)
+	}
+	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 2}
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil || len(results) != 1 || results[0].Action != ActionQueued {
+		t.Fatalf("Reconcile() = %#v, %v; want the merge left queued once the re-run passed", results, err)
+	}
+	if len(forge.withdrawn) != 0 || !forge.HoldsQueuedMerge() || fixture.tracker.Record().Blocked || len(forge.reruns) != 1 {
+		t.Fatalf("withdrawn = %v, re-runs = %v, blocked = %t; want the merge left to land", forge.withdrawn, forge.reruns, fixture.tracker.Record().Blocked)
+	}
+}
+
+// A forge that will not run the job again — a token without the right to, or a
+// check no Actions job ran — hands it back on that sweep, saying so, as a head
+// level with its target always was.
+func TestAJobTheForgeWillNotRunAgainIsHandedBackSayingSo(t *testing.T) {
+	t.Parallel()
+
+	fixture, forge, _ := queuedOnProtectedTarget(t)
+	forge.reading = jobFailure()
+	forge.refuseRerun = errors.New("HTTP 403: Resource not accessible by integration")
+	fixture.docket = &memoryDocket{}
+	results, err := fixture.sweep(t, forge, true).Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.withdrawn) != 1 {
+		t.Fatalf("reconciliation = %#v, withdrawn = %v; want the merge withdrawn and handed back", results, forge.withdrawn)
+	}
+	for _, want := range []string{"the forge would not run them again", "HTTP 403: Resource not accessible by integration"} {
+		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
+			t.Errorf("blocker does not say %q:\n%s", want, fixture.tracker.Record().BlockReason)
+		}
 	}
 }
 
