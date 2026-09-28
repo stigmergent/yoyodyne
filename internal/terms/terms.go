@@ -70,6 +70,13 @@ const RegisterPath = "docs/terms.md"
 // out.
 const RegisterHeading = "## The register"
 
+// InventoryPath is the generated inventory of the harness's coined vocabulary,
+// repository-relative. It is not read as a guide for the reason the register is
+// not: its whole content is the terms themselves, each named so a decision can
+// be made about it, including the ones retired — a document listing every word
+// to stop writing has to write every one of them.
+const InventoryPath = "docs/vocabulary-inventory.md"
+
 // ReplacedHeading is the heading whose table lists the terms that were replaced
 // rather than registered. The check reads it for one thing only: a replaced
 // term's row may name the governed documents that still carry it while their
@@ -368,8 +375,8 @@ func Documents(root string) ([]string, error) {
 }
 
 // GuideFiles is every guide, repository-relative and in sorted order: the
-// Markdown files under Guides less the homes, the register, and the record
-// directories. Exported for the reason Documents is.
+// Markdown files under Guides less the homes, the register, the vocabulary
+// inventory, and the record directories. Exported for the reason Documents is.
 func GuideFiles(root string) ([]string, error) {
 	skipped := make(map[string]bool)
 	for _, directory := range append(append([]string{}, Homes...), NotGuides...) {
@@ -393,7 +400,7 @@ func GuideFiles(root string) ([]string, error) {
 				}
 				return nil
 			}
-			if relative == RegisterPath || !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+			if relative == RegisterPath || relative == InventoryPath || !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
 				return nil
 			}
 			guides = append(guides, relative)

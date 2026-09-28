@@ -209,6 +209,8 @@ line or a fenced block, because a term cannot wrap across either.
 
 It reads the guides for a few terms only, since yoyodyne-ifd.360: the README
 and every Markdown file under `docs/` outside the homes above, this document,
+[the vocabulary inventory](vocabulary-inventory.md) — which names every coined
+term, the retired ones included, because deciding about each is its purpose —
 and the records under `docs/diagnoses`, `docs/experiments`, and
 `docs/releases`. A guide is held to the register only for a term the check
 marks as used in the guides — today `re-arm`, and the three retired under

@@ -73,26 +73,26 @@ which is a key or an identifier rather than words anybody reads.
 | [`docket`](#docket) | replace | registered | 210 | 1 | 251 | 10 |
 | [`crossing`](#crossing) | replace | — | 56 | 0 | 112 | 5 |
 | [`carry-out`](#carry-out) | replace | — | 27 | 0 | 27 | 1 |
-| [`environmental stop`](#environmental-stop) | replace | — | 23 | 2 | 20 | 1 |
-| [`idle bound`](#idle-bound) | replace | — | 0 | 0 | 1 | 0 |
+| [`environmental stop`](#environmental-stop) | replace | replaced | 11 | 2 | 12 | 1 |
+| [`idle bound`](#idle-bound) | replace | replaced | 2 | 0 | 0 | 0 |
 | [`provider's stream`](#providers-stream) | replace | — | 1 | 0 | 4 | 0 |
-| [`stall`](#stall) | replace | — | 98 | 0 | 146 | 3 |
-| [`continuation`](#continuation) | replace | — | 35 | 0 | 46 | 1 |
+| [`stall`](#stall) | replace | — | 99 | 0 | 146 | 3 |
+| [`continuation`](#continuation) | replace | — | 37 | 0 | 46 | 1 |
 | [`lane`](#lane) | replace | — | 130 | 15 | 100 | 73 |
 | [`summons`](#summons) | replace | — | 38 | 2 | 47 | 0 |
-| [`park`](#park) | register | — | 129 | 0 | 204 | 12 |
-| [`pull`](#pull) | replace | — | 233 | 6 | 299 | 5 |
-| [`the line`](#the-line) | replace | — | 69 | 2 | 115 | 3 |
-| [`brake`](#brake) | replace | registered | 82 | 4 | 134 | 4 |
+| [`park`](#park) | register | — | 128 | 0 | 207 | 12 |
+| [`pull`](#pull) | replace | — | 233 | 6 | 300 | 5 |
+| [`the line`](#the-line) | replace | — | 69 | 2 | 117 | 3 |
+| [`brake`](#brake) | replace | registered | 82 | 4 | 135 | 4 |
 | [`probe`](#probe) | replace | — | 95 | 4 | 142 | 5 |
 | [`watch session`](#watch-session) | replace | — | 61 | 1 | 110 | 2 |
 | [`the standing`](#the-standing) | replace | — | 12 | 0 | 24 | 10 |
-| [`settle`](#settle) | replace | — | 195 | 1 | 284 | 20 |
+| [`settle`](#settle) | replace | — | 196 | 1 | 283 | 20 |
 | [`witness`](#witness) | register | — | 21 | 0 | 38 | 1 |
 | [`drain`](#drain) | replace | — | 43 | 2 | 98 | 0 |
-| [`mover`](#mover) | replace | — | 79 | 3 | 31 | 7 |
+| [`mover`](#mover) | replace | — | 80 | 3 | 31 | 7 |
 | [`shadow review`](#shadow-review) | register | — | 34 | 0 | 18 | 0 |
-| [`landing`](#landing) | replace | — | 190 | 9 | 250 | 10 |
+| [`landing`](#landing) | replace | — | 191 | 9 | 250 | 10 |
 | [`exchange`](#exchange) | register | — | 150 | 0 | 106 | 25 |
 | [`intake hold`](#intake-hold) | register | — | 154 | 2 | 149 | 16 |
 | [`operator hold`](#operator-hold) | replace | — | 28 | 0 | 25 | 1 |
@@ -100,9 +100,9 @@ which is a key or an identifier rather than words anybody reads.
 | [`firing`](#firing) | replace | — | 50 | 1 | 70 | 3 |
 | [`pass`](#pass) | replace | — | 100 | 2 | 203 | 46 |
 | [`context bundle`](#context-bundle) | replace | — | 0 | 0 | 11 | 4 |
-| [`repair`](#repair) | register | — | 222 | 11 | 433 | 18 |
+| [`repair`](#repair) | register | — | 224 | 11 | 435 | 18 |
 | [`repair grant`](#repair-grant) | replace | — | 32 | 0 | 50 | 0 |
-| [`needs-a-human`](#needs-a-human) | replace | — | 23 | 1 | 35 | 1 |
+| [`needs-a-human`](#needs-a-human) | replace | — | 24 | 1 | 35 | 1 |
 | [`integration target`](#integration-target) | replace | — | 28 | 0 | 4 | 0 |
 | [`promotion`](#promotion) | replace | — | 125 | 2 | 393 | 61 |
 | [`lease`](#lease) | replace | — | 39 | 0 | 166 | 37 |
@@ -115,13 +115,13 @@ which is a key or an identifier rather than words anybody reads.
 | [`remit`](#remit) | replace | — | 6 | 1 | 12 | 9 |
 | [`wake`](#wake) | replace | — | 37 | 0 | 29 | 3 |
 | [`gate`](#gate) | replace | — | 52 | 4 | 223 | 50 |
-| [`usage window`](#usage-window) | replace | — | 23 | 0 | 33 | 1 |
+| [`usage window`](#usage-window) | replace | — | 23 | 0 | 34 | 1 |
 | [`sink`](#sink) | replace | registered | 91 | 1 | 217 | 17 |
 | [`heartbeat`](#heartbeat) | keep | registered | 5 | 0 | 32 | 1 |
 | [`steer`](#steer) | keep | registered | 13 | 0 | 44 | 1 |
 | [`handback`](#handback) | keep | registered | 0 | 0 | 1 | 0 |
-| [`discharge`](#discharge) | keep | registered | 22 | 0 | 20 | 1 |
-| [`re-arm`](#re-arm) | keep | registered | 94 | 0 | 114 | 1 |
+| [`discharge`](#discharge) | keep | registered | 23 | 0 | 20 | 1 |
+| [`re-arm`](#re-arm) | keep | registered | 95 | 0 | 115 | 1 |
 | [`seat`](#seat) | keep | registered | 8 | 1 | 19 | 0 |
 | [`minute zero`](#minute-zero) | keep | registered | 2 | 0 | 2 | 2 |
 
@@ -157,14 +157,14 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A run ended by something outside the work — the sandbox, the network, the tracker, a provider limit — which spends none of the item's budgets.
 - **Proposed:** replace it. Write instead: stopped by something outside the work, naming what it was.
-- **Where:** 46 in all, in 13 places: `internal/runstate` 14, `docs/operations.md` 6, `internal/triage` 5, `docs/work.md` 5, `internal/orchestrator` 3, `docs/configuration.md` 3, and 7 more.
+- **Where:** 26 in all, in 12 places: `internal/runstate` 4, `internal/triage` 4, `docs/operations.md` 3, `docs/work.md` 3, `internal/terms` 2, `internal/config/builtin/v1/personas/development-manager.md` 2, and 6 more.
 - **Note:** The item replacing the three words the operator met first (yoyodyne-ifd.437.17) replaces this one. `environmental refusal` and `environmental cause` are counted with it.
 
 ### idle bound
 
 - **Means:** The harness ending a run whose AI session produced no output for a set time.
 - **Proposed:** replace it. Write instead: the time limit on a session that produces no output: "produced no output for five minutes, so the harness ended the run".
-- **Where:** 1 in all, in 1 place: `docs/developing-yoyo.md` 1.
+- **Where:** 2 in all, in 1 place: `internal/terms` 2.
 - **Note:** The item replacing the three words the operator met first (yoyodyne-ifd.437.17) replaces this one.
 
 ### provider's stream
@@ -177,14 +177,14 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** Nothing starting although work is ready, or a session producing no output.
 - **Proposed:** replace it. Write instead: nothing is starting although work is ready; or, of a session, produced no output.
-- **Where:** 247 in all, in 25 places: `docs/operations.md` 59, `docs/reporting.md` 28, `internal/cli` 27, `internal/runstate` 22, `internal/dashboard/assets/dashboard.js` 21, `docs/slack/setup.md` 18, and 19 more.
+- **Where:** 248 in all, in 26 places: `docs/operations.md` 59, `docs/reporting.md` 28, `internal/cli` 27, `internal/runstate` 22, `internal/dashboard/assets/dashboard.js` 20, `docs/slack/setup.md` 18, and 20 more.
 - **Note:** Counts include the `--stall-after` flag of `yoyo work`, whose name changes only with the command; a rename is its own decision.
 
 ### continuation
 
 - **Means:** Resuming a stopped run in its kept worktree and session rather than starting it fresh; a `stall continuation` resumes one ended for producing no output, a `repair continuation` resumes one mid-repair.
 - **Proposed:** replace it. Write instead: resuming the stopped run in the same session.
-- **Where:** 82 in all, in 16 places: `internal/orchestrator` 21, `docs/operations.md` 15, `docs/conversation.md` 11, `docs/configuration.md` 7, `internal/runstate` 6, `docs/configuration/recovery.md` 5, and 10 more.
+- **Where:** 84 in all, in 17 places: `internal/orchestrator` 21, `docs/operations.md` 15, `docs/conversation.md` 11, `docs/configuration.md` 7, `internal/runstate` 6, `docs/configuration/recovery.md` 5, and 11 more.
 - **Note:** The item replacing the three words the operator met first (yoyodyne-ifd.437.17) replaces `stall continuation`.
 
 ### lane
@@ -203,27 +203,27 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** Keeping an item in the Lead Product Manager's order but stopping the harness from selecting it until somebody releases it with `unpark`, with the reason shown wherever it is listed.
 - **Proposed:** register it, with the meaning above: `park` and `unpark` are actions a role records and the operator reads in backlog listings, so the word is a name rather than decoration.
-- **Where:** 345 in all, in 33 places: `docs/operations.md` 56, `docs/work.md` 52, `internal/chat` 44, `docs/conversation.md` 35, `internal/orchestrator` 27, `internal/cli` 17, and 27 more.
+- **Where:** 347 in all, in 33 places: `docs/operations.md` 59, `docs/work.md` 52, `internal/chat` 44, `docs/conversation.md` 35, `internal/orchestrator` 27, `internal/cli` 17, and 27 more.
 
 ### pull
 
 - **Means:** One time the harness picks the next ready item and starts a run on it.
 - **Proposed:** replace it. Write instead: the next time the harness picks work.
-- **Where:** 543 in all, in 34 places: `internal/orchestrator` 70, `docs/work.md` 70, `docs/operations.md` 60, `docs/configuration.md` 59, `docs/configuration/runs.md` 36, `internal/notify` 35, and 28 more.
+- **Where:** 544 in all, in 34 places: `internal/orchestrator` 70, `docs/work.md` 70, `docs/operations.md` 61, `docs/configuration.md` 59, `docs/configuration/runs.md` 36, `internal/notify` 35, and 28 more.
 - **Note:** `pull request` is not counted. `git pull` and other ordinary uses are, so the counts are an upper bound.
 
 ### the line
 
 - **Means:** The harness pictured as a production line choosing and running work, as in "the line is choosing nothing".
 - **Proposed:** replace it. Write instead: the harness, or say what is happening: "no work is starting".
-- **Where:** 189 in all, in 28 places: `docs/operations.md` 39, `internal/notify` 33, `docs/conversation.md` 15, `docs/slack/setup.md` 15, `docs/configuration.md` 14, `docs/reporting.md` 10, and 22 more.
+- **Where:** 191 in all, in 28 places: `docs/operations.md` 41, `internal/notify` 33, `docs/conversation.md` 15, `docs/slack/setup.md` 15, `docs/configuration.md` 14, `docs/reporting.md` 10, and 22 more.
 - **Note:** Counts include ordinary uses such as "the top line" of a message, so they are an upper bound.
 
 ### brake
 
 - **Means:** The automatic hold on starting new work after a set number of blocked runs in a row, also written `storm brake`.
 - **Proposed:** replace it. Write instead: the automatic stop on starting work; for `braked`, stopped. The register's row is retired once the replacements land.
-- **Where:** 224 in all, in 19 places: `docs/operations.md` 29, `docs/configuration.md` 28, `docs/configuration/runs.md` 22, `docs/reporting.md` 20, `internal/runstate` 17, `internal/chat` 15, and 13 more.
+- **Where:** 225 in all, in 19 places: `docs/operations.md` 30, `docs/configuration.md` 28, `docs/configuration/runs.md` 22, `docs/reporting.md` 20, `internal/runstate` 17, `internal/chat` 15, and 13 more.
 - **Note:** Registered today. Proposed for replacement because the operator has asked for 'stopped' in place of 'braked'.
 
 ### probe
@@ -249,7 +249,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** Bringing something interrupted or half-finished to a recorded end: a run, a directive, a promotion.
 - **Proposed:** replace it. Write instead: finish, resolve, or record how it ended — whichever the sentence means.
-- **Where:** 500 in all, in 45 places: `docs/operations.md` 99, `internal/orchestrator` 46, `docs/configuration.md` 42, `docs/conversation.md` 37, `internal/cli` 29, `docs/work.md` 28, and 39 more.
+- **Where:** 500 in all, in 45 places: `docs/operations.md` 99, `internal/orchestrator` 45, `docs/configuration.md` 42, `docs/conversation.md` 37, `internal/cli` 29, `docs/work.md` 28, and 39 more.
 
 ### witness
 
@@ -267,7 +267,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** Whoever an item or a stopped run is waiting on to act next.
 - **Proposed:** replace it. Write instead: who it is waiting on. The `waiting_on` field keeps its name.
-- **Where:** 120 in all, in 11 places: `internal/dashboard/assets/dashboard.js` 64, `docs/operations.md` 17, `internal/triage` 10, `docs/conversation.md` 7, `docs/designs/program-manager.md` 6, `docs/work.md` 4, and 5 more.
+- **Where:** 121 in all, in 11 places: `internal/dashboard/assets/dashboard.js` 65, `docs/operations.md` 17, `internal/triage` 10, `docs/conversation.md` 7, `docs/designs/program-manager.md` 6, `docs/work.md` 4, and 5 more.
 
 ### shadow review
 
@@ -279,7 +279,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A change merging onto the target branch; in a developer's reply, its claim of what that merge does to the item — closes it, lands evidence, or escalates.
 - **Proposed:** replace it. Write instead: merge, or merged change; for a developer's claim, what the change does to the item. The `yoyodyne-landing` block keeps its name.
-- **Where:** 459 in all, in 34 places: `docs/configuration.md` 96, `docs/operations.md` 69, `internal/orchestrator` 57, `internal/notify` 37, `internal/runstate` 28, `docs/work.md` 26, and 28 more.
+- **Where:** 460 in all, in 35 places: `docs/configuration.md` 96, `docs/operations.md` 69, `internal/orchestrator` 57, `internal/notify` 37, `internal/runstate` 28, `docs/work.md` 26, and 29 more.
 
 ### exchange
 
@@ -329,7 +329,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A developer's further attempt at its own change, in the same worktree, after a failed check or review findings; `yoyo triage repair` asks for one.
 - **Proposed:** register it, with the meaning above: it is a `yoyo triage` verb and a budget the status line counts.
-- **Where:** 684 in all, in 35 places: `docs/configuration.md` 107, `internal/orchestrator` 85, `docs/configuration/recovery.md` 67, `docs/conversation.md` 48, `docs/work.md` 46, `internal/chat` 42, and 29 more.
+- **Where:** 688 in all, in 36 places: `docs/configuration.md` 107, `internal/orchestrator` 85, `docs/configuration/recovery.md` 67, `docs/conversation.md` 48, `docs/work.md` 46, `docs/operations.md` 44, and 30 more.
 - **Note:** Counts include ordinary uses such as "backlog repair", so they are an upper bound.
 
 ### repair grant
@@ -342,7 +342,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** The line in `yoyo status` and the channel listing what is waiting on a person.
 - **Proposed:** replace it. Write instead: waiting on you, the operator's own words.
-- **Where:** 60 in all, in 17 places: `docs/operations.md` 22, `internal/dashboard/assets/dashboard.js` 6, `docs/reporting.md` 6, `internal/orchestrator` 4, `internal/cli` 3, `internal/readmodel` 3, and 11 more.
+- **Where:** 61 in all, in 17 places: `docs/operations.md` 22, `internal/dashboard/assets/dashboard.js` 7, `docs/reporting.md` 6, `internal/orchestrator` 4, `internal/cli` 3, `internal/readmodel` 3, and 11 more.
 
 ### integration target
 
@@ -423,7 +423,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** The period a provider's usage limit applies to, after which it resets.
 - **Proposed:** replace it. Write instead: the provider's usage limit, until it resets at a named time.
-- **Where:** 57 in all, in 13 places: `docs/operations.md` 13, `docs/reporting.md` 9, `internal/orchestrator` 7, `docs/slack/setup.md` 7, `internal/readmodel` 6, `internal/runstate` 5, and 7 more.
+- **Where:** 58 in all, in 13 places: `docs/operations.md` 14, `docs/reporting.md` 9, `internal/orchestrator` 7, `docs/slack/setup.md` 7, `internal/readmodel` 6, `internal/runstate` 5, and 7 more.
 
 ### sink
 
@@ -454,13 +454,13 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A change being the work its item asked for, so the item closes on it.
 - **Proposed:** no change. It is registered; the developer and reviewer contracts decide on it.
-- **Where:** 43 in all, in 10 places: `internal/orchestrator` 13, `docs/work.md` 9, `internal/landing` 8, `docs/delivery-pipeline-baseline.md` 6, `docs/operations.md` 2, `internal/review` 1, and 4 more.
+- **Where:** 44 in all, in 11 places: `internal/orchestrator` 13, `docs/work.md` 9, `internal/landing` 8, `docs/delivery-pipeline-baseline.md` 6, `docs/operations.md` 2, `internal/review` 1, and 5 more.
 
 ### re-arm
 
 - **Means:** Repeating a merge request a forge dropped, once per publication.
 - **Proposed:** no change. It is registered; it is the verb `yoyo triage rearm`.
-- **Where:** 209 in all, in 15 places: `internal/orchestrator` 42, `docs/configuration.md` 32, `docs/configuration/recovery.md` 29, `internal/cli` 23, `docs/operations.md` 21, `docs/conversation.md` 20, and 9 more.
+- **Where:** 211 in all, in 15 places: `internal/orchestrator` 42, `docs/configuration.md` 32, `docs/configuration/recovery.md` 29, `internal/cli` 23, `docs/operations.md` 22, `docs/conversation.md` 20, and 9 more.
 
 ### seat
 
