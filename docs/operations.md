@@ -4526,6 +4526,22 @@ firing. A pass its events woke says what it was handed under its header,
 `carried 1 landing, 30 admissions since its last pass`, and `--json` carries the
 counts by class as `events`. A pass that failed says its cursor was not moved,
 and the next pass of the instance carries the same events.
+
+**A pass that failed keeps every memory and lane-report write it made before
+it failed.** Each one is saved in its store the moment it is made, and a turn
+failing afterwards undoes none of them. The pass's record says which writes
+stood and what failed after them — `turn 2 of the recurring task factory-watch
+failed, …; before that failure the pass of factory-watch saved 2 write(s),
+which stand and were not undone: memory "line-stalls-at-review" (remember,
+revision 1), lane report version 1` — and `--json` carries the record as
+`failed`, with the writes under `saved`, each as its `kind`, `action`, `memory`,
+and `revision`. The pass run after it, which is handed the same events, is told
+in its message which memories and which lane report versions the failed pass
+already saved, so it does not write them twice. That holds for every role that
+keeps a memory, on a recurring task's pass as on a program manager instance's.
+It is told of every pass since the last one that completed, so two failures in a
+row are both named, and once a pass completes the one after it is told nothing
+of them.
 [A program manager instance's passes](configuration.md#a-program-manager-instances-passes)
 says what wakes one.
 

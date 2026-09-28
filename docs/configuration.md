@@ -6630,6 +6630,11 @@ product manager admitting thirty items in one turn is one pass carrying thirty
 admissions, which `yoyo sweeps` shows under the pass's header as
 `carried 30 admissions since its last pass`. A pass that fails leaves the cursor
 where it was, says so on its record, and the next pass carries the same events.
+What the failed pass wrote into its memory and its lane report before it failed
+stands, and the next pass is told which of those writes are already saved so it
+does not make them twice; [reading what the recurring tasks
+found](operations.md#reading-what-the-recurring-tasks-found) says how the record
+names them.
 
 **An event that arrives late is still carried.** The tracker's export is written
 after the tracker's own write, and a run record is readable only once it is

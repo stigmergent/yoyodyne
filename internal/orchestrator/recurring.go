@@ -176,6 +176,11 @@ type Turn struct {
 	// while any report it was shown this way stands unhandled; see
 	// criticalreports.go.
 	CriticalReports []string `json:"critical_reports,omitempty"`
+	// Saved is every memory and lane-report write the turn made that its store
+	// recorded. It is carried back whichever way the turn went: a write is
+	// durable the moment it is made, so a turn that failed after it still made
+	// it, and the pass's record has to say so.
+	Saved []runstate.SavedWrite `json:"saved,omitempty"`
 }
 
 // ErrRoleUnreachable reports a firing that failed before the role was asked
@@ -949,6 +954,14 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	}
 	var merged *sweep.Result
 	var problems []string
+	// What an unfinished pass before this one already saved is said in this
+	// one's message, since it is run again over what that one was owed and
+	// would otherwise write the same memories and report a second time.
+	if already, problem := t.savedByUnfinishedPasses(name); problem != "" {
+		problems = append(problems, problem)
+	} else if len(already) > 0 {
+		message += "\n\n" + alreadySavedMessage(already)
+	}
 	failed := false
 	for turn := 0; turn < task.Turns(); turn++ {
 		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message)
@@ -957,6 +970,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		// is the model it cost that on, which is what the spend is attributed to.
 		fired.CostUSD += answered.CostUSD
 		recorded.CostUSD += answered.CostUSD
+		// And so is what it saved: a memory or a lane report is kept the moment its
+		// store records it, so a turn that failed afterwards still made it.
+		for _, saved := range answered.Saved {
+			if len(recorded.Saved) < runstate.MaxSweepSavedWrites {
+				recorded.Saved = append(recorded.Saved, saved)
+			}
+		}
 		if model := strings.TrimSpace(answered.Model); model != "" && len(model) <= runstate.MaxSweepModelBytes {
 			recorded.Model = model
 			fired.Model = model
@@ -991,6 +1011,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			}
 			problems = append(problems, describeFailedTurn(name, task.Role, turn+1, err))
 			failed = true
+			if len(recorded.Saved) > 0 {
+				problems = append(problems, describeSavedBeforeFailing(name, recorded.Saved))
+			}
 			break
 		}
 		fired.Turns++
@@ -1065,6 +1088,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	}
 	recorded.EndedAt = t.now()
 	recorded.Result = merged
+	recorded.Failed = failed
 	// The harness's own reading of the forge joins the account after the role's
 	// turns, so what the role said is intact and what the harness noticed is
 	// stated beside it.
@@ -1290,6 +1314,67 @@ func describeFailedTurn(name string, role domain.AgentRole, turn int, err error)
 		return fmt.Sprintf("turn %d of the recurring task %s could not be put to the %s, so its pass is partial and carries only the turns before it: %v", turn, name, role, err)
 	}
 	return fmt.Sprintf("turn %d of the recurring task %s failed, so its pass is partial: %v", turn, name, err)
+}
+
+// maxAlreadySavedListed bounds how many saved writes the message waking a pass
+// lists, so the list never costs the pass its message; the count beside them is
+// whole.
+const maxAlreadySavedListed = 20
+
+// describeSavedBeforeFailing is the record's account of what a pass that failed
+// had already saved: every one of those writes stands, and the failure it
+// follows undid none of them.
+func describeSavedBeforeFailing(name string, saved []runstate.SavedWrite) string {
+	described := make([]string, 0, len(saved))
+	for _, write := range saved {
+		described = append(described, write.Describe())
+	}
+	return fmt.Sprintf("before that failure the pass of %s saved %d write(s), which stand and were not undone: %s; the next pass is told of them so it does not write them again",
+		name, len(saved), strings.Join(described, ", "))
+}
+
+// savedByUnfinishedPasses is every memory and lane-report write this task's
+// passes saved since its last pass that finished: the passes the next one is
+// run again over what they were owed. It reports what stopped it reading the
+// earlier passes as a problem for the record, and then lists nothing, since a
+// pass told nothing reads the same as one told there was nothing.
+func (t Trigger) savedByUnfinishedPasses(name string) ([]runstate.SavedWrite, string) {
+	if t.Reports == nil {
+		return nil, ""
+	}
+	recorded, _, err := t.Reports.List()
+	if err != nil {
+		return nil, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told what an unfinished one had already saved: %v", name, err)
+	}
+	var saved []runstate.SavedWrite
+	for i := len(recorded) - 1; i >= 0; i-- {
+		earlier := recorded[i]
+		if earlier.Task != name {
+			continue
+		}
+		if !earlier.Unfinished() {
+			break
+		}
+		saved = append(append([]runstate.SavedWrite(nil), earlier.Saved...), saved...)
+	}
+	return saved, ""
+}
+
+// alreadySavedMessage tells a pass what an unfinished pass before it already
+// saved, so it revises those memories and that report only where what they say
+// has changed rather than writing them again.
+func alreadySavedMessage(saved []runstate.SavedWrite) string {
+	lines := []string{
+		fmt.Sprintf("A pass of yours before this one did not complete, and the %d write(s) it made into your memory and your lane report before it stopped were kept. They stand now, so do not write them again; revise one only where what it says has changed:", len(saved)),
+	}
+	for index, write := range saved {
+		if index == maxAlreadySavedListed {
+			lines = append(lines, fmt.Sprintf("- and %d more not listed here; each is in your memory or your report already", len(saved)-maxAlreadySavedListed))
+			break
+		}
+		lines = append(lines, "- "+write.Describe())
+	}
+	return strings.Join(lines, "\n")
 }
 
 // wakeMessage is what the harness says when it wakes a role for a task.

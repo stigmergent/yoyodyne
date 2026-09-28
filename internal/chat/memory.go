@@ -329,6 +329,23 @@ func (s *Session) memoryContinuity(write MemoryWrite) (runstate.MemoryContinuity
 	return runstate.MemoryContinuityAgent, "", nil
 }
 
+// savedMemories is the writes among outcomes that the store recorded, as a
+// pass's record names them.
+func savedMemories(outcomes []MemoryOutcome) []runstate.SavedWrite {
+	var saved []runstate.SavedWrite
+	for _, outcome := range outcomes {
+		if outcome.Recorded {
+			saved = append(saved, runstate.SavedWrite{
+				Kind:     runstate.SavedMemory,
+				Action:   outcome.Write.Action,
+				Memory:   outcome.Write.Memory,
+				Revision: outcome.Sequence,
+			})
+		}
+	}
+	return saved
+}
+
 func memoryEventPayload(outcome MemoryOutcome) map[string]any {
 	return map[string]any{
 		"memory_id": outcome.ID,
