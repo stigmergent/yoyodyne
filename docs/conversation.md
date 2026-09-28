@@ -1620,9 +1620,12 @@ The last is the only entry that is a judgement rather than an observation, and
 the only one raised before anything has been spent failing. Either role can say
 it in the round it reached — the developer as a landing outcome, the reviewer as
 a verdict — and the run ends there with nothing integrated and the item parked
-until she decides. What she is being asked for is a decision about the item
-rather than about a change: replan, park, resequence, or redirect. `docs/work.md`
-says what each role writes to raise one.
+until its owner amends it and releases it, or she retires the raise. What she is
+being asked for is a decision about the item rather than about a change: replan,
+park, resequence, or redirect, and then what becomes of the raising run's change
+once the item is amended — [deciding what becomes of stopped
+work](#deciding-what-becomes-of-stopped-work) says how a raise is decided.
+`docs/work.md` says what each role writes to raise one.
 
 A stopped run reaches the docket by either of two routes. Most of them end on a
 durable blocker, which dockets itself as the run stops, or which a `yoyo
@@ -1706,7 +1709,7 @@ item is different stopped work and is its own entry.
 **A decision closes the entry it settled**, which is the other half of that
 lifecycle: an entry is created where work stops and closed where somebody
 decides. The docket is rebuilt from the durable records at every scan, so an
-entry nothing closed came back on every docket after it — and three of the six
+entry nothing closed came back on every docket after it — and four of the seven
 decisions that settle a stoppage spend no budget, so nothing the harness reads could tell a stoppage
 somebody had settled from one nobody had looked at. The decision is recorded
 beside the entry rather than over it: the entry stays on the log, which is what
@@ -1774,7 +1777,8 @@ names the run the entry is about: `repair` hands the item another bounded go at
 the change it has, `rerun` runs it again from the start, `rescope` splits out
 what was refused as out of scope, `rearm` repeats a merge the forge dropped —
 or arms one nothing ever asked the forge for, which is also answered by
-`rerun` — `wait` says the forge still has it, and `escalate` hands it to you. One more,
+`rerun` — `wait` says the forge still has it, `escalate` hands it to you, and
+`retire-raise` ends a raise its owner's amendment made moot. One more,
 `stop`, is about a run that has not stopped yet: it names a run still in flight
 whose work is superseded, narrowed, or mis-launched, with the item doing the work
 instead as `superseded_by` where there is one, and the harness asks that run to
@@ -1801,7 +1805,8 @@ reasoning beside the evidence rather than deciding it a second time, and it
 closes the entry it settled — a repair, a re-run, or a re-scope closes the
 run's own entries, whichever of the stopped run, the run that died before it
 claimed, and the escalation a role raised from it the run carries, and a re-run
-closes the unfinished publication's entry too; a re-arm or a
+closes the unfinished publication's entry too, and retiring a raise closes the
+raise's; a re-arm or a
 wait closes the unfinished publication's entry, `wait` only until the merge has
 been sitting there as long again and `rearm` for good; and an escalation closes
 all of them, because an escalated item is waiting on you and none of it is hers
@@ -1817,6 +1822,36 @@ pull reads the item again, and takes the entry off once the item asks for nothin
 the tree lacks, has left the backlog, or has been restated — in which case it is
 docketed again in its new words. An attempt that never became a run is closed by
 nothing of hers either; like every entry, it closes when its item does.
+
+**An item a role raised as unmeetable is decided with two of these, and a
+repair is not one of them.** The run that raised it did not stop: it succeeded
+at saying the item cannot be met as it stands, parked the item, and left what it
+had written on its branch. There is no stopped run for a repair to continue, so
+`repair` on a raise is refused before anything is spent, in a sentence naming
+the two decisions that apply. What ends the raise is the item's owner: the Lead
+Product Manager amends the item and releases the raise's parking, and that
+release also clears the blocked status left while the raise stood — the
+escalation that followed it, most often — so a pull can select the item. What
+becomes of the raising run's change is the development manager's. `rerun` starts
+the item again from that change where its branch still stands: the fresh
+worktree is cut from the target branch as every worktree is, and what the
+raising run's branch carries past the target is applied to it, uncommitted,
+before the developer is invoked, so the fresh run's change is judged whole
+against the target and the run records the commit it started from. It is
+carried out like any re-run, by the pass or by `yoyo triage rerun`, once the
+owner has released the parking — asked for while the raise's parking stands, it
+is refused with nothing spent, and asking again after the release carries out
+the same decision — and the item is held from a fresh pull until it starts. A
+change that no longer merges with the target fails that run rather than being
+half-applied. `retire-raise` is for when the amendment makes that change moot:
+it spends nothing, is carried out as it is recorded, lifts the parking the raise
+placed and no other, clears the blocked status the raise left, closes the
+raise's entry, and the item starts from the target branch at its next pull. A
+pull that reaches a released item before she has decided either starts it from
+the target branch too. On 2026-09-27 yoyodyne-ifd.437.13 cost a repair grant, a
+re-run, and two escalations because none of this existed: the repair and the
+re-run were each refused at carry-out for want of a stopped run, and once its
+owner had amended and released it the item still read blocked.
 
 **It also lands as a record the harness reads**: the decision, the stoppage it
 settles, the reasoning verbatim, and where it was recorded, on the item's durable
@@ -1837,7 +1872,7 @@ about a change that item never made. A run the harness has no record of is
 refused the same way, since nothing then says the decision is about that item's
 stoppage at all.
 
-Five of the seven the harness holds to more than a note. **A repair, a re-run,
+Six of the eight the harness holds to more than a note. **A repair, a re-run,
 and a re-arm each spend the item's durable budget as they are recorded**, and are
 refused once it is gone — the refusal names every budget that refused, what each
 has spent, and the ceiling that would permit the decision.
@@ -1846,7 +1881,7 @@ A repair and a re-run are each once per item, and a re-arm once per publication
 [review-round cap](configuration.md#what-one-work-item-has-been-given) even
 the first is refused.
 
-**The seventh decision is `cross`, and it is what she does about that refusal
+**The eighth decision is `cross`, and it is what she does about that refusal
 without waking you.** It raises the budget the refusal named to exactly the
 ceiling that refusal quoted — one more than the item has spent against it — it
 takes the reason it is being crossed for, and it is bounded to five per item;
@@ -1882,7 +1917,9 @@ harness refuses one carrying no such report rather than blocking an item you
 were never told about. The decision itself is
 [a finding that needs your hand](operations.md#where-a-finding-that-needs-your-hand-goes):
 it is said to you directly once, and named under `Needs a human` on
-`yoyo status` while it stands as the decision on the item's latest stopped run. `rescope` and `wait` are the two that are a note and
+`yoyo status` while it stands as the decision on the item's latest stopped run. **A `retire-raise` lifts the raise's own parking and the blocked status it
+left, and closes the raise's entry**, as it is recorded, as the paragraph on
+raises above says. `rescope` and `wait` are the two that are a note and
 nothing else — a re-scope's real work is the child item it creates beside the
 note, and a wait asks for nothing at all.
 
@@ -1893,7 +1930,7 @@ leaves an action that half happened — and the result reports it as one: it nam
 the spend as landed and not to be made again, and says whether the write reached
 the item, which it settles by reading the item back and saying what it found or
 saying plainly that it could not. What it looks for is what that decision would
-have left: the note for the six that write one, and for an escalation
+have left: the note for the seven that write one, and for an escalation
 the blocker itself, since blocking sets the item's status as well as recording
 the reason — and an item that was already blocked when the decision was asked for
 settles nothing, because that blocker is somebody else's. A crossing is settled
@@ -1901,7 +1938,7 @@ the same way, naming the cap it already moved rather than a spend: the cap is
 raised on the durable record before the note is written, and a crossing reported
 as having changed nothing is one asked for again, at the cost of another of the
 five. A decision that spends
-nothing — an escalation, a re-scope, a wait — has no spend to name, and a write of
+nothing — an escalation, a re-scope, a wait, a retired raise — has no spend to name, and a write of
 one that cannot be confirmed is reported the same way rather than as a failure:
 it says it did not finish and that what it may have changed is not settled,
 because the harness not knowing is not the same claim as nothing having happened. That distinction is not cosmetic: on
@@ -1910,8 +1947,9 @@ while its spend had already landed, and what stopped the same decision being
 asked for a second time was the cap refusing it rather than anything anybody was
 told.
 
-Recording a decision is not carrying it out, and three of the seven now have an
-action that does. Two are the opposite answers to a run that stopped: `yoyo
+Recording a decision is not carrying it out, and three of the eight now have an
+action that does; a fourth, `retire-raise`, needs none, because it is carried
+out as it is recorded. Two are the opposite answers to a run that stopped: `yoyo
 triage rerun` starts the item over, and `yoyo triage repair` continues the run
 that stopped on the change it already has. The third, `yoyo triage rearm`, is
 about a publication rather than a run: it repeats the merge request the forge
@@ -1940,7 +1978,8 @@ two commands.
 
 `yoyo triage rerun <run-id>` starts a fresh run of the item whose stopped run the
 docket entry names — the case where the ground moved under a change that was
-never wrong. It takes the run and nothing else: why the run exists is read from
+never wrong — or whose raise it names, once the item's owner has released it,
+starting from the raising run's preserved change. It takes the run and nothing else: why the run exists is read from
 the recorded decision and cites it, so the account is one you can check.
 **Your hold on intake applies to it**,
 because the harness is the one choosing here and the exemption for an item named
@@ -1948,7 +1987,8 @@ by hand is yours rather than the development manager's.
 
 Four things refuse it. The stopped run has to be really over — terminal, and
 still standing on whichever of the two put it on the docket: its blocker, or, for
-a run that died before anything recorded one, the change it left behind. Either
+a run that died before anything recorded one, the change it left behind — or,
+for a raise, the raise itself, with the item no longer parked by it. Either
 way that is read from the run's own record rather than from the docket entry. One
 docketed stoppage is re-run once. The work item has to be one a run
 may start on — open or blocked, with nothing it depends on outstanding. Blocked
@@ -2175,8 +2215,9 @@ rather than at the next pull. Before yoyodyne-ifd.429.31 nothing armed this
 state, and its only exit was a hand merge on the forge.
 
 The harness carries out none of the other three: a re-scope, a wait, and an
-escalation ask for no action at all. A `stop` is carried out as it is recorded
-rather than by a pass, and spends nothing. The budget is spent when the decision is
+escalation ask for no action at all. A `stop` and a `retire-raise` are each
+carried out as they are recorded rather than by a pass, and neither spends
+anything. The budget is spent when the decision is
 recorded whether or not the harness acts on it, which is the same direction
 every counter here fails in: an attempt nobody took rather than one nobody
 counted. What triage changed is that stopped work is decided by the role that

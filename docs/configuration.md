@@ -4737,7 +4737,7 @@ round cap, which they share with each other and with every run of the item. The
 [table below](#what-one-work-item-has-been-given) says which bound refuses
 which.
 
-Recording a decision and carrying it out are two steps, and three of the seven
+Recording a decision and carrying it out are two steps, and three of the eight
 decisions have an action for the second. Two of them are the opposite answers to
 a run that stopped: `yoyo triage rerun` starts the item over, and `yoyo triage
 repair` continues the run that stopped on the change it already has. The third,
@@ -5145,9 +5145,9 @@ three separate budgets, and one publication being out says nothing about the
 others.
 
 **The first line counts what has been spent, not how many times triage looked.**
-Three of the development manager's seven decisions spend a budget here — a
-repair grant, a re-run, a merge re-arm — and `wait`, `rescope`, and `escalate`
-cost nothing and reach no counter, so an item that was escalated reads `triage
+Three of the development manager's eight decisions spend a budget here — a
+repair grant, a re-run, a merge re-arm — and `wait`, `rescope`, `escalate`, and
+`retire-raise` cost nothing and reach no counter, so an item that was escalated reads `triage
 has spent nothing on it`. A `cross` reaches no counter here either: it moves a
 cap rather than spending one, and where it is reported is the crossing lines
 under these budgets. Whether stopped work has been decided, and what was

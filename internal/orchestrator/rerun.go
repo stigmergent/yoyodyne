@@ -354,7 +354,7 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	// flight below describe something that is still moving, so both stop being
 	// true on their own — which is what a reader of either refusal has to act on,
 	// and why each of them says the stoppage kept its re-run.
-	if err := stoppageIsOver(prior); err != nil {
+	if err := rerunnable(prior); err != nil {
 		return result, unspentRefusal(err)
 	}
 	if err := r.noRunInFlight(entry.WorkItemID); err != nil {
@@ -375,6 +375,16 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	item, err := r.itemCanBeRun(ctx, entry.WorkItemID)
 	if err != nil {
 		return result, err
+	}
+	// A raise is re-run only once the item's owner has amended it and released
+	// the parking the raise placed: the raise said the item could not be met as
+	// it stood, so running it again as it stands would be the run the raise was
+	// raised to save. The release is the owner's act and the one the tracker
+	// records, so it is what is read.
+	if prior.Escalated() {
+		if err := raiseReleased(item, prior); err != nil {
+			return result, unspentRefusal(err)
+		}
 	}
 	// The hold is read before the claim, so a held harness leaves the stoppage its
 	// one re-run rather than spending it on a run that would decline to start.
@@ -443,6 +453,7 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 		By:     runstate.SelectedByDevelopmentManager,
 		Reason: result.Reason,
 		At:     r.now(),
+		Lift:   liftOf(prior, result.Preserved),
 	})
 	// The last free slot going to another run between the reading above and the
 	// reservation is the same waiting state read a moment too late, and it has to
@@ -532,10 +543,23 @@ func (r Rerunner) handBackPublication(ctx context.Context, entry triage.Entry, r
 // answer, and handing the change back for a fresh run is the other. Whether the
 // run's record still says nothing was asked is stoppageIsOver's to check, off
 // the record rather than the entry.
+//
+// A re-run is the one carry-out that answers a raise as well as a stoppage: an
+// item a role raised as unmeetable is docketed as that raise rather than as a
+// stopped run, because the run that raised it succeeded at what it was for, and
+// running it again once its owner has amended it is one of the two decisions
+// that answer one. A stopped run's entry is taken first where a run has both.
 func (r Rerunner) entry(priorRunID string) (triage.Entry, error) {
 	entry, err := docketedStoppage(r.Docket, priorRunID, "run again")
 	if err == nil {
 		return entry, nil
+	}
+	raise, found, raiseErr := docketedRaise(r.Docket, priorRunID)
+	if raiseErr != nil {
+		return triage.Entry{}, raiseErr
+	}
+	if found {
+		return raise, nil
 	}
 	entries, listErr := r.Docket.List()
 	if listErr != nil {
@@ -547,6 +571,61 @@ func (r Rerunner) entry(priorRunID string) (triage.Entry, error) {
 		}
 	}
 	return triage.Entry{}, err
+}
+
+// docketedRaise finds the raise one run put on the docket, and whether there is
+// one at all.
+func docketedRaise(docket RerunDocket, priorRunID string) (triage.Entry, bool, error) {
+	entries, err := docket.List()
+	if err != nil {
+		return triage.Entry{}, false, fmt.Errorf("read the triage docket: %w", err)
+	}
+	for _, candidate := range entries {
+		if candidate.Class == triage.ClassEscalation && candidate.RunID == priorRunID {
+			return candidate, true, nil
+		}
+	}
+	return triage.Entry{}, false, nil
+}
+
+// rerunnable is stoppageIsOver widened by the one run a re-run answers that did
+// not stop: a run that ended by raising its item as unmeetable. Such a run
+// succeeded — raising is what it was for — and carries no blocker, so the
+// stoppage rule refuses it; what makes it something a person decides about is
+// the raise itself, read from the run's own record.
+func rerunnable(prior runstate.State) error {
+	if prior.Status.Terminal() && prior.Escalated() {
+		return nil
+	}
+	return stoppageIsOver(prior)
+}
+
+// raiseReleased reports the item a raise parked having been released by its
+// owner, which is the owner saying the item has been amended so that it can be
+// met. A parking somebody else placed since holds the re-run just the same:
+// whatever it waits on, the item is not to be started until it is released.
+func raiseReleased(item beads.WorkItem, prior runstate.State) error {
+	if !item.Parking.Parked() {
+		return nil
+	}
+	if raisedBy, raised := runstate.RaisedBy(item.Parking.Reason()); raised && raisedBy == prior.RunID {
+		return fmt.Errorf("run %s raised %s as one that cannot be met as it stands, and the item is still parked by that raise; a re-run of a raise waits for the item's owner to amend it and release the parking",
+			prior.RunID, item.ID)
+	}
+	return fmt.Errorf("%s is parked (%s), and a re-run of the raise run %s made is not started until the item is released",
+		item.ID, singleLine(item.Parking.Reason(), 300), prior.RunID)
+}
+
+// liftOf is the preserved change a re-run of a raise starts from, where one
+// stands: the branch the raising run's record says is still there. A re-run of a
+// stopped run starts from the target as it always has — the ground moved under
+// that change, which is why it is being run again — and so does a raise whose
+// branch is gone.
+func liftOf(prior runstate.State, preserved runstate.PreservedArtifacts) *runstate.Lift {
+	if !prior.Escalated() || strings.TrimSpace(preserved.Branch) == "" {
+		return nil
+	}
+	return &runstate.Lift{RunID: prior.RunID, Branch: preserved.Branch}
 }
 
 // docketedStoppage finds the docketed stoppage of one run, for whichever action

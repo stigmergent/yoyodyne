@@ -374,6 +374,10 @@ func (c CarryOut) read() (carryOutReading, error) {
 	// about it is fired off that entry, so the claim it makes and the claim this
 	// reads back are keyed alike. Only a re-run is ever offered from one, because
 	// taskFor offers nothing else a publication can be decided.
+	//
+	// A run docketed as a stoppage and as a raise is one run with one decision,
+	// and it is offered once, under the stoppage's entry, which is the one the
+	// carry-out itself takes where a run has both.
 	stoppedRuns := make(map[string]bool, len(entries))
 	for _, entry := range entries {
 		if entry.Class == triage.ClassStoppedRun {
@@ -384,7 +388,15 @@ func (c CarryOut) read() (carryOutReading, error) {
 		if entry.WorkItemID == "" {
 			continue
 		}
-		if entry.Class != triage.ClassStoppedRun && (entry.Class != triage.ClassPublication || stoppedRuns[entry.RunID]) {
+		if entry.Class == triage.ClassEscalation && stoppedRuns[entry.RunID] {
+			itemFor(entry.WorkItemID)
+			continue
+		}
+		// A raise is walked as a stoppage is: a re-run is one of the two decisions
+		// that answer it, and the key a carry-out claims against is the raise's
+		// own, so the decision has to be offered under that entry rather than under
+		// one synthesized for a stopped run it never was.
+		if entry.Class != triage.ClassStoppedRun && entry.Class != triage.ClassEscalation && (entry.Class != triage.ClassPublication || stoppedRuns[entry.RunID]) {
 			itemFor(entry.WorkItemID)
 			continue
 		}
@@ -615,6 +627,12 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 			return CarryOutTask{}, false, nil, nil
 		}
 	case runstate.TriageDecisionRepair:
+		// A raise has no stopped run for a repair to continue, which is why
+		// recording one on it is refused; a repair recorded on one before that
+		// refusal existed is not offered, since carrying it out could only refuse.
+		if entry.Class == triage.ClassEscalation {
+			return CarryOutTask{}, false, nil, nil
+		}
 		outstanding, err := i.repairOutstanding(entry.WorkItemID, history)
 		if err != nil {
 			return CarryOutTask{}, false, nil, err

@@ -2207,8 +2207,13 @@ type State struct {
 	// what grounds. It is written when the run is reserved and never rewritten.
 	// Absent means nothing accounted for the choice, which is not the same as a
 	// choice with no reason and is reported as such.
-	Selection *Selection     `json:"selection,omitempty"`
-	Backend   domain.Backend `json:"backend"`
+	Selection *Selection `json:"selection,omitempty"`
+	// LiftedCommit is the commit of an earlier run's preserved branch this run
+	// was started from, where its selection asked for one and the lift was made:
+	// what that branch carried past the target was applied to this run's worktree
+	// before its developer was invoked. It is absent on every other run.
+	LiftedCommit string         `json:"lifted_commit,omitempty"`
+	Backend      domain.Backend `json:"backend"`
 	// AccountAlias is the provider account this run's agents ran under, named by
 	// the alias the configuration gives it. It is written when the run is reserved
 	// and never rewritten, because it is a fact about what was spent rather than
@@ -3044,6 +3049,16 @@ func (s State) Validate() error {
 			problems = append(problems, fmt.Errorf("selection: %w", err))
 		}
 	}
+	// A lifted commit is evidence of what the run started from, so it names a
+	// commit and it names one only where the run was selected to lift one.
+	if s.LiftedCommit != "" {
+		if !commitPattern.MatchString(s.LiftedCommit) {
+			problems = append(problems, errors.New("lifted_commit is invalid"))
+		}
+		if s.Selection == nil || s.Selection.Lift == nil {
+			problems = append(problems, errors.New("lifted_commit requires the selection that asked for the lift"))
+		}
+	}
 	// All three are absent from every record written before they were carried, so
 	// what is checked is the shape of one that is there: a record naming an
 	// account, a configuration, or a build nothing could have produced says less
@@ -3852,6 +3867,38 @@ func (s State) EscalationReason() string {
 	default:
 		return ""
 	}
+}
+
+// raiseParkingOpening is how the parking an unmeetable raise places on its item
+// opens, up to the run identifier and after it. It is spelled once here because
+// two packages read it: the run that raises writes it, and the conversation that
+// releases the parking reads it back to know the release is the one that ends a
+// raise rather than one that lifts somebody's deferral.
+const (
+	raiseParkingOpening = "yoyodyne run "
+	raiseParkingRaised  = " raised this item as one that cannot be met as it stands"
+)
+
+// RaiseParking is the parking reason an unmeetable raise places on its item: the
+// raising run, what that parking waits on, and the raiser's own account.
+func RaiseParking(runID, account string) string {
+	return raiseParkingOpening + runID + raiseParkingRaised +
+		"; it is with the development manager to decide and is not to be started again until its owner amends and releases it or she retires the raise: " + account
+}
+
+// RaisedBy reports the run whose unmeetable raise placed a parking, and whether
+// the parking is one at all. A parking anybody else wrote — a deferral, a run's
+// evidence landing — reports nothing.
+func RaisedBy(parking string) (string, bool) {
+	rest, found := strings.CutPrefix(strings.TrimSpace(parking), raiseParkingOpening)
+	if !found {
+		return "", false
+	}
+	runID, _, found := strings.Cut(rest, raiseParkingRaised)
+	if !found || !ValidRunID(runID) {
+		return "", false
+	}
+	return runID, true
 }
 
 // LandingDischarges is the developer's half of the question above: whether what

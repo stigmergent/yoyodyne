@@ -408,9 +408,8 @@ func undischargedParking(state runstate.State) domain.WorkItemParking {
 	// from the others: every other one waits for anybody who reads it to decide,
 	// and this one is already in front of somebody.
 	if state.Escalated() {
-		return domain.WorkItemParking(singleLine(fmt.Sprintf(
-			"yoyodyne run %s raised this item as one that cannot be met as it stands; it is with the development manager to decide and is not to be started again until she has: %s",
-			state.RunID, state.EscalationReason()), domain.MaxWorkItemParkingBytes))
+		return domain.WorkItemParking(singleLine(
+			runstate.RaiseParking(state.RunID, state.EscalationReason()), domain.MaxWorkItemParkingBytes))
 	}
 	// An item its reviewer left open is parked in the reviewer's words, because
 	// they are the only account of that decision: the developer claimed the
