@@ -499,9 +499,10 @@ heard of, which is the clearest single measure of how far the file has moved.
 
 ## What the README becomes
 
-The README keeps four things and links out for everything else: the value
-proposition, the testimonials, everything a newcomer needs to reach a working
-first run, and the index. It keeps **nothing extra to service a link** — no
+The README keeps three things and links out for everything else: the value
+proposition, everything a newcomer needs to reach a working first run, and the
+index. It kept a fourth, the testimonials, until the 2026-09-26 rewrite
+(yoyodyne-ifd.437.13) removed them. It keeps **nothing extra to service a link** — no
 Tier 1 stub of its own — and that is a result of the sweep above rather than an
 assumption. The two README anchors whose sections were held back for the
 configuration split, and `#configuring-a-project` above them, were retired by the
@@ -646,10 +647,10 @@ content with no row here stops and reports rather than choosing a home.
 
 **This table was executed by yoyodyne-ifd.160 on 2026-08-24, and every row
 marked `stays` or naming one of the six landed documents is now spent.** The
-README carries the value proposition, the testimonials, the gates, the quick
-start, the bounds, `## Install`, `## Getting started` with its three steps and
+README carries the value proposition, the gates, the quick start, the bounds, `## Install`, `## Getting started` with its three steps and
 `Optional: publishing and auto-merge`, and the index — plus one section the
-table did not have a landed home for, below. Its counts were the README as it
+table did not have a landed home for, below. It also carried the testimonials
+until the 2026-09-26 rewrite (yoyodyne-ifd.437.13) removed them. Its counts were the README as it
 stood at 2,602 lines rather than the 3,792 it reached before the trim, and they
 are left as drafted because what they were for has happened.
 
