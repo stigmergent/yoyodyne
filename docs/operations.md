@@ -1900,22 +1900,24 @@ the queue was landing them.
   rather than the run — intake held, every developer slot taken, or a pass that
   hosts no runs, such as the settle a conversation makes — the merge is left
   queued with the checks beside it and the reason, for the next `yoyo reconcile`.
-- **Checks that failed in the job rather than on a file.** The forge files an
-  annotation on `.github` — a directory, never a file a change touches — when
-  the job itself went wrong: it was cancelled, ran out of time, never started,
-  lost its runner, or had a step exit non-zero without naming a file. A failing
-  check whose only annotations are there, or that has none, says nothing about
-  the tree, so before anything is decided on it the sweep asks the forge to run
-  that job again on the same head (`POST /repos/{owner}/{repo}/actions/jobs/{id}/rerun`)
-  and leaves the merge queued. A re-run that passes is the forge landing the
-  merge. Each head gets at most two re-runs, counted on the publication's check
-  reading; a job still failing after them, or one the forge will not run again
-  (a check no Actions job ran, or a `gh` token without the right to re-run
-  jobs), is handed back as below, saying the job failed rather than any file.
-  On 2026-09-28 pull requests 863 (adoption, 04:15 UTC) and 866 (build, 06:08
-  UTC) were handed to a person as main being red on exactly such failures,
-  while four other merges landed through the same checks on main around them.
-  A job waiting on a person's approval is not re-run.
+- **A job the forge ended itself.** A check the forge reports as cancelled,
+  timed out, or never started (`startup_failure`), whose only annotation is the
+  forge's own on `.github` or that has none, was ended before any step decided
+  anything, so before anything is decided on it the sweep asks the forge to run
+  that job again on the same head
+  (`POST /repos/{owner}/{repo}/actions/jobs/{id}/rerun`) and leaves the merge
+  queued. A re-run that passes is the forge landing the merge. Each head gets at
+  most two re-runs, counted on the publication's check reading with the check
+  runs sent back; the forge gives a re-run a check run of its own, so a sweep
+  that reads the old one again before the re-run has started spends nothing. A
+  job ended again after both re-runs, or one the forge will not run again (a
+  check no Actions job ran, or a `gh` token without the right to re-run jobs),
+  is handed back as below, saying the forge ended it. A job waiting on a
+  person's approval is not re-run. Neither is a step that failed: GitHub files
+  "Process completed with exit code 2" on `.github` too, and that is what a
+  genuine red test looks like, so a failed step annotated only there is handed
+  back as below, described as a step that failed without naming a file, with
+  the forge's log of the run named as where to look.
 - **Anything else red** — a failing check whose annotations name a file the
   change touches, or a head already level with its target, where nothing but the
   change differs and an update would change nothing — is handed back. The queued
@@ -1954,9 +1956,9 @@ checks failing on the change itself. A reading of the checks the forge could
 not give leaves the record as it stands for the next sweep.
 
 A check that annotates no file says nothing about whose failure it is, and is
-not read as the change's: it is run again as a failure in the job is, and a
-head behind its target still failing only such checks is brought up to date,
-and if it still fails once level with its target it is handed back. A reading the forge could not give leaves the merge queued, says
+not read as the change's: a head behind its target failing only such checks is
+brought up to date, and if it still fails once level with its target it is
+handed back. A reading the forge could not give leaves the merge queued, says
 so, and writes nothing — a check state nobody read is not a red one. A merge
 nobody has read the checks of yet is docketed saying exactly that rather than
 as approved and queued with nothing beside it.
