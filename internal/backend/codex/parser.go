@@ -293,6 +293,18 @@ func (p *streamParser) EmitProcessOutput(output execution.Output) error {
 	})
 }
 
+// RecordAfterReply writes into the invocation's log what became of a process
+// that went on running after its terminal: waiting on it, and then which way
+// it ended. It is its own line rather than a stderr one, so it is never read as
+// the provider's prose.
+func (p *streamParser) RecordAfterReply(account execution.AfterReply) error {
+	return p.emit(execution.EventProcessOutput, map[string]any{
+		"stream":      "harness",
+		"text":        account.Describe(p.clock.Now()),
+		"after_reply": account,
+	})
+}
+
 // keepPlain holds one redacted line of a plain channel for ObservePlainOutput,
 // up to the same bound an event's text is held to. A refusal the CLI makes
 // before it writes anything structured is one short line at the front, so what

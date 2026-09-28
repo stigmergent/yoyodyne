@@ -262,6 +262,11 @@
     if (run.resuming_integration) {
       return "approved, resuming integration";
     }
+    // A developer whose turn is over and whose session is still running on
+    // work it backgrounded is not the provider developing; the model says so.
+    if (run.after_reply) {
+      return run.after_reply;
+    }
     return run.phase || "no phase recorded yet";
   }
 

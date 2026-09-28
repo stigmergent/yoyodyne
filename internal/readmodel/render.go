@@ -476,6 +476,9 @@ func phaseOf(run RunningRun) string {
 	if run.Checks != "" {
 		return run.Checks
 	}
+	if run.AfterReply != "" {
+		return run.AfterReply
+	}
 	if strings.TrimSpace(string(run.Phase)) == "" {
 		return "no phase recorded yet"
 	}

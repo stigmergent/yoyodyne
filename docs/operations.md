@@ -1385,6 +1385,26 @@ The reason is reported as what it was, a stall or an exhausted budget, and
 neither is ever described as the agent having reported a failure, because it
 reported nothing. Only a stop with nothing to continue from — no session, no
 worktree — ends the run, and it still says the harness stopped the provider.
+
+**A session that has written its final reply has ended its turn, and is never
+stopped as stalled.** Both adapters read the provider's own result — Claude
+Code's `result`, Codex's terminal — as the end of the turn, and from that line
+on the five-minute silence bound no longer applies. A process still running
+after it is being kept alive by work the agent started in the background, a
+`make test` or `make race` left running, and not by a provider gone quiet. The
+harness waits that work out for up to five minutes, with anything it prints
+still going into the run's event log, and then ends it. The run's record
+(`after_reply`) and the log say which of the two happened: the work finished on
+its own, or it was still running at the bound and was ended. While the wait
+lasts, `yoyo status` and the dashboard show the run as `reply written, waiting
+for background processes: 2m of 5m` instead of `developing`. The run then goes
+on to its checks with the reply it wrote. Nothing is recorded as a stall, and
+neither the harness's stall continuation nor a development manager decision is
+used on it. Until yoyodyne-ifd.435.6 that state was read as silence: on
+2026-09-28 run-008b0e25 wrote its final reply at 11:58:33 PDT and was stopped as
+a stall five minutes later, over the `make test` and `make race` it had
+backgrounded.
+
 Short Git commands keep a deadline of their own rather than a liveness signal,
 which is the right bound for a command whose duration is known — known on an
 idle machine, that is. A local Git command is given thirty seconds, scaled by

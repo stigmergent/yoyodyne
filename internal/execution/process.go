@@ -74,6 +74,24 @@ type Command struct {
 	// disables the check, which is what a command whose output arrives in one
 	// burst at the end needs.
 	IdleTimeout time.Duration
+	// Replied reports that the process has written its final reply, and is asked
+	// after each line has been handed to the observer, which is where a caller
+	// reading a provider's stream finds out. Once it answers yes the turn is over:
+	// the idle bound no longer applies, because a process with nothing left to say
+	// is not a stalled one, and what the process goes on doing — work it started
+	// in the background — is waited out to AfterReplyTimeout and then ended. Nil
+	// is a command with no reply to watch for, which is every command but a
+	// provider invocation.
+	Replied func() bool
+	// AfterReplyTimeout bounds how long a process still running after its final
+	// reply is waited for before its tree is ended. Zero or less waits for it
+	// under the total budget alone.
+	AfterReplyTimeout time.Duration
+	// AfterReplyWaiting is called once, with the account so far, when the process
+	// is still running afterReplyNotice after its reply, so a caller can record
+	// that it is waiting on background processes rather than on the provider. It
+	// is called from the goroutine running Run, as the observer is.
+	AfterReplyWaiting func(AfterReply)
 	// MaxOutputBytes bounds what this runner retains of the process's output,
 	// and bounds nothing else: the process runs to its own end however much it
 	// says, and every line still reaches the observer. Zero is
@@ -118,6 +136,11 @@ type ProcessResult struct {
 	// one. It is omitted from the record when there is nothing to say, because a
 	// truncation that did not happen is not a field a reader has to interpret.
 	OutputTruncation string `json:",omitempty"`
+	// AfterReply is the account of a process that went on running after its
+	// final reply, and is absent where it ended within afterReplyNotice of it.
+	// A process ended at the bound after its reply is not a failed one: the
+	// ending was this runner's, and what the invocation said is its reply.
+	AfterReply *AfterReply `json:",omitempty"`
 }
 
 type OutputObserver func(Output)
@@ -153,6 +176,23 @@ type OSProcessRunner struct {
 	// test about a process that keeps talking is not lost to a helper binary
 	// that took longer than the bound to start.
 	idle func(time.Duration) idleBound
+	// afterReply arms the two clocks that start at a final reply — the notice
+	// that the process has outlived it, and the bound it is waited out to — and
+	// is nil for real timers, for the same reason as the two above.
+	afterReply func(time.Duration) (<-chan time.Time, func())
+}
+
+// armAfterReply starts one of the clocks a final reply starts. A span of zero
+// or less is a clock that never fires.
+func (r OSProcessRunner) armAfterReply(span time.Duration) (<-chan time.Time, func()) {
+	if span <= 0 {
+		return nil, func() {}
+	}
+	if r.afterReply != nil {
+		return r.afterReply(span)
+	}
+	timer := time.NewTimer(span)
+	return timer.C, func() { timer.Stop() }
 }
 
 // armBudget starts the total budget's clock.
@@ -259,8 +299,28 @@ func (r OSProcessRunner) Run(ctx context.Context, command Command, observer Outp
 	timedOut := false
 	idle := r.armIdle(command.IdleTimeout)
 	defer idle.stop()
+	// The final reply, once it arrives, ends the turn: from then on the idle
+	// bound is out of the select, and what bounds the process is the wait below.
+	var repliedAt time.Time
+	var noticed, afterBound <-chan time.Time
+	stopNotice, stopAfterBound := func() {}, func() {}
+	defer func() { stopNotice(); stopAfterBound() }()
+	waitingAfterReply := false
+	endedAfterReply := false
+	linesAfterReply := 0
+	afterReplySoFar := func() AfterReply {
+		account := AfterReply{RepliedAt: repliedAt, Lines: linesAfterReply}
+		if command.AfterReplyTimeout > 0 {
+			account.BoundSeconds = int64(command.AfterReplyTimeout / time.Second)
+		}
+		return account
+	}
 drain:
 	for {
+		idleExpired := idle.expired()
+		if !repliedAt.IsZero() {
+			idleExpired = nil
+		}
 		select {
 		case output, received := <-outputs:
 			if !received {
@@ -310,7 +370,36 @@ drain:
 			if observer != nil {
 				observer(output)
 			}
-		case <-idle.expired():
+			switch {
+			case !repliedAt.IsZero():
+				linesAfterReply++
+			case command.Replied != nil && command.Replied():
+				repliedAt = output.Timestamp
+				if repliedAt.IsZero() {
+					repliedAt = clock.Now()
+				}
+				idle.stop()
+				noticed, stopNotice = r.armAfterReply(afterReplyNotice)
+				afterBound, stopAfterBound = r.armAfterReply(command.AfterReplyTimeout)
+			}
+		case <-noticed:
+			// The process is still here well after its reply, so what is keeping
+			// it is work of its own rather than the provider: say so once, to a
+			// caller that records it, and carry on waiting.
+			noticed = nil
+			waitingAfterReply = true
+			if command.AfterReplyWaiting != nil {
+				command.AfterReplyWaiting(afterReplySoFar())
+			}
+		case <-afterBound:
+			// The wait a finished turn is given has run out. The tree is ended and
+			// the drain carries on until both pipes close, so whatever the
+			// background work said on its way down is still reported.
+			afterBound = nil
+			noticed = nil
+			endedAfterReply = true
+			stopProcess()
+		case <-idleExpired:
 			// Nothing has been produced for the whole idle bound, so the process
 			// is not working on anything this runner can see. Terminate the tree
 			// and keep draining until both pipes close, so whatever it did say
@@ -323,7 +412,16 @@ drain:
 			// doing with it. The tree is terminated and the drain carries on
 			// until both pipes close, as for a stall; the channel is put out of
 			// the select so a budget that has fired is not read again.
-			timedOut = true
+			//
+			// A process that has already written its final reply is not one that
+			// ran out of time on its work: the turn was over, and what the budget
+			// ended is the wait after it.
+			if repliedAt.IsZero() {
+				timedOut = true
+			} else {
+				endedAfterReply = true
+				noticed, afterBound = nil, nil
+			}
 			stopProcess()
 			spent = nil
 		}
@@ -336,6 +434,17 @@ drain:
 	// because every other signal in this result reads as a clean finish.
 	reapProcessTree(process)
 	result.FinishedAt = clock.Now()
+	if waitingAfterReply || endedAfterReply {
+		account := afterReplySoFar()
+		account.Outcome = AfterReplyExited
+		if endedAfterReply {
+			account.Outcome = AfterReplyEnded
+		}
+		if waited := result.FinishedAt.Sub(repliedAt); waited > 0 {
+			account.WaitedSeconds = int64(waited / time.Second)
+		}
+		result.AfterReply = &account
+	}
 	if stdoutTruncated || stderrTruncated {
 		result.OutputTruncation = truncationMarker(maxOutput, command.OutputRecord)
 		// The marker goes into each stream that lost a line, so whichever of the
@@ -372,6 +481,11 @@ drain:
 		// The runner stopped this process itself, so the kill it observes is its
 		// own and says nothing about what the process was doing.
 		result.Status = ProcessStalled
+	case endedAfterReply:
+		// The same is true of a process ended after its final reply, and more:
+		// the turn it was running was over, so the kill ends background work
+		// rather than the invocation, and says nothing about either.
+		result.Status = ProcessSucceeded
 	case timedOut || errors.Is(ctx.Err(), context.DeadlineExceeded):
 		result.Status = ProcessTimedOut
 	case errors.Is(ctx.Err(), context.Canceled):

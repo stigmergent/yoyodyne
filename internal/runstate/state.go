@@ -17,6 +17,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -2869,6 +2870,15 @@ type State struct {
 	// a run owed a continuation, exactly as a recorded usage-limit deadline is.
 	// It is cleared by the next attempt, whichever way that one goes.
 	ProviderStop string `json:"provider_stop,omitempty"`
+	// AfterReply is the latest developer attempt's account of a session that
+	// went on running after it had written its final reply — kept alive by work
+	// it started in the background. While the harness waits that work out it has
+	// no outcome, and every surface says "reply written, waiting for background
+	// processes" for the run in place of its phase; once the attempt returns it
+	// says whether the work ended on its own or was ended at its bound. It is
+	// never a stall and never carries a ProviderStop: the turn had ended. An
+	// attempt whose session exited with its reply clears it.
+	AfterReply *execution.AfterReply `json:"after_reply,omitempty"`
 	// DirectivePause records that an unresolved user directive stopped this run
 	// short of finishing: one that changes a governed artifact this work derives
 	// from, or one nobody can act on until the operator says what they meant. Like

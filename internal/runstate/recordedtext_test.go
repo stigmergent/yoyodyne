@@ -99,6 +99,7 @@ var structuredStrings = map[string]string{
 	"pause_cause":                                                   "an enumeration",
 	"provider_outage_channel":                                       "an enumeration",
 	"provider_stop":                                                 "an enumeration",
+	"after_reply.outcome":                                           "an enumeration",
 	"directive_pause.directive_id":                                  "a directive identifier",
 	"directive_pause.kind":                                          "the directive's kind, from a fixed vocabulary",
 	"dependency_pause.blockers[]":                                   "work item identifiers",

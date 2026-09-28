@@ -96,11 +96,24 @@ type RunRequest struct {
 	// this run worth continuing, and is it doing anything at all -- so a backend
 	// applies both rather than letting either stand in for the other. Zero means
 	// the backend's default for each.
-	Timeout      time.Duration
-	IdleTimeout  time.Duration
-	LastSequence uint64
-	RedactValues []string
-	EventSink    func(execution.Event) error
+	Timeout     time.Duration
+	IdleTimeout time.Duration
+	// AfterReplyTimeout is how long a process still running after the provider
+	// has written its final reply is waited for before it is ended, and zero is
+	// the backend's default. A final reply ends the turn, so what keeps the
+	// process alive after it — work the agent started in the background — is
+	// never read as a provider gone silent: it is waited out to this bound, and
+	// the result's Process.AfterReply says whether it ended on its own or was
+	// ended.
+	AfterReplyTimeout time.Duration
+	// AfterReplyWaiting is called once, when the process is still running a
+	// short grace after its final reply, so a caller can record that the run is
+	// waiting on background processes rather than on the provider. It is
+	// optional and decides nothing.
+	AfterReplyWaiting func(execution.AfterReply)
+	LastSequence      uint64
+	RedactValues      []string
+	EventSink         func(execution.Event) error
 	// ReplySink receives the agent's prose as the provider produces it, so a
 	// caller with somebody watching can show a reply forming rather than holding
 	// it until the invocation is over. It is optional and it decides nothing:

@@ -634,6 +634,20 @@ func TestProcessHelper(t *testing.T) {
 			fmt.Printf("line %d\n", line)
 		}
 		os.Exit(0)
+	case "reply-then-linger":
+		// A provider session that has written its final reply and is kept alive by
+		// work it started in the background. Bounded, like "sleep", so a kill that
+		// regressed leaves nothing running past the minute.
+		fmt.Println("final reply")
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	case "reply-then-finish":
+		// The same, where the background work finishes on its own: it says one
+		// thing when the test lets it and exits.
+		fmt.Println("final reply")
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		fmt.Println("background work done")
+		os.Exit(0)
 	case "endless-chatter":
 		for {
 			fmt.Println("still working")
