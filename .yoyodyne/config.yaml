@@ -290,6 +290,7 @@ agents:
     # architect's decisions bind everything downstream, which is where
     # judgment pays. Same rule as the product and development managers.
     model: fable
+    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
     instances: 1
     persona:
       version: v2
@@ -298,6 +299,7 @@ agents:
     role: developer
     backend: claude-code
     model: opus
+    effort: medium  # Claude Code's own default for opus, pinned so it is stated (operator, 2026-09-27)
     # One instance per developer slot, because the capacity rule refuses a
     # limit the instances cannot supply; two with max_concurrent_developers: 2.
     instances: 2
@@ -311,6 +313,7 @@ agents:
     role: program-manager
     backend: claude-code
     model: fable
+    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
     instances: 1
     persona:
       version: v2
@@ -329,6 +332,7 @@ agents:
     # planned: the decision-owning roles run on Fable. Same reasoning as the
     # product manager below.
     model: fable
+    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
     instances: 1
     persona:
       version: v2
@@ -340,6 +344,7 @@ agents:
     # decomposition costs more than a session of conversation turns. The
     # family alias floats; run evidence records what the provider served.
     model: fable
+    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
     instances: 1
     persona:
       version: v2
@@ -348,6 +353,7 @@ agents:
     role: reviewer
     backend: claude-code
     model: opus
+    effort: medium  # Claude Code's own default for opus, pinned so it is stated (operator, 2026-09-27)
     # Raised 1->2 alongside max_concurrent_developers: 3 so reviews don't
     # queue behind one instance when the slots fill (operator, 2026-09-04).
     instances: 2
