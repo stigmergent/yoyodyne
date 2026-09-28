@@ -183,7 +183,9 @@ func TestAFirstStallIsContinuedByTheHarnessAndASecondIsDocketed(t *testing.T) {
 }
 
 // A stall in a run a session re-adopted after a redeploy stop says so on the
-// entry, because the stall began in the session that re-adoption resumed.
+// entry: that it began in the session the re-adoption resumed where it stalled
+// at the phase it was re-adopted at, and only that it followed the re-adoption
+// where it stalled later.
 func TestAStallAfterARedeployReadoptionSaysSo(t *testing.T) {
 	t.Parallel()
 
@@ -202,6 +204,15 @@ func TestAStallAfterARedeployReadoptionSaysSo(t *testing.T) {
 			t.Fatalf("StallStopSays() = %q, want it to say %q", says, want)
 		}
 	}
+	// Re-adopted at its developer attempt and stalled later, in its review: the
+	// stalled invocation is not the session the re-adoption resumed, and the
+	// sentence does not say it was.
+	state.Phase = runstate.PhaseReviewing
+	says := state.StallStopSays()
+	if strings.Contains(says, "began in the session that re-adoption resumed") || !strings.Contains(says, "before it went on to the reviewing phase it stalled in") {
+		t.Fatalf("StallStopSays() = %q, want the re-adoption named without claiming the review stalled in the resumed session", says)
+	}
+	state.Phase = runstate.PhaseDeveloping
 	// A stall inside the repair loop is not the harness's: a failure was
 	// returned there, and what it is owed is a repair.
 	state.RepairAttempts = 1

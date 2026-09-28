@@ -305,7 +305,7 @@ func stallContinueReason(prior runstate.State, resumesAt runstate.Phase) string 
 	}
 	readopted := ""
 	if says := prior.ReadoptedSays(); says != "" {
-		readopted = " Before it stalled, " + says + "."
+		readopted = " Earlier, " + says + "."
 	}
 	return singleLine(fmt.Sprintf(
 		"Continued after a stall: the AI session running run %s produced no output for longer than the harness allows, so the harness stopped it and the sweep settled it; nothing was judged, so the harness continued the run itself %s, in the same worktree, with no decision asked of anybody (continuation %d of %d). No review round, repair attempt, repair grant, or re-run was spent on it; if it stalls again, it is docketed for the development manager.%s",

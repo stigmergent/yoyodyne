@@ -1412,8 +1412,9 @@ worktree. `yoyo triage rerun` is still the right verb where the ground has moved
 and the work is to be done again; it is no longer the only one available.
 
 **The harness continues a first silent-stream stall itself, once.** A run whose
-provider stream went silent in its first developer attempt, or in its review
-after that attempt finished, with nothing handed back to its developer, does
+provider stream went silent in its first developer attempt, or at its checks or
+its review after that attempt finished, with nothing handed back to its
+developer, does
 not wait on her decision any more. Once the sweep has settled it, its docket
 entry says the harness stopped the provider and nothing was judged, names the
 harness as the next mover, and a watching `yoyo work` session's next pull with
@@ -1427,8 +1428,8 @@ as the harness's move rather than as a decision waiting on anybody. The
 operator's pause and the intake hold stop it exactly as they stop a recorded
 decision's carry-out; a decision she records about the stoppage first is
 carried out instead. It is held to what her repair of a stall is held to: the
-worktree has to be as the harness left it, and a stall at the review has to
-still hold the change. One that fails either is written onto the run
+worktree has to be as the harness left it, and a stall at the checks or the
+review has to still hold the change. One that fails either is written onto the run
 (`stall_continuation_refused`), the item is told, and the stoppage is docketed
 again for her. **The harness does this at most once for one run.** A run that
 stalls again after the harness carried it on is settled and docketed as before,
@@ -1437,8 +1438,15 @@ her decision. A stall inside the repair loop, and a provider stopped for
 running out of its total budget rather than for going silent, are not
 continued this way. Where the run had been stopped for a
 [redeploy](#a-session-draining-to-restart-into-a-deployed-build) and
-re-adopted before it stalled, the entry and the item's note say so, since the
-stall then began in the session that re-adoption resumed. Until yoyodyne-a0s
+re-adopted before it stalled, the entry and the item's note say so. Where it
+stalled at the phase it was re-adopted at, they say the stall began in the
+session that re-adoption resumed; where it stalled later, they say only that
+the re-adoption came first. That was the case for the second of the two stalls
+this was built on:
+[the account of run-008b0e25](diagnoses/yoyodyne-a0s-stall-after-readoption.md)
+shows it stalled in the session its re-adoption resumed, after that session had
+already written its final reply and was kept alive by background checks it had
+started. Until yoyodyne-a0s
 every such stall waited on her decision after the half hour — two runs in two
 days, yoyodyne-ifd.428.44 and yoyodyne-ifd.430.13.8, each for a continuation
 its own docket entry said cost nothing.

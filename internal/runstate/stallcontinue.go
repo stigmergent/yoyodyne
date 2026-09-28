@@ -123,12 +123,19 @@ func (s State) StallStopSays() string {
 }
 
 // ReadoptedSays names the redeploy stop this run was re-adopted from, where it
-// was: a stall after it began in the developer session the re-adoption
-// resumed, which is worth knowing before deciding anything about the stall.
+// was. A stall at the phase the run was re-adopted at began in the session that
+// re-adoption resumed, which is worth knowing before deciding anything about
+// it. A stall at a later phase — re-adopted at its developer attempt, stalled in
+// its review — was in a different invocation, and is said only to have
+// followed the re-adoption.
 func (s State) ReadoptedSays() string {
 	if s.Readopted == nil {
 		return ""
 	}
-	return fmt.Sprintf("the run had been stopped for a redeploy at its %s phase at %s and re-adopted by the session that came back, so this stall began in the session that re-adoption resumed",
+	readopted := fmt.Sprintf("the run had been stopped for a redeploy at its %s phase at %s and re-adopted by the session that came back",
 		s.Readopted.Phase, s.Readopted.At.UTC().Format(time.RFC3339))
+	if s.Readopted.Phase == s.Phase {
+		return readopted + ", so this stall began in the session that re-adoption resumed"
+	}
+	return fmt.Sprintf("%s, before it went on to the %s phase it stalled in", readopted, s.Phase)
 }
