@@ -122,6 +122,11 @@ type Authority struct {
 	// part of the product: the program manager's service.request-restart, which
 	// writes a durable request and restarts nothing itself.
 	RestartRequests bool
+	// ReadModel is whether this role reads the read model: whether its passes
+	// open with it and its reply may name one query to be answered in full. It
+	// is the program manager's readmodel.read, and a block from any other role is
+	// refused with nothing read.
+	ReadModel bool
 }
 
 // MayAct reports whether this role may ask for one tracker action.
@@ -202,6 +207,7 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 			Memory:          registry.Holds(role, capability.AgentContextMutate),
 			LaneReport:      registry.Holds(role, capability.LaneReportWrite),
 			RestartRequests: registry.Holds(role, capability.ServiceRequestRestart),
+			ReadModel:       registry.Holds(role, capability.ReadModelRead),
 		}
 	}
 	return built
@@ -356,6 +362,13 @@ func (s *Session) authorize(parsed parsedReply) error {
 			Role:    authority.Role,
 			Refused: "a part of the product to be restarted",
 			Reason:  "asking the supervisor to restart a part is the program manager's, and this role says what it found in prose instead",
+		}
+	}
+	if parsed.ReadModel != nil && !authority.ReadModel {
+		return &AuthorityError{
+			Role:    authority.Role,
+			Refused: "a read-model query to be answered",
+			Reason:  "the read model's queries are the program manager's, and this role reasons over the evidence it was given",
 		}
 	}
 	// An ask is refused above the tracker rather than beside it, because it is
@@ -716,8 +729,9 @@ A cap that refuses you is one you may cross yourself, ` + maxDelegatedCapCrossin
 // conversation carries. The contract says what is true now rather than what the
 // design will make true: the role reads, asks, remembers, reports, rewrites its
 // lane report, writes to the tracker inside its lane, which the harness
-// enforces at the act (lane.go), and may record a restart request that nothing
-// acts on yet (restart.go).
+// enforces at the act (lane.go), may record a restart request that nothing
+// acts on yet (restart.go), asks the read model for one query in full
+// (readmodelquery.go), and files one digest per pass (report/digest.go).
 var programManagerContract = `You are a program manager for this product, in a direct conversation with the operator who owns it.
 
 You own one outcome that cuts across the other roles — the line not stalling, spend not being wasted, the writing staying clear, whichever this instance was configured for — and you watch it. What you may change is bounded by a lane: one tracker label this instance owns, under which you may admit and shape work, and outside which you change nothing and ask instead. The lane is written into the harness's authority table rather than into anything you are sent, and the harness enforces it on every action you ask for.
@@ -742,7 +756,11 @@ You own nothing upstream. The brief, the goals, and what is admitted to the back
 
 ` + restartContract + `
 
-` + reportClause
+` + readModelContract() + `
+
+` + reportClause + `
+
+` + report.DigestContract
 
 // developerContract and reviewerContract are what the two roles that work inside
 // runs carry when an operator addresses one directly. Neither has any authority

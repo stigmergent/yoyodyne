@@ -321,6 +321,11 @@ type Trigger struct {
 	// neither. See programmanagerpass.go.
 	Cursors PassCursors
 	Events  PassEvents
+	// ReadModel is what an instance's pass opens with: the standing, the
+	// throughput windows, the capacity state, the docket and the reports pile as
+	// counts, and a line per other instance. Optional: a trigger wired without
+	// one wakes an instance with its events alone and says so in the message.
+	ReadModel PassReadModel
 	// Conversations says whether a turn is in flight on an instance's
 	// conversation, so a pass is skipped rather than queued behind it. Optional,
 	// and a trigger wired without it opens the conversation and records a pass

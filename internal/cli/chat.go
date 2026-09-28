@@ -929,6 +929,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// is decided in the chat package's table, and nothing acts on a request
 		// until the supervisor's pass does.
 		RestartRequests: parts.restartRequests,
+		// The read model a program manager asks one named query of, read over the
+		// stores `yoyo status` reads. It is wired for every role because the
+		// authority to ask is decided in the chat package's table.
+		ReadModel: passReadModelFrom(parts),
 		// What work admitted here has to name. It is read from the repository
 		// rather than from the conversation, so a goal retired since the
 		// conversation opened stops being one work can be admitted under.
