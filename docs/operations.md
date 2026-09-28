@@ -2696,6 +2696,12 @@ Running (2 developer runs):
 Working (1 conversation):
   product-manager — product-manager, on claude-opus-5 at medium effort, a turn in flight for 40s after 270 recorded turns
 Not startable (4 of 7 admitted items; 1 awaits the development manager's decision, 1 awaits the harness carrying out a decision already recorded):
+  - 1 ready, waiting for a developer slot; 2 slots, all taken — not counted as not startable: the harness starts the next one as a run in flight finishes, and nothing is asked of anybody
+  - 1 waits on the development manager's decision about a stopped run — next: she decides what becomes of each stopped run: a repair, a re-run, a wait, a re-scope, or an escalation; whose: the development manager's
+  - 1 waits on the harness carrying out a decision already recorded — next: the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull; whose: the harness's
+  - 1 waits on other items — next: the harness pulls each once the work it waits on lands; whose: the harness's
+  - 1 is parked by the Lead Product Manager — next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's
+  - nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one
   yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
   yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
@@ -2765,8 +2771,8 @@ has the rule.
   which process it is, and a reading checks that the process is still there. A
   status that took the hold to find out — which is how this was first built —
   would refuse a chat that asked for its own conversation in the same instant.
-- **Not startable** is each admitted item nothing will pull, with the refusal
-  that stops it — the queue's own account where the queue has one, the children
+- **Not startable** is each admitted item that cannot be started now, with the
+  refusal that stops it — the queue's own account where the queue has one, the children
   where an item's unfinished children already carry its execution, the directive
   where a directive pauses the work, and otherwise what has stopped the harness
   choosing at all. The coverage is the scheduling pass's own derivation rather
@@ -2777,8 +2783,8 @@ has the rule.
   started and merely stalled, which sent whoever read it after a stall that was
   not one. That last one comes from a closed set of named reasons, each
   of which says who it is waiting on: the operator's hold, a held intake, a
-  target branch the harness will not catch up to the remote's, every
-  developer slot taken, a session waiting out the provider's usage window, a live
+  target branch the harness will not catch up to the remote's, a provider
+  nobody can reach, a session waiting out the provider's usage window, a live
   watch session retrying a read of the harness's store that failed, a live watch
   session that has found nothing it can start, a session
   [restarting into a build deployed over it](#a-session-draining-to-restart-into-a-deployed-build),
@@ -2798,6 +2804,40 @@ has the rule.
   which is a fact about one process rather than about the product. Work that is
   admitted and would be started next is not listed here at all; the count of
   admitted items beside the heading is where it shows.
+
+  **Every developer slot being taken refuses nothing.** It is the harness
+  working, and an item ready behind it is the next one started as a run
+  finishes — so it is never counted in the heading's figure. It has a line of
+  its own under the heading, the first of the lines opened by `-`:
+  `45 ready, waiting for a developer slot; 3 slots, all taken`, saying nothing
+  is asked of anybody. On 2026-09-27 forty-five such items were counted among
+  "140 admitted items nothing will pull", filed under the same kind as a
+  session choosing nothing, and the operator asked what he was meant to do
+  about a line that said nothing will pull work that was next in line.
+
+  **Under it, the refused work is counted by what it waits on**, one `-` line
+  per group, each saying how many, what they wait on, the next step, and whose
+  move that is: the development manager's decision about a stopped run (hers);
+  the harness carrying out a decision already recorded (the harness's); an
+  unresolved directive (the operator's, by `yoyo directive resolve`); ready work
+  a switch or a missing session stops (whoever the reason names — the operator
+  for his hold or a session that is not running, the development manager or the
+  harness for a hold the brake placed, nobody for a usage window); other items
+  (the harness's, as they land); a role's conversation, one group per role (that
+  role's); parked by the Lead Product Manager (hers); covered by other work, its
+  own unfinished children (the harness's); and not offered by the tracker for a
+  reason nothing here can read. **The last `-` line says in one sentence whether
+  anything on the line is the operator's** — under his rule of 2026-09-26 only a
+  change to the fundamental goals is — naming what is where something is, and
+  saying `nothing here is the operator's` where nothing is. The items themselves
+  follow, as before. The brief rendering the channel's hourly message carries
+  keeps every `-` line with the heading, because who moves the work is what an
+  unasked-for message has to say. `--json` carries the groups under
+  `standing.not_startable_groups` — each with its `kind` (the queue's pile),
+  `awaiting` for the two held waits, `count`, `waits_on`, `next`, `mover`, and
+  its `items` — the sentence as `standing.not_startable_for_operator`, and the
+  slot wait as `standing.waiting_for_slot`, with `ready`, `slots`, `in_flight`,
+  its `items`, and the line it `says`.
 
   One of the queue's own accounts is an item **held**, which is the third and
   fourth not-startable lines in the example above: a run stopped on it and its
@@ -3064,7 +3104,8 @@ same derivation under `standing`, so a second surface reads the answer rather
 than parsing the rendering. Two things it carries are not printed, because the
 lines say them by omission: `standing.startable` is how many admitted items
 nothing refuses — the work the harness pulls next, counted over the same
-entries as the refusals, and zero whenever the pass-level stall stands — and
+entries as the refusals, and zero whenever the pass-level stall stands, except
+a full machine, whose ready items are counted here because they are next — and
 each running run's `stage` is its phase folded onto `developing`, `reviewing`,
 or `integrating`. Both are there for the dashboard's pipeline, so it reads the
 model's count and the model's fold rather than making its own. Beside the
@@ -3807,10 +3848,11 @@ it asks again: `asks again in 20s, less often while the dashboard answers
 slowly or not at all`.
 
 1. **Where the harness stands** — a tile for each of the four lines: running
-   developer runs, conversations with a turn in flight, admitted items nothing
-   will pull (out of how many are admitted, and how many await a decision or
-   the carrying out of one), and what waits on the operator, which says `nothing`
-   in words when nothing waits on the operator or anybody else. That last tile counts per mover, in the read
+   developer runs, conversations with a turn in flight, admitted items not
+   startable now (out of how many are admitted, how many await a decision or
+   the carrying out of one, and the ready work waiting for a developer slot),
+   and what waits on the operator, which says `nothing` in words when nothing
+   waits on the operator or anybody else. That last tile counts per mover, in the read
    model's own vocabulary for who each entry is waiting on: its figure is what
    waits on the operator, and beside it, out of the line's whole count — the
    figure the terminal prints — what waits on the Lead Product Manager, the
@@ -3849,21 +3891,25 @@ slowly or not at all`.
    the agent, its role, how long the turn has been in flight, and how many turns
    are recorded before it.
 4. **Where the work stands** — the pipeline, read left to right: admitted items;
-   how many are held back, split into the piles the queue itself names — held
-   after a stopped run, its label counted by mover (`held after a stopped run:
-   20 waiting on the development manager's decision, 14 waiting on the harness
-   carrying out her decision`), paused by a
-   directive, pullable with nothing choosing, parked, waiting on other work,
-   covered by its own unfinished children,
-   carried by a conversation rather than a run, and not offered for a reason
-   nothing here can read — each with who it is waiting on, and the largest marked
-   `(most)`; how many are startable and next to be pulled — or, while a stall
-   holds every pullable item, that the harness is choosing nothing and why;
-   how many are running, by stage; and how many landed today and this week.
-   Under it, in words, how many things wait on the operator, and then how
-   many wait on each other mover — `Needs a human: 1 thing waiting on the
-   operator; waiting on others: the development manager's: 30, the harness's:
-   4.` Nothing a role or the harness moves is said to need a person. Every stage's label
+   how many are held back — not startable now — split into the read model's
+   groups by what each waits on, exactly as the terminal's `-` lines under
+   [the not-startable line](#where-the-harness-stands-the-four-lines) count
+   them: the development manager's decision, the harness carrying a decision
+   out, a directive, ready work a switch or a missing session stops, other
+   items, a role's conversation, parked by the Lead Product Manager, covered by
+   other work, and not offered for a reason nothing here can read — each with
+   its next step and whose move that is, and the largest marked `(most)`; how
+   many are startable and next to be pulled — while every developer slot is
+   taken, said as `45 ready, waiting for a developer slot; 3 slots, all taken`
+   and never counted as held back, or, while a stall holds every pullable item,
+   that the harness is choosing nothing and why; how many are running, by
+   stage; and how many landed today and this week. Under it, in words, whether
+   anything held back is the operator's — the model's one sentence — then how
+   many things wait on the operator, and then how many wait on each other mover
+   — `Needs a human: 1 thing waiting on the operator; waiting on others: the
+   development manager's: 30, the harness's: 4.` Nothing a role or the harness
+   moves is said to need a person. The Not startable tile counts the held-back work and names
+   the slot wait beside the figure rather than in it. Every stage's label
    and every pile's label is a button that opens [the list of the items in it](#opening-a-work-item).
 5. **Throughput** — two columns, today and the last seven days, each labeled
    with the local days it covers: how many runs landed their work on the target

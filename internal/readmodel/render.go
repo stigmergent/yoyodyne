@@ -34,6 +34,13 @@ const maxListed = 10
 // the brief rendering that keeps it while dropping every other indented line.
 const partialRead = "  not fully read: "
 
+// tally opens a line that counts part of a line rather than naming one entry of
+// it: the not-startable line's ready work waiting for a slot, its groups by what
+// they wait on, and whether any of it is the operator's. The brief rendering
+// keeps these with the head, because a count by who moves it is exactly what the
+// hourly message has to carry and what one figure over all of it hid.
+const tally = "  - "
+
 // Render is the four lines. It is deterministic, so the same standing always
 // prints the same text, and it always returns exactly four labelled lines with
 // whatever they carry indented under them.
@@ -127,7 +134,7 @@ func brief(rendered string) string {
 	kept := strings.TrimSuffix(strings.TrimSuffix(head, "\n"), ":") + "\n"
 	for _, line := range rest {
 		switch {
-		case strings.HasPrefix(line, partialRead):
+		case strings.HasPrefix(line, partialRead), strings.HasPrefix(line, tally):
 			kept += line
 		case line != "" && !strings.HasPrefix(line, "  "):
 			// A second head under the first — the fourth line's head for each
@@ -258,8 +265,13 @@ func (s Standing) renderWorking() string {
 	return rendered.String()
 }
 
+// renderNotStartable is the not-startable line: its head, then the ready work
+// waiting only for a developer slot, which is counted apart and never in the
+// head's figure, then the refused work counted by what it waits on with the next
+// step and whose it is, then one sentence on whether any of it is the
+// operator's, and then the items themselves.
 func (s Standing) renderNotStartable() string {
-	if s.NotStartableProblem != "" && len(s.NotStartable) == 0 {
+	if s.NotStartableProblem != "" && len(s.NotStartable) == 0 && s.WaitingForSlot == nil {
 		return unreadable("Not startable", s.NotStartableProblem)
 	}
 	var rendered strings.Builder
@@ -268,6 +280,17 @@ func (s Standing) renderNotStartable() string {
 	} else {
 		fmt.Fprintf(&rendered, "Not startable (%d of %s%s):\n",
 			len(s.NotStartable), count(s.Admitted, "admitted item"), s.heldSplit())
+	}
+	if s.WaitingForSlot != nil {
+		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, s.WaitingForSlot.Says(), slotWaitNext)
+	}
+	for _, group := range s.NotStartableGroups {
+		fmt.Fprintf(&rendered, "%s%s\n", tally, group.Says())
+	}
+	if s.NotStartableForOperator != "" && (len(s.NotStartable) > 0 || s.WaitingForSlot != nil) {
+		fmt.Fprintf(&rendered, "%s%s\n", tally, s.NotStartableForOperator)
+	}
+	if len(s.NotStartable) > 0 {
 		listed, further := bound(len(s.NotStartable))
 		for _, refused := range s.NotStartable[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s\n", refused.WorkItemID, heldSince(refused.HeldSince, s.ObservedAt), refused.Reason)

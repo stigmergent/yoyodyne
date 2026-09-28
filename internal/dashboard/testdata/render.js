@@ -382,8 +382,8 @@ const scenarios = pages.concat([
   over("spend-days-empty", "busy", { open: [{ grouping: "spend:days" }, { poll: { "/api/spend": ok(fixture("spend-quiet")) } }] }),
   over("spend-days-error", "busy", { open: [{ grouping: "spend:days" }, { poll: { "/api/spend": ok(fixture("spend-unreadable")) } }] }),
   over("spend-days-loading", "spend-pending", { open: [{ grouping: "spend:days" }] }),
-  over("grouping-card", "busy", { items: items("yoyodyne-ifd.153"), open: [{ grouping: "pile:held" }, { item: "yoyodyne-ifd.153" }] }),
-  over("closed", "busy", { items: items("yoyodyne-ifd.153"), open: [{ grouping: "pile:held" }, { item: "yoyodyne-ifd.153" }], escape: 2 }),
+  over("grouping-card", "busy", { items: items("yoyodyne-ifd.153"), open: [{ grouping: "pile:held-decision" }, { item: "yoyodyne-ifd.153" }] }),
+  over("closed", "busy", { items: items("yoyodyne-ifd.153"), open: [{ grouping: "pile:held-decision" }, { item: "yoyodyne-ifd.153" }], escape: 2 }),
   // A poll redraws the page under an open grouping, so the button that opened
   // it is gone by the time Escape closes it, and focus goes to the button now
   // carrying its key.
