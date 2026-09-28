@@ -37,6 +37,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -45,13 +46,13 @@ import (
 // the target's, and the publication waits on the item filed for it.
 const ActionWaitingOnTarget ReconcileAction = "waiting-on-target"
 
-// ReconcileJobLogs reads the tail of the forge's log of the job behind a check
-// run. It is satisfied by publish.GitHub.
+// ReconcileJobLogs reads the failing step's lines from the forge's log of the
+// job behind a check run. It is satisfied by publish.GitHub.
 type ReconcileJobLogs interface {
 	JobLogTail(ctx context.Context, checkRun int64, lines int) (string, error)
 }
 
-// redTargetLogLines is how much of a failing job's log the filed item carries.
+// redTargetLogLines is how much of a failing job's log an item carries.
 const redTargetLogLines = 60
 
 // redTargetMarker is the line an item filed for a check red on the target
@@ -98,8 +99,9 @@ func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, c
 	}
 	statement, _ := goal.NamedIn(item.Notes)
 	waiting := runstate.TargetRed{At: r.clock().Now(), TargetBranch: target, HeadCommit: checks.HeadCommit}
-	for _, failing := range checks.Failing {
-		filed, err := r.fileRedTargetCheck(ctx, state, failing, target, statement)
+	accounts := r.checkAccounts(ctx, checks)
+	for index, failing := range checks.Failing {
+		filed, err := r.fileRedTargetCheck(ctx, state, failing, target, statement, accounts[index])
 		if err != nil {
 			return left(fmt.Sprintf("the failure of %s could not be filed (%v)", failing.Name, err))
 		}
@@ -116,7 +118,7 @@ func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, c
 	// record changes: a sweep that stops in between leaves the merge recorded as
 	// queued, and the next one finds it withdrawn, files nothing new, and writes
 	// the record then.
-	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderRedTargetNotes(state, reason)); err != nil {
+	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderRedTargetNotes(state, reason, accounts)); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the wait of run %s on %s's red check: %w", state.RunID, target, err)
 	}
 	var problems []string
@@ -147,7 +149,7 @@ func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, c
 // filing for a check the forge ran: priority 0, a bug, under the goal the run's
 // item served, with the harness's own words in the fields the protected-path
 // gate reads and what the forge's log said only in the notes.
-func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State, failing runstate.FailingCheck, target, statement string) (runstate.TargetRedCheck, error) {
+func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State, failing runstate.FailingCheck, target, statement, account string) (runstate.TargetRedCheck, error) {
 	published := state.PullRequest
 	marker := redTargetMarker(target, failing.Name)
 	head := shortCommit(published.HeadCommit)
@@ -172,7 +174,7 @@ func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State
 	if statement != "" {
 		notes += "\n\n" + goal.Note(statement)
 	}
-	notes += "\n\n" + r.jobLogAccount(ctx, failing)
+	notes += "\n\n" + account
 	priority := 0
 	created, err := r.Filer.Create(ctx, beads.NewWorkItem{
 		Title:       fmt.Sprintf("Red forge check on %s: %s fails with the head level with %s, met by pull request %d", target, failing.Name, target, published.Number),
@@ -187,29 +189,71 @@ func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State
 	return runstate.TargetRedCheck{Name: failing.Name, WorkItem: created.ID}, nil
 }
 
-// jobLogAccount is what the filed item's notes say of the job's log: its
-// conclusion, and the tail of the log the harness read through its own forge
-// access, quoted so no line of it is read as one of the harness's. A log that
-// could not be read says why, which is where a person would go next.
-func (r Reconciler) jobLogAccount(ctx context.Context, failing runstate.FailingCheck) string {
+// checkAccount is the forge's account of one failing check, read under the
+// harness's own forge access: its name, how the forge ended it, the commit it
+// ran on, the forge's own annotations, the failing step's lines from the job's
+// log, and a link to that log. A log the harness could not read says why, and
+// a token the forge would not let read it is named as the operator's to grant.
+// The log is quoted so no line of it is read as one of the harness's.
+//
+// It is what a merge withdrawn or handed back over a forge check carries onto
+// the item, so whoever works the item works from it: a developer run may not
+// reach the forge, and until yoyodyne-ifd.429.35 a run given such an item spent
+// itself finding that out while a person went and read the log.
+func (r Reconciler) checkAccount(ctx context.Context, failing runstate.FailingCheck, head string) string {
 	account := fmt.Sprintf("How the forge ended %s: %s.", failing.Name, nonEmpty(failing.Conclusion, "no conclusion reported"))
-	if len(failing.Paths) > 0 {
-		account += " Its annotations named: " + strings.Join(failing.Paths, ", ") + "."
+	if head != "" {
+		account += " Commit: " + head + "."
+	}
+	if failing.URL != "" {
+		account += " Log: " + failing.URL
+	} else {
+		account += " The forge gave no link to the check run."
+	}
+	if len(failing.Annotations) > 0 {
+		lines := make([]string, 0, len(failing.Annotations))
+		for _, annotation := range failing.Annotations {
+			lines = append(lines, "- "+annotation.Describe())
+		}
+		account += "\nThe forge's annotations:\n" + strings.Join(lines, "\n")
+	} else if len(failing.Paths) > 0 {
+		account += "\nIts annotations named: " + strings.Join(failing.Paths, ", ") + "."
 	}
 	switch {
 	case r.JobLogs == nil:
-		return account + " Nothing is wired to this harness to read the job's log."
+		return account + "\nNothing is wired to this harness to read the job's log."
 	case failing.CheckRun <= 0:
-		return account + " The forge named no job for it, so there is no log to read."
+		return account + "\nThe forge named no job for it, so there is no log to read."
 	}
 	tail, err := r.JobLogs.JobLogTail(ctx, failing.CheckRun, redTargetLogLines)
-	if err != nil {
-		return account + fmt.Sprintf(" Its log could not be read: %s.", oneline.Bound(err.Error(), 400))
+	switch {
+	case errors.Is(err, publish.ErrForgeAccessRefused):
+		return account + fmt.Sprintf("\nThe forge would not let the harness's token read this job's log (%s). Granting that token read access to the repository's Actions is the operator's; until it is granted this record is all there is of the log, and nobody working this item is asked to fetch it.",
+			oneline.Bound(err.Error(), 400))
+	case err != nil:
+		return account + fmt.Sprintf("\nIts log could not be read: %s.", oneline.Bound(err.Error(), 400))
+	case strings.TrimSpace(tail) == "":
+		return account + "\nIts log was empty."
 	}
-	if strings.TrimSpace(tail) == "" {
-		return account + " Its log was empty."
+	return account + fmt.Sprintf("\n\nThe failing step's lines from the forge's log of the job, at most %d (check run %d):\n\n%s", redTargetLogLines, failing.CheckRun, quotedOutput(tail))
+}
+
+// checkAccounts is checkAccount for every failing check of a reading, in order.
+func (r Reconciler) checkAccounts(ctx context.Context, checks runstate.PullRequestChecks) []string {
+	accounts := make([]string, 0, len(checks.Failing))
+	for _, failing := range checks.Failing {
+		accounts = append(accounts, r.checkAccount(ctx, failing, checks.HeadCommit))
 	}
-	return account + fmt.Sprintf("\n\nThe last %d lines of the job's log (check run %d):\n\n%s", redTargetLogLines, failing.CheckRun, quotedOutput(tail))
+	return accounts
+}
+
+// renderForgeAccount is the note the forge's accounts make on the item.
+func renderForgeAccount(accounts []string) string {
+	if len(accounts) == 0 {
+		return ""
+	}
+	return "The forge's account of the failing checks, read by the harness under its own forge access. Work from this record: nothing here asks anybody to fetch the forge.\n\n" +
+		strings.Join(accounts, "\n\n")
 }
 
 // openItemMarked is the identifier of an unfinished item whose notes carry the
@@ -242,14 +286,18 @@ func shortCommit(commit string) string {
 
 // renderRedTargetNotes tells the work item its queued merge waits on the
 // target's red check rather than on anything about the change.
-func renderRedTargetNotes(state runstate.State, reason string) string {
-	return strings.Join([]string{
+func renderRedTargetNotes(state runstate.State, reason string, accounts []string) string {
+	lines := []string{
 		"Yoyodyne withdrew the merge this run left queued with the forge, because its checks fail on the target branch itself rather than on this change.",
 		"Outcome: " + reason,
 		"Run: " + state.RunID,
 		fmt.Sprintf("Pull request: #%d %s", state.PullRequest.Number, state.PullRequest.URL),
 		"Nothing about this item needs a decision: the change stays reviewed on its kept branch, and the harness takes the merge up again once the items it waits on close.",
-	}, "\n")
+	}
+	if account := renderForgeAccount(accounts); account != "" {
+		lines = append(lines, "", account)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // RedTargetResumption is what the sweep did about one publication waiting on
@@ -340,14 +388,21 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 		return result, nil
 	}
 	checks := recordedChecks(reading, r.clock().Now())
+	// A merge handed back from here carries this reading's account onto the
+	// item, not the one the wait began on.
+	handBack := func(reason string) (Reconciliation, error) {
+		published.Checks = &checks
+		state.PullRequest = &published
+		return r.handBackRedMerge(ctx, state, reason)
+	}
 	switch {
 	case checks.ChangeFails():
-		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
+		return handBack(fmt.Sprintf(
 			"the items pull request %d waited on for %s's red check are closed, and its checks now fail on this change: %s. The pull request needs its change repaired",
 			published.Number, target, checks.Describe(target)))
 	case checks.BehindBy > 0:
 		if refusal := unreplayable(state); refusal != "" {
-			return r.handBackRedMerge(ctx, state, fmt.Sprintf(
+			return handBack(fmt.Sprintf(
 				"the items pull request %d waited on for %s's red check are closed and its head is behind %s, and the harness cannot bring it up to date: %s: %s. The pull request needs a person",
 				published.Number, target, target, refusal, checks.Describe(target)))
 		}
@@ -410,8 +465,10 @@ func (r Reconciler) rerunEndedJobsAfterRedTarget(ctx context.Context, state runs
 	if refused != "" {
 		why = fmt.Sprintf("were ended by the forge before any step failed, and the forge would not run them again (%s)", refused)
 	}
+	published.Checks = &checks
+	state.PullRequest = &published
 	return r.handBackRedMerge(ctx, state, fmt.Sprintf(
-		"the items pull request %d waited on for %s's red check are closed, and its checks %s: %s. The forge's log of those runs says why it ended them, and the pull request needs a person",
+		"the items pull request %d waited on for %s's red check are closed, and its checks %s: %s. The forge's account of each, read under the harness's forge access, is in this item's notes, and the pull request needs a person",
 		published.Number, target, why, checks.Describe(target)))
 }
 

@@ -144,7 +144,7 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 			why = fmt.Sprintf("were ended by the forge before any step failed, and the forge would not run them again (%s)", rerunRefused)
 		}
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
-			"the forge's checks on pull request %d %s: %s. The forge's log of those runs says why it ended them. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
+			"the forge's checks on pull request %d %s: %s. The forge's account of each, read under the harness's forge access, is in this item's notes. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
 			published.Number, why, checks.Describe(target)))
 	default:
 		// A head level with its target, failing on no file its change touches:
@@ -164,6 +164,10 @@ func (r Reconciler) rerunFailedJobs(ctx context.Context, checks runstate.PullReq
 			continue
 		}
 		if err := r.Checks.RerunCheck(ctx, failing.CheckRun); err != nil {
+			if errors.Is(err, publish.ErrForgeAccessRefused) {
+				refused = append(refused, fmt.Sprintf("%s: the forge would not let the harness's token run the job again (%v), and granting it that is the operator's", failing.Name, err))
+				continue
+			}
 			refused = append(refused, fmt.Sprintf("%s: %v", failing.Name, err))
 		}
 	}
@@ -190,6 +194,20 @@ func recordedChecks(reading publish.CheckReading, now time.Time) runstate.PullRe
 			break
 		}
 		failing := runstate.FailingCheck{Name: boundedCheckName(failed.Name), CheckRun: failed.ID, Conclusion: oneline.Bound(failed.Conclusion, 200)}
+		if len(failed.URL) <= 400 {
+			failing.URL = failed.URL
+		}
+		for _, annotation := range failed.Annotations {
+			if len(failing.Annotations) == runstate.MaxRecordedCheckAnnotations {
+				break
+			}
+			failing.Annotations = append(failing.Annotations, runstate.CheckAnnotation{
+				Path:    oneline.Bound(annotation.Path, runstate.MaxCheckAnnotationBytes),
+				Line:    max(annotation.Line, 0),
+				Level:   oneline.Bound(annotation.Level, 200),
+				Message: oneline.Bound(annotation.Message, runstate.MaxCheckAnnotationBytes),
+			})
+		}
 		for _, path := range failed.Paths {
 			if touched[path] && len(failing.OnChange) < runstate.MaxRecordedCheckPaths {
 				failing.OnChange = append(failing.OnChange, path)
@@ -224,6 +242,13 @@ func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, 
 	if err := r.Checks.DisableAutoMerge(ctx, published.Number); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("withdraw the red queued merge of pull request %d for run %s: %w", published.Number, state.RunID, err)
 	}
+	// The forge's account of the failing checks is read once the merge is
+	// withdrawn, and goes onto the item with the settlement, so whoever the item
+	// is handed to works from it rather than from the forge.
+	var account string
+	if published.Checks != nil {
+		account = renderForgeAccount(r.checkAccounts(ctx, *published.Checks))
+	}
 	published.MergeQueued = false
 	// A merge handed back is no longer waiting on its target's red check: it is a
 	// dropped merge somebody decides about, and every surface has to say so.
@@ -231,7 +256,7 @@ func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, 
 	state.PullRequest = &published
 	state.PublishFailure = reason
 	state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: reason}
-	return r.settleDroppedMerge(ctx, state)
+	return r.settleDroppedMergeWith(ctx, state, account)
 }
 
 // updateQueuedHead brings a queued head that fell behind its target and failed
@@ -312,7 +337,8 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// The item is told first, as a resumption tells it first: a run made live
 	// behind an item that says nothing about it is one nobody reading the item
 	// can account for.
-	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderQueuedUpdateNotes(state, reason, dropped)); err != nil {
+	account := renderForgeAccount(r.checkAccounts(ctx, *published.Checks))
+	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderQueuedUpdateNotes(state, reason, dropped, account)); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the update of run %s: %w", state.RunID, err)
 	}
 	now := r.clock().Now()
@@ -452,18 +478,22 @@ func (r Reconciler) slotFree() (bool, error) {
 
 // renderQueuedUpdateNotes tells the work item its queued merge was withdrawn —
 // or found dropped by the forge — to bring its head up to date.
-func renderQueuedUpdateNotes(state runstate.State, reason string, dropped bool) string {
+func renderQueuedUpdateNotes(state runstate.State, reason string, dropped bool, account string) string {
 	headline := "Yoyodyne withdrew the merge this run left queued with the forge, to bring its head up to date onto the target."
 	if dropped {
 		headline = "Yoyodyne found the merge this run left queued dropped by the forge while its head was behind the target, and is bringing the head up to date from the run's kept branch rather than handing the item back."
 	}
-	return strings.Join([]string{
+	lines := []string{
 		headline,
 		"Outcome: " + reason,
 		"Run: " + state.RunID,
 		fmt.Sprintf("Pull request: #%d %s", state.PullRequest.Number, state.PullRequest.URL),
 		"The change is replayed onto the target, checked and reviewed again, and its merge queued again by the same run; if the replay conflicts or the review does not approve it, the run stops and the item is handed back as any run's is.",
-	}, "\n")
+	}
+	if account != "" {
+		lines = append(lines, "", account)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // updatingQueuedHead reports a run the sweep put back at its promotion to bring

@@ -923,12 +923,23 @@ func ordinalDrop(count int) string {
 // on the forge — keeps that closure. Reopening it would rewrite history the
 // operator has already read; the outstanding publication on it is what they need.
 func (r Reconciler) settleDroppedMerge(ctx context.Context, state runstate.State) (Reconciliation, error) {
+	return r.settleDroppedMergeWith(ctx, state, "")
+}
+
+// settleDroppedMergeWith is settleDroppedMerge for a merge the harness withdrew
+// over its forge checks, whose settlement note carries the forge's account of
+// them (renderForgeAccount).
+func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.State, account string) (Reconciliation, error) {
 	reason := state.PublishFailure
 	itemStatus, err := r.itemStatus(ctx, state.WorkItemID)
 	if err != nil {
 		return reconciliationOf(state, ActionBlocked), err
 	}
-	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderQueuedMergeNotes(state, reason, nil)); err != nil {
+	settlement := renderQueuedMergeNotes(state, reason, nil)
+	if account != "" {
+		settlement += "\n\n" + account
+	}
+	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, settlement); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the settled merge for run %s: %w", state.RunID, err)
 	}
 	if itemStatus == "closed" {

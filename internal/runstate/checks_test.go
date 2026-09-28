@@ -86,7 +86,7 @@ func TestAJobTheForgeEndedAndAStepThatFailedAreDescribedAsWhatTheyAre(t *testing
 	described := reading.Describe("main")
 	for _, want := range []string{
 		"adoption (the forge cancelled the job before any step failed, naming no file)",
-		"build (a step failed without naming a file; the forge filed it on .github, and its log of the run says which step)",
+		"build (a step failed without naming a file; the forge filed it on .github, and the forge's account of it on the item says which step)",
 		"level with main; run again 1 time(s) on this head",
 	} {
 		if !strings.Contains(described, want) {

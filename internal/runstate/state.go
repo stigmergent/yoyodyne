@@ -1711,6 +1711,16 @@ func (s *State) recordedTexts() []recordedText {
 		for index := range s.PullRequest.Checks.Failing {
 			nested("pull_request.checks.failing[].name", at("pull_request.checks.failing", index, "name"), &s.PullRequest.Checks.Failing[index].Name, maxCheckNameBytes)
 			nested("pull_request.checks.failing[].conclusion", at("pull_request.checks.failing", index, "conclusion"), &s.PullRequest.Checks.Failing[index].Conclusion, maxCheckNameBytes)
+			// The link and the annotations are the forge's own account of the
+			// failure, carried onto the item a merge is handed back on.
+			failing := &s.PullRequest.Checks.Failing[index]
+			nested("pull_request.checks.failing[].url", at("pull_request.checks.failing", index, "url"), &failing.URL, maxCheckURLBytes)
+			annotations := at("pull_request.checks.failing", index, "annotations")
+			for inner := range failing.Annotations {
+				nested("pull_request.checks.failing[].annotations[].path", at(annotations, inner, "path"), &failing.Annotations[inner].Path, MaxCheckAnnotationBytes)
+				nested("pull_request.checks.failing[].annotations[].level", at(annotations, inner, "level"), &failing.Annotations[inner].Level, maxCheckNameBytes)
+				nested("pull_request.checks.failing[].annotations[].message", at(annotations, inner, "message"), &failing.Annotations[inner].Message, MaxCheckAnnotationBytes)
+			}
 		}
 	}
 	// A wait on the target's red check names the checks the forge reported,

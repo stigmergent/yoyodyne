@@ -28,6 +28,12 @@ const (
 	// maxCheckNameBytes bounds one check's name, and the forge's word for how
 	// it ended.
 	maxCheckNameBytes = 200
+	// MaxRecordedCheckAnnotations bounds the forge's annotations kept whole for
+	// one failing check, and MaxCheckAnnotationBytes one annotation's message.
+	MaxRecordedCheckAnnotations = 10
+	MaxCheckAnnotationBytes     = 400
+	// maxCheckURLBytes bounds the link to a check run's page on the forge.
+	maxCheckURLBytes = 400
 )
 
 // PullRequestChecks is the forge's check state for a pull request's head, as
@@ -95,6 +101,38 @@ type FailingCheck struct {
 	// timed_out, startup_failure, or action_required.
 	CheckRun   int64  `json:"check_run,omitempty"`
 	Conclusion string `json:"conclusion,omitempty"`
+	// URL is the forge's page for the check run — for an Actions job, its log —
+	// and Annotations the forge's own account of the failure. They are carried
+	// so the item a merge is withdrawn or handed back on says what failed in the
+	// forge's words, rather than sending whoever works it to the forge: a
+	// developer run may not reach it (yoyodyne-ifd.429.35).
+	URL         string            `json:"url,omitempty"`
+	Annotations []CheckAnnotation `json:"annotations,omitempty"`
+}
+
+// CheckAnnotation is one annotation the forge made on a failing check: the file
+// and line it points at, where it points at one, its level, and its message.
+type CheckAnnotation struct {
+	Path    string `json:"path,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Level   string `json:"level,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// Describe is the annotation as one line: where, at what level, and what the
+// forge said.
+func (a CheckAnnotation) Describe() string {
+	where := a.Path
+	if where == "" {
+		where = "no file"
+	} else if a.Line > 0 {
+		where = fmt.Sprintf("%s:%d", a.Path, a.Line)
+	}
+	level := a.Level
+	if level == "" {
+		level = "annotation"
+	}
+	return fmt.Sprintf("%s (%s): %s", where, level, a.Message)
 }
 
 // InTheJob reports a failing check the forge ended itself — cancelled, timed
@@ -228,7 +266,8 @@ func (f FailingCheck) describe() string {
 	case len(f.Paths) > 0 && f.namesNoFile():
 		// A step that failed without naming a file: the forge's log of the run
 		// says which step and why, and nothing here can say whose fault it is.
-		return fmt.Sprintf("%s (a step failed without naming a file; the forge filed it on %s, and its log of the run says which step)", f.Name, jobAnnotationPath)
+		// The harness reads that log itself and carries it onto the item.
+		return fmt.Sprintf("%s (a step failed without naming a file; the forge filed it on %s, and the forge's account of it on the item says which step)", f.Name, jobAnnotationPath)
 	case len(f.Paths) > 0:
 		return fmt.Sprintf("%s (on %s, which this change does not touch)", f.Name, strings.Join(f.Paths, ", "))
 	default:
@@ -275,6 +314,18 @@ func (c PullRequestChecks) Validate() error {
 		}
 		if len(failing.Paths) > MaxRecordedCheckPaths || len(failing.OnChange) > MaxRecordedCheckPaths {
 			problems = append(problems, fmt.Errorf("checks failing[%d] names more than %d files", index, MaxRecordedCheckPaths))
+		}
+		if len(failing.URL) > maxCheckURLBytes {
+			problems = append(problems, fmt.Errorf("checks failing[%d] url must be at most %d bytes", index, maxCheckURLBytes))
+		}
+		if len(failing.Annotations) > MaxRecordedCheckAnnotations {
+			problems = append(problems, fmt.Errorf("checks failing[%d] carries more than %d annotations", index, MaxRecordedCheckAnnotations))
+		}
+		for _, annotation := range failing.Annotations {
+			if len(annotation.Message) > MaxCheckAnnotationBytes || len(annotation.Path) > MaxCheckAnnotationBytes || len(annotation.Level) > maxCheckNameBytes || annotation.Line < 0 {
+				problems = append(problems, fmt.Errorf("checks failing[%d] carries an annotation past its bounds", index))
+				break
+			}
 		}
 	}
 	return errors.Join(problems...)
