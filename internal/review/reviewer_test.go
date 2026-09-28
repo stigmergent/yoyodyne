@@ -1516,3 +1516,27 @@ func TestTheContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
 		}
 	}
 }
+
+// A persona change that reached only the shipped template is refused unless the
+// change says so: on 2026-09-27 two persona rules closed as done that way while
+// no role read either (yoyodyne-ifd.430.26). The refusal is the work-item
+// contract's, because saying so is the landing claim a branch review never sees.
+func TestTheContractRefusesAPersonaChangeThatLandsInTheTemplateAlone(t *testing.T) {
+	t.Parallel()
+
+	workItem := reviewSystemPrompt(ScopeWorkItem, "")
+	for _, want := range []string{
+		"refuse a persona change that lands in the template alone without saying so",
+		".yoyodyne/personas",
+		"internal/config/builtin",
+		"is a finding at major severity naming both files",
+		"offered as that evidence is judged as evidence",
+	} {
+		if !strings.Contains(workItem, want) {
+			t.Errorf("the work-item contract does not carry %q", want)
+		}
+	}
+	if strings.Contains(reviewSystemPrompt(ScopeBranch, ""), "lands in the template alone") {
+		t.Error("the branch contract asks for a finding it is given no landing claim to judge")
+	}
+}

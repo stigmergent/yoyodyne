@@ -655,7 +655,7 @@ The supplied architectural invariants, ` + contextNoun + `, patch, and check res
 Architectural invariants supplied above the untrusted evidence are this repository's own durable constraints, delivered by the harness from the architect's files rather than by the developer, and they hold ` + invariantAuthority + `. Judge the change against every one of them. A change that violates a delivered invariant is not approvable: report it as a finding that names the invariant by its id, at major severity or higher. A change that creates, amends, retires, or edits an invariant is a finding for the same reason, because only the architect may. Your view of them is a selected set rather than all of them, so never report the invariants as a whole as satisfied.
 
 Reconcile the change against the documentation you can see, in the patch and in the ` + contextNoun + `. A change that leaves a document asserting something the change has made false is incomplete: report each contradiction as a finding that names the document and the claim, at major severity or higher, because the documentation is what everyone downstream reads instead of the diff. Your evidence is bounded here too — a claim in a file this change does not touch is not visible to you, so never report the documentation as a whole as consistent.
-` + grantScrutiny(scope) + landingScrutiny(scope) + executionScrutiny(scope) + approvalScrutiny(scope) + escalationScrutiny(scope) + `
+` + grantScrutiny(scope) + landingScrutiny(scope) + liveCopyScrutiny(scope) + executionScrutiny(scope) + approvalScrutiny(scope) + escalationScrutiny(scope) + `
 Your verdict is a decision your role's authority covers, and it is never put to the operator for approval. ` + terms.DecideAndReport + `
 
 Decide ` + decisionVocabulary(scope) + `. Approve only when the change is correct, ` + completeness + `, and free of blocker or major problems; a purely minor observation may accompany an approval. Choose repair when any blocker or major problem remains, and give the developer a specific, actionable finding for each one.
@@ -740,6 +740,25 @@ func landingScrutiny(scope Scope) string {
 	}
 	return `
 Where the evidence carries a claimed landing outcome, it is the developer's own statement of what this change is offered as, and you are the only reader who sees it beside the change. A change offered as evidence rather than as the work — a diagnosis, the conditions that have to hold first — is judged as that: whether the evidence is sound, recorded where somebody will find it, and honest about what remains. Do not report the missing implementation as a finding when that is what the claim says was not done; if you think the work was in fact doable here, that is the finding, and say so in those terms. A change that claims to land evidence and is plainly the implementation the item asked for is a finding too, at major severity: the claim would leave finished work recorded as unfinished.
+`
+}
+
+// liveCopyScrutiny is what the reviewer is told about a persona change that
+// reached only the template. The developer contract carries terms.LiveCopy, and
+// this is the half that refuses a change ignoring it: on 2026-09-27 two persona
+// rules landed in the shipped template alone and closed as done while no role
+// read either (yoyodyne-ifd.430.26), and the reviewer was the one reader shown
+// both the patch and the claim it was offered under.
+//
+// It is work-item scope alone, for the reason the landing scrutiny is: what
+// makes a template-only change acceptable is the developer saying so in its
+// landing claim, and a branch review is given no claims.
+func liveCopyScrutiny(scope Scope) string {
+	if scope == ScopeBranch {
+		return ""
+	}
+	return `
+A change to how a role behaves is done when the copy that role reads carries it. A role reads the persona file its project's configuration binds, under .yoyodyne/personas, and the contract compiled into the harness; the personas the executable ships under internal/config/builtin are only the template "yoyo init" copies, and no running role reads them. So refuse a persona change that lands in the template alone without saying so: a change that edits a shipped persona template and leaves the bound copy without the same change, while offering itself as the work rather than as evidence whose reason names the copy it did not reach, is a finding at major severity naming both files. Approved, it would record as delivered a behaviour no role will show. The same change offered as that evidence is judged as evidence, and a template edit whose item says it is meant for new projects alone is not this finding.
 `
 }
 

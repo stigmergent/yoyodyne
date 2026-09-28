@@ -1,0 +1,186 @@
+package config
+
+// This repository's own personas, held to the template it ships.
+//
+// Yoyodyne is the one repository that carries two copies of every persona:
+// builtin/v1/personas beside this file, which is what "yoyo init" gives a new
+// project, and .yoyodyne/personas at the root, which is what this repository's
+// own roles read. On 2026-09-27 the rule against routing approvals to the
+// operator (yoyodyne-ifd.430.21) and the rule for naming work items by what
+// they are (yoyodyne-ifd.430.22) landed in the template alone and closed as
+// done, and every role here ran without them (yoyodyne-ifd.430.26). This is the
+// check that would have refused both.
+//
+// docs/diagnoses/yoyodyne-ifd-430-26-template-only-personas.md lists what each
+// live copy lacked when the gap was found.
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+// templateOnlyPassages is where a template passage this repository's copy
+// deliberately does not carry says so. Each entry names a persona file and the
+// opening of the template passage, with the reason. Adding to it is the decision
+// to let this repository's roles read something other than what it ships, and
+// an entry that no longer matches a missing passage fails the test, so the list
+// cannot outlive what it declares.
+var templateOnlyPassages = map[string]map[string]string{
+	"architect.md": {
+		"## Landing rulings":                         plainWordsInTheLiveCopy,
+		"- State every ruling as landing-ready text": plainWordsInTheLiveCopy,
+		"- When a reply approaches the length limit": plainWordsInTheLiveCopy,
+	},
+	"development-manager.md": {
+		"Name a work item by what it is":       plainWordsInTheLiveCopy,
+		"- Classify before spending":           plainWordsInTheLiveCopy,
+		"- End every decision executable":      plainWordsInTheLiveCopy,
+		"- Batch by class":                     plainWordsInTheLiveCopy,
+		"- A reviewer opening":                 plainWordsInTheLiveCopy,
+		"- Predict each item's code footprint": plainWordsInTheLiveCopy,
+	},
+	"product-manager.md": {
+		"- Open a project that has not written its intent down": plainWordsInTheLiveCopy,
+	},
+	"program-manager.md": {
+		"You own one outcome":                            plainWordsInTheLiveCopy,
+		"- Watch for the pattern nobody is assigned":     plainWordsInTheLiveCopy,
+		"- Read before you conclude.":                    plainWordsInTheLiveCopy,
+		"- Admit work only inside your lane":             plainWordsInTheLiveCopy,
+		"- Ask the development manager or the architect": plainWordsInTheLiveCopy,
+	},
+}
+
+// plainWordsInTheLiveCopy is the reason for every declaration above. The
+// operator's hand change of 2026-09-27 (3372693d) brought the live copies level
+// and rewrote these passages in ordinary words, keeping their meaning; the
+// templates take the same wording under yoyodyne-ifd.430.23, and each entry
+// goes when its template passage does.
+const plainWordsInTheLiveCopy = "reworded in plain words in the live copy by the operator's hand change of 2026-09-27; the template follows under yoyodyne-ifd.430.23"
+
+// TestThisRepositorysPersonasCarryEveryTemplatePassage fails when a passage of a
+// shipped persona is missing from the copy this repository's roles read. The
+// live copy may say more than the template -- a pointer to this repository's
+// own design, a habit only this project has -- but never less, because a
+// template passage the live copy lacks is a behaviour recorded as delivered
+// that no role here shows.
+func TestThisRepositorysPersonasCarryEveryTemplatePassage(t *testing.T) {
+	t.Parallel()
+
+	templateDirectory := filepath.Join("builtin", "v1", bundlePersonaDirectory)
+	liveDirectory := filepath.Join("..", "..", ".yoyodyne", "personas")
+	entries, err := os.ReadDir(templateDirectory)
+	if err != nil {
+		t.Fatalf("read %s: %v", templateDirectory, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		template, err := os.ReadFile(filepath.Join(templateDirectory, entry.Name()))
+		if err != nil {
+			t.Fatalf("read template persona: %v", err)
+		}
+		live, err := os.ReadFile(filepath.Join(liveDirectory, entry.Name()))
+		if err != nil {
+			t.Errorf("the template ships %s and this repository's roles have no copy of it: %v", entry.Name(), err)
+			continue
+		}
+		used := map[string]bool{}
+		for _, passage := range missingPassages(string(template), string(live)) {
+			if opening, reason, declared := templateOnlyPassage(entry.Name(), passage); declared {
+				used[opening] = true
+				t.Logf("%s: template-only by declaration (%s): %q", entry.Name(), reason, passage)
+				continue
+			}
+			t.Errorf("%s: the template carries a passage the copy under .yoyodyne/personas does not, so no role here reads it. Carry it into the live copy, which needs .yoyodyne/personas granted, or declare it in templateOnlyPassages with the reason this repository's roles should not read it:\n%s", entry.Name(), passage)
+		}
+		for opening := range templateOnlyPassages[entry.Name()] {
+			if !used[opening] {
+				t.Errorf("%s: templateOnlyPassages declares %q, and no template passage the live copy lacks opens that way any more; remove the declaration", entry.Name(), opening)
+			}
+		}
+	}
+	for persona := range templateOnlyPassages {
+		if _, err := os.Stat(filepath.Join(templateDirectory, persona)); err != nil {
+			t.Errorf("templateOnlyPassages declares passages for %s, which the template does not ship", persona)
+		}
+	}
+}
+
+// A passage the live copy lacks is found, a reflowed one is not, and a passage
+// only the live copy has is not held against it.
+func TestMissingPassagesComparesPassagesNotLayout(t *testing.T) {
+	t.Parallel()
+
+	template := "# Persona\n\nOne rule, wrapped\nacross two lines.\n\n- First habit.\n- Second habit,\n  also wrapped.\n\n## Decisions\n\nThe new rule.\n"
+	live := "# Persona\n\nOne rule, wrapped across two lines.\n\n- First habit.\n- A habit only this project has.\n- Second habit, also wrapped.\n"
+	got := missingPassages(template, live)
+	want := []string{"## Decisions", "The new rule."}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("missingPassages() = %q, want %q", got, want)
+	}
+	if missing := missingPassages(template, template); len(missing) != 0 {
+		t.Errorf("a copy identical to its template is missing %q", missing)
+	}
+}
+
+func templateOnlyPassage(persona, passage string) (opening, reason string, declared bool) {
+	for opening, reason := range templateOnlyPassages[persona] {
+		if strings.HasPrefix(passage, opening) {
+			return opening, reason, true
+		}
+	}
+	return "", "", false
+}
+
+// missingPassages is every passage of template that live does not carry, in
+// template order. A passage is a paragraph, a heading, or one list entry, with
+// its line breaks and runs of spaces folded, so reflowing a paragraph or adding
+// an entry to a list is not a difference and dropping or rewording one is.
+func missingPassages(template, live string) []string {
+	carried := map[string]bool{}
+	for _, passage := range personaPassages(live) {
+		carried[passage] = true
+	}
+	var missing []string
+	for _, passage := range personaPassages(template) {
+		if !carried[passage] {
+			missing = append(missing, passage)
+		}
+	}
+	return missing
+}
+
+var listEntry = regexp.MustCompile(`^(- |\d+\. )`)
+
+func personaPassages(text string) []string {
+	var passages []string
+	var current []string
+	flush := func() {
+		if len(current) > 0 {
+			passages = append(passages, strings.Join(strings.Fields(strings.Join(current, " ")), " "))
+			current = nil
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		switch {
+		case strings.TrimSpace(line) == "":
+			flush()
+		case strings.HasPrefix(line, "#"):
+			flush()
+			current = append(current, line)
+			flush()
+		case listEntry.MatchString(line):
+			flush()
+			current = append(current, line)
+		default:
+			current = append(current, line)
+		}
+	}
+	flush()
+	return passages
+}

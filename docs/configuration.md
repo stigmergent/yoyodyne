@@ -6690,6 +6690,28 @@ agents:
 In a project that uses `extends`, the same block is how one inherited persona is
 replaced without changing anything else.
 
+**A persona change is done when the live copy carries it.** The copy a role
+reads is the file its agent binds — under `.yoyodyne/personas/` — and never the
+template the executable ships, which only `init` reads. Yoyodyne's own
+repository is where the two sit side by side: `internal/config/builtin/v1/personas/`
+is what a new project is given, `.yoyodyne/personas/` is what this repository's
+roles read, and a change made to the first alone reaches no role here. On
+2026-09-27 two rules — that no role routes an approval to the operator, and that
+a work item is named by what it is — landed in the template alone and closed as
+done while every role ran without them. So the developer contract says a run
+whose deliverable is a persona or contract change is done only when the copy
+the roles read carries it, and otherwise lands as evidence naming the gap
+`yoyo config drift` reports, or the files where it reports none; the reviewer's
+contract refuses a persona change that lands in the template alone without
+saying so; and a test holds every passage of the shipped personas to being in
+this repository's copies, which may say more than the template but never less.
+A template passage this repository's copies deliberately do not carry is
+declared in that test with the reason, which is where saying so is recorded;
+today those are the passages the live copies were rewritten into plain words
+ahead of the template, and a declaration that stops matching anything fails the
+test so it is removed once the template catches up. A role contract is compiled
+into the harness, so it reaches the roles with the build they run.
+
 ## Extending a built-in bundle
 
 Inheritance is a supported capability, and a project that wants it writes
