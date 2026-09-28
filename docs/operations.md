@@ -909,6 +909,71 @@ named item has no run in flight, or has one that is not waiting on the provider
 at all, because a release recorded against a run that is not waiting would be
 acted on by whatever pause that run took next.
 
+## Recording a step only you can take
+
+Some work must not start until you have actually done something — read a soak,
+signed a release off, checked a migration against production. Work that reserves
+such a step declares it as a gate, by naming it after `human-gate:` on a line of
+its own, and a workflow definition declares one on a state as `gate:`. Until the
+act is on the record, the item is never pulled and the executor performs nothing
+at that state.
+
+What the gate holds is every route by which the harness chooses the work: the
+pull `yoyo work` makes, and a re-run the development manager decides, which
+`yoyo triage rerun` refuses before it claims anything, saying the stoppage keeps
+its re-run for after the act is recorded. What it does not hold is you naming the
+item: `yoyo run <id>` starts it as it starts a parked item, because the step the
+gate reserves is yours and naming the item is you deciding to take it or to waive
+it. Naming it waives the gate for that run, and the waiver leaves no trace: the
+gate is listed only while its item is admitted, so it leaves `yoyo gate list` and
+the needs-a-human line the moment the run claims the item, and a run that lands
+closes the item with no act ever recorded and nothing afterwards saying the step
+was passed without one. If the step matters enough to be on the record, record
+the act first and then name the item — a gate you run past by hand is one only
+you remember.
+
+The two are not equally visible yet, and it is worth knowing which you are
+looking at. A gated work item says it is waiting on a person wherever the queue
+is shown and on the needs-a-human line of `yoyo status`, with the step named. A
+workflow instance standing at a gated state says so only in the refusal raised
+when something tries to step it — no status surface lists it — so a gated
+definition is something to watch for rather than something the four lines will
+tell you about. Nor does it hold a run today: under the delivery trial the
+definition observes the pipeline rather than performing it, so a `gate:` on a
+delivery state stops the observation at that state and records a
+`workflow_divergence`, while the run itself delivers. A gate on a state holds
+what the executor performs, and until the executor is what delivers, that is not
+the run. Nothing shipped declares one today.
+
+```sh
+./bin/yoyo gate list
+./bin/yoyo gate record soak-reviewed --for yoyodyne-ifd.209.7 --by mason --did "read a week of soak runs; they diverge nowhere"
+```
+
+`yoyo gate record` is the only thing that passes a gate. No run passes one, no
+check passes one, and closing a work item does not pass one — which is the whole
+reason gates exist. Before them, the only way to write down "a person has to sign
+this off first" was an item somebody closes, and on 2026-09-04 machinery closed
+exactly such an item and the work behind it became pullable with the reserved
+step untaken.
+
+The record names who took the step and what they say they did, because a gate
+passed by nobody in particular and described by nothing is the flag that failed.
+A gate already passed on that subject is refused rather than overwritten, so the
+record keeps saying whose act it was. A gate whose record cannot be read is never
+treated as open.
+
+`--for` is required, and names the work item or workflow instance that declared
+the gate. The act passes it there and nowhere else, which is what makes a name
+reusable: `release-signed` is a step taken once per release, not once ever, so
+declaring it on the next release holds that release until you sign that one off,
+whatever you signed before. Were the name alone the identity, your first
+signature would pass every later declaration of the word, and you could not
+record the new act at all, because the gate would already read as passed. For a
+workflow the reason is sharper still — every instance of one definition reaches
+the same gated state, so an act against the name would approve one run's step and
+every run made after it.
+
 ## When the provider dies mid-run
 
 Not every way a provider ends an invocation is a refusal it names in advance.
@@ -2887,7 +2952,8 @@ has the rule.
   per group, each saying how many, what they wait on, the next step, and whose
   move that is: the development manager's decision about a stopped run (hers);
   the harness carrying out a decision already recorded (the harness's); an
-  unresolved directive (the operator's, by `yoyo directive resolve`); ready work
+  unresolved directive (the operator's, by `yoyo directive resolve`); a step
+  only a person can take (the operator's, by `yoyo gate record`); ready work
   a switch or a missing session stops (whoever the reason names — the operator
   for his hold or a session that is not running, the development manager or the
   harness for a hold the brake placed, nobody for a usage window); other items
@@ -2992,7 +3058,9 @@ has the rule.
   by name, a
   proposed change nobody has decided, a run that ended still owing a step, a
   promotion the forge has not published, work
-  marked for a conversation rather than for a run, a target branch the harness
+  marked for a conversation rather than for a run, work held by a step only a
+  person can take — named with the step and the `yoyo gate record` that takes
+  it — a target branch the harness
   will not catch up to the remote's, with
   [the recovery](#unwedging-a-target-branch-that-diverged-from-the-forge), a
   queue nothing is pulling from — a session sitting idle over it, or no session at all — while admitted
@@ -3190,22 +3258,26 @@ Each entry under `standing.needs_human` is the thing waiting rather than a
 sentence about it: its `kind`, from a closed set — `amendment`,
 `conversation-carried-item`, `report`, `owed-step`, `publication`,
 `degraded-service`, `failing-task`, `hold`, `directive`, `outage`, `stall`,
-`held-work` — the `id` of the record it is about (an amendment's, a
+`held-work`, `human-gate` — the `id` of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
-name, or which switch a hold is: `operator`, `intake`, or `capacity`), the
+name, a human gate's name, or which switch a hold is: `operator`, `intake`, or
+`capacity`), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect` or
 `development-manager`, `harness`, `forge`, `provider`, `nobody`, or
 `unnamed-role`), and
 the record itself, whole, under a field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`,
-`owed_step`, `publication`, `held_work`, and for a hold `operator_hold`, `intake_hold`, or
+`owed_step`, `publication`, `held_work`, `human_gate`, and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work
 item — the carried item, the item a run was carrying, the item an amendment's
 proposer was working on — names it under `work_item_id` as well; a carried
-item carries its `executor` marker rather than a record of its own. Two kinds
+item carries its `executor` marker rather than a record of its own. A
+`human-gate` entry names the item that declared the gate under `work_item_id`,
+and its `human_gate` carries the gate's name and what the person has to do — or,
+for a declaration nothing could read, what is wrong with it and no name. Two kinds
 carry no `id`, because each is about a set rather than a record: `report` is
 the pile, and `held-work` is how many items are in one of the two waits. The
 `what` and `whose` sentences are there beside them, and they are
@@ -3979,7 +4051,9 @@ slowly or not at all`.
    groups by what each waits on, exactly as the terminal's `-` lines under
    [the not-startable line](#where-the-harness-stands-the-four-lines) count
    them: the development manager's decision, the harness carrying a decision
-   out, a directive, ready work a switch or a missing session stops, other
+   out, a directive, a
+   [step only a person can take](#recording-a-step-only-you-can-take), which is
+   the operator's through `yoyo gate record`, ready work a switch or a missing session stops, other
    items, a role's conversation, parked by the Lead Product Manager, covered by
    other work, and not offered for a reason nothing here can read — each with
    its next step and whose move that is, and the largest marked `(most)`; how
@@ -4181,7 +4255,7 @@ then the record the kind names, whole, under plain labels:
 - a conversation-carried item's card shows the **Work item**, its **Executor**
   marker, and the **Role** the marker names;
 - the other kinds — a publication, a degraded service, a hold, a directive, an
-  outage, a stall, the report pile, held work — show their own record's fields
+  outage, a stall, the report pile, held work, a step reserved for a person — show their own record's fields
   the same way.
 
 A work item the entry names is a button on the card that opens the item's own

@@ -49,7 +49,7 @@ func TestAChildBuildingOnAnUnlandedParentIsHeldAndOneSupersedingItIsNot(t *testi
 	t.Parallel()
 
 	held := ReadHolds(nil).OnUnlandedParents(map[string]string{unlandedParent: where})
-	queue := Order(substrateItems("open"), []string{buildingChild, supersedingOne, unlandedParent}, held)
+	queue := Order(substrateItems("open"), []string{buildingChild, supersedingOne, unlandedParent}, held, nil)
 
 	building := entryFor(t, queue, buildingChild)
 	if building.Ready {
@@ -102,7 +102,7 @@ func TestAChildBuildingOnItsParentIsReleasedWhenTheChangeLands(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			queue := Order(read.items, []string{buildingChild, supersedingOne}, read.held)
+			queue := Order(read.items, []string{buildingChild, supersedingOne}, read.held, nil)
 			if entry := entryFor(t, queue, buildingChild); !entry.Ready {
 				t.Fatalf("the child is still held: %s", entry.Hold())
 			}
@@ -117,7 +117,7 @@ func TestAChildWaitsWhileItsParentIsStillUnfinishedOutsideTheBacklog(t *testing.
 
 	items := substrateItems("")
 	items[0].Dependencies = []beads.Dependency{{ID: unlandedParent, Type: "parent-child", Status: "in_progress"}}
-	queue := Order(items, []string{buildingChild, supersedingOne}, ReadHolds(nil).OnUnlandedParents(map[string]string{unlandedParent: where}))
+	queue := Order(items, []string{buildingChild, supersedingOne}, ReadHolds(nil).OnUnlandedParents(map[string]string{unlandedParent: where}), nil)
 	if entry := entryFor(t, queue, buildingChild); entry.Ready {
 		t.Fatal("the child was released while its parent is still being worked")
 	}
@@ -130,7 +130,7 @@ func TestAChildsOwnStoppageAnswersAheadOfItsParentsChange(t *testing.T) {
 
 	held := ReadHolds(map[string]Hold{buildingChild: {Reason: "run run-2 stopped on it"}}).
 		OnUnlandedParents(map[string]string{unlandedParent: where})
-	entry := entryFor(t, Order(substrateItems("open"), []string{buildingChild}, held), buildingChild)
+	entry := entryFor(t, Order(substrateItems("open"), []string{buildingChild}, held, nil), buildingChild)
 	if entry.AwaitingLanding || entry.HoldKind() != HeldForAPerson {
 		t.Fatalf("the child's own stoppage was shadowed: %q, landing %v", entry.Hold(), entry.AwaitingLanding)
 	}

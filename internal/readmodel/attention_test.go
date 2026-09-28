@@ -126,6 +126,8 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			},
 		}),
 			"yoyodyne-ifd.428.34 is superseded by yoyodyne-ifd.398 while run run-superseded is in flight, decided by the Lead Product Manager in conversation chat-1: 398 does this work whole"},
+		AttentionHumanGate: {humanGateAttention("yoyodyne-ifd.209.7", HumanGateWait{Gate: "soak-reviewed", Statement: "the operator has judged the parity soak"}),
+			`yoyodyne-ifd.209.7 waits on the gate "soak-reviewed": the operator has judged the parity soak`},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -196,6 +198,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionReports:         "",
 		AttentionHeldWork:        "",
 		AttentionProductDecision: "run-superseded",
+		AttentionHumanGate:       "soak-reviewed",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)

@@ -41,6 +41,7 @@ func commandHelp() string {
 		printPauseUsage,
 		printResumeUsage,
 		printReleaseUsage,
+		printGateUsage,
 		printReviewUsage,
 		printCostUsage,
 		printReconcileUsage,

@@ -450,6 +450,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		// The triage docket, so the channel names an unanswered product decision
 		// about a run in flight exactly as the terminal does.
 		Docket: slackDocket(stateRoot, resolved.Config.Product.ID),
+		Gates:  runs,
 		// The refusal log and the agents' configuration, read together for whether
 		// the provider is holding every role at once. The feed says that hold again
 		// while it stands, through these same sources, and the lines carry it as

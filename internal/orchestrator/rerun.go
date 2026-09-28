@@ -44,6 +44,19 @@ package orchestrator
 // run means a process that dies between the two has spent a re-run nobody took
 // rather than taken one nobody recorded.
 //
+// # Why a human gate refuses here and not in the pipeline
+//
+// A step only a person can take, declared on the item and not yet recorded, is
+// asked here as well, and it is the one condition here the pipeline does not ask.
+// The pipeline is also the route `yoyo run <id>` takes, and an item the operator
+// names is exempt from every hold on the harness's own choosing — naming it is
+// them deciding it is the exception, and the gate is their own step to take or to
+// waive. A re-run is not that: docs/configuration.md classes it as the harness
+// choosing the work, which is why the intake hold applies, and the same
+// classification is why the gate does. The scheduler refuses a gated item at the
+// pull; this refuses it before the claim. What is left is the operator's own
+// route, which is left open on purpose.
+//
 // # Why a full harness is a state rather than a refusal
 //
 // Developer capacity is the one condition here that says nothing at all about
@@ -123,6 +136,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/humangate"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -193,6 +207,19 @@ type RerunRecords interface {
 	Withdraw(ctx context.Context, docketKey string) error
 }
 
+// RerunGates is the human gates a person has recorded passing, read from the
+// harness's own store rather than from the tracker, which cannot answer it: the
+// only completion the tracker records is an item being closed, and closure
+// passing a step somebody reserved is the failure the gate exists to end. It is
+// required for the reason the scheduler requires it — a carry-out that cannot
+// read the acts cannot tell a gate somebody passed from one nobody has, and would
+// either refuse every gated re-run forever or start past all of them.
+//
+// It is satisfied by *runstate.Store.
+type RerunGates interface {
+	DischargedGates() (map[string][]string, error)
+}
+
 // RerunItems is the work item the stoppage is about. It is read, and written in
 // exactly one case: what becomes of an item is the fresh run's to record, and a
 // re-run that reopened what it wanted to run would be deciding the thing it is
@@ -245,6 +272,9 @@ type Rerunner struct {
 	// asks the same question past the claim, so a re-run that could not ask it
 	// here would go on spending the stoppage's one re-run to find out.
 	Items RerunItems
+	// Gates is the human gates a person has passed. Required; see RerunGates for
+	// why a re-run without one is refused rather than run.
+	Gates RerunGates
 	// Capacity is execution.max_concurrent_developers as this carry-out read it,
 	// which is the same number the reservation enforces. Required: a carry-out
 	// that could not tell a full harness from a free one would go on spending the
@@ -792,6 +822,13 @@ var ErrItemNotStartable = errors.New("the work item is not in a state a run may 
 // claim audit leaves a claim standing while the run's branch survives, this
 // refused an item that was claimed, and nothing else in the harness moves the
 // status. Everything else the pipeline refuses an item for is still refused.
+//
+// What it asks after the pipeline's condition is the item's human gates, which
+// the pipeline does not ask and the scheduler does; the package comment says why
+// the line falls there. An undischarged gate refuses in the same words the queue
+// holds the item with, so the development manager reads the same sentence here
+// as on the backlog, and the stoppage keeps its re-run for after the act is
+// recorded.
 func (r Rerunner) itemCanBeRun(ctx context.Context, workItemID string) (beads.WorkItem, error) {
 	item, err := r.Items.Show(ctx, workItemID)
 	if err != nil {
@@ -804,6 +841,14 @@ func (r Rerunner) itemCanBeRun(ctx context.Context, workItemID string) (beads.Wo
 	if err := validateWorkItem(item, workItemID, statuses...); err != nil {
 		return beads.WorkItem{}, fmt.Errorf("%w: %w, which is what a fresh run of it would start from; nothing was claimed, so the stoppage keeps its re-run — put the item back in a state a run may start on and ask again to carry out the same decision",
 			ErrItemNotStartable, err)
+	}
+	discharged, err := r.Gates.DischargedGates()
+	if err != nil {
+		return beads.WorkItem{}, fmt.Errorf("read the human gates a person has passed: %w", err)
+	}
+	if gates := humangate.Of(item).Pending(discharged[item.ID]); gates.Holds() {
+		return beads.WorkItem{}, fmt.Errorf("work item %s is %s; nothing was claimed, so the stoppage keeps its re-run — a re-run is the harness choosing work, and no decision of the development manager's passes a step reserved for a person",
+			item.ID, gates.Describe(item.ID))
 	}
 	return item, nil
 }
@@ -1305,6 +1350,9 @@ func (r Rerunner) validate() error {
 	}
 	if r.Items == nil {
 		problems = append(problems, errors.New("a re-run requires the work item, because a fresh run starts on it and a re-run that cannot read it would spend the stoppage's claim to find that out"))
+	}
+	if r.Gates == nil {
+		problems = append(problems, errors.New("a re-run requires the human gates a person has passed, because a re-run is the harness choosing work and a gated item is not work it may choose"))
 	}
 	if r.Start == nil {
 		problems = append(problems, errors.New("a re-run requires a way to start a run"))

@@ -2615,12 +2615,12 @@ A replay that conflicts is handed back to the change's own developer to
 reconcile on top of the target, as a repair attempt that is checked and reviewed
 again, and the run blocks only once a budget is spent. Nothing is ever forced.
 
-Eleven things keep an item out of a pass, reported at two different grains. The
-first eight are named against the item, because nothing else would report that
+Twelve things keep an item out of a pass, reported at two different grains. The
+first nine are named against the item, because nothing else would report that
 this item was passed over; the last three are facts about the pass rather than
 about any one item.
 [How work flows](work.md#letting-the-harness-choose-the-work) lists the same
-eleven in the same order, and a test fails when the two lists differ:
+twelve in the same order, and a test fails when the two lists differ:
 
 <!-- selection-rules: the same names, in the same order, as docs/work.md and docs/configuration/runs.md; internal/doclink/selectionrules_test.go holds them together -->
 1. **An unresolved directive** withholds the item until a person resolves the
@@ -2640,20 +2640,23 @@ eleven in the same order, and a test fails when the two lists differ:
    or whose publication did not finish, until the development manager's
    decision is carried out, the escalation is answered, or `yoyo reconcile`
    settles the publication.
-7. **A prerequisite the tree does not meet** withholds an item that pinpoints
+7. **A step only a person can take** withholds an item that declares a
+   `human-gate:` nobody has recorded taking, and only a person's
+   `yoyo gate record <name> --for <item>` releases it; closing an item never does.
+8. **A prerequisite the tree does not meet** withholds an item that pinpoints
    code the repository no longer has, or says in its own words that something
    must land first; a pinpoint releases it when the code lands, and a sentence
    when the item is amended or the dependency recorded.
-8. **A label another slot prefers** withholds an item every free developer slot
+9. **A label another slot prefers** withholds an item every free developer slot
    walked past for its preferred label, and the next slot with no preference to
    come free — or the preferring slot, once its label's work is exhausted —
    releases it.
-9. **The tracker not calling it ready** withholds an item with unfinished
-   dependencies or a status that is not open, and the tracker's own readiness
-   releases it.
-10. **A run already in flight for it** withholds the item while that run lasts,
+10. **The tracker not calling it ready** withholds an item with unfinished
+    dependencies or a status that is not open, and the tracker's own readiness
+    releases it.
+11. **A run already in flight for it** withholds the item while that run lasts,
     and the run ending releases it.
-11. **No free developer slot** withholds everything once the slots are taken,
+12. **No free developer slot** withholds everything once the slots are taken,
     and any run ending releases one.
 <!-- /selection-rules -->
 
@@ -2694,7 +2697,17 @@ the two readings are, and what the executor, parking, and hold rules each
 record. An item every free
 [developer slot](#a-developer-slot-that-prefers-a-label) walked past for its
 preferred label is named as left for another slot, with the slot and what it
-pulled ahead of the item: it waits on nothing about itself. The last three
+pulled ahead of the item: it waits on nothing about itself. An item that
+declares a step only a person can take — named after `human-gate:` on a line of
+its own, in those same authored fields — is passed over with that step and what
+records it both named, until somebody has recorded taking it with `yoyo gate
+record <name> --for <item>`. That one is neither a wait nor something any run
+clears: closing a work item does not pass it, which is the whole reason it
+exists. The act is recorded against the item that declared the gate and passes it
+there and nowhere else, so a name a later item declares again is a step somebody
+still has to take. See
+[a step only a person can take](work.md#letting-the-harness-choose-the-work) for
+what it replaced. The last three
 rules are reported as facts about the pass — the
 stop reason names which of them ended the choosing, and a pass that got as far as
 reading the queue prints how many items were admitted, how many the tracker
@@ -2704,7 +2717,7 @@ on every pass and bury the deferrals worth reading. A pass that stopped before
 reading the queue at all — held intake, or every slot already taken — says
 nothing about the backlog rather than reporting zeroes it never looked up.
 
-A twelfth thing deliberately keeps nothing out: an item whose goal was amended
+A thirteenth thing deliberately keeps nothing out: an item whose goal was amended
 after it was admitted is pulled exactly as it would have been, and what changed
 goes into the run's recorded reason instead. See
 [what a change upstream leaves stale](#what-a-change-upstream-leaves-stale) for
@@ -4796,7 +4809,13 @@ blocker rather than waiting for somebody to remember to reopen the item. What
 still refuses is unfinished work the item waits for, and an item that has left
 the backlog. The intake hold applies too, because the harness is the one
 choosing the work; a re-run under a hold starts nothing and claims nothing, so the
-stoppage keeps its re-run for after the hold is lifted. The fresh run records
+stoppage keeps its re-run for after the hold is lifted. A
+[step only a person can take](work.md#letting-the-harness-choose-the-work) that
+the item declares and nobody has recorded applies for the same reason and in the
+same way: the re-run is refused before the claim, in the words the queue holds
+the item with, and the stoppage keeps its re-run for after the act is recorded —
+the development manager deciding a re-run is not the operator taking the step the
+item reserved for them. The fresh run records
 the development manager as having chosen it, cites the decision it read that from
 — whose, which conversation, which turn — and carries the reasoning recorded with
 it, which is what `selected-work-passes-intake-and-records-why` asks of anything
