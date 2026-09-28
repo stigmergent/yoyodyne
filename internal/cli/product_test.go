@@ -435,7 +435,7 @@ func TestTheSupervisorInstalledOverTheMaintenanceJobRetiresItAndCarriesTheRebuil
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	machine := &machineRunner{loaded: true, loadedFrom: plist, built: cancel}
 	p := &product{

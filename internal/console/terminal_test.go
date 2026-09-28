@@ -553,6 +553,8 @@ func TestSuspendingHandsTheTerminalOverAndTakesItBack(t *testing.T) {
 	// A conversation that negotiated a keyboard and can take its modes back.
 	console.keyboard = keyboardKitty
 	console.restoreKeyboard = kittyPop
+	// The resumed negotiation is answered below, so it waits for the answer.
+	console.keyboardWait = answeredNegotiation
 	var handedBack, taken atomic.Int64
 	console.restore = func() error { handedBack.Add(1); return nil }
 	console.modes = func() (func() error, error) {

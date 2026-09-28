@@ -108,32 +108,20 @@ func TestTheStandingIsASnapshotServedWithItsAgeWhateverTheBuilderIsDoing(t *test
 	t.Cleanup(stop)
 	w.server.standing.live(life)
 
-	// ask is one request, bounded: a request that waits on a build it should
-	// not be waiting on fails the test rather than hanging it.
+	// ask is one request. It carries no bound: a request that waits on a build
+	// it should not be waiting on waits on a build the test is holding, and the
+	// binary's own -timeout reports that hang naming where it waited, rather
+	// than a bound a loaded machine could reach with the request answering.
 	ask := func() (int, answered, string) {
 		t.Helper()
-		type result struct {
-			status int
-			body   string
-		}
-		done := make(chan result, 1)
-		go func() {
-			response, body := w.get("/api/standing", bearer(w.server.Token()))
-			done <- result{response.StatusCode, body}
-		}()
-		select {
-		case got := <-done:
-			var decoded answered
-			if got.status == http.StatusOK {
-				if err := json.Unmarshal([]byte(got.body), &decoded); err != nil {
-					t.Fatalf("decode %s: %v", got.body, err)
-				}
+		response, body := w.get("/api/standing", bearer(w.server.Token()))
+		var decoded answered
+		if response.StatusCode == http.StatusOK {
+			if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+				t.Fatalf("decode %s: %v", body, err)
 			}
-			return got.status, decoded, got.body
-		case <-time.After(10 * time.Second):
-			t.Fatal("a request waited on the builder")
-			return 0, answered{}, ""
 		}
+		return response.StatusCode, decoded, body
 	}
 	title := func(got answered) string {
 		if len(got.NotStartable) == 0 {

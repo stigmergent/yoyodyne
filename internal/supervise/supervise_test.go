@@ -593,14 +593,13 @@ func TestASupervisorRefusesWithoutWhatItNeeds(t *testing.T) {
 	}
 }
 
+// waitFor polls until condition holds, and sets no deadline: one a loaded
+// machine can reach with the supervisor working fails a change that never
+// touched it, and a condition that never holds is reported by the binary's own
+// -timeout, naming this wait.
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return
-		}
+	for !condition() {
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("the condition was not met in time")
 }

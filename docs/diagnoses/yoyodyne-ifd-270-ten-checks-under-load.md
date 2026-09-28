@@ -175,3 +175,120 @@ started, and finished with the margin it had left rather than with any to
 spare. A repetition of this size does not reliably fit inside one run, and
 whoever asks for the next one should expect to run the loop beside the harness
 rather than inside it.
+
+## Sub-second budgets, swept
+
+`TestALandingRunsUnderItsOwnBudgetAndAStoppedCheckLeavesItUnverified` gave
+its gate check, `true`, fifty milliseconds and failed under `-race`, and
+yoyodyne-ifd.422 raised the figure to ten seconds. yoyodyne-ifd.429.24 then
+swept every `_test.go` file for a duration under a second — `time.Millisecond`,
+`time.Microsecond`, `time.Nanosecond`, and a literal such as `50ms` — along with
+the second-scale budgets in the packages that run commands, and the shell
+suites under `scripts` and `bin`, which carry none. The sweep was made twice:
+once by the run that stopped on 2026-09-26 against the tree at `30dc3a2b`, and
+again over everything `main` gained between that commit and `197f9f82`, which
+the run that finished the item started from.
+
+A budget under a second is only a load failure where the test needs it **not**
+to be reached. Where running out is the outcome asserted, load makes that
+outcome more certain rather than wrong, so the question each hit was asked is
+which of the two it is.
+
+### Converted
+
+| Test | What it gave, and to what | What it does now |
+| --- | --- | --- |
+| `TestPingsAloneKeepAQuietConnectionAlive` (`internal/slack`) | a 500ms idle bound on a real read, with pings 100ms apart that had to arrive inside it | Reads the deadlines the connection was given off a recording connection, `heldDeadlines`: one per frame, each a whole bound past the read. A bound set once per call records one, and fails. `TestSilencePastTheDeadlineEndsTheRead` is still the real timer running out. |
+| `TestHangingUpTellsThePeerTheConnectionIsOver` (`internal/slack`) | the code's own 250ms `closeCourtesyTimeout`, on a close frame the test needs its peer to read | The write bound is held rather than armed, so the frame waits for a peer that is slow to be scheduled. What is asserted is that the frame is sent. |
+| `TestTheKeyboardIsNegotiatedAndHandedBack` (`internal/console`) | 200ms for a terminal reply the test writes from a goroutine | A terminal that answers is waited for: its identity reply ends the negotiation. The case whose terminal answers nothing keeps 200ms, because running out is what it asserts. |
+| `TestTypingAheadOfTheNegotiationIsKept` (`internal/console`) | two seconds, the same shape over a second | Waited for, as above. |
+| `TestSuspendingHandsTheTerminalOverAndTakesItBack` and `TestSuspendingDuringAChoiceTakesTheListDownAndPutsItBack` (`internal/console`) | the code's own 250ms `keyboardReplyTimeout`, spent by the resumed negotiation while a polling goroutine writes the reply | The terminal carries the bound as `keyboardWait`, a field the harness leaves at `keyboardReplyTimeout`, and these tests set it past the binary's own `-timeout`. |
+| `TestALandingRunsUnderItsOwnBudgetAndAStoppedCheckLeavesItUnverified` (`internal/orchestrator`) | the ten seconds 422 gave the gate's `true`, and a check that the landing's `sleep 30` was stopped inside those ten, which is a kill and a reap load can stretch | The gate is given ten minutes. A landing run under the gate's bounds would see `sleep 30` finish and pass, so a check stopped at its bound is already the landing's own budget at work, and the elapsed-time check went. |
+| `TestAPullAttemptsEveryDecisionItHasASlotForAndSaysWhyItPassedTheRest` (`internal/orchestrator`, new since `30dc3a2b`) | a loop polling every 5ms for the first pull's account, given up on after ten seconds | Waits on two signals: the schedule harness tells a channel when a pull hands over what it passed over, and each carry says it has arrived before it blocks. |
+| `TestAFreedSlotIsRefilledAtTheNextPollWhileAnotherRunIsStillGoing` and `TestASlotAnotherProcessFreesIsRefilledAtTheNextPollWhileTheSessionIsFull` (`internal/orchestrator`, new) | five seconds for a held run to be released, after which it ended on its own and failed the assertion that it was still going | The held run waits on its release alone. The behaviour these guard against never releases it, and the binary's `-timeout` reports that hang. |
+| `TestTheStandingIsASnapshotServedWithItsAgeWhateverTheBuilderIsDoing` (`internal/dashboard`, new) | ten seconds for a request to be answered while the test holds the builder | The request is made directly. One that waited on the held builder would hang, and the `-timeout` names where. |
+| `TestTheSupervisorInstalledOverTheMaintenanceJobRetiresItAndCarriesTheRebuild` (`internal/cli`, new) | a thirty-second context on a supervisor the test stops itself once the rebuild has run | A context the test cancels, and nothing else. |
+| `awaitLanding` in `internal/orchestrator` and `waitFor` in `internal/supervise` | a poll for a state given up on after thirty and five seconds | The polls carry no deadline. Both were named for admission by the first sweep and are converted here, because the fix is to delete the deadline. |
+
+### Left as they are: the bound is what the test asserts
+
+- `internal/orchestrator`: `TestPipelineReportsElapsedAndBudgetWhenACheckTimesOut`
+  (100ms on `sleep 30`); `TestALandingRunsUnderItsOwnBudgetAndAStoppedCheckLeavesItUnverified`
+  (the landing's one second on `sleep 30`; its gate is in the table above);
+  `TestALandingThatWaitsOutItsBoundRunsNothingAndIsUnverified` (50ms on a held
+  landing lease); and `witnessedWorktrees.leaseHeld` in the promotion tests
+  (100ms). That probe either finds the lease held and is meant to give up, or
+  finds it free and takes it on the first `flock`, which is tried before the
+  deadline is read.
+- `internal/runstate`: `TestPromotionLeaseWaitIsBounded`,
+  `TestPromotionLeaseDiesWithItsHolder`,
+  `TestALandingsWaitIsBoundedAndTellsTheBoundFromACancellation`,
+  `TestAClaimGivesUpWhenItsContextIsDone`, and
+  `TestTakingAConversationBackGivesUpWhenItsContextIsDone`, each on a lease or a
+  claim somebody holds. `TestALandingHoldsNeitherThePromotionLeaseNorAnotherBranchsLanding`
+  gives 50ms to leases nobody holds, and the first `flock` takes them before the
+  bound is consulted, so load cannot reach it.
+- `internal/execution`: `TestOSProcessRunnerRealBudgetEndsAProcessThatOutlivesIt`
+  and `TestOSProcessRunnerRealIdleBoundStopsASilentProcess`, 50ms of the
+  runner's own timer on a helper that sleeps. That timer is the thing under test.
+- `internal/gitworktree`: `TestAWorktreeCheckoutKilledByItsBudgetIsSaidInOneSentence`
+  and `TestACountKilledByItsBudgetRefusesTheCreationAsAKilledCheckout`, a
+  nanosecond on the one command they are about.
+- `internal/cli`: `TestATakeoverThatDoesNotHappenIsGivenUpOnWithinItsDeadline`
+  (50ms on a wedged re-execution). `internal/chat`: `TestStoppingReportsARunThatHasNotGivenUpYet`
+  and `TestAnUnstoppableRunIsReportedRatherThanDescribedAsStopped` (a stop grace
+  of 1ms and 10ms on runs that do not stop). `internal/shutdown`:
+  `TestAProcessThatDoesNotStopWithinItsGraceExits` (1ms).
+- `internal/slack`: the three conversation tests that set `steering.deadline`
+  to 20ms, each on a conversation that does not answer in time, and
+  `TestSilencePastTheDeadlineEndsTheRead` (50ms on a silent peer).
+- `internal/dashboard/fixtureserver`: `TestEveryScenarioLoadsAndAnswersAsNamed`
+  gives each read 50ms. The scenarios that answer never read the context, and
+  the pending one is meant to run it out.
+- `internal/console`: `TestBracketingIsAskedForAndHandedBack` resumes with
+  nobody answering the negotiation, so its 250ms runs out as it would on a
+  terminal that says nothing, and the test writes nothing until the region is
+  drawn again.
+
+### Not budgets
+
+Poll intervals and pacing that make a test quicker and never decide its result:
+`progressInterval` in `internal/chat`, `Poll` in `internal/supervise` and
+`internal/cli`, `look` in `internal/cli`'s stream test, the read-back interval in
+`internal/beads` (a sleep the test replaces), the marker poll in
+`internal/gitworktree`'s integration runner, the helpers' own sleeps in
+`internal/execution` and `internal/console`, and the arithmetic in
+`internal/gitworktree`'s load test and `internal/runstate`'s timestamp
+precision. The two 250ms windows in `internal/gitworktree`'s lease tests and
+the three-second window in `internal/execution`'s group-kill test assert that
+something did **not** happen, which a slow machine can make uninformative but
+cannot make fail.
+
+### The repetition
+
+The converted tests were run ten times in sequence under `-race` with
+`-count=1`, so nothing was served from the test cache, all six packages they live
+in per run, beside a full `make check` on the same tree. Ten of ten exited 0,
+between 23:27 and 23:33 PDT on 2026-09-27, at one-minute load averages from 40
+to 50 on sixteen cores. CHECK_RESULT
+
+The ten full `make check` runs this record's own repetition is were not
+repeated: the section above says that sequence takes over three hours, and the
+run that first took this item stopped inside it. The targeted ten are the
+repetition for the tests this item changed, and the one full suite is the
+evidence that nothing else moved.
+
+### Found, outside this sweep
+
+Budgets of thirty seconds on real processes whose running out would fail a
+test that is working, which is the same class at a figure no recorded failure
+has reached yet: `internal/beads` `client_test.go` (a stub `bd` script), and in
+`internal/execution` `process_test.go` (two), `agentrole_test.go`,
+`environment_test.go`, `process_group_unix_test.go`, and
+`gitmaintenance_test.go` (two). Git reached sixty-six seconds under a loaded
+suite, so thirty is within reach. They are named for admission rather than
+converted, because the item is the sub-second budgets and each has to be
+checked for whether its budget is what it is about. The seven-second budgets
+in `internal/gitworktree`'s load tests are the scaled Git budget under test,
+and `internal/research`'s five seconds is a figure in a message from a fake
+process.

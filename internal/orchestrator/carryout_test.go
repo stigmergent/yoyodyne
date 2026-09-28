@@ -443,6 +443,12 @@ func (h *scheduleHarness) RecordUnattempted(_ context.Context, _ time.Duration, 
 		copied[run] = why
 	}
 	h.passedOver = append(h.passedOver, copied)
+	// A pull never waits on a test that has stopped listening: the first
+	// account is the one a test waits for, and a buffer of one holds it.
+	select {
+	case h.unattempted <- struct{}{}:
+	default:
+	}
 	return nil, nil
 }
 
@@ -614,10 +620,14 @@ func TestAPullAttemptsEveryDecisionItHasASlotForAndSaysWhyItPassedTheRest(t *tes
 	harness.capacity = 2
 	harness.outstanding = outstandingUntilAttempted(
 		decidedTaskOf("yoyodyne-ifd.346", first), decidedTaskOf("yoyodyne-ifd.347", second), decidedTaskOf("yoyodyne-ifd.348", third))
+	unattempted := make(chan struct{}, 1)
+	harness.unattempted = unattempted
+	reached := make(chan struct{}, 3)
 	release := make(chan struct{})
 	harness.carry = func(h *scheduleHarness, task CarryOutTask) (CarriedOut, Outcome, error) {
 		// Held until the first pull has accounted for what it passed over, so the
 		// slots it spent are still spent when it does.
+		reached <- struct{}{}
 		<-release
 		return CarriedOut{
 			WorkItemID: task.WorkItemID, RunID: task.RunID, Decision: task.Decision,
@@ -634,17 +644,13 @@ func TestAPullAttemptsEveryDecisionItHasASlotForAndSaysWhyItPassedTheRest(t *tes
 	// The pull hands each decision it has a slot for to its own goroutine, so
 	// it can account for what it passed over before either of those reaches
 	// Carry. Wait for both: the carries are held on release, so any that has
-	// arrived by now belongs to the first pull.
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		harness.mu.Lock()
-		accounted := len(harness.passedOver) > 0 && len(harness.carried) >= 2
-		harness.mu.Unlock()
-		if accounted || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+	// arrived by now belongs to the first pull. Each is waited on rather than
+	// polled for under a deadline, which a loaded machine can reach with the
+	// pull working; a pull that never gets there is reported by the binary's
+	// own -timeout, naming where it waited.
+	<-unattempted
+	<-reached
+	<-reached
 	harness.mu.Lock()
 	var firstPull []string
 	for _, task := range harness.carried {

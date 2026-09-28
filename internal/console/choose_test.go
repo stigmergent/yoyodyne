@@ -241,6 +241,8 @@ func TestSuspendingDuringAChoiceTakesTheListDownAndPutsItBack(t *testing.T) {
 	t.Parallel()
 
 	console, keys, out := terminalUnderTest(t, 60)
+	// The resumed negotiation is answered below, so it waits for the answer.
+	console.keyboardWait = answeredNegotiation
 	stopped := make(chan string, 1)
 	console.raise = func(pressed signalKey) {
 		if pressed != signalSuspend {
