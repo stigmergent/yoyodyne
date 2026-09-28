@@ -74,7 +74,7 @@ type IntegrationStop struct {
 func (s IntegrationStop) Validate() error {
 	var problems []error
 	if !s.Cause.Valid() {
-		problems = append(problems, fmt.Errorf("environmental cause %q is not one this harness records", s.Cause))
+		problems = append(problems, fmt.Errorf("cause %q is not one this harness records for a run ended from outside the work", s.Cause))
 	}
 	if len(s.Detail) > MaxEnvironmentalDetailBytes {
 		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(s.Detail), MaxEnvironmentalDetailBytes))
@@ -250,7 +250,7 @@ type IntegrationResumption struct {
 func (r IntegrationResumption) Validate() error {
 	var problems []error
 	if !r.Cause.Valid() {
-		problems = append(problems, fmt.Errorf("environmental cause %q is not one this harness records", r.Cause))
+		problems = append(problems, fmt.Errorf("cause %q is not one this harness records for a run ended from outside the work", r.Cause))
 	}
 	if strings.TrimSpace(r.Reason) == "" {
 		problems = append(problems, errors.New("the reason this run's integration was resumed is required"))

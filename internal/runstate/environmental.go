@@ -348,7 +348,7 @@ type EnvironmentalRefusal struct {
 func (r EnvironmentalRefusal) Validate() error {
 	var problems []error
 	if !r.Cause.Valid() {
-		problems = append(problems, fmt.Errorf("environmental cause %q is not one this harness records", r.Cause))
+		problems = append(problems, fmt.Errorf("cause %q is not one this harness records for a run ended from outside the work", r.Cause))
 	}
 	if len(r.Detail) > MaxEnvironmentalDetailBytes {
 		problems = append(problems, fmt.Errorf("detail is %d bytes, which exceeds the %d byte bound", len(r.Detail), MaxEnvironmentalDetailBytes))

@@ -308,12 +308,12 @@ was dispatched, and `yoyo run`'s refusal is what catches the dispatches that
 never said they were repairs at all.
 
 Not every round an item is charged for is one it cost. A round whose diff is
-empty **and** whose run recorded an environmental cause — the worktree it was
+empty **and** whose run recorded a cause outside the work — the worktree it was
 handed held none of the change, the primary checkout carried state the harness
 does not own, the checkout of its worktree was ended by the budget the harness
 gave it, the sandbox could not be entered, the build that dispatched it
-predated the decision it was carrying out — is an **environmental refusal**: the
-environment handed the round nothing, so as the run settles the harness gives
+predated the decision it was carrying out — is a **round refused from outside
+the work**: what the round was handed held nothing to work on, so as the run settles the harness gives
 back the review round it was charged against the item's cap and the granted
 repair round the continuation consumed. The grant itself still stands and can be
 carried out again once somebody puts the change back, and no sequence of these
@@ -429,7 +429,7 @@ the ones that are not spend nothing. A promotion refused because the primary
 checkout carried somebody's uncommitted edit, a tracker read that timed out
 under load on the way to it, a forge or a network that went away — each ends
 the run, and each is recorded on the run as an *integration stop*: which
-environmental cause it was, and which step the run was in. The cause is read
+cause outside the work it was, and which step the run was in. The cause is read
 from the error that ended the run rather than from the run's prose afterwards,
 in five ways: a dirty checkout by the sentinel the worktree manager declares,
 a replay onto the moved target that the harness killed before it finished

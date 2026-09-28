@@ -401,8 +401,9 @@ that survives, or a removal that could not be confirmed — `worktree_removed` a
 `branch_removed` tell those apart), and `completion_recording_failure` (the final
 record arrived late).
 
-An **environmental** refusal is the one stoppage that leaves the item's budgets
-where they were: the environment refused the round rather than the work failing,
+A round **refused from outside the work** is the one stoppage that leaves the
+item's budgets where they were: something outside the work refused the round
+rather than the work failing,
 so a caller that reported the blocker without it would say the item had spent a
 round it never spent.
 
@@ -581,7 +582,7 @@ is unmeasured. Most of these are asserted somewhere in
   is the point of the field. `internal/orchestrator/declarative_test.go` asserts
   both halves — the run recording it and delivering anyway, and the recorder
   refusing the trace.
-- The environmental classification of a refused round, and the budgets it hands
+- The classification of a round refused from outside the work, and the budgets it hands
   back.
 - `usage_limit_paused_seconds` reaching `execution.usage_limit_max_pause`, and
   the blocker a usage limit with an unusable reset time produces.

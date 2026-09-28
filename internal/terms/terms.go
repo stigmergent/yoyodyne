@@ -180,7 +180,11 @@ var Vocabulary = []Coinage{
 	{Term: "brake", Match: "brake", PlainWords: "the automatic stop after a set number of blocked runs in a row"},
 	{Term: "cadence", Match: "cadence", PlainWords: "how often it repeats"},
 	{Term: "docket", Match: "docket", PlainWords: "the list of stopped runs waiting on the development manager"},
-	{Term: "environmental stop", Match: "environmental stop", Guides: true, PlainWords: "that the run was ended by something outside the work, naming what it was"},
+	// Every form of the word is the one coinage: `environmental refusal`,
+	// `environmental cause`, and `refused environmentally` reached readers as
+	// often as `environmental stop` did, and a match on the phrase alone left
+	// them all standing.
+	{Term: "environmental stop", Match: "environmental", Guides: true, PlainWords: "that the run was ended by something outside the work, naming what it was"},
 	{Term: "handback", Match: "handback", PlainWords: "handing the work back to the developer that made it"},
 	{Term: "heartbeat", Match: "heartbeat", PlainWords: "how often to repeat"},
 	{Term: "idle bound", Match: "idle bound", Whole: true, Guides: true, PlainWords: "that the AI session produced no output for too long, so the harness ended the run"},

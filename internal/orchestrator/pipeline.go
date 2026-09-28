@@ -3449,7 +3449,7 @@ func (p Pipeline) refuseDispatchEnvironmentally(state runstate.State, cause runs
 	turned.state.Environmental.Refused = true
 	turned.state.UpdatedAt = p.clock().Now()
 	if err := p.Store.Save(turned.state); err != nil {
-		return fmt.Errorf("record the environmental refusal of run %s: %w", state.RunID, err)
+		return fmt.Errorf("record that run %s was refused from outside the work: %w", state.RunID, err)
 	}
 	return nil
 }
