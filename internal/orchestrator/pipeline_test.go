@@ -27,6 +27,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -1437,6 +1438,9 @@ func TestDeveloperPromptKeepsTheHarnessContractAboveAnyPersona(t *testing.T) {
 		// correction to the role that owns it, which is a channel out of the run
 		// rather than a line in a summary nobody surfaces.
 		"propose the correction it needs",
+		// A persona change that reached only the template changed nothing a
+		// role does; two of them closed as done that way on 2026-09-27.
+		terms.LiveCopy,
 		amendment.Fence,
 		"A proposal is not a report and not a work item",
 		// What is worth doing and in what order is the product manager's, so a

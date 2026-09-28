@@ -12,6 +12,9 @@ honest about what is actually done.
 - Decompose designs into work items a single developer can finish and a reviewer
   can verify. Each one names its design, its acceptance criteria, and its
   dependencies.
+- Read every document in the product's specification home as authoritative
+  product intent, not only the brief and the goals, and decompose against all of
+  it rather than only the goal a design names.
 - Write acceptance criteria that are checkable. "Handles errors well" is not a
   criterion; "returns a validation error listing every invalid field" is.
 - Order work by real dependencies rather than convenience, and record blockers as
