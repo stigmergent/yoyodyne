@@ -504,3 +504,83 @@ func TestTheSupervisorInstalledOverTheMaintenanceJobRetiresItAndCarriesTheRebuil
 		t.Errorf("a second retirement = %q, %q, want nothing to do", said, problem)
 	}
 }
+
+// Installing the supervisor over a job that does something this build has no
+// owner for leaves the job where it is and says which duties hold it, naming
+// the work that supplies each owner; over a build owning every duty the same
+// job is retired and recorded, with nothing it did left to a hand.
+func TestTheMaintenanceJobIsRetiredOnlyOverABuildThatOwnsEveryDuty(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	plist := filepath.Join(home, "Library", "LaunchAgents", maintenancejob.Label+".plist")
+	script := filepath.Join(home, ".local", "yoyodyne", "yoyodyne-maintenance.sh")
+	for path, content := range map[string]string{
+		plist: "<plist version=\"1.0\"><dict><key>Label</key><string>" + maintenancejob.Label + "</string><key>ProgramArguments</key><array><string>" + script + "</string></array></dict></plist>\n",
+		script: "#!/bin/bash\ngh pr merge $num --merge\nbin/yoyo reconcile\nmake build\nnohup bin/yoyo work --watch &\nkill -9 \"$WPID\"\n" +
+			"bin/yoyo triage repair \"$RUN\" || bin/yoyo triage rerun \"$RUN\"\nbin/yoyo slack ensure\nnohup bin/yoyo dashboard -port 8080 &\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err := runstate.NewSupervisionStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := &machineRunner{loaded: true, loadedFrom: plist}
+	p := &product{
+		store:   store,
+		now:     time.Now,
+		machine: maintenancejob.Machine{Home: home, UID: 501, GOOS: "darwin", Runner: machine},
+	}
+
+	// This build: the scheduled reconcile, the dashboard, and the stall restarts
+	// have no owner yet, so the job stays and each is named with its work item.
+	said, problem := p.retireMaintenanceJob(context.Background(), "yoyo start")
+	if said != "" {
+		t.Errorf("said %q, want no retirement claimed", said)
+	}
+	for _, want := range []string{"was not retired", "3 of its duties have no owner", "runs `yoyo reconcile` on a schedule", "yoyodyne-ifd.413", "starts the dashboard", "yoyodyne-ifd.414", "yoyodyne-ifd.434.3"} {
+		if !strings.Contains(problem, want) {
+			t.Errorf("problem = %q, want %q in it", problem, want)
+		}
+	}
+	for _, owned := range []string{"merges the harness's finished pull requests", "carries out the development manager's repair and re-run decisions"} {
+		if strings.Contains(problem, owned) {
+			t.Errorf("problem = %q names %q, which this build owns", problem, owned)
+		}
+	}
+	if _, err := os.Stat(plist); err != nil {
+		t.Errorf("the job's property list was removed though it was not retired: %v", err)
+	}
+	if retired, err := store.RetiredJobs(); err != nil || len(retired) != 0 {
+		t.Errorf("RetiredJobs() = %+v, %v, want nothing recorded", retired, err)
+	}
+
+	// A build owning every duty retires it, and records every duty as what the
+	// job duplicated, each with an owner in the build.
+	owners := maintenancejob.BuildOwners()
+	for part, ownership := range owners {
+		ownership.Pending = ""
+		owners[part] = ownership
+	}
+	p.machine.Owners = owners
+	said, problem = p.retireMaintenanceJob(context.Background(), "yoyo start")
+	if problem != "" || !strings.Contains(said, "retired the operator's maintenance job") {
+		t.Fatalf("retirement = %q, %q, want the job retired", said, problem)
+	}
+	if strings.Contains(said, "nothing in this build does") {
+		t.Errorf("said %q, which leaves a duty to a hand", said)
+	}
+	retired, err := store.RetiredJobs()
+	if err != nil || len(retired) != 1 {
+		t.Fatalf("RetiredJobs() = %+v, %v, want the retirement recorded", retired, err)
+	}
+	if got := retired[0].Duplicated; !slices.Equal(got, []string{"scheduler", "slack", "dashboard", "maintenance", "rebuild", "courier", "verification", "restart"}) {
+		t.Errorf("recorded duplicates %v, want every step of the script", got)
+	}
+}

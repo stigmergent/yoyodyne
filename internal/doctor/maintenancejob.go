@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 )
@@ -81,6 +82,10 @@ func (d *diagnosis) checkMaintenanceJob(ctx context.Context) []Finding {
 		// Not the job this user's LaunchAgents installed, so not one the
 		// supervisor retires; unloading it is the command left.
 		remedy = fmt.Sprintf("launchctl bootout %s", machine.Domain())
+	} else if unowned := found.Unowned(); len(unowned) > 0 {
+		// The verb is still the remedy, and says why it leaves the job: it
+		// retires the job on the first build that owns every duty.
+		detail += fmt.Sprintf("; `yoyo start` leaves it where it is while %d of its duties have no owner in this build (%s), because retiring it would leave them to a hand, and retires it on the first build that owns every one", len(unowned), strings.Join(maintenancejob.DutyNames(unowned), ", "))
 	} else {
 		detail += "; `yoyo start` retires it as it installs the supervisor, records what it was, and leaves its script where it is"
 	}

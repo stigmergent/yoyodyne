@@ -15,9 +15,12 @@
 // So `yoyo doctor` reports the job as a second manager of the product's parts,
 // naming what it duplicates, and the supervisor retires it as it is installed:
 // the job is booted out of launchd and its property list removed, and what it
-// was is recorded. The one duty of the job the product still needed —
-// rebuilding bin/yoyo when the target branch lands — is the supervisor's own
-// (supervise.Rebuilder), so nothing outside the product deploys over it.
+// was is recorded. But the retirement does not outrun the replacements: every
+// duty the job carried is given an owner in the product (BuildOwners), and a
+// job doing anything this build has no owner for is left where it is, with
+// what it does and the work that supplies each owner named, rather than turned
+// into hand steps. Rebuilding bin/yoyo when the target branch lands is the
+// supervisor's own (supervise.Rebuilder).
 //
 // Only the job this user's LaunchAgents directory installed is retired. A job
 // of the same label that launchd loaded from anywhere else is reported and left
@@ -68,14 +71,34 @@ type Machine struct {
 	GOOS string
 	// Runner asks launchctl.
 	Runner execution.ProcessRunner
+	// Owners is who carries each duty once the job is gone; nil is this build's
+	// own, BuildOwners.
+	Owners map[string]Ownership
 }
 
-// Duty is one thing the job does that a part of the product does.
+// Duty is one thing the job does that a part of the product does, or has to do
+// once the job is gone.
 type Duty struct {
 	// Part names the product's part it duplicates.
 	Part string `json:"part"`
-	// Does says what the job does and who in the product does it instead.
+	// Does says what the job does.
 	Does string `json:"does"`
+	// Owner says who in the product carries the duty once the job is gone, and
+	// Pending names the work that has to land before that owner is in this
+	// build; an empty Pending is an owner this build has.
+	Owner   string `json:"owner"`
+	Pending string `json:"pending,omitempty"`
+}
+
+// Owned reports a duty this build carries without the job.
+func (d Duty) Owned() bool { return d.Pending == "" }
+
+// Describe is the duty and who carries it, as one clause.
+func (d Duty) Describe() string {
+	if d.Owned() {
+		return d.Does + ", which " + d.Owner + " does"
+	}
+	return fmt.Sprintf("%s, which nothing in this build does: %s does it once %s lands", d.Does, d.Owner, d.Pending)
 }
 
 // knownDuties are the job's steps, recognized in its script by the command each
@@ -84,11 +107,52 @@ var knownDuties = []struct {
 	pattern *regexp.Regexp
 	duty    Duty
 }{
-	{regexp.MustCompile(`work --watch`), Duty{Part: "scheduler", Does: "starts, kills, and restarts the scheduler (`yoyo work --watch`), which the supervisor's scheduler child does"}},
-	{regexp.MustCompile(`yoyo slack|slack ensure|slack sink`), Duty{Part: "slack", Does: "starts and restarts the Slack sink, which the supervisor's slack child does"}},
-	{regexp.MustCompile(`yoyo dashboard`), Duty{Part: "dashboard", Does: "starts the dashboard, which is the supervisor's once yoyodyne-ifd.414 adopts it"}},
-	{regexp.MustCompile(`yoyo reconcile`), Duty{Part: "maintenance", Does: "runs `yoyo reconcile`, which is the supervisor's periodic pass (yoyodyne-ifd.413)"}},
-	{regexp.MustCompile(`make build|go build`), Duty{Part: "rebuild", Does: "rebuilds bin/yoyo after a landing, which the supervisor does itself"}},
+	{regexp.MustCompile(`work --watch`), Duty{Part: "scheduler", Does: "starts the scheduler (`yoyo work --watch`) where it is not running"}},
+	{regexp.MustCompile(`yoyo slack|slack ensure|slack sink`), Duty{Part: "slack", Does: "starts and restarts the Slack sink"}},
+	{regexp.MustCompile(`yoyo dashboard`), Duty{Part: "dashboard", Does: "starts the dashboard"}},
+	{regexp.MustCompile(`yoyo reconcile`), Duty{Part: "maintenance", Does: "runs `yoyo reconcile` on a schedule"}},
+	{regexp.MustCompile(`make build|go build`), Duty{Part: "rebuild", Does: "rebuilds bin/yoyo after a landing"}},
+	{regexp.MustCompile(`gh pr merge`), Duty{Part: "courier", Does: "merges the harness's finished pull requests"}},
+	{regexp.MustCompile(`triage (repair|rerun)`), Duty{Part: "verification", Does: "carries out the development manager's repair and re-run decisions"}},
+	{regexp.MustCompile(`\bkill\b`), Duty{Part: "restart", Does: "kills and restarts a part it judges stalled or older than the binary"}},
+}
+
+// Ownership is who in the product carries one of the job's duties, and, where
+// that owner is not yet in this build, the work that puts it there.
+type Ownership struct {
+	Owner   string
+	Pending string
+}
+
+// BuildOwners is who carries each of the job's duties in this build. The
+// build's own table is the deployed build's answer, because the supervisor that
+// retires the job runs from the deployed binary. An entry with Pending set is a
+// duty nothing here does yet, and the job is not retired while it has one: a
+// duty the retirement leaves to a hand is a defect (the operator's rule of
+// 2026-09-26). The work that supplies an owner clears its Pending here.
+//
+// The courier's merges and the verification carry-outs are the harness's own
+// already, and are not the supervisor's. Every publishing run asks the forge to
+// merge its own pull request, `yoyo reconcile` makes the merge request for a
+// promoted run whose record holds none, and a publication nothing asked the
+// forge to merge is docketed for the development manager, whose re-arm the watch
+// carries out; the courier's direct merge of a mergeable request is a bypass of
+// the merge queue the target branch now has. The verification pass asked the
+// development manager to audit her sweep and then fired the repairs and re-runs
+// it named; the watch fires every recorded repair, re-run, and re-arm itself on
+// its next pull, and a sweep that stops passing is a missed pass on
+// `yoyo sweeps` and a failing task on `yoyo status`.
+func BuildOwners() map[string]Ownership {
+	return map[string]Ownership{
+		"scheduler":    {Owner: "the supervisor's scheduler child"},
+		"slack":        {Owner: "the supervisor's slack child"},
+		"rebuild":      {Owner: "the supervisor's rebuild"},
+		"courier":      {Owner: "the harness's own publication (each run's merge request, `yoyo reconcile`'s merge request for a promotion that has none, and the watch's carry-out of a re-arm)"},
+		"verification": {Owner: "the watch, which carries out every recorded repair, re-run, and re-arm on its next pull"},
+		"dashboard":    {Owner: "the supervisor's dashboard child", Pending: "yoyodyne-ifd.414"},
+		"maintenance":  {Owner: "the supervisor's periodic pass", Pending: "yoyodyne-ifd.413"},
+		"restart":      {Owner: "the supervisor's own pass", Pending: "yoyodyne-ifd.434.3"},
+	}
 }
 
 // Found is the job as this machine has it.
@@ -163,8 +227,31 @@ func (m Machine) Inspect(ctx context.Context) (Found, error) {
 	m.askLaunchd(ctx, &found)
 	if found.Present() {
 		found.Duplicates, found.DutiesInferred = duties(found.Program)
+		owners := m.Owners
+		if owners == nil {
+			owners = BuildOwners()
+		}
+		for index, duty := range found.Duplicates {
+			ownership, known := owners[duty.Part]
+			if !known {
+				ownership = Ownership{Owner: "nothing the product names", Pending: "an owner being named for it"}
+			}
+			found.Duplicates[index].Owner, found.Duplicates[index].Pending = ownership.Owner, ownership.Pending
+		}
 	}
 	return found, nil
+}
+
+// Unowned is what the job does that nothing in this build does, which
+// retiring it would leave to a hand.
+func (f Found) Unowned() []Duty {
+	var unowned []Duty
+	for _, duty := range f.Duplicates {
+		if !duty.Owned() {
+			unowned = append(unowned, duty)
+		}
+	}
+	return unowned
 }
 
 // askLaunchd asks whether a job of the label is loaded in the user's domain,
@@ -201,6 +288,9 @@ type Retirement struct {
 	Removed  bool `json:"removed"`
 	// Left says what was not touched, and why.
 	Left string `json:"left,omitempty"`
+	// Held is what the job does that nothing in this build does; a job with any
+	// is left where it is, because retiring it would leave those to a hand.
+	Held []Duty `json:"held,omitempty"`
 }
 
 // Acted reports a retirement that changed anything.
@@ -210,7 +300,9 @@ func (r Retirement) Acted() bool { return r.Unloaded || r.Removed }
 // LaunchAgents installed it. A job that is not there is nothing to do, and
 // repeating a retirement does nothing. A job of the label loaded from anywhere
 // else is left loaded and said so, because it is not the one the product can
-// name.
+// name. A job doing anything this build has no owner for is left as it is,
+// with those duties named under Held: the retirement does not outrun the
+// replacements.
 func (m Machine) Retire(ctx context.Context) (Retirement, error) {
 	found, err := m.Inspect(ctx)
 	retirement := Retirement{Found: found}
@@ -218,6 +310,10 @@ func (m Machine) Retire(ctx context.Context) (Retirement, error) {
 		return retirement, err
 	}
 	if !found.Present() {
+		return retirement, nil
+	}
+	if held := found.Unowned(); len(held) > 0 && found.Ours() {
+		retirement.Held = held
 		return retirement, nil
 	}
 	if found.Loaded && !found.Ours() {
@@ -273,11 +369,21 @@ func (r Retirement) Describe() string {
 	return said
 }
 
-// DescribeDuties is what the job duplicates, as one clause.
+// DescribeHeld is why a job with duties this build has no owner for was not
+// retired, naming each of them and the work that supplies its owner.
+func (r Retirement) DescribeHeld() string {
+	if len(r.Held) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("the operator's maintenance job %s was not retired: %d of its duties have no owner in this build, and retiring it would leave them to a hand — it %s; it goes on running beside the supervisor, and the first start of a build that owns every duty retires it", Label, len(r.Held), DescribeDuties(r.Held))
+}
+
+// DescribeDuties is what the job duplicates and who carries each, as one
+// clause.
 func DescribeDuties(duties []Duty) string {
 	var said []string
 	for _, duty := range duties {
-		said = append(said, duty.Does)
+		said = append(said, duty.Describe())
 	}
 	return strings.Join(said, "; ")
 }
