@@ -737,6 +737,11 @@ func sayToConversation(ctx context.Context, session *chat.Session, said string, 
 			log("%s", rendered)
 		}
 	}
+	// And that the record holds only part of the reply, which goes to the same
+	// log: the thread gets the reply whole, and the role is told on its next turn.
+	if rendered := strings.TrimSpace(chat.RenderRecordCuts(reply.RecordCuts)); rendered != "" {
+		log("%s", rendered)
+	}
 	answer.Text = reply.Text
 	answer.ConversationID = reply.Evidence.ConversationID
 	answer.Turns = reply.Evidence.Turns

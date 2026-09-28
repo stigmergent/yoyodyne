@@ -418,16 +418,18 @@ func (p *streamParser) parseMessage(messageType string, raw json.RawMessage) err
 				if !p.sawResult {
 					p.result.FinalText = block.Text
 				}
-				if err := p.emit(execution.EventAgentMessage, map[string]any{"text": truncate(block.Text)}); err != nil {
+				// A reply is held to its own bound and a cut past it is declared on
+				// the event, because this record is where a ruling lives.
+				if err := p.emit(execution.EventAgentMessage, execution.ReplyPayload(block.Text)); err != nil {
 					return err
 				}
 				// The prose reaches a watcher after the event that records it and
 				// after the redaction above, in that order and never the other:
 				// nothing may be shown that the record does not hold, and nothing
 				// may be shown before it has been redacted. It is handed over whole
-				// rather than truncated the way the event is — a bound that exists
-				// to keep the event log readable is not a reason to show the
-				// operator half of what they were told.
+				// rather than cut the way the event is past its bound — a bound
+				// that exists to keep the event log readable is not a reason to
+				// show the operator half of what they were told.
 				if p.reply != nil {
 					p.reply(block.Text)
 				}

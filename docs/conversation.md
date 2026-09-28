@@ -1021,6 +1021,30 @@ of it kept in a file beside the record rather than inside it, because a picture
 is close to the whole of what one record may be. So is the text of the picture
 the agent last received, which is what a later refresh is compared against.
 
+**Each reply is recorded whole up to 128 KiB, and a longer one says where it
+was cut.** Until a role can write the document it owns, the event log is where
+its ruling lives, so a reply the log shortened without saying so is a decision
+lost without a word. That is how two of the architect's rulings were lost on
+2026-09-24, under the 16 KiB bound replies used to be held to;
+[the diagnosis](diagnoses/yoyodyne-ifd-430-20-replies-cut-in-the-record.md)
+has the details. A reply past the bound is kept up to it, and the text in the log
+ends at the cut with `…[cut here: the record holds the first 131072 of this
+reply's 150230 bytes]`. The event also carries `cut`, `recorded_bytes`, and
+`whole_bytes`, so a reader does not have to parse the sentence. You are still
+shown the whole reply. After it, the transcript says the record is short:
+
+```text
+[record] a reply of 150230 bytes is recorded cut: event 2417 holds its first 131072 bytes, ending "whether the forge's required checks may stand in"; the role is told on its next turn so it can restate the rest.
+```
+
+`--json` carries the same thing as `record_cuts`. The role's next turn opens
+with it, whichever process takes that turn, and asks the role to restate what
+came after the cut. A rebuilt session reads the same marker in its history.
+`yoyo agent cut-replies` lists every reply the product's conversation logs hold
+cut, including logs no current record points at. A reply cut before the cut was
+declared ends in `…[truncated]` with its size unrecorded, and the listing counts
+those too.
+
 ## Talking to the other agents
 
 `yoyo chat` is the Lead Product Manager, because product intent is where the work
