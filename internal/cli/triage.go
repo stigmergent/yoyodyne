@@ -14,7 +14,9 @@ package cli
 // recorded repair or re-run itself, as many per pull as it has slots for,
 // through exactly those two actions — see orchestrator/carryout.go — so what
 // those verbs are for is firing one now rather than at the next pass, and for a
-// harness where nothing is watching the queue. A re-arm is still typed.
+// harness where nothing is watching the queue. A recorded re-arm is fired by the
+// pass as well, on its own path since it is a merge request rather than a run —
+// see orchestrator/carryrearm.go — so the third verb is for firing one now too.
 //
 // The decision is not made here and cannot be. What each takes is the run the
 // docket entry names, and what it does with it is the harness's own work —
@@ -787,11 +789,11 @@ short of the target branch. "override" is yours rather than theirs: it crosses
 one of a work item's triage caps so that a decision they could not record
 becomes one they can.
 
-A watching "yoyo work" session fires a recorded repair or re-run itself, one per
-pull, through the same two actions and under every condition each of them asks
--- so neither of the first two is a step anybody owes a decision. What they are
+A watching "yoyo work" session fires a recorded repair, re-run, or re-arm
+itself, through the same three actions and under every condition each of them
+asks -- so none of the three is a step anybody owes a decision. What they are
 for is firing one now rather than at the next pull, and for a harness with
-nothing watching the queue. "rearm" is not fired by the pass and is still typed.
+nothing watching the queue.
 
 The first two are opposites. "rerun" starts a fresh run of the item, which
 is what a correct change whose ground moved needs. "repair" continues the run
