@@ -1087,3 +1087,27 @@ type fixedClock struct{}
 func (fixedClock) Now() time.Time {
 	return time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 }
+
+// Codex accepts no effort level from this harness, and a request that carries
+// one anyway is refused before anything is launched rather than run with the
+// level dropped, so no record can say a level was asked of Codex that it never
+// received.
+func TestRunRefusesAnEffortLevel(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{}
+	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		WorkingDirectory: "/worktree",
+		Prompt:           "go",
+		Model:            "gpt-test",
+		Effort:           "high",
+	})
+	if err == nil || !strings.Contains(err.Error(), "accepts no effort level") {
+		t.Fatalf("Run() error = %v, want the refusal naming that Codex accepts no effort level", err)
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("a refused request launched %d process(es)", len(runner.commands))
+	}
+}

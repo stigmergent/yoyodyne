@@ -190,6 +190,10 @@ type Spend struct {
 	Backend       domain.Backend `json:"backend"`
 	Model         string         `json:"model,omitempty"`
 	ResolvedModel string         `json:"resolved_model,omitempty"`
+	// Effort is the effort level the invocation asked the provider for, and
+	// empty where its agent configured none -- which is every line written
+	// before the level was configurable, and says the provider resolved its own.
+	Effort string `json:"effort,omitempty"`
 	// AdapterVersion is the compiled adapter that reached the provider. With the
 	// backend, the account alias, and the model above it, it is the whole of the
 	// endpoint identity this line was served by — see backend.Endpoint — which is

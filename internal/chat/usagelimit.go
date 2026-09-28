@@ -334,6 +334,14 @@ func (s *Session) failoverPolicy() modelfailover.Policy {
 		// turn, so the second and third turns of an outage go where the first one did
 		// and resume rather than reconstructing again.
 		policy.AlternateSessionID = s.alternateSession()
+		// And whether the provider it crosses onto accepts this agent's effort
+		// level. One that does not is asked with none, and the turn's record says
+		// so, rather than the crossing failing on a flag its provider refuses.
+		if effort := strings.TrimSpace(s.options.Effort); effort != "" {
+			if descriptor, known := s.options.providers().Lookup(alternate.Provider); known && !descriptor.AcceptsEffort(effort) {
+				policy.AlternateDropsEffort = true
+			}
+		}
 		if s.options.FailoverBackend != nil {
 			policy.AlternateProvider = s.meteredFailover()
 		}

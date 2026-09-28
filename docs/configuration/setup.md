@@ -236,6 +236,7 @@ agents:
     role: product-manager
     backend: claude-code
     model: opus
+    effort: medium
     account: default
     instances: 1
     persona:
@@ -245,7 +246,9 @@ agents:
 ```
 
 Five agents — Lead Product Manager, architect, development manager, developer, and
-reviewer — each with a role, a backend, a model selector, the [provider
+reviewer — each with a role, a backend, a model selector, the
+[effort level](../configuration.md#an-agents-effort-level) that model is asked to
+think at, the [provider
 account](../configuration.md#provider-accounts) it runs under, an instance count, and a persona file
 that is in the repository beside the configuration. Change one by
 editing it. Remove one by deleting its block. Nothing has to be expressed as a

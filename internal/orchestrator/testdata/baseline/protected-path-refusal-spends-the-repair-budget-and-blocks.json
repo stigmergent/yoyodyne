@@ -61,6 +61,7 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "effort_settled": true,
     "failure": "protected paths refused after 2 of 2 permitted attempt(s): docs/designs/delivery.md, docs/product/brief.md",
     "harness_commit": "\u003ccommit-2\u003e",
     "last_sequence": 0,

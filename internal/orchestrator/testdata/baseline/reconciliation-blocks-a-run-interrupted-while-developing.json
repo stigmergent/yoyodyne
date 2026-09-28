@@ -89,6 +89,7 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "effort_settled": true,
     "failure": "reconciled after an interrupted run: the run was interrupted in the developing phase with nothing integrated, and no attempt of the harness can finish it",
     "harness_commit": "\u003ccommit-2\u003e",
     "last_sequence": 0,

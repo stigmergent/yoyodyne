@@ -430,6 +430,13 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if request.Model != "" {
 		args = append(args, "--model", request.Model)
 	}
+	// The level is passed explicitly rather than left to the provider, which
+	// would otherwise resolve one from this machine's environment and settings
+	// or from the model's own default -- a level nobody configured and nothing
+	// records.
+	if effort := strings.TrimSpace(request.Effort); effort != "" {
+		args = append(args, "--effort", effort)
+	}
 	timeout := request.Timeout
 	if timeout == 0 {
 		timeout = defaultTimeout

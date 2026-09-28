@@ -264,6 +264,8 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		SystemPrompt:     chat.AnsweringPrompt(question.Role, agent.Persona.Text),
 		SessionID:        question.SessionID,
 		Model:            agent.Model,
+		// The agent's effort level, kept by whichever model serves the turn.
+		Effort: strings.TrimSpace(agent.Effort),
 		// No tools at all, exactly as a conversation gets none. What separates this
 		// from a conversation is only that there is no authority behind it either.
 		AllowedTools:     []string{},
@@ -290,6 +292,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		// would leave the exchange record naming a model that refused it.
 		Model:          served.Model,
 		ResolvedModel:  result.ResolvedModel,
+		Effort:         strings.TrimSpace(agent.Effort),
 		AccountAlias:   account.Alias,
 		ConfigRevision: v.config.Revision(),
 		Build:          buildinfo.Commit(),

@@ -92,6 +92,7 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "effort_settled": true,
     "harness_commit": "\u003ccommit-2\u003e",
     "last_sequence": 2,
     "phase": "complete",

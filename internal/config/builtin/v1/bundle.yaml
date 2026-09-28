@@ -150,6 +150,14 @@ approvals:
 # current default for that family, and run evidence records both the requested
 # selector and the model the provider reported serving.
 #
+# Each agent names its effort level beside its model, and the harness passes it
+# on every invocation of that agent, so what level a role ran at is configured
+# and recorded rather than left to the provider. The levels below are Claude
+# Code's own default for the model "opus" serves today, Opus 5.5, which its
+# documentation states is "medium" (every other model that supports effort
+# defaults to "high"); they are pinned here so the level stays put when the
+# alias moves. Claude Code accepts low, medium, high, xhigh, and max.
+#
 # What each of these agents may have done on its behalf is deliberately not
 # written here. The capability set follows the role, read from the harness's
 # role-capability registry as the configuration resolves, so the shipped
@@ -161,6 +169,7 @@ agents:
     role: product-manager
     backend: claude-code
     model: opus
+    effort: medium
     instances: 1
     persona:
       version: v1
@@ -169,6 +178,7 @@ agents:
     role: architect
     backend: claude-code
     model: opus
+    effort: medium
     instances: 1
     persona:
       version: v1
@@ -177,6 +187,7 @@ agents:
     role: development-manager
     backend: claude-code
     model: opus
+    effort: medium
     instances: 1
     persona:
       version: v1
@@ -185,6 +196,7 @@ agents:
     role: developer
     backend: claude-code
     model: opus
+    effort: medium
     instances: 1
     persona:
       version: v1
@@ -193,6 +205,7 @@ agents:
     role: reviewer
     backend: claude-code
     model: opus
+    effort: medium
     instances: 1
     persona:
       version: v1

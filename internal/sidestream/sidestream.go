@@ -136,6 +136,7 @@ type Stream struct {
 	ProviderSessionID     string         `json:"provider_session_id,omitempty"`
 	ProviderModel         string         `json:"provider_model,omitempty"`
 	ProviderResolvedModel string         `json:"provider_resolved_model,omitempty"`
+	ProviderEffort        string         `json:"provider_effort,omitempty"`
 	AccountAlias          string         `json:"account_alias,omitempty"`
 	ConfigRevision        string         `json:"config_revision,omitempty"`
 	Build                 string         `json:"build,omitempty"`

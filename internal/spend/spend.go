@@ -223,6 +223,7 @@ func (m Metered) line(request backend.RunRequest, result backend.RunResult, err 
 		Backend:        m.Attribution.Backend,
 		Model:          request.Model,
 		ResolvedModel:  result.ResolvedModel,
+		Effort:         request.Effort,
 		SessionID:      result.SessionID,
 		Build:          processBuild,
 	}

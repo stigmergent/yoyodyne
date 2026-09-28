@@ -593,6 +593,13 @@ func (p preparedChat) modelVersion() string {
 	return p.parts.config.AgentModelVersion(p.name)
 }
 
+// effort is the effort level this session's turns ask for. It is the agent's
+// whatever model the session asks for, because a task's own model moves which
+// model answers and not how hard it is asked to think.
+func (p preparedChat) effort() string {
+	return strings.TrimSpace(p.agent.Effort)
+}
+
 // prepareChat resolves everything a conversation with the role needs that does
 // not depend on holding it.
 func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPath string, stderr io.Writer) (preparedChat, error) {
@@ -956,6 +963,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// always has. A version the provider has not got is served by the alias and
 		// the substitution is recorded, so a pin never stops the agent.
 		ModelVersion: p.modelVersion(),
+		// And the effort level every one of those turns asks for, which is the
+		// agent's whatever model serves the turn: a task's own model, a pinned
+		// version's fallback, and a failover alternate all keep it.
+		Effort: p.effort(),
 		// The one alternate this agent's turn may be served by while the model above
 		// has no capacity, empty for every agent that has not enabled failover. It
 		// belongs to the agent's own block for the reason its account does: which

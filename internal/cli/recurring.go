@@ -255,6 +255,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		ConversationID: evidence.ConversationID,
 		CostUSD:        session.TurnCostUSD(),
 		Model:          servingModel(evidence),
+		Effort:         evidence.Effort,
 	}
 	if err != nil {
 		return turn, notWoken(err)

@@ -684,7 +684,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states",
 			"cost unknown (its event log is gone)",
 			"approved, resuming integration",
-			"claude-code · claude-opus-5 · account pool-b",
+			// The effort level beside the model it was asked of.
+			"claude-code · claude-opus-5 · medium effort · account pool-b",
 			// The held pile names who moves it, counted by mover, and never "a person".
 			"held after a stopped run: 1 waiting on the development manager's decision, 1 waiting on the harness carrying out her decision (most)",
 			"waiting on: the development manager's decision, or the harness carrying out her decision",

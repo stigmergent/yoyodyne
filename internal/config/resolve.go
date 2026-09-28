@@ -558,6 +558,10 @@ func (r *resolution) applyAgent(name string, document agentDocument, applied lay
 		agent.config.ModelVersion = strings.TrimSpace(*document.ModelVersion)
 		agent.origins["model_version"] = applied.origin
 	}
+	if document.Effort != nil {
+		agent.config.Effort = strings.TrimSpace(*document.Effort)
+		agent.origins["effort"] = applied.origin
+	}
 	if document.Account != nil {
 		agent.config.Account = strings.TrimSpace(*document.Account)
 		agent.origins["account"] = applied.origin

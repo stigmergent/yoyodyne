@@ -635,6 +635,7 @@ agents:
     role: developer
     backend: claude-code
     model: opus
+    effort: medium                  # Claude Code's own default for opus today
     account: default
     instances: 1
     persona:

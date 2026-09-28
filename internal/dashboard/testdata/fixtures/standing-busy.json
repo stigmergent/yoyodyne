@@ -74,6 +74,7 @@
       "title": "Recurring tasks say when a firing was skipped",
       "backend": "claude-code",
       "model": "claude-opus-5",
+      "effort": "medium",
       "account": "pool-b",
       "phase": "integrating",
       "resuming_integration": true,

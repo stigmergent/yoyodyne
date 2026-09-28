@@ -164,6 +164,7 @@ type Spoken struct {
 	Backend        domain.Backend
 	Model          string
 	ResolvedModel  string
+	Effort         string
 	AccountAlias   string
 	ConfigRevision string
 	Build          string
@@ -414,6 +415,9 @@ func (r Runner) Put(ctx context.Context, ask Ask) (Answer, error) {
 	if spoken.ResolvedModel != "" {
 		stream.ProviderResolvedModel = spoken.ResolvedModel
 	}
+	// The level is written whatever it is, empty included, so a stream whose
+	// agent stopped naming one does not go on reporting the last level it had.
+	stream.ProviderEffort = spoken.Effort
 	if spoken.AccountAlias != "" {
 		stream.AccountAlias = spoken.AccountAlias
 	}

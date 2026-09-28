@@ -488,6 +488,7 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 			Backend:               "claude-code",
 			ProviderModel:         "opus",
 			ProviderResolvedModel: "claude-opus-5",
+			ProviderEffort:        "medium",
 			AccountAlias:          "default",
 			Status:                runstate.StatusRunning,
 			Phase:                 runstate.PhaseDeveloping,
@@ -504,6 +505,7 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 			Role:           domain.RoleProductManager,
 			Backend:        "claude-code",
 			ProviderModel:  "fable",
+			ProviderEffort: "high",
 			Turns:          270,
 			UpdatedAt:      moment.Add(-40 * time.Second),
 		}},
@@ -546,9 +548,10 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 	rendered := ReadStanding(context.Background(), sources).Render()
 	for _, want := range []string{
 		"Running (1 developer run):\n",
-		"  yoyodyne-ifd.194 — developing, 12m elapsed, $3.41 so far\n",
+		// The effort level is said beside the model it was asked of.
+		"  yoyodyne-ifd.194 — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far\n",
 		"Working (1 conversation):\n",
-		"  product-manager — product-manager, a turn in flight for 40s after 270 recorded turns\n",
+		"  product-manager — product-manager, on fable at high effort, a turn in flight for 40s after 270 recorded turns\n",
 		"Not startable (2 of 3 admitted items; 1 awaits the development manager's decision):\n",
 		"  yoyodyne-ifd.200 — intake is held, and the operator placed it — the overnight looked wrong; `yoyo release` lifts it\n",
 		// The whole line, because docs/operations.md prints it as the example an
@@ -577,10 +580,10 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 	// reading that worded it.
 	standing := ReadStanding(context.Background(), sources)
 	run := standing.Running[0]
-	if run.Title != "the four-line status" || run.Backend != "claude-code" || run.Model != "claude-opus-5" || run.Account != "default" {
+	if run.Title != "the four-line status" || run.Backend != "claude-code" || run.Model != "claude-opus-5" || run.Effort != "medium" || run.Account != "default" {
 		t.Fatalf("running run carries %+v", run)
 	}
-	if turn := standing.Working[0]; turn.Backend != "claude-code" || turn.Model != "fable" {
+	if turn := standing.Working[0]; turn.Backend != "claude-code" || turn.Model != "fable" || turn.Effort != "high" {
 		t.Fatalf("working turn carries %+v", turn)
 	}
 	kinds := map[string]backlog.HoldKind{}
@@ -1726,5 +1729,33 @@ func TestAContainerWhoseChildrenHaveClosedIsStartableAgain(t *testing.T) {
 	standing := ReadStanding(context.Background(), sources)
 	if len(standing.NotStartable) != 0 {
 		t.Fatalf("not startable = %+v, want the container startable once nothing covers it", standing.NotStartable)
+	}
+}
+
+// A running line and a working line name the model beside the effort level
+// where one was recorded, and read exactly as they always did where none was.
+func TestTheStatusLinesSayTheEffortBesideTheModel(t *testing.T) {
+	t.Parallel()
+
+	standing := Standing{
+		Running: []RunningRun{
+			{WorkItemID: "item-a", Model: "opus", Effort: "medium", Phase: runstate.PhaseDeveloping, UnknownCost: "nothing priced yet"},
+			{WorkItemID: "item-b", Model: "opus", Phase: runstate.PhaseDeveloping, UnknownCost: "nothing priced yet"},
+		},
+		Working: []WorkingTurn{
+			{Agent: "architect", Role: "architect", Model: "fable", Effort: "high", Turns: 3},
+			{Agent: "product-manager", Role: "product-manager", Model: "opus", Turns: 3},
+		},
+	}
+	rendered := standing.renderRunning() + standing.renderWorking()
+	for _, want := range []string{
+		"  item-a — developing, on opus at medium effort, ",
+		"  item-b — developing, 0s elapsed",
+		"  architect — architect, on fable at high effort, a turn in flight",
+		"  product-manager — product-manager, a turn in flight",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
+		}
 	}
 }

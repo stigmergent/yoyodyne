@@ -63,7 +63,14 @@ type RunRequest struct {
 	SystemPrompt     string
 	SessionID        string
 	Model            string
-	AllowedTools     []string
+	// Effort is the effort level this invocation asks the provider for, and
+	// empty where the agent configured none, which leaves the provider to resolve
+	// its own. A failover or a version fallback keeps it: the level is the
+	// agent's, and a substitution moves the model rather than how hard the model
+	// is asked to think. The one exception is a failover that crosses onto a
+	// provider accepting no level, which is asked with none. See effort.go.
+	Effort       string
+	AllowedTools []string
 	// AccountAlias is the provider account this invocation is made under, and
 	// AccountConfigDir is where that account's authentication lives on this
 	// machine. The alias is the name a record says the invocation by; the

@@ -157,6 +157,13 @@ type Policy struct {
 	// rebuild can put one provider's session in front of another whatever it
 	// returns.
 	AlternateSessionID string
+	// AlternateDropsEffort says the provider a crossing lands on does not accept
+	// the effort level the turn asks for, so the crossed invocation is made with
+	// none. It is meaningful only for a crossing: an alternate on the turn's own
+	// provider accepts whatever the turn's provider accepts, and keeps the level.
+	// What was done instead is on the record twice over — Served.Effort says the
+	// level the serving invocation asked for, and its cost line says the same.
+	AlternateDropsEffort bool
 	// Rebuild is how a turn that crosses providers gets its context. The provider
 	// taking it has never seen this conversation and holds no session to resume,
 	// so what it is handed has to be assembled from the durable record: the caller
@@ -276,6 +283,10 @@ type Served struct {
 	// nothing was — it is the pair to Refused, on the same terms Endpoint is the
 	// pair to Model.
 	RefusedEndpoint backend.Endpoint
+	// Effort is the effort level the serving invocation asked for: the request's
+	// own on every turn but a crossing onto a provider that does not accept it,
+	// where it is empty because none was passed.
+	Effort string
 }
 
 // Substituted reports a turn served by a model other than the one it asked for.
@@ -382,6 +393,7 @@ func serveWithCapacity(ctx context.Context, provider Invoker, request backend.Ru
 	stood.Model = request.Model
 	stood.Endpoint = policy.servingEndpoint(request.Model)
 	stood.RefusedEndpoint = backend.Endpoint{}
+	stood.Effort = request.Effort
 	// An alternate that is where the turn already is is not an alternate. It is
 	// the whole endpoint that has to differ rather than the model alone: the same
 	// selector asked of another provider is a different endpoint with a capacity
@@ -408,6 +420,7 @@ func serveWithCapacity(ctx context.Context, provider Invoker, request backend.Ru
 		Why:             runstate.SubstitutedForCapacity,
 		Endpoint:        policy.alternateEndpoint(alternate),
 		RefusedEndpoint: policy.servingEndpoint(named),
+		Effort:          policy.alternateEffort(request.Effort),
 	}
 
 	// A window the provider said has not lifted is taken at its word for as long
@@ -503,7 +516,17 @@ func (p Policy) runAlternate(ctx context.Context, provider Invoker, request back
 	// about the request this package decides for itself, because it is the one
 	// thing that must never be the other provider's.
 	rebuilt.SessionID = strings.TrimSpace(p.AlternateSessionID)
+	rebuilt.Effort = p.alternateEffort(rebuilt.Effort)
 	return p.AlternateProvider.Run(ctx, rebuilt)
+}
+
+// alternateEffort is the effort level the alternate is asked with: the turn's
+// own, except on a crossing onto a provider that would not accept it.
+func (p Policy) alternateEffort(effort string) string {
+	if p.crosses() && p.AlternateDropsEffort {
+		return ""
+	}
+	return effort
 }
 
 // ServesElsewhere reports a turn this policy will move onto the alternate before
