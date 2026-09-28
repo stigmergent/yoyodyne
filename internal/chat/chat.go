@@ -698,6 +698,8 @@ type Session struct {
 	// read it back would hand the provider the question twice — once as history
 	// and once as the thing to answer.
 	turnBegan uint64
+	// turnCuts are the replies the turn in flight recorded cut; see replycut.go.
+	turnCuts []execution.ReplyCut
 	// compacting says the turn in flight is being sent without the session it
 	// would have resumed, because that session had grown past its budget. It is
 	// per-turn and cleared as each one starts; see compact.go.
@@ -897,6 +899,11 @@ type Reply struct {
 	// re-read could not be made. It is nil only where there was nothing to
 	// measure with: a conversation with no repository behind it.
 	Picture *PictureAge `json:"picture,omitempty"`
+	// RecordCuts are the parts of this reply the conversation's event log could
+	// hold only the beginning of. Text above is whole either way; what these say
+	// is that the durable record of it is not, and the role is told so on its
+	// next turn.
+	RecordCuts []execution.ReplyCut `json:"record_cuts,omitempty"`
 	// Evaluation is the recommendation this reply recorded, where it recorded
 	// one. It is advice: nothing was admitted, approved, or changed by it, and it
 	// is here so the operator is told what went into the record.
@@ -1311,6 +1318,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			err = fmt.Errorf("%w: %w", ErrTurnUnassembled, err)
 		}
 		operatorMessage = ""
+		reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
 		// The invocation is charged to the exchange whose answer it was carrying,
 		// before anything is decided about what it said: it was paid for either way.
 		s.chargeExchange(chargeTo, s.lastInvocationCostUSD)
@@ -1619,6 +1627,11 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		return "", &OperatorHoldError{Hold: hold}
 	}
 	systemPrompt := WithRemit(SystemPrompt(s.state.Role, s.options.Admission, s.options.Persona), s.state.Role, s.options.Remit)
+	// A reply the record cut last turn is the first thing this one is told, so
+	// the role can restate what the record lost; see replycut.go.
+	cutsTold := len(s.state.ReplyCuts) > 0
+	prompt = renderReplyCuts(s.state.ReplyCuts) + prompt
+	s.turnCuts = nil
 	// The repository documents, the tracker's own text, and the operator's words
 	// all go to the provider, so anything recognizably sensitive is redacted on
 	// the way out rather than only in what comes back.
@@ -1659,6 +1672,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		}
 		if event.Sequence > lastSequence {
 			lastSequence = event.Sequence
+		}
+		if cut, ok := execution.ReplyCutIn(event); ok {
+			s.turnCuts = append(s.turnCuts, cut)
 		}
 		// The event is recorded first and shown second, so what the operator is
 		// told a turn is doing can never be more than what the record says it
@@ -1872,6 +1888,11 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		s.stream.interrupted()
 	}
 	s.state.LastSequence = lastSequence
+	// A reply this turn recorded cut is owed to the next turn whichever way this
+	// one ended: the record lost it either way.
+	if len(s.turnCuts) > 0 {
+		s.state.ReplyCuts = s.turnCuts
+	}
 	// A refused invocation that will not be asked again ends the turn the way any
 	// other stopped one does, and says what stopped it: an operator who knows when
 	// the limit lifts, or that they paused the harness themselves, knows when to
@@ -1980,6 +2001,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	s.notices = nil
 	s.noticesDropped = false
 	s.state.PendingTrackerResults = ""
+	// And of the cuts it was told about, unless it was cut again itself.
+	if cutsTold && len(s.turnCuts) == 0 {
+		s.state.ReplyCuts = nil
+	}
 	// The same is true of the picture: it stops being owed only once the turn that
 	// delivered it succeeded, and its text is kept as what the agent last received,
 	// which is what the next refresh's changes are measured against.
@@ -2024,7 +2049,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 // secret or a mis-piped file gets into the record.
 func (s *Session) recordOperatorMessage(message string) error {
 	text := execution.NewRedactor(s.options.RedactValues...).Redact(message)
-	return s.emit(execution.EventOperatorMessage, map[string]any{"text": execution.TruncateEventText(text)})
+	return s.emit(execution.EventOperatorMessage, execution.ReplyPayload(text))
 }
 
 // parsedReply is one answer taken apart: the prose the operator reads, the
@@ -2787,6 +2812,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// and shown on the standing, and the operator should hear it from here
 		// first rather than find it there.
 		s.reportRestart(out, reply)
+		// That the record holds only part of what was just said, because the
+		// operator read it whole and would otherwise take the record to hold it.
+		reportRecordCuts(out, reply)
 		// How old the picture the reply rests on was and what the harness did
 		// about it, where it did anything: a re-read the operator never asked for
 		// is a re-read they have to be told about, and a re-read that could not be

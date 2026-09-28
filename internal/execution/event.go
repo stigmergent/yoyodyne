@@ -222,11 +222,11 @@ const (
 	EventSessionCompactionFailed EventType = "session.compaction_failed"
 )
 
-// MaxEventTextBytes bounds the text one recorded event carries — a message either
-// side of a conversation said, a command's output, a provider's result. Every
-// backend parser cuts to it, and so does the harness where it records text of its
-// own, because the two halves of an exchange held to two bounds is a record that
-// cannot be read back as one exchange.
+// MaxEventTextBytes bounds the text one recorded event carries — a command's
+// output, a provider's result. What either side of a conversation said is the
+// exception and is held to MaxReplyTextBytes instead, by the backend parsers and
+// by the harness alike, because the two halves of an exchange held to two bounds
+// is a record that cannot be read back as one exchange.
 const MaxEventTextBytes = 16 << 10
 
 // TruncateEventText cuts text to MaxEventTextBytes and marks the cut where it

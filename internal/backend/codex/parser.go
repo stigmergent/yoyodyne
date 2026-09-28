@@ -381,7 +381,7 @@ func (p *streamParser) parseSessionConfigured(message providerMessage) error {
 
 func (p *streamParser) parseAgentMessage(message providerMessage) error {
 	p.result.FinalText = message.Message
-	if err := p.emit(execution.EventAgentMessage, map[string]any{"text": truncate(message.Message)}); err != nil {
+	if err := p.emit(execution.EventAgentMessage, execution.ReplyPayload(message.Message)); err != nil {
 		return err
 	}
 	// The prose reaches a watcher after the event that records it and after the

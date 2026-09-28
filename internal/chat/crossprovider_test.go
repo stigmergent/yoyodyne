@@ -660,8 +660,10 @@ func TestTheOperatorsMessageIsRecordedRedactedAndBoundedWhateverBecameOfTheTurn(
 	if strings.Contains(first, "sk-secret-value") {
 		t.Fatal("the operator's message reached the record unredacted")
 	}
-	if !strings.HasSuffix(first, "…[truncated]") || len(first) > execution.MaxEventTextBytes+len("…[truncated]") {
-		t.Fatalf("recorded message is %d bytes ending %q, want it cut to the bound a reply is cut to and marked", len(first), first[len(first)-20:])
+	// A person's message is bounded well inside the bound a reply is recorded
+	// under, so it is recorded whole, redacted.
+	if want := strings.TrimSpace(execution.NewRedactor("sk-secret-value").Redact(long)); first != want {
+		t.Fatalf("recorded message is %d bytes ending %q, want the %d bytes said, redacted", len(first), first[len(first)-20:], len(want))
 	}
 	if got := messageText(operator[1]); got != "still there?" {
 		t.Fatalf("the failed turn's operator message = %q, want what the operator said", got)

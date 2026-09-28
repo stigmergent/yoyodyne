@@ -152,6 +152,13 @@ type Conversation struct {
 	// it did and did not — so it travels the same way rather than in a field of its
 	// own.
 	PendingTrackerResults string `json:"pending_tracker_results,omitempty"`
+	// ReplyCuts are the replies of this conversation's last turn that the event
+	// log holds only the beginning of, and that the role has not been told about
+	// yet. The log is where a role's ruling lives until it can write the document
+	// it owns, so a reply cut there is a decision the record lost; the next turn
+	// opens by saying which reply, how much of it survives, and where it stops,
+	// so the role can restate what the record lost.
+	ReplyCuts []execution.ReplyCut `json:"reply_cuts,omitempty"`
 	// RefusedBlock is the tracker block this conversation had refused whole and
 	// has not answered yet. It is the same fact the pending results above carry
 	// into the role's next turn, kept as a record rather than as prose so that
@@ -1588,6 +1595,30 @@ func (s *ConversationStore) ScanEvents(conversationID string) ([]execution.Event
 		return nil, nil, fmt.Errorf("read conversation event log: %w", err)
 	}
 	return events, skipped, nil
+}
+
+// LoggedConversations names every conversation this store holds an event log
+// for, in order. It is wider than the records: a conversation replaced by --new
+// leaves its log behind with nothing pointing at it, and an audit of what the
+// logs say has to read those too.
+func (s *ConversationStore) LoggedConversations() ([]string, error) {
+	entries, err := os.ReadDir(s.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list conversation event logs: %w", err)
+	}
+	var ids []string
+	for _, entry := range entries {
+		id, ok := strings.CutSuffix(entry.Name(), ".events.jsonl")
+		if !ok || entry.IsDir() || !conversationIDPattern.MatchString(id) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 // identity is where a record belongs. A record written before the agent was part

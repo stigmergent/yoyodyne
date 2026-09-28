@@ -86,6 +86,10 @@ type chatOutput struct {
 	// rests on is the operator's to see, and a re-read the harness made unasked
 	// is one they have to be told about.
 	Picture *chat.PictureAge `json:"picture,omitempty"`
+	// RecordCuts are the parts of the reply the conversation's event log holds
+	// only the beginning of, with where each cut falls and the reply's whole
+	// size. The reply above is whole; the durable record of it is not.
+	RecordCuts []execution.ReplyCut `json:"record_cuts,omitempty"`
 	// ResultsCarriedOver reports that the reply stopped where it did because the
 	// product manager ran out of rounds of tracker actions, with results it has
 	// not seen. They are recorded with the conversation and reach it when the
@@ -338,6 +342,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			Research:           reply.Research,
 			RepositoryReads:    reply.RepositoryReads,
 			Picture:            reply.Picture,
+			RecordCuts:         reply.RecordCuts,
 			Evaluation:         reply.Evaluation,
 			EvaluationProblem:  reply.EvaluationProblem,
 			ResultsCarriedOver: reply.ResultsCarriedOver,
@@ -356,6 +361,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	printChatResearch(stdout, reply.Research)
 	printChatRepositoryReads(stdout, reply.RepositoryReads)
 	printChatPicture(stdout, reply.Picture)
+	printChatRecordCuts(stdout, reply.RecordCuts)
 	printChatEvaluation(stdout, reply.Evaluation, reply.EvaluationProblem)
 	printChatExchanges(stdout, role, reply.Exchanges)
 	printChatAdmitted(stdout, reply.Admitted)
@@ -1225,6 +1231,8 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		// The picture's age was measured and recorded before the turn was taken,
 		// so it travels with the failure for the same reason.
 		output.Picture = reply.Picture
+		// A reply cut in the record is cut whichever way the turn ended.
+		output.RecordCuts = reply.RecordCuts
 		output.Evaluation = reply.Evaluation
 		output.EvaluationProblem = reply.EvaluationProblem
 		output.ResultsCarriedOver = reply.ResultsCarriedOver
@@ -1433,6 +1441,15 @@ func printChatPicture(writer io.Writer, picture *chat.PictureAge) {
 	}
 	fmt.Fprintln(writer)
 	fmt.Fprint(writer, rendered)
+}
+
+// printChatRecordCuts says that the record holds only part of the reply
+// printed above, which the reader would otherwise take it to hold whole.
+func printChatRecordCuts(writer io.Writer, cuts []execution.ReplyCut) {
+	if rendered := chat.RenderRecordCuts(cuts); rendered != "" {
+		fmt.Fprintln(writer)
+		fmt.Fprint(writer, rendered)
+	}
 }
 
 // printChatEvaluation names the recommendation that went into the record, and
