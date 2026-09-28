@@ -168,8 +168,18 @@ recurring_tasks:
       product manager for every fix you make. If a problem you reported
       before comes back after it was handled, that is evidence the handling
       missed: raise it again, citing the earlier report and the recurrence,
-      rather than treating "already admitted" as settled. End with a durable report; when
-      the system is healthy say NO FINDINGS and stop.
+      rather than treating "already admitted" as settled.
+
+      Then check everything that appears to wait on the operator: every entry
+      naming him on the needs-a-human line, every escalation to him, and
+      anything a role has told him is his. The only decision that is truly his
+      is a change to the fundamental goals, what the product is for. For each
+      other one, settle it yourself if it is yours, or send it to the role
+      that owns it, and file a defect with the Lead Product Manager saying why
+      it reached him, so the next one does not.
+
+      End with a durable report; when the system is healthy say NO FINDINGS and
+      stop.
 
   product-manager-sweep:
     role: product-manager
@@ -324,7 +334,7 @@ agents:
     effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
     instances: 1
     persona:
-      version: v2
+      version: v3
       path: personas/program-manager.md
     lane: factory-flow
     remit:
