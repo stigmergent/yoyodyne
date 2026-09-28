@@ -234,6 +234,39 @@ func (g GitHub) RerunCheck(ctx context.Context, checkRun int64) error {
 	return nil
 }
 
+// JobLogTail is the last lines of the forge's log of the job behind a check
+// run, which is what says why a check failed with no file named: GitHub files
+// "Process completed with exit code 2" on .github for a red test and a broken
+// runner alike, and only the log tells them apart. It is read so the item the
+// harness files for a check red on the target carries it, rather than waiting on
+// a person with forge access to go and read it (yoyodyne-xko).
+//
+// A check no Actions job ran has no log, and the forge refusing says so as an
+// error.
+func (g GitHub) JobLogTail(ctx context.Context, checkRun int64, lines int) (string, error) {
+	if checkRun <= 0 {
+		return "", fmt.Errorf("check run %d is not a check run", checkRun)
+	}
+	result, err := g.api(ctx, fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", checkRun))
+	if err != nil {
+		return "", fmt.Errorf("read the forge's log of check %d: %w", checkRun, err)
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return "", fmt.Errorf("read the forge's log of check %d: exit code %d: %s",
+			checkRun, result.ExitCode, g.redact(firstLine(strings.TrimSpace(result.Stderr))))
+	}
+	return logTail(result.Stdout, lines), nil
+}
+
+// logTail is the last lines of a log, with trailing blank lines dropped.
+func logTail(log string, lines int) string {
+	all := strings.Split(strings.TrimRight(log, "\n\r\t "), "\n")
+	if lines > 0 && len(all) > lines {
+		all = all[len(all)-lines:]
+	}
+	return strings.Join(all, "\n")
+}
+
 // DisableAutoMerge withdraws the merge the forge is holding for a pull
 // request, so nothing lands it until it is asked for again. It is what the
 // harness does before it hands a red request back or rewrites its head: a

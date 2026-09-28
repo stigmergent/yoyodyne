@@ -816,6 +816,44 @@ func TestPublicationQueuedMergeAndMergeAreThreeSeparateFacts(t *testing.T) {
 	}
 }
 
+// A merge withdrawn because its checks fail on the target itself is said once,
+// as a warning from the harness, naming the check and the item filed for it: the
+// change reads as done and the publication is not landing.
+func TestAMergeWaitingOnTheTargetsRedCheckIsSaidOnceNamingTheFiledItem(t *testing.T) {
+	queued := running()
+	queued.PullRequest = &runstate.PullRequest{
+		Remote: "origin", Branch: "yoyodyne/ifd-434-10", Number: 863,
+		URL: "https://example.test/pull/863", HeadCommit: strings.Repeat("c", 40), MergeQueued: true,
+	}
+	waiting := queued
+	request := *queued.PullRequest
+	request.MergeQueued = false
+	request.TargetRed = &runstate.TargetRed{At: moment, TargetBranch: "main", HeadCommit: strings.Repeat("c", 40),
+		Checks: []runstate.TargetRedCheck{{Name: "adoption", WorkItem: "yoyodyne-red-1"}}}
+	waiting.PullRequest = &request
+
+	kinds, notifications := crossed(t, queued, waiting)
+	if len(kinds) != 1 || kinds[0] != KindMergeWaitingOnTarget {
+		t.Fatalf("a merge waiting on the target crossed %v", kinds)
+	}
+	said := notifications[0]
+	if said.Event.Severity != report.SeverityWarning || !said.Speaker.IsHarness() {
+		t.Fatalf("said at %q by %q, want a warning from the harness", said.Event.Severity, said.Speaker.Key())
+	}
+	message, err := Render(said.Topic, said.Speaker, said.Event)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, fact := range []string{"#863", "main's red check", "adoption (filed as yoyodyne-red-1)"} {
+		if !strings.Contains(message.Body, fact) {
+			t.Fatalf("body %q does not carry %q", message.Body, fact)
+		}
+	}
+	if kinds, _ := crossed(t, waiting, waiting); len(kinds) != 0 {
+		t.Fatalf("the same wait crossed again as %v", kinds)
+	}
+}
+
 // The fourth fact about getting a change out, and the one that used to be said
 // nowhere: the merge is not going to happen. It is a warning because nobody
 // chose it and nothing else in the record says it — the change is promoted, the

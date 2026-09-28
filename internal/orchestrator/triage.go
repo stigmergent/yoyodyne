@@ -1825,6 +1825,7 @@ func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.
 			MergeCommit: published.MergeCommit,
 			Message:     publicationMessage(state),
 			Checks:      publicationChecks(published, state),
+			WaitingOn:   publicationWaitingOn(published),
 			ApprovedAt:  publicationApprovedAt(state).UTC(),
 		},
 		Counters: counters,
@@ -1867,6 +1868,15 @@ func closedUnaskedPublication(number int, target string) string {
 func unarmedPublication(number int, target string) string {
 	return fmt.Sprintf("nothing ever asked the forge to merge pull request %d into %s: a re-arm decision has the harness arm it as the run would have, under the same landing checks, and a re-run hands the change back for a fresh run",
 		number, target)
+}
+
+// publicationWaitingOn is the entry's account of a merge withdrawn for its
+// target's red check, in the sentence every surface says of it, or nothing.
+func publicationWaitingOn(published runstate.PullRequest) string {
+	if published.TargetRed == nil || published.MergeQueued || published.Merged {
+		return ""
+	}
+	return oneline.Bound(published.TargetRed.Describe(), triage.MaxBlockerBytes)
 }
 
 // publicationChecks is the entry's account of the request's checks, in the

@@ -311,6 +311,12 @@ type Publication struct {
 	// against red builds for a day and more while the docket said only that they
 	// were queued (yoyodyne-ifd.429.16).
 	Checks string `json:"checks,omitempty"`
+	// WaitingOn is the account of a merge the reconciling sweep withdrew because
+	// its checks failed on the target itself rather than on the change — which
+	// checks, and the item filed for each — and is empty on every other
+	// publication. Such a publication waits on those items, and the harness is
+	// its next mover (yoyodyne-m5p).
+	WaitingOn string `json:"waiting_on,omitempty"`
 	// ApprovedAt is when the publication was approved and left unmerged, which
 	// is when the run that made it ended. The age an entry reports is measured
 	// from here to when it was docketed, so it is an age rather than a countdown
@@ -1665,6 +1671,9 @@ func (e Entry) Validate() error {
 			if len(e.Publication.Message) > MaxBlockerBytes {
 				problems = append(problems, fmt.Errorf("publication: message is %d bytes, limit is %d", len(e.Publication.Message), MaxBlockerBytes))
 			}
+			if len(e.Publication.WaitingOn) > MaxBlockerBytes {
+				problems = append(problems, fmt.Errorf("publication: waiting_on is %d bytes, limit is %d", len(e.Publication.WaitingOn), MaxBlockerBytes))
+			}
 			if len(e.Publication.Checks) > MaxBlockerBytes {
 				problems = append(problems, fmt.Errorf("publication: checks is %d bytes, limit is %d", len(e.Publication.Checks), MaxBlockerBytes))
 			}
@@ -2042,6 +2051,11 @@ func (e Entry) renderNextMover() string {
 			return "      Next mover: the harness — this change is approved and the environment stopped it, so what it needs is `yoyo triage resume` once the cause has cleared, not a decision.\n"
 		}
 		gone = "this approved change's branch is gone, so a re-run is the way on; "
+	}
+	// A merge withdrawn for its target's red check is the harness's to take up
+	// once the items filed for that check close, with nothing to decide.
+	if e.Publication != nil && e.Publication.WaitingOn != "" {
+		return "      Next mover: the harness — the checks fail on the target itself rather than on this change, and the merge waits on the item filed for that; once it closes the watch re-arms the merge on a level head that passes, or `yoyo reconcile` brings a head the fix left behind up to date, so nothing here needs your decision.\n"
 	}
 	if e.CountersProblem != "" {
 		return "      Next mover: unknown — " + gone + "this item's triage record could not be read, so whether anything is already decided about it cannot be said here.\n"
@@ -2473,6 +2487,9 @@ func (e Entry) renderPublication() string {
 		fmt.Fprintf(&rendered, "      Checks: %s\n", published.Checks)
 	case published.MergeQueued:
 		rendered.WriteString("      Checks: not yet read by a reconcile sweep, so whether the queued merge can land is unknown\n")
+	}
+	if published.WaitingOn != "" {
+		fmt.Fprintf(&rendered, "      Waiting on the target: the merge %s\n", published.WaitingOn)
 	}
 	if published.MergeCommit != "" {
 		fmt.Fprintf(&rendered, "      Forge merge commit: %s\n", published.MergeCommit)

@@ -185,6 +185,11 @@ type CarryOut struct {
 	// decision for somebody typing `yoyo triage rearm`, which is what it was before
 	// yoyodyne-ifd.429.31 for the first and yoyodyne-ifd.428.46 for the second.
 	Rearmer CarryOutRearmer
+	// Items reads whether the items a publication waiting on its target's red
+	// check waits on are closed, so the harness's own arming of it is attempted
+	// only once they are. Optional: a carry-out wired without it attempts that
+	// arming every time its pacing allows, and the Rearmer's own gate refuses it.
+	Items RearmItems
 	// CheckStages continues a run the check stage bound stopped, where she has
 	// decided nothing about it. Optional: a carry-out wired without it leaves such
 	// a stoppage on the docket for her, which is what it was before.
@@ -214,6 +219,10 @@ type CarryOutTask struct {
 	// pass has attempted is measured from. It is zero on the harness's own
 	// continuation of a check stage, which nobody decided.
 	DecidedAt time.Time `json:"decided_at,omitempty"`
+	// Harness says nobody decided this: it is the harness arming a merge it
+	// withdrew for its target's red check, once the items that check was filed
+	// as have closed. DecidedAt is then when the merge was withdrawn.
+	Harness bool `json:"harness,omitempty"`
 }
 
 // CarriedOut is what one attempt came to. It reports an attempt that was stopped
@@ -427,7 +436,10 @@ func (c CarryOut) read() (carryOutReading, error) {
 	// down here with everything else the sweep holds back, so a re-arm no pass
 	// attempts is as visible on the item as a re-run no pass attempts.
 	if c.Rearmer != nil {
-		_, held, err := c.readRearms(entries, inFlight, history, now, "")
+		// The reading is a pass's listing, which takes no context of its own; the
+		// one call in it that can reach outside the harness is the tracker's own
+		// bounded read of the items a red target's publication waits on.
+		_, held, err := c.readRearms(context.Background(), entries, inFlight, history, now, "")
 		if err != nil {
 			problems = append(problems, err)
 		}
@@ -971,6 +983,10 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	}
 	carried.Problem = fmt.Sprintf("the %q the development manager decided about the stoppage of run %s %s %s: %s. What clears it: %s",
 		task.Decision, task.RunID, held, gate, strings.TrimSpace(refusal), strings.TrimSpace(clears))
+	if task.Harness {
+		carried.Problem = fmt.Sprintf("the harness's own re-arm of the merge of run %s, withdrawn for its target's red check, %s %s: %s. What clears it: %s",
+			task.RunID, held, gate, strings.TrimSpace(refusal), strings.TrimSpace(clears))
+	}
 	write, stopWriting := recordContext(ctx)
 	defer stopWriting()
 	if _, err := c.Decisions.RecordCarryOutRefusal(write, task.WorkItemID, runstate.TriageCarryOut{

@@ -496,6 +496,9 @@ func (a Attention) What() string {
 			if checks := a.Publication.PullRequest.Checks; checks != nil {
 				what += "; " + checks.Describe(a.Publication.TargetBranch)
 			}
+			if waiting := a.Publication.PullRequest.TargetRed; waiting != nil && !a.Publication.PullRequest.MergeQueued {
+				what += "; it " + waiting.Describe()
+			}
 			return what
 		}
 	case AttentionOutage:
@@ -586,6 +589,8 @@ func (a Attention) Whose() string {
 				return a.Mover.Possessive() + " — `yoyo reconcile` looks the request up on the forge by that branch, records it, and arms its merge; a forge that holds none is said on every sweep"
 			case a.Publication.PullRequest.MergeQueued:
 				return a.Mover.Possessive() + " — it merges once the base branch's requirements are met, and `yoyo reconcile` settles the run when it does"
+			case a.Publication.PullRequest.TargetRed != nil:
+				return a.Mover.Possessive() + " — the checks fail on the target itself rather than on this change, so the failure is filed as the target's and the merge waits on " + strings.Join(a.Publication.PullRequest.TargetRed.WaitingOn(), ", ") + "; once that closes the watch re-arms it on a level head that passes, or `yoyo reconcile` brings a head the fix left behind up to date, and nothing here needs a person"
 			case a.Publication.MergeDrop != nil:
 				return a.Mover.Possessive() + " — the forge dropped the merge; `yoyo triage rearm` repeats it once, or the request is merged by hand on the forge, and `yoyo reconcile` settles it once the forge records the merge"
 			case a.Publication.Unarmed && a.Publication.PullRequest.Closed():

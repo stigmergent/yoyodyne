@@ -116,6 +116,9 @@ var structuredStrings = map[string]string{
 	"pull_request.checks.head_commit":                               "matched against the commit pattern",
 	"pull_request.checks.failing[].paths[]":                         "repository paths a check annotated, bounded in number",
 	"pull_request.checks.failing[].on_change[]":                     "repository paths the change touched, bounded in number",
+	"pull_request.target_red.target_branch":                         "a local branch name",
+	"pull_request.target_red.head_commit":                           "matched against the commit pattern",
+	"pull_request.target_red.checks[].work_item":                    "a work item identifier",
 }
 
 var timeType = reflect.TypeOf(time.Time{})

@@ -280,6 +280,108 @@ func (c PullRequestChecks) Validate() error {
 	return errors.Join(problems...)
 }
 
+// TargetRed is a queued merge the reconciling sweep withdrew because its checks
+// failed on a head level with the target, on no file the change touches: the
+// target's own failure rather than the change's. Nothing but the change differs
+// between the head and the target, so bringing the head up to date changes
+// nothing, and the failure is one every request queued behind it meets too.
+//
+// Until yoyodyne-m5p that was handed to a person as a dropped merge. On
+// 2026-09-28 the adoption check went red on main itself, and the queued merge of
+// pull request 863 became a hand step, as every merge queued behind it would
+// have. Now the failure is filed as the target's, one p0 item per target branch
+// and check, exactly as a red landing is, and the publication waits on those
+// items with the harness as the one to move: once they close, the watch re-arms
+// the merge on a level head that passes, and the reconciling sweep replays a
+// head the fix has left behind.
+type TargetRed struct {
+	At           time.Time `json:"at"`
+	TargetBranch string    `json:"target_branch"`
+	// HeadCommit is the head that was level with the target when its checks
+	// failed.
+	HeadCommit string `json:"head_commit"`
+	// Checks are the failing checks, each with the item it waits on.
+	Checks []TargetRedCheck `json:"checks"`
+}
+
+// TargetRedCheck is one check failing on the target, and the p0 item the
+// harness filed for it or found already open.
+type TargetRedCheck struct {
+	Name     string `json:"name"`
+	WorkItem string `json:"work_item"`
+	// FiledEarlier says the item was already open for this check on this branch,
+	// filed for an earlier request, and this request was noted on it.
+	FiledEarlier bool `json:"filed_earlier,omitempty"`
+}
+
+// WaitingOn is every item the publication waits on, in the order the checks
+// were read, each once.
+func (t TargetRed) WaitingOn() []string {
+	seen := make(map[string]bool, len(t.Checks))
+	items := make([]string, 0, len(t.Checks))
+	for _, check := range t.Checks {
+		if check.WorkItem == "" || seen[check.WorkItem] {
+			continue
+		}
+		seen[check.WorkItem] = true
+		items = append(items, check.WorkItem)
+	}
+	return items
+}
+
+// Describe is the one sentence every surface says of the wait: which checks
+// fail on the target, and the items the merge waits on.
+func (t TargetRed) Describe() string {
+	named := make([]string, 0, len(t.Checks))
+	for _, check := range t.Checks {
+		named = append(named, fmt.Sprintf("%s (filed as %s)", check.Name, check.WorkItem))
+	}
+	target := t.TargetBranch
+	if strings.TrimSpace(target) == "" {
+		target = "its target"
+	}
+	return fmt.Sprintf("waits on %s's red check, not on this change: %s failed with the head level with %s on no file the change touches",
+		target, strings.Join(named, "; "), target)
+}
+
+// Validate rejects a wait that cannot describe a real one.
+func (t TargetRed) Validate() error {
+	var problems []error
+	if t.At.IsZero() {
+		problems = append(problems, errors.New("target_red at is required"))
+	}
+	if !validLocalBranch(t.TargetBranch) {
+		problems = append(problems, errors.New("target_red target_branch must be a local branch name"))
+	}
+	if !commitPattern.MatchString(t.HeadCommit) {
+		problems = append(problems, errors.New("target_red head_commit is invalid"))
+	}
+	if len(t.Checks) == 0 || len(t.Checks) > MaxRecordedFailingChecks {
+		problems = append(problems, fmt.Errorf("target_red names %d checks, and it names between 1 and %d", len(t.Checks), MaxRecordedFailingChecks))
+	}
+	for index, check := range t.Checks {
+		if strings.TrimSpace(check.Name) == "" || len(check.Name) > maxCheckNameBytes {
+			problems = append(problems, fmt.Errorf("target_red checks[%d] name must be present and at most %d bytes", index, maxCheckNameBytes))
+		}
+		if strings.TrimSpace(check.WorkItem) == "" {
+			problems = append(problems, fmt.Errorf("target_red checks[%d] names no work item, and the wait is on one", index))
+		}
+	}
+	return errors.Join(problems...)
+}
+
+// WaitingOnRedTarget reports a publication whose merge the sweep withdrew for
+// the target's red check and that nothing has armed, merged, or handed back
+// since: it waits on the items filed for that check, and its next mover is the
+// harness.
+func (s State) WaitingOnRedTarget() bool {
+	if !s.Status.Terminal() || s.Integration == nil || s.PullRequest == nil {
+		return false
+	}
+	published := s.PullRequest
+	return published.TargetRed != nil && !published.Merged && !published.MergeQueued && published.HandedBack == nil
+}
+
 // UpdatingQueuedHead reports a run the reconciling sweep put back at its
 // promotion to bring a queued head up to date, and that is still waiting there
 // for the sweep to carry it through the update. It is a pending continuation in

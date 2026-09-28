@@ -3,6 +3,12 @@ package orchestrator
 // Re-arming a publication's merge on the development manager's decision, with
 // nobody typing a verb.
 //
+// One publication is re-armed on no decision at all: a merge the reconciling
+// sweep withdrew because its checks failed on the target itself (redtarget.go).
+// It waits on the items filed for that check, and once every one of them is
+// closed the harness arms it again here, on a head level with its target whose
+// checks now pass, spending no re-arm (yoyodyne-m5p).
+//
 // Two publications reach her docket as ones a re-arm can finish: a promoted,
 // approved run whose record holds its pull request and says nothing ever asked
 // the forge to merge it, and one whose queued merge the forge dropped. She
@@ -36,6 +42,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -81,7 +88,7 @@ func (c CarryOut) CarryRearms(ctx context.Context, intakeHeld bool) ([]CarriedOu
 	if err != nil {
 		return nil, err
 	}
-	tasks, _, err := c.readRearms(entries, inFlight, onceRecorded(c.Runs), c.now(), shut.gate)
+	tasks, _, err := c.readRearms(ctx, entries, inFlight, onceRecorded(c.Runs), c.now(), shut.gate)
 	carried := make([]CarriedOut, 0, len(tasks))
 	for _, task := range tasks {
 		if ctx.Err() != nil {
@@ -127,7 +134,7 @@ type rearmSwitch struct {
 // that is shut now, is not written again every poll the switch stands. And a run
 // of the item in flight holds the decision back, which is returned as held so
 // RecordUnattempted writes it onto the item once it has stood a poll interval.
-func (c CarryOut) readRearms(entries []triage.Entry, inFlight map[string]string, history func() ([]runstate.State, error), now time.Time, shut string) ([]CarryOutTask, []heldDecision, error) {
+func (c CarryOut) readRearms(ctx context.Context, entries []triage.Entry, inFlight map[string]string, history func() ([]runstate.State, error), now time.Time, shut string) ([]CarryOutTask, []heldDecision, error) {
 	candidates := make(map[string]bool)
 	for _, entry := range entries {
 		if entry.Class == triage.ClassPublication && entry.RunID != "" && entry.WorkItemID != "" {
@@ -154,21 +161,45 @@ func (c CarryOut) readRearms(entries []triage.Entry, inFlight map[string]string,
 			problems = append(problems, fmt.Errorf("read what triage has decided about %s: %w", state.WorkItemID, err))
 			continue
 		}
-		decision, found := counters.DecisionOf(state.RunID)
-		if !found || decision.Decision != runstate.TriageDecisionRearm {
-			continue
-		}
 		key := triage.PublicationKey(state.RunID, state.PullRequest.Number)
-		if counters.RearmsOf(key) <= state.PullRequest.MergeRearms {
-			continue
-		}
-		task := CarryOutTask{
-			WorkItemID: state.WorkItemID,
-			RunID:      state.RunID,
-			DocketKey:  key,
-			Decision:   decision.Decision,
-			Reason:     decision.Reason,
-			DecidedAt:  decision.DecidedAt,
+		var task CarryOutTask
+		if state.WaitingOnRedTarget() {
+			// A merge withdrawn for its target's red check is the harness's to arm,
+			// with nobody deciding: it is attempted once every item it waits on is
+			// closed, and until then it is waiting rather than refused.
+			answered, err := c.targetRedAnswered(ctx, *state.PullRequest.TargetRed)
+			if err != nil {
+				problems = append(problems, err)
+				continue
+			}
+			if !answered {
+				continue
+			}
+			task = CarryOutTask{
+				WorkItemID: state.WorkItemID,
+				RunID:      state.RunID,
+				DocketKey:  key,
+				Decision:   runstate.TriageDecisionRearm,
+				Reason:     fmt.Sprintf("every item the merge of pull request %d waited on for %s's red check is closed", state.PullRequest.Number, state.PullRequest.TargetRed.TargetBranch),
+				DecidedAt:  state.PullRequest.TargetRed.At,
+				Harness:    true,
+			}
+		} else {
+			decision, found := counters.DecisionOf(state.RunID)
+			if !found || decision.Decision != runstate.TriageDecisionRearm {
+				continue
+			}
+			if counters.RearmsOf(key) <= state.PullRequest.MergeRearms {
+				continue
+			}
+			task = CarryOutTask{
+				WorkItemID: state.WorkItemID,
+				RunID:      state.RunID,
+				DocketKey:  key,
+				Decision:   decision.Decision,
+				Reason:     decision.Reason,
+				DecidedAt:  decision.DecidedAt,
+			}
 		}
 		if running, busy := inFlight[state.WorkItemID]; busy {
 			held = append(held, heldDecision{
@@ -179,7 +210,7 @@ func (c CarryOut) readRearms(entries []triage.Entry, inFlight map[string]string,
 			})
 			continue
 		}
-		if standing, recorded := counters.CarryOutOf(state.RunID); recorded && !standing.RefusedAt.Before(decision.DecidedAt) {
+		if standing, recorded := counters.CarryOutOf(state.RunID); recorded && !standing.RefusedAt.Before(task.DecidedAt) {
 			if standing.Cooling(now) {
 				continue
 			}
@@ -190,6 +221,25 @@ func (c CarryOut) readRearms(entries []triage.Entry, inFlight map[string]string,
 		tasks = append(tasks, task)
 	}
 	return tasks, held, errors.Join(problems...)
+}
+
+// targetRedAnswered reports every item a merge withdrawn for its target's red
+// check waits on being closed. A carry-out wired with no tracker reads it as
+// answered and leaves the gate to the Rearmer, which refuses and says why.
+func (c CarryOut) targetRedAnswered(ctx context.Context, waiting runstate.TargetRed) (bool, error) {
+	if c.Items == nil {
+		return true, nil
+	}
+	for _, id := range waiting.WaitingOn() {
+		item, err := c.Items.Show(ctx, id)
+		if err != nil {
+			return false, fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w", id, waiting.TargetBranch, err)
+		}
+		if !strings.EqualFold(item.Status, "closed") {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // rearmable reports a run whose publication the Rearmer could repeat or make the

@@ -181,6 +181,7 @@ var harnessVoice = voice{
 		KindMergeQueued:              "The merge of {pr} is queued on the forge.",
 		KindMergeCompleted:           "{pr} merged.",
 		KindMergeDropped:             "The merge of {pr} is not going to happen: {cause}. The change is promoted; the publication is not.",
+		KindMergeWaitingOnTarget:     "The merge of {pr} waits on the target rather than on the change: {cause}.",
 		KindLandingGreen:             "{item} landed green: {landing}.",
 		KindLandingRed:               "{item} landed red: {landing}.",
 		KindLandingUnverified:        "{item} landed unverified: {landing}.",
@@ -259,6 +260,7 @@ var developerVoice = voice{
 		KindMergeQueued:              "{pr} is queued to merge; there is nothing more from me on {item}.",
 		KindMergeCompleted:           "{pr} is merged, so {item} is out of my hands.",
 		KindMergeDropped:             "{pr} was never merged and will not be by itself: {cause}. My change is on the target branch; what is on the forge is not.",
+		KindMergeWaitingOnTarget:     "{pr} is waiting on the target branch, not on my change: {cause}.",
 		KindLandingGreen:             "The landing checks over what I landed for {item} are green: {landing}.",
 		KindLandingRed:               "The landing checks over what I landed for {item} are red: {landing}. My change passed its own gate; what broke is over the whole suite, and the item it filed is where that gets fixed.",
 		KindLandingUnverified:        "The landing checks over what I landed for {item} did not run: {landing}. Nothing says the target branch is green after my change.",
@@ -337,6 +339,7 @@ var reviewerVoice = voice{
 		KindMergeQueued:              "{pr} is queued to merge with my approval behind it.",
 		KindMergeCompleted:           "{pr} is merged, so what I approved is what landed.",
 		KindMergeDropped:             "{pr} did not merge: {cause}. What I approved is on the target branch, and the request carrying it is still open.",
+		KindMergeWaitingOnTarget:     "{pr} is held for the target's red check, not for anything I reviewed: {cause}.",
 		KindLandingGreen:             "The whole suite passes over what landed for {item}: {landing}. That is the evidence the narrowed gate could not give.",
 		KindLandingRed:               "The whole suite fails over what landed for {item}: {landing}. I approved the change on the gate it was given; the suite says something the gate did not.",
 		KindLandingUnverified:        "The whole suite was not run over what landed for {item}: {landing}. What I approved stands on the narrowed gate alone.",
@@ -414,6 +417,7 @@ var developmentManagerVoice = voice{
 		KindMergeQueued:              "{pr} is queued to merge, so {item} stays in flight until the forge says otherwise.",
 		KindMergeCompleted:           "{pr} merged; {item} is done.",
 		KindMergeDropped:             "{pr} will not merge on its own: {cause}. {item} is promoted, and its publication is now somebody's to settle by hand.",
+		KindMergeWaitingOnTarget:     "{pr} waits on the target being fixed rather than on a decision: {cause}. The item filed for it is at the front of the queue.",
 		KindLandingGreen:             "{item} landed and the whole suite is green over it: {landing}.",
 		KindLandingRed:               "{item} landed and the whole suite is red over it: {landing}. The item that filed is at the front of the queue, and everything behind it is cut from that commit.",
 		KindLandingUnverified:        "{item} landed and the whole suite could not be run over it: {landing}. Nobody knows whether the target branch is green.",
@@ -492,6 +496,7 @@ var productManagerVoice = voice{
 		KindMergeQueued:              "{pr} is queued to merge; {item} is not delivered until it lands.",
 		KindMergeCompleted:           "{pr} merged, so {item} is delivered.",
 		KindMergeDropped:             "{pr} is not merging: {cause}. {item} is built and promoted, and it is not delivered until somebody publishes it.",
+		KindMergeWaitingOnTarget:     "{pr} is waiting on the target branch: {cause}. The fix is filed under the same goal {item} served.",
 		KindLandingGreen:             "{item} landed green: {landing}. Nothing about what it is for has changed.",
 		KindLandingRed:               "{item} landed red: {landing}. The work that answers it is filed under the same goal the item served.",
 		KindLandingUnverified:        "{item} landed without its landing checks: {landing}. What it is for has not changed; what nobody checked has.",
@@ -570,6 +575,7 @@ var architectVoice = voice{
 		KindMergeQueued:              "{pr} is queued to merge; the forge settles it, not this run.",
 		KindMergeCompleted:           "{pr} merged, so the forge's history and the local target agree again.",
 		KindMergeDropped:             "{pr} was dropped rather than merged: {cause}. The local target carries the promotion and the forge does not, which is the divergence somebody has to close.",
+		KindMergeWaitingOnTarget:     "{pr} waits on the target branch's own red check: {cause}. Nothing but the change differs from the target, so the failure is the target's.",
 		KindLandingGreen:             "{item} landed green: {landing}. The whole suite agrees with the narrowed gate.",
 		KindLandingRed:               "{item} landed red: {landing}. The narrowed gate passed and the whole suite did not, which is exactly the case the landing check exists to catch.",
 		KindLandingUnverified:        "{item} landed unverified: {landing}. A gate narrowed to what a change touches is only as safe as the whole suite run behind it.",
@@ -652,6 +658,7 @@ var programManagerVoice = voice{
 		KindMergeQueued:              "{pr} is queued at the forge; whether it merges is the forge's to settle now.",
 		KindMergeCompleted:           "{pr} merged, and the forge agrees with the local target again.",
 		KindMergeDropped:             "{pr} was dropped instead of merged: {cause}. The local target has the change and the forge does not, and that gap stays open until somebody closes it.",
+		KindMergeWaitingOnTarget:     "{pr} waits on the target's red check: {cause}. One red check on the target holds every merge queued behind it until the filed item lands.",
 		KindRunParked:                "{item} is paused part-way, waiting on {cause}. A pause is not a stall, and I read them apart.",
 		KindRunContinued:             "{item} picked up again from where it paused.",
 		KindBlockerRecorded:          "{item} is blocked, and {remains}. A blocker says where the line is stuck, which is what I report on: {text}",
@@ -793,6 +800,9 @@ var nextMoves = map[Kind]string{
 	// one it had queued, and asking again earns the same answer — so nothing
 	// happens to the publication until somebody makes it happen.
 	KindMergeDropped: "the operator's — the forge will not merge this by itself, and the publication stands until somebody settles it.",
+	// A merge waiting on its target's red check is the harness's: the failure is
+	// filed as the target's, and the harness takes the merge up once that closes.
+	KindMergeWaitingOnTarget: "the harness's, on the item filed for the target's red check — it takes the merge up again once that closes, and nobody has anything to decide.",
 	// A landing is after the run: green asks nothing of anybody, red has filed
 	// the work that answers it and that work is queued like any other, and one
 	// the checks could not run over is the operator's to look at, because

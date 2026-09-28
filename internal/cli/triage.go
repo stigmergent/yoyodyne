@@ -361,6 +361,9 @@ func rearmerFrom(parts components) orchestrator.Rearmer {
 		// `yoyo status` reports, so what proves the decision was made and what an
 		// operator reads about it can never be two different records.
 		Decisions: parts.store.Triage(),
+		// Whether the items a merge withdrawn for its target's red check waits
+		// on are closed, which is what authorizes the harness to arm it again.
+		Items: parts.tracker(),
 	}
 }
 
@@ -700,6 +703,9 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		// made through the same action `yoyo triage rearm` makes it through, with
 		// the same checks reading gating it.
 		Rearmer: rearmerFrom(parts),
+		// The items a merge withdrawn for its target's red check waits on, read so
+		// the harness arms it again once they close and not before.
+		Items: parts.tracker(),
 		// The one thing fired here that nobody decided: a check stage its bound
 		// stopped, continued by the harness at its checks on the change the run
 		// already has. It spends nothing, so no triage budget is wired to it.

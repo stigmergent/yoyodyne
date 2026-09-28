@@ -1915,18 +1915,60 @@ the queue was landing them.
   is handed back as below, saying the forge ended it. A job waiting on a
   person's approval is not re-run. Neither is a step that failed: GitHub files
   "Process completed with exit code 2" on `.github` too, and that is what a
-  genuine red test looks like, so a failed step annotated only there is handed
-  back as below, described as a step that failed without naming a file, with
-  the forge's log of the run named as where to look.
+  genuine red test looks like, so a failed step annotated only there is not
+  re-run. It names no file the change touches, so on a head level with its
+  target it is the target's failure and is filed and waited on as the next
+  bullet says, with the forge's log of the job carried on the filed item; on a
+  head behind its target it is brought up to date as the bullet above says.
+- **A head level with its target whose failing checks name no file the change
+  touches.** Nothing but the change differs from the target, so bringing the
+  head up to date would change nothing, and the failure is the target's own — a
+  required check red on main itself, or flaky there, which every merge queued
+  behind this one meets too. It is filed as the target's, exactly as a
+  [red landing](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs) is:
+  one bug at priority 0 per target branch and failing check, naming the branch,
+  the head, the check, and the run and item that met it, under the goal the item
+  served, with how the forge ended the job and the last sixty lines of the
+  forge's log of it — read through the harness's own forge access — in the
+  item's notes. A later request meeting the same check while that item is open
+  finds it by the `Red forge check: <check> on <branch>` line in its notes and
+  is noted on it rather than filing again. The queued merge is withdrawn, the
+  work item is told and made to wait on the filed item in the tracker, and the
+  publication is recorded as waiting on it (`target_red` on the pull request)
+  with **the harness as the one to move**. Nothing is handed to a person: no
+  blocker, no dropped merge, and no decision on the development manager's
+  docket. The docket entry says `Waiting on the target` with the check and the
+  item and names the harness as next mover; `yoyo status` carries it under
+  `Waiting on the harness`, saying the request waits on the target's red check
+  and naming the item; and the channel is told once, as a warning, naming both.
+  A filing the tracker refuses leaves the merge queued, writes nothing, and the
+  next sweep tries again. **What ends the wait is the harness's too.** Once
+  every item it waits on is closed, `yoyo reconcile` reads the head's checks
+  again: a head the fix left behind the target is brought up to date from the
+  kept branch, checked, reviewed, and queued again, exactly as a queued head
+  behind its target is; a head still level and failing the same way is filed
+  again, since the items closed with the check still red; and a head still level
+  whose checks now pass is armed again by a watching `yoyo work` session's
+  re-arm carry-out at its next pull, with nobody deciding anything and no re-arm
+  spent. `yoyo reconcile` says what each waiting publication came to on every
+  pass, and `--json` carries it under `red_targets`. Until that arming, `yoyo triage rearm` refuses the publication while an
+  item it waits on is open, naming the item. A head still level whose only
+  failures are jobs the forge ended itself is neither of those: the jobs are
+  run again on the same head, at most twice, with the wait standing meanwhile,
+  and a job ended again past that, or one the forge will not run again, is
+  handed back as below, saying the forge ended it. Until filing a red forge
+  check as the target's own failure (yoyodyne-m5p) this case was handed back
+  like the one below, and on 2026-09-28 a red adoption check on main made pull
+  request 863 a hand step.
 - **Anything else red** — a failing check whose annotations name a file the
-  change touches, or a head already level with its target, where nothing but the
-  change differs and an update would change nothing — is handed back. The queued
-  merge is withdrawn and the run is settled as a merge the forge dropped: a
-  blocker on the item naming the failing check and the files, the drop recorded
-  on the run, and the publication on the docket where `yoyo triage rearm` is
-  decided. A run whose change was promoted onto the local target first, or whose
-  worktree or branch is gone, cannot be replayed, and is handed back the same way
-  when its head falls behind.
+  change touches — is handed back. The queued merge is withdrawn and the run is
+  settled as a merge the forge dropped: a blocker on the item naming the failing
+  check and the files, the drop recorded on the run, and the publication on the
+  docket where `yoyo triage rearm` is decided. So is a head level with its target
+  where nothing is wired to file the target's failure. A run whose change was
+  promoted onto the local target first, or whose worktree or branch is gone,
+  cannot be replayed, and is handed back the same way when its head falls
+  behind.
 
 **Withdrawing a queued merge takes the request out of the merge queue too.**
 Turning the request's auto-merge off is not enough on a target with a merge
@@ -1949,16 +1991,20 @@ still open, and its head is behind the target with no failing check naming a
 file the change touches, the drop is the race a replay answers: the sweep puts
 the run back at its promotion exactly as above — with nothing to withdraw — and
 the change is brought up to date from the kept branch, checked, reviewed, and
-queued again. A drop is handed back, to the development manager's docket, only when the change cannot be
-replayed: a local promotion, a run whose branch, worktree, approval, or
-sessions are gone, a request the forge closed, a head level with its target, or
-checks failing on the change itself. A reading of the checks the forge could
-not give leaves the record as it stands for the next sweep.
+queued again. Where its head is level with the target and failing only checks
+that name no file the change touches, the drop is the target's red check, and
+is filed and waited on exactly as above, with nothing to withdraw. A drop is
+handed back, to the development manager's docket, only when the change cannot
+be replayed: a local promotion, a run whose branch, worktree, approval, or
+sessions are gone, a request the forge closed, a head level with its target
+failing some other way, or checks failing on the change itself. A reading of
+the checks the forge could not give leaves the record as it stands for the next
+sweep.
 
 A check that annotates no file says nothing about whose failure it is, and is
 not read as the change's: a head behind its target failing only such checks is
 brought up to date, and if it still fails once level with its target it is
-handed back. A reading the forge could not give leaves the merge queued, says
+filed as the target's failure and waited on, as above. A reading the forge could not give leaves the merge queued, says
 so, and writes nothing — a check state nobody read is not a red one. A merge
 nobody has read the checks of yet is docketed saying exactly that rather than
 as approved and queued with nothing beside it.
@@ -2950,7 +2996,10 @@ has the rule.
   docket to arm or re-run rather than yours to merge by hand, and the harness's
   for a promotion whose record holds no request at all — the next
   [`yoyo reconcile`](#recovering-interrupted-runs) looks the request up by the
-  run's branch and arms its merge. An unmerged request whose record carries some
+  run's branch and arms its merge. A merge withdrawn because its checks failed on
+  the target itself is the harness's as well, saying it waits on the target's red
+  check and naming the item filed for it, which the harness takes up once that
+  closes ([above](#recovering-interrupted-runs)). An unmerged request whose record carries some
   other account and no drop is still named as the operator's. All of them leave
   the line the moment the forge records the merge and `yoyo reconcile` settles
   it.

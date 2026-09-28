@@ -117,6 +117,12 @@ const (
 	// person with nothing saying so. It said nothing at all until the moment it
 	// happens became part of the record.
 	KindMergeDropped Kind = "merge.dropped"
+	// A merge the harness withdrew because its checks failed on the target itself
+	// rather than on the change: the failure is filed as the target's, as a red
+	// landing is, and the merge waits on the item filed for it. It is said where a
+	// dropped merge is, because it is the same publication not landing, and in
+	// the harness's words, because nobody is waited on but the filed item.
+	KindMergeWaitingOnTarget Kind = "merge.waiting-on-target"
 	// What the landing checks made of the commit a run landed, said once the run
 	// is over: the suite the per-run gate ran narrowed, run whole over what
 	// actually landed. Green is the ordinary case and stays in the thread. Red is
@@ -435,6 +441,7 @@ func Kinds() []Kind {
 		KindMergeQueued,
 		KindMergeCompleted,
 		KindMergeDropped,
+		KindMergeWaitingOnTarget,
 		KindLandingGreen,
 		KindLandingRed,
 		KindLandingUnverified,
@@ -493,7 +500,7 @@ func (k Kind) Valid() bool {
 		KindWorkHandedOff, KindWorkPickedUp, KindWorkCarriedOut, KindCapCrossed,
 		KindRunStarted, KindChecksPassed, KindChecksFailed, KindPathRefused,
 		KindReviewApproved, KindReviewRepairs,
-		KindRaceLost, KindPromoted, KindPublished, KindMergeQueued, KindMergeCompleted, KindMergeDropped,
+		KindRaceLost, KindPromoted, KindPublished, KindMergeQueued, KindMergeCompleted, KindMergeDropped, KindMergeWaitingOnTarget,
 		KindLandingGreen, KindLandingRed, KindLandingUnverified,
 		KindRunParked, KindRunContinued, KindBlockerRecorded, KindRunEnded, KindUsageLimitExhausted,
 		KindModelSubstituted,

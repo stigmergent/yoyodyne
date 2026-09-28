@@ -202,6 +202,15 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 			Cause:       after.MergeDrop.Reason,
 		})
 	}
+	// A merge the harness withdrew because its checks failed on the target itself
+	// is said once, as the wait begins, naming the check and the item filed for
+	// it. It is read from the moment the record holds, as a drop is.
+	if waiting := targetRedOf(after); waiting != nil && (targetRedOf(before) == nil || !targetRedOf(before).At.Equal(waiting.At)) {
+		say(KindMergeWaitingOnTarget, report.SeverityWarning, Harness(), Detail{
+			PullRequest: describePullRequest(after.PullRequest),
+			Cause:       waiting.Describe(),
+		})
+	}
 	// A landing is said once its checks have ended, whichever way, and never
 	// while they run: what a thread wants of it is the result, and a red one is
 	// the one fact about a landed change that the run's own ending does not
@@ -1483,6 +1492,14 @@ func environmentallyRefused(state runstate.State) string {
 		return ""
 	}
 	return refused.Describe() + " — "
+}
+
+// targetRedOf is the wait on its target's red check a record holds, or nil.
+func targetRedOf(state runstate.State) *runstate.TargetRed {
+	if state.PullRequest == nil {
+		return nil
+	}
+	return state.PullRequest.TargetRed
 }
 
 func mergeQueued(state runstate.State) bool {

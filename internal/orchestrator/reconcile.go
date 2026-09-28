@@ -178,6 +178,15 @@ type Reconciler struct {
 	// Optional: a reconciler wired without it reads a queued merge as queued and
 	// nothing more.
 	Checks ReconcileChecks
+	// Filer files the item a queued merge's check red on the target itself is,
+	// one per target branch and check, as a red landing files its own; the merge
+	// then waits on that item rather than being handed to a person. Optional: a
+	// reconciler wired without it hands such a merge back as it did before
+	// yoyodyne-m5p.
+	Filer WorkFiler
+	// JobLogs reads the tail of a failing job's log, which the filed item
+	// carries. Optional: without it the item says no log was read.
+	JobLogs ReconcileJobLogs
 	// Intake and Capacity are read before a queued head is put back at its
 	// promotion, because that makes a finished run live again: a held intake and
 	// a full harness each leave the merge queued for the next sweep. A capacity

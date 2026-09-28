@@ -122,6 +122,9 @@ var reaches = map[Kind]Reach{
 	// out about on their own: the change is promoted, the item reads as landed, and
 	// the request waits on a person who does not know it is theirs.
 	KindMergeDropped: ReachChannel,
+	// A merge waiting on its target's red check reaches the channel for the same
+	// reason: the change reads as done and the publication is not landing.
+	KindMergeWaitingOnTarget: ReachChannel,
 	// A landing that went red is the target branch broken by a change every
 	// gate passed, which is the other publication fact nobody finds out about on
 	// their own; one that went green is the thread's own story. One the checks

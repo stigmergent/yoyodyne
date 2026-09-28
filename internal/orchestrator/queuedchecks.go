@@ -33,11 +33,15 @@ package orchestrator
 //     only on .github — adoption at 04:15Z, build at 06:08Z — and the record
 //     kept neither check's conclusion, so which of the two those were is only
 //     in the forge's logs of those runs; the conclusion is kept now.
-//   - Anything else red — a failing check naming a file the change touches, or a
-//     head already level with its target, where nothing but the change differs
-//     — is the change's own failure, or one no update can fix. The queued merge
-//     is withdrawn and the item is handed back with the check named, as a
-//     dropped merge is, rather than left queued.
+//   - A head level with its target whose failing checks name no file the change
+//     touches: nothing but the change differs from the target, so the failure
+//     is the target's own. It is filed as the target's, one p0 item per target
+//     branch and check as a red landing files its own, and the queued merge is
+//     withdrawn and waits on those items with the harness as its next mover
+//     rather than being handed to a person (redtarget.go, yoyodyne-m5p).
+//   - A failing check naming a file the change touches is the change's own
+//     failure. The queued merge is withdrawn and the item is handed back with
+//     the check named, as a dropped merge is, rather than left queued.
 
 import (
 	"context"
@@ -143,9 +147,9 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 			"the forge's checks on pull request %d %s: %s. The forge's log of those runs says why it ended them. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
 			published.Number, why, checks.Describe(target)))
 	default:
-		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
-			"the forge's checks on pull request %d fail with its head level with %s, so nothing but this change differs from the target and bringing it up to date would change nothing: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
-			published.Number, target, checks.Describe(target)))
+		// A head level with its target, failing on no file its change touches:
+		// the target's own failure, filed as the target's (redtarget.go).
+		return r.waitOnRedTarget(ctx, state, checks, false)
 	}
 }
 
@@ -221,6 +225,9 @@ func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, 
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("withdraw the red queued merge of pull request %d for run %s: %w", published.Number, state.RunID, err)
 	}
 	published.MergeQueued = false
+	// A merge handed back is no longer waiting on its target's red check: it is a
+	// dropped merge somebody decides about, and every surface has to say so.
+	published.TargetRed = nil
 	state.PullRequest = &published
 	state.PublishFailure = reason
 	state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: reason}
@@ -291,6 +298,10 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// withdraw.
 	reason := fmt.Sprintf("the forge dropped the queued merge of pull request %d while its head was %d commit(s) behind %s (%s), so the reconcile sweep put the run back at its promotion to be brought up to date onto %s from its kept branch, checked and reviewed again, and queued again, as a replay is; this is lost race %d, and a lost race costs nothing",
 		published.Number, published.Checks.BehindBy, target, describe, target, state.IntegrationRetries+1)
+	if published.TargetRed != nil {
+		reason = fmt.Sprintf("every item the merge of pull request %d waited on for %s's red check is closed, and the fix left its head %d commit(s) behind %s (%s), so the reconcile sweep put the run back at its promotion to be brought up to date onto %s from its kept branch, checked and reviewed again, and queued again, as a replay is; this is lost race %d, and a lost race costs nothing",
+			published.Number, target, published.Checks.BehindBy, target, describe, target, state.IntegrationRetries+1)
+	}
 	if !dropped {
 		if err := r.Checks.DisableAutoMerge(ctx, published.Number); err != nil {
 			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("withdraw the queued merge of pull request %d before updating run %s: %w", published.Number, state.RunID, err)
@@ -324,6 +335,9 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// be said beside the replayed head's queued merge as though it were that
 	// head's, until a sweep read the new one.
 	published.Checks = nil
+	// A wait on the target's red check ends here: the replay queues a merge of
+	// its own, on a head that carries the fix.
+	published.TargetRed = nil
 	resumed.PullRequest = &published
 	resumed.PublishFailure = ""
 	resumed.Failure = ""
@@ -374,6 +388,13 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state runstate.Sta
 		return result, true, nil
 	}
 	checks := recordedChecks(reading, r.clock().Now())
+	// A head level with its target that failed on no file its change touches
+	// failed on the target, and the queue dropping it is the same fact the sweep
+	// withdrawing it would have been: filed as the target's, and waited on.
+	if checks.BehindBy == 0 && checks.Red() && !checks.ChangeFails() && !checks.FailedInTheJob() && r.Filer != nil {
+		waiting, err := r.waitOnRedTarget(ctx, state, checks, true)
+		return waiting, true, err
+	}
 	if checks.BehindBy == 0 || checks.ChangeFails() {
 		return Reconciliation{}, false, nil
 	}
