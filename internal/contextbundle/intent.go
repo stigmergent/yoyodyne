@@ -1,0 +1,163 @@
+package contextbundle
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
+)
+
+// The product's specification home, delivered into a work item's context.
+//
+// Until the operator's direction of 2026-09-27 — "everything in docs/product is
+// authoritative" — the documents there reached the management conversations and
+// nobody else: a developer and a reviewer read the work item and what its prose
+// named, so the brief, the goals, and the non-goals the item's own goal line
+// traced to were authoritative to every role except the two that build and judge
+// the change. A document the operator calls authoritative that a role never reads
+// is authoritative to nobody in that role, so the whole home is carried here, in
+// the same words and under the same labels the conversations read it under.
+
+// maxIntentShareDivisor bounds what the specification home may take of a work
+// item's context: at most this fraction of the budget. The work item is what the
+// run is for and is rendered first, whole; the home is read next and before the
+// references the item names, so intent wins the budget over what the item merely
+// cites. The share keeps a home grown far past today's size — this repository's
+// is about 25 KiB of a 256 KiB budget — from leaving the item's own references no
+// room at all; what does not fit is named rather than silently missing.
+const maxIntentShareDivisor = 2
+
+// renderWorkItemIntent reads every document under the specifications directory
+// into the section a developer and a reviewer read product intent from, within
+// the budget it is given. Documents are read from the working tree, or, where a
+// revision is set, as that commit holds them; the listing is always the working
+// tree's, because a revision can only be asked about one path at a time, and a
+// document the commit does not hold is left out as the deliverable-to-be it is.
+//
+// Nothing here fails the bundle for a document: one that cannot be read or does
+// not fit is named as not carried, because a run refused over a document in a
+// directory the item never named is a run nobody can unwedge by editing the item.
+// A directory that is refused outright — one resolving outside the repository —
+// does fail, exactly as it fails the conversations' reading of it.
+func renderWorkItemIntent(repositoryRoot string, source referenceSource, directory string, budget int) (string, []Reference, error) {
+	if strings.TrimSpace(directory) == "" {
+		return "", nil, nil
+	}
+	clean, err := validateSpecificationsDirectory("specifications", directory)
+	if err != nil {
+		return "", nil, err
+	}
+	root, err := repowrite.NewRoot(repositoryRoot)
+	if err != nil {
+		return "", nil, err
+	}
+	paths, err := discoverSpecifications("specifications", root, clean)
+	if err != nil {
+		return "", nil, err
+	}
+
+	header := renderWorkItemIntentHeader(clean, source.revision)
+	if len(paths) == 0 {
+		section := header + fmt.Sprintf("Nothing is filed under %s, so this product records no intent in writing. Say so\nrather than inferring what it must be.\n", clean)
+		return section, nil, nil
+	}
+	var rendered strings.Builder
+	var references []Reference
+	var omitted []string
+	// What the statement of omission can cost is charged before any document, so
+	// the document that fills the budget is never the one whose absence there was
+	// no room left to state.
+	spent := len(header) + longestIntentOmission(paths)
+	for _, documentPath := range paths {
+		reference, err := readIntentDocument(root, source, documentPath, budget-spent)
+		if err != nil {
+			if errors.Is(err, ErrNotAtRevision) {
+				continue
+			}
+			omitted = append(omitted, documentPath)
+			continue
+		}
+		section := renderIntentDocument(reference)
+		if spent+len(section) > budget {
+			omitted = append(omitted, documentPath)
+			continue
+		}
+		rendered.WriteString(section)
+		spent += len(section)
+		references = append(references, reference)
+	}
+	section := header + rendered.String() + renderIntentOmission(omitted)
+	if len(section) > budget {
+		// Not even the statement of what was left out fits, which only a budget
+		// smaller than any real one produces. The one sentence below is still said,
+		// because a context silent about intent reads as a product that has none.
+		return intentFallback(clean), nil, nil
+	}
+	return section, references, nil
+}
+
+// intentFallback is the one sentence said about the specification home when
+// nothing else about it fits. Assemble reserves it before the item's notes are
+// cut to size, so even an item whose notes filled the budget leaves room to say
+// where the product's intent is.
+func intentFallback(directory string) string {
+	if strings.TrimSpace(directory) == "" {
+		return ""
+	}
+	return fmt.Sprintf("\n# Authoritative product intent\n\nThe documents under %s did not fit in this context; read them in the repository.\n",
+		strings.TrimSpace(directory))
+}
+
+// readIntentDocument reads one document of the home, from the working tree
+// through the same confinement the conversations read it through, or at the
+// revision the source names.
+func readIntentDocument(root repowrite.Root, source referenceSource, documentPath string, remaining int) (Reference, error) {
+	if remaining < 1 {
+		return Reference{}, tooLargeError{path: documentPath, remainingBytes: remaining}
+	}
+	if source.revision == nil {
+		return readProductReference(root, documentPath, remaining)
+	}
+	size, content, err := source.revision.Read(documentPath, int64(remaining))
+	if err != nil {
+		return Reference{}, err
+	}
+	if size > int64(remaining) || len(content) > remaining || (content == nil && size > 0) {
+		return Reference{}, tooLargeError{path: documentPath, remainingBytes: remaining}
+	}
+	return Reference{Path: documentPath, Content: string(content)}, nil
+}
+
+func renderWorkItemIntentHeader(directory string, revision *Revision) string {
+	at := ""
+	if revision != nil {
+		at = fmt.Sprintf(" Each is read as it stands at %s.", revision.Name)
+	}
+	return fmt.Sprintf(`
+# Authoritative product intent
+
+Every document under %s is authoritative product intent: what the product is,
+who it is for, the goals work serves, and what it will not do. This work item
+serves one of those goals, and nothing in it or in the files it names revises
+what these documents say. Where the item and one of them disagree, or two of
+them disagree with each other, say so naming both rather than choosing between
+them. A directory index here is the index it is, and its ownership statements
+are rules.%s
+`, directory, at)
+}
+
+// renderIntentOmission names the documents of the home that are not carried.
+func renderIntentOmission(omitted []string) string {
+	if len(omitted) == 0 {
+		return ""
+	}
+	return "\nThese documents under the specifications directory could not be carried here: " +
+		strings.Join(omitted, ", ") + ". They are in the repository; treat them as unread rather than as absent.\n"
+}
+
+// longestIntentOmission is what the omission statement costs at its longest,
+// which is every document named.
+func longestIntentOmission(paths []string) int {
+	return len(renderIntentOmission(paths))
+}

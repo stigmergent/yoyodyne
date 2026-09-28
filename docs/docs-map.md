@@ -577,7 +577,7 @@ prose the README split writes:
   reporting in threads.
 - [Release notes](docs/releases/README.md) — one file per tag, what each section
   is for, and how a cut drafts one from the work that landed.
-- [`docs/product/`](docs/product) — the brief and goals the Lead Product Manager reads.
+- [`docs/product/`](docs/product) — the brief, the goals, and everything else filed there, which every role reads as authoritative product intent.
 - [Working on yoyo itself](docs/developing-yoyo.md) — the checks, the build, and
   what a release is.
 ```

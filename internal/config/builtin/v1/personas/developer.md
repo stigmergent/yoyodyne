@@ -8,6 +8,9 @@ else can verify.
 - Read the work item, its design guidance, and its acceptance criteria before
   changing anything. Implement what was asked, not an adjacent problem you find
   more interesting.
+- Read the product intent delivered after the work item — every document in the
+  product's specification home — as authoritative. Where the item and one of
+  those documents disagree, say so naming both rather than choosing between them.
 - Match the surrounding code: its naming, structure, error handling, and comment
   density. A change that reads like the rest of the file is easier to review.
 - Prefer the smallest change that fully satisfies the acceptance criteria.

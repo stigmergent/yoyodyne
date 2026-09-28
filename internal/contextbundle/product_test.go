@@ -60,7 +60,7 @@ func TestAssembleProductReadsSpecificationsAndTrackerState(t *testing.T) {
 		t.Fatalf("specifications = %v, want %v", got, want)
 	}
 	for _, required := range []string{
-		"## Specification: docs/product/runs.md",
+		"## Authoritative product intent: docs/product/runs.md",
 		"a change nobody can\nreview is not a change anybody can trust",
 		"Routine work needs no per-change gate.",
 		"- yoyodyne-ifd.20 [in_progress, p1, task] Work from a configurable specifications directory",
@@ -230,7 +230,7 @@ func TestADirectoryIndexIsNotHeldToTheSpecificationShape(t *testing.T) {
 	if !strings.Contains(bundle.Text, "## Directory index: docs/product/goals/README.md") {
 		t.Fatalf("the index was dropped rather than carried under its own heading:\n%s", bundle.Text)
 	}
-	if strings.Contains(bundle.Text, "## Specification: docs/product/README.md") {
+	if strings.Contains(bundle.Text, "## Authoritative product intent: docs/product/README.md") {
 		t.Fatalf("an index was carried as a specification:\n%s", bundle.Text)
 	}
 	if bundle.SpecificationsIncluded != 1 || len(bundle.References) != 3 {
@@ -286,7 +286,7 @@ func TestANonGoalsDocumentIsHeldToTheNonGoalsShape(t *testing.T) {
 	}
 	// Still carried as a specification, and still not counted as the goals: the
 	// shape it is held to changes nothing about what it is read as.
-	if !strings.Contains(bundle.Text, "## Specification: docs/product/goals/v1-non-goals.md") {
+	if !strings.Contains(bundle.Text, "## Authoritative product intent: docs/product/goals/v1-non-goals.md") {
 		t.Fatalf("the non-goals document was not carried as a specification:\n%s", bundle.Text)
 	}
 }
@@ -329,7 +329,7 @@ func TestADirectoryHoldingOnlyIndexesRecordsNoProductIntent(t *testing.T) {
 	if len(bundle.References) != 2 {
 		t.Fatalf("references = %d, want both indexes carried", len(bundle.References))
 	}
-	if strings.Contains(bundle.Text, "## Specification: ") {
+	if strings.Contains(bundle.Text, "## Authoritative product intent: ") {
 		t.Fatalf("an index was carried as a specification alongside a report that none was found:\n%s", bundle.Text)
 	}
 	if len(bundle.SpecificationProblems) != 0 {
@@ -817,7 +817,7 @@ func TestAssembleProductDescribesWhatIsShipped(t *testing.T) {
 	}
 	// Intent is stated before what was built from it, so the section that decides
 	// nothing cannot be read first and become the frame for the one that does.
-	if strings.Index(bundle.Text, "## Specification: docs/product/brief.md") > strings.Index(bundle.Text, "## What the product ships today") {
+	if strings.Index(bundle.Text, "## Authoritative product intent: docs/product/brief.md") > strings.Index(bundle.Text, "## What the product ships today") {
 		t.Fatalf("the shipped surface is rendered before the specifications:\n%s", bundle.Text)
 	}
 }
@@ -1304,7 +1304,7 @@ func TestAssembleProductNamesWhatItCouldNotInclude(t *testing.T) {
 	// The budget has to clear what is reserved before any specification is read —
 	// the header, the tracker state, and the recorded-intent allowance — and leave
 	// room for one specification but not the other.
-	bundle, err := AssembleProduct(ProductRequest{RepositoryRoot: root, SpecificationsDirectory: "docs/product", MaxBytes: 5120})
+	bundle, err := AssembleProduct(ProductRequest{RepositoryRoot: root, SpecificationsDirectory: "docs/product", MaxBytes: 5632})
 	if err != nil {
 		t.Fatalf("AssembleProduct() error = %v", err)
 	}
@@ -1408,7 +1408,7 @@ func TestAssembleProductGivesARoleItsOwnDocuments(t *testing.T) {
 		t.Fatalf("AssembleProduct() error = %v", err)
 	}
 	for _, required := range []string{
-		"## Specification: docs/product/runs.md",
+		"## Authoritative product intent: docs/product/runs.md",
 		"## Design: docs/designs/v1-harness-design.md",
 		"Architecture, not intent.",
 		"## Architectural invariant: docs/decisions/invariants/one-promotion.md",
@@ -1837,7 +1837,7 @@ func TestSectionHeadingRecognizesEverySectionTheAssemblyOpens(t *testing.T) {
 	for _, section := range []string{
 		"# Product context",
 		"## Recorded product intent",
-		"## Specification: docs/product/runs.md",
+		"## Authoritative product intent: docs/product/runs.md",
 		"## Design: docs/designs/harness.md",
 		"## What the product ships today",
 		"### Command help",

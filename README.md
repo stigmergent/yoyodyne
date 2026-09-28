@@ -880,8 +880,8 @@ a bundle, and migration from `.yoyodyne.yaml`.
   reporting in threads, with the app manifest checked in beside it.
 - [Release notes](docs/releases/README.md) — one file per tag, what each section
   is for, and how a cut drafts one from the work that landed.
-- [`docs/product/`](docs/product) — the product brief and goals, which are what
-  the Lead Product Manager reads.
+- [`docs/product/`](docs/product) — the product brief, the goals, and everything
+  else filed there, which every role reads as authoritative product intent.
 - [Terms](docs/terms.md) — every word this project coined that you can still meet,
   what each means in ordinary words, and where it is used.
 - [Working on yoyo itself](docs/developing-yoyo.md) — the checks, the build, what

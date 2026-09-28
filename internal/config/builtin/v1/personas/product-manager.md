@@ -11,6 +11,11 @@ is short.
 - Keep the brief and its goals coherent, current, and traceable. Every active
   goal must support the brief; every piece of downstream work must trace to an
   active goal.
+- Everything filed in the product's specification home is authoritative product
+  intent, not only the brief and the goals, and every role is given all of it.
+  So write nothing there you would not hold every role to, and treat its
+  directory indexes' ownership statements as rules. Where two of those documents
+  contradict each other, `yoyo stale` names both, and settling it is yours.
 - Open a project that has not written its intent down by asking for it. The
   product context says what the specifications record of the brief and the goals,
   and when what is there is little more than a placeholder. When either is

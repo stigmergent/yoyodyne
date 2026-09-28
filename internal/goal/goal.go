@@ -365,12 +365,31 @@ type Set struct {
 	// each says something the product intends, and what is wrong is that the name
 	// they share picks out neither of them.
 	IdentityProblems []IdentityProblem `json:"identity_problems,omitempty"`
+	// NonGoals are what the non-goals documents in force state the product will
+	// not do. Nothing is attributed to one; they are read so that a statement one
+	// document makes a goal and another rules out can be reported as the
+	// contradiction it is, naming both.
+	NonGoals []NonGoal `json:"non_goals,omitempty"`
 	// Unavailable is why the goals are not known at all, as opposed to known to
 	// be none. A caller that could not load the artifacts says so here: work
 	// admitted while the goals cannot be read is not work whose goal was
 	// checked, and it must not be reported as though it were.
 	Unavailable string `json:"unavailable,omitempty"`
 }
+
+// NonGoal is one thing a non-goals document in force says the product will not
+// do, and where it says so.
+type NonGoal struct {
+	Identity   string `json:"identity,omitempty"`
+	Statement  string `json:"statement"`
+	ArtifactID string `json:"artifact_id"`
+	Path       string `json:"path"`
+}
+
+// Folded is a statement as two documents are compared on: case, whitespace, and
+// trailing sentence punctuation folded, and nothing else, which is the same
+// folding an attribution by wording is matched with.
+func Folded(statement string) string { return fold(statement) }
 
 // State is what a work item's attribution amounts to. The five are separated
 // because they are five different things to do, and telling them apart is the
@@ -656,6 +675,24 @@ func Collect(repositoryRoot string, artifacts artifact.Set) Set {
 						entry.lines, supportsPrefix),
 				})
 			}
+		}
+	}
+	// The non-goals are read only where they are in force: a superseded bound on
+	// intent bounds nothing, and a goal restating it is not a contradiction. A
+	// document that cannot be read, or states no non-goals, is reported where
+	// specifications are checked for their shape rather than here.
+	for _, recorded := range artifacts.OfKind(artifact.KindNonGoals) {
+		if !recorded.InForce() {
+			continue
+		}
+		content, err := readGoalsDocument(filepath.Join(repositoryRoot, filepath.FromSlash(recorded.Path)))
+		if err != nil {
+			continue
+		}
+		stated, _ := sectionEntries(content, nonGoalsSection)
+		for _, entry := range stated {
+			identity, statement := SplitIdentity(entry.statement)
+			set.NonGoals = append(set.NonGoals, NonGoal{Identity: identity, Statement: statement, ArtifactID: recorded.ID, Path: recorded.Path})
 		}
 	}
 	set.LinkProblems = linkProblems(set.Goals, set.BriefGoals, brief, briefInForce, briefUnreadable)
@@ -1154,6 +1191,39 @@ type entry struct {
 // returns is what work may be attributed to, so a sentence read out of the
 // wrong section becomes a goal somebody can admit work under.
 func statements(content string) ([]entry, string) {
+	stated, level := sectionEntries(content, goalsSection)
+	switch {
+	case level == 0:
+		return nil, "it states no goals under a `Goals` heading — that is a heading whose whole text is `Goals`, so a title merely opening with the word is not one — and nothing in it is a goal work can be attributed to"
+	case len(stated) == 0:
+		return nil, "its `Goals` section states no goals as list entries, so nothing in it is a goal work can be attributed to"
+	default:
+		return stated, ""
+	}
+}
+
+// entrySection is which heading a list of entries is read from, and which
+// heading ends that list wherever it is written. The goals and the non-goals are
+// written in one shape — top-level list entries under one heading — so they are
+// read by one pass given two of these.
+type entrySection struct {
+	opens *regexp.Regexp
+	// ends, where set, closes the section at whatever level it is written at.
+	ends *regexp.Regexp
+}
+
+var (
+	goalsSection    = entrySection{opens: goalsHeadingPattern, ends: negatedGoalsHeadingPattern}
+	nonGoalsSection = entrySection{opens: nonGoalsHeadingPattern}
+)
+
+// nonGoalsHeadingPattern matches the heading a non-goals document states what the
+// product will not do under, by its whole text as the goals heading is matched.
+var nonGoalsHeadingPattern = regexp.MustCompile(`(?i)^non-?\s*goals?$`)
+
+// sectionEntries reads the entries one section of a document states, and the
+// level of the heading that opened it, zero where no such heading was found.
+func sectionEntries(content string, section entrySection) ([]entry, int) {
 	body, dropped := withoutFrontmatter(content)
 	lines := strings.Split(body, "\n")
 	level := 0
@@ -1180,7 +1250,7 @@ func statements(content string) ([]entry, string) {
 			open, trailing = false, false
 			text := strings.TrimSpace(heading[2])
 			switch {
-			case negatedGoalsHeadingPattern.MatchString(text):
+			case section.ends != nil && section.ends.MatchString(text):
 				// What the product will not do ends the goals wherever it is
 				// written, level or no level. This is the one heading a level test
 				// alone cannot be trusted with: filed under the goals rather than
@@ -1191,7 +1261,7 @@ func statements(content string) ([]entry, string) {
 				// The section ended. A heading below it divides the goals rather
 				// than ending them, exactly as it does in the structure contract.
 				inGoals = false
-			case !inGoals && goalsHeadingPattern.MatchString(text):
+			case !inGoals && section.opens.MatchString(text):
 				inGoals, level = true, len(heading[1])
 			}
 			continue
@@ -1250,14 +1320,7 @@ func statements(content string) ([]entry, string) {
 		stated[len(stated)-1].statement += " " + line
 		stated[len(stated)-1].lines++
 	}
-	switch {
-	case level == 0:
-		return nil, "it states no goals under a `Goals` heading — that is a heading whose whole text is `Goals`, so a title merely opening with the word is not one — and nothing in it is a goal work can be attributed to"
-	case len(stated) == 0:
-		return nil, "its `Goals` section states no goals as list entries, so nothing in it is a goal work can be attributed to"
-	default:
-		return stated, ""
-	}
+	return stated, level
 }
 
 // indented reports a line written under the entry above it rather than beside

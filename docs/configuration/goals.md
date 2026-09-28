@@ -422,6 +422,14 @@ yoyo stale --json   # machine-readable
 | --- | --- |
 | a document | An artifact something upstream of it — through `supports`, as far as the chain runs — changed after the artifact itself was last revised. |
 | open work | An admitted item whose goals document, or anything upstream of it, changed after the item was admitted. |
+| a contradiction | Two active documents of the product's intent that say opposite things, both named: two active briefs; one statement one document states as a goal and another rules out as a non-goal, matched by the goal's identity where both carry one and otherwise by the words; or one goal identity two documents give to different goals. |
+
+A contradiction is reported only where the documents' own structure makes it
+readable — whether two paragraphs mean opposite things is a reading for a person
+or the owning role, and a guess at it would be a report nobody could trust. Like
+the rest, it refuses nothing and `yoyo stale` still exits zero: which document is
+right is the owner's decision. `yoyo conformance` carries each one as a note on
+its staleness survey.
 
 A change is an `amended`, `superseded`, or `retired` revision. A `created` one is
 not: a document that did not exist cannot be what anybody was working from. Each

@@ -557,8 +557,11 @@ prevent.
 
 ## Product specifications
 
-The Lead Product Manager builds its picture of product intent from the specifications
-in one configured directory:
+**Every role reads the specifications directory as authoritative product
+intent, and reads all of it.** That is the operator's direction of 2026-09-27 —
+"everything in docs/product is authoritative" — and it is what the directory is
+for: one configured place the product's intent is written down in, near the top
+of the configuration, directly under `version`.
 
 ```yaml
 product:
@@ -566,6 +569,28 @@ product:
   repository: .
   specifications: docs/product   # the default; nothing to write down if you use it
 ```
+
+Every document filed there is carried, not a fixed pair: the brief and the goals,
+the non-goals, and anything else the owner files there. The management
+conversations — the Lead Product Manager, the architect, the development manager,
+and a program manager — are briefed with each of them under the heading
+`Authoritative product intent`, and every developer and reviewer is handed them
+the same way after the work item it is given, the reviewer reading each as the
+change's base commit holds it. The work item is what a run is for and is carried
+first; the home is read next and takes at most half of what the run's context
+has room for, so a large home still leaves the item's own references room, and a
+document that does not fit is named rather than silently missing. A document the
+item names that the home already carried is not carried twice. A `README.md`
+there is read as the directory index it is, and what it says about ownership —
+which role owns what is filed there, and that every other role proposes rather
+than edits — is delivered as a rule rather than as description.
+
+Every document there is also [an artifact](#artifact-identity-and-metadata), with
+the identity and the approval the goals have: one that is neither the brief nor
+the goals is governed by `approvals.goals` rather than by `approvals.designs`,
+because it is product intent by where it is filed. And two documents there that
+contradict each other are reported by
+[`yoyo stale`](#what-a-change-upstream-leaves-stale), naming both.
 
 A **specification** is one Markdown file that opens with an introduction saying
 what the thing is and why it exists, and states the goals that serve it after
@@ -968,7 +993,9 @@ the per-change gate autonomy is the absence of. Approving the goals is the one
 approval that then carries weight elsewhere, because it is what work is admitted
 against. `approvals.goals` covers the
 non-goals with the goals, because a bound on intent nobody approved is as much
-unapproved intent as a goal is. A decision record is the architect's account of
+unapproved intent as a goal is, and it covers every other document filed in the
+specifications directory too, whatever its kind, because everything there is
+authoritative product intent. A decision record is the architect's account of
 how something was decided rather than a statement of what the product should do,
 and no setting asks you to approve one.
 
@@ -1770,6 +1797,14 @@ yoyo stale --json   # machine-readable
 | --- | --- |
 | a document | An artifact something upstream of it — through `supports`, as far as the chain runs — changed after the artifact itself was last revised. |
 | open work | An admitted item whose goals document, or anything upstream of it, changed after the item was admitted. |
+| a contradiction | Two active documents of the product's intent that say opposite things, both named: two active briefs; one statement one document states as a goal and another rules out as a non-goal, matched by the goal's identity where both carry one and otherwise by the words; or one goal identity two documents give to different goals. |
+
+A contradiction is reported only where the documents' own structure makes it
+readable — whether two paragraphs mean opposite things is a reading for a person
+or the owning role, and a guess at it would be a report nobody could trust. Like
+the rest, it refuses nothing and `yoyo stale` still exits zero: which document is
+right is the owner's decision. `yoyo conformance` carries each one as a note on
+its staleness survey.
 
 A change is an `amended`, `superseded`, or `retired` revision. A `created` one is
 not: a document that did not exist cannot be what anybody was working from. Each
@@ -5364,7 +5399,7 @@ These are all errors, reported before any work is claimed:
   and is not one, for the same reason — leaving it out is what says your run
   branches go to `execution.remote`;
 - a `product.specifications` that is empty, absolute, or climbs out of the
-  repository, since it decides what the Lead Product Manager reads; and the same of
+  repository, since it decides what every role reads as the product's intent; and the same of
   `product.invariants`, `product.designs`, and `product.decisions`, since they
   decide which documents the harness treats as canonical artifacts and which
   paths a developer's change may not touch. This is the check on the text; the
@@ -6541,8 +6576,17 @@ baseline taken before the template shipped the file says the template supplied
 nothing there, so a project that has no such file is offered it as `available`,
 and one that wrote its own by hand reads as `conflicting` and is not spoken
 about unprompted. A project without a
-baseline hears nothing until `yoyo config baseline` writes it, which touches
-nothing else and starts level. Nothing is adopted for you; `materialize`,
+baseline hears nothing about its values until `yoyo config baseline` writes it,
+which touches nothing else and starts level.
+
+One comment is compared as well, because it can go wrong the way a value can:
+the one above `product.specifications`, which said until 2026-09-27 that only the
+product manager reads that directory. It is compared against the template's own
+record of every wording it has written there rather than against a baseline, so
+`yoyo config drift` names it — as `product.specifications.comment`, with both
+wordings — in a project with no baseline too. A copy still carrying an earlier
+wording is `available`; one somebody rewrote, or deleted, is `yours` and is never
+offered anything. It is not in the unprompted notice. Nothing is adopted for you; `materialize`,
 `extract`, and `adopt` do not exist yet.
 
 ### Converting an inheriting configuration to an explicit one

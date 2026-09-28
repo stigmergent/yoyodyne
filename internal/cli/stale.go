@@ -40,8 +40,11 @@ type staleOutput struct {
 	Documents []staleness.Document `json:"documents,omitempty"`
 	WorkItems []staleness.WorkItem `json:"work_items,omitempty"`
 	Unjudged  []staleness.Unjudged `json:"unjudged,omitempty"`
-	Admitted  int                  `json:"admitted"`
-	Judged    int                  `json:"judged"`
+	// Contradictions are documents of the product's intent in force that say
+	// opposite things, each naming both.
+	Contradictions []staleness.Contradiction `json:"contradictions,omitempty"`
+	Admitted       int                       `json:"admitted"`
+	Judged         int                       `json:"judged"`
 	// WorkUnavailable says why no work item was judged when the tracker could not
 	// be read, so a report carrying only the documents is never read as a queue
 	// nothing has moved under.
@@ -111,6 +114,7 @@ func reportStaleness(ctx context.Context, args []string, stdout, stderr io.Write
 			Documents:       report.Documents,
 			WorkItems:       report.WorkItems,
 			Unjudged:        report.Unjudged,
+			Contradictions:  report.Contradictions,
 			Admitted:        report.Admitted,
 			Judged:          report.Judged,
 			WorkUnavailable: unavailable,
@@ -165,6 +169,17 @@ func printStaleness(stdout io.Writer, report staleness.Report, unavailable strin
 		}
 	}
 
+	if len(report.Contradictions) > 0 {
+		fmt.Fprintln(stdout, "\ncontradictions between documents of the product's intent:")
+		for _, contradiction := range report.Contradictions {
+			fmt.Fprintf(stdout, "  %s: %s\n", contradiction.Kind, strings.Join(contradiction.Documents, " and "))
+			if contradiction.Statement != "" {
+				fmt.Fprintf(stdout, "    about: %s\n", singleLine(contradiction.Statement))
+			}
+			fmt.Fprintf(stdout, "    %s\n", singleLine(contradiction.Reason))
+		}
+	}
+
 	fmt.Fprintf(stdout, "\n%s\n", judged(report, unavailable))
 	for _, unjudged := range report.Unjudged {
 		fmt.Fprintf(stdout, "  %s: %s\n", unjudged.WorkItemID, unjudged.Reason)
@@ -183,21 +198,33 @@ func printStaleness(stdout io.Writer, report staleness.Report, unavailable strin
 func headline(report staleness.Report, unavailable string) string {
 	if strings.TrimSpace(unavailable) != "" {
 		if len(report.Documents) == 0 {
-			return "no document downstream of a recorded change is unanswered."
+			return "no document downstream of a recorded change is unanswered." + contradictionCount(report)
 		}
 		verb := "are"
 		if len(report.Documents) == 1 {
 			verb = "is"
 		}
 		return fmt.Sprintf("%s %s downstream of a change nobody has answered.",
-			plural(len(report.Documents), "document", "documents"), verb)
+			plural(len(report.Documents), "document", "documents"), verb) + contradictionCount(report)
 	}
-	if !report.Anything() {
-		return "nothing downstream of a recorded change is unanswered."
+	if len(report.Documents) == 0 && len(report.WorkItems) == 0 {
+		return "nothing downstream of a recorded change is unanswered." + contradictionCount(report)
 	}
 	return fmt.Sprintf("%s and %s are downstream of a change nobody has answered.",
 		plural(len(report.Documents), "document", "documents"),
-		plural(len(report.WorkItems), "open work item", "open work items"))
+		plural(len(report.WorkItems), "open work item", "open work items")) + contradictionCount(report)
+}
+
+// contradictionCount adds to the headline how many contradictions were found,
+// and nothing where there are none. It is a clause of its own rather than part
+// of the count before it because a contradiction is not downstream of anything:
+// it is two documents of the product's intent saying opposite things now.
+func contradictionCount(report staleness.Report) string {
+	if len(report.Contradictions) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %s between documents of the product's intent, listed below.",
+		plural(len(report.Contradictions), "contradiction", "contradictions"))
 }
 
 // printChanges names what changed upstream of one stale thing, most recent
@@ -295,6 +322,12 @@ An artifact stops being reported when its owner records a revision of it later
 than the change, which is the durable record that somebody looked. A work item
 carries only when it was admitted, so a stale item stays reported until it is
 closed.
+
+Every document in the product's specification home is authoritative, so two of
+them that are active and say opposite things are reported here too, naming both: two
+briefs that are active, one statement one document states as a goal and another rules
+out as a non-goal, and one goal identity two documents give to different goals.
+Which of them is right is the owner's to decide.
 
 Options:
   --config <path>       configuration file (default: the nearest .yoyodyne/config.yaml)

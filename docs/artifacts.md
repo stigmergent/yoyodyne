@@ -18,6 +18,20 @@ files claiming one id refuse both, each naming the other.
 ./bin/yoyo artifact show v1-goals
 ```
 
+**The specifications directory is authoritative whole.** Everything filed under
+`product.specifications` — `docs/product` by default — is authoritative product
+intent, not only the brief and the goals: the non-goals, and any other document
+the Lead Product Manager files there, count exactly as much. Every role reads all
+of it, labelled as such. The management conversations are briefed with every
+document there, and every developer and reviewer is handed every document there
+after the work item it is given. A `README.md` there is read as the directory
+index it is, and what it says about who owns the documents filed there is
+delivered as a rule. Each document there is an artifact with the identity and the
+approval the goals have, and two of them that contradict each other are
+[reported by `yoyo stale`](#what-a-change-upstream-leaves-stale), naming both. The
+[configuration guide](configuration.md#product-specifications) has what is carried
+where and what happens to a document that does not fit.
+
 Your approval of one of these documents lives in the same frontmatter, and it is
 recorded against the revision it was given for:
 
@@ -58,7 +72,9 @@ What is
 asked of you is your configuration's to say: `approvals.brief` and
 `approvals.goals` are `human`, `approvals.designs` is `automatic`, and a decision
 record is an account of how something was decided rather than a statement of
-intent, so nothing asks you to approve one.
+intent, so nothing asks you to approve one. A document filed in the
+specifications directory that is neither the brief nor the goals is asked for as
+the goals are, under `approvals.goals`, whatever its kind.
 
 **Recording an approval gates one thing: what reaches the work queue.** An
 unapproved document still loads, still governs what is downstream of it, and
@@ -343,6 +359,15 @@ item is reported when the goals document stating the goal it serves, or anything
 upstream of that, changed after the item was admitted. Each one names what
 changed, when, under whose authority, and the reason that change recorded, which
 is what tells a rewording apart from a reversal of intent.
+
+Two documents of the product's intent that contradict each other are reported
+too, naming both, because every role is handed both as authoritative and would
+otherwise settle it by whichever it read last. What is reported is what the
+documents' own structure makes readable: two active briefs, one statement one
+document states as a goal and another rules out as a non-goal, and one goal
+identity two documents give to different goals. Whether two paragraphs of prose
+mean opposite things is a reading for you or the owning role, and is not guessed
+at.
 
 Nothing is stored to make this true and nothing has to be marked. The documents'
 own revision logs and the tracker's record of when each item was admitted

@@ -437,8 +437,14 @@ func (a *Assessment) surveyStaleness() error {
 	for _, unjudged := range report.Unjudged {
 		notes = append(notes, fmt.Sprintf("%s could not be judged for staleness: %s", unjudged.WorkItemID, unjudged.Reason))
 	}
+	for _, contradiction := range report.Contradictions {
+		notes = append(notes, "contradiction: "+contradiction.Reason)
+	}
 	summary := fmt.Sprintf("%d of %d admitted item(s) judged; %d document(s) and %d item(s) are downstream of a change nobody has answered",
 		report.Judged, report.Admitted, len(report.Documents), len(report.WorkItems))
+	if len(report.Contradictions) > 0 {
+		summary += fmt.Sprintf("; %d contradiction(s) between documents of the product's intent", len(report.Contradictions))
+	}
 	if !report.Anything() {
 		summary = fmt.Sprintf("%d of %d admitted item(s) judged; nothing is downstream of a change nobody has answered",
 			report.Judged, report.Admitted)
