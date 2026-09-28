@@ -15,6 +15,17 @@ developer for the change:
 On success, the JSON result reports the run ID, branch, worktree, base commit,
 change summary, checks, and agent summary.
 
+Runs cut and remove worktrees in one repository beside each other, and Git
+refuses a creation that crosses another worktree's creation or removal rather
+than waiting for it — the entry it was reading gone from under it, or the
+directory it was about to make its own entry in deleted with the last one. A
+crossing is retried rather than failing the run, in every form Git reports it,
+up to three attempts; where a watch session started the run, each retry is
+named on the watch log with the item, the Git command, and Git's own words.
+[A registration a run never finished
+writing](operations.md#a-registration-a-run-never-finished-writing) lists the
+forms.
+
 The new worktree is given your checkout's own `.beads/issues.jsonl` rather than
 the copy its base commit carried. That export is derived from a store Git is not
 authoritative for and it is committed on a cadence of its own — a release cut,

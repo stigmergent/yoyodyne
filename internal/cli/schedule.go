@@ -634,6 +634,9 @@ func (w watchSessionLog) Record(transition orchestrator.SessionState) error {
 		// A dispatch holding a slot while it waits out the tracker before it has
 		// claimed anything, which no run record exists yet to say.
 		DispatchWait: transition.DispatchWait,
+		// A Git command a dispatch ran again over another worktree's creation or
+		// removal, which the re-run otherwise absorbs without a trace.
+		WorktreeCrossing: transition.WorktreeCrossing,
 	})
 }
 
