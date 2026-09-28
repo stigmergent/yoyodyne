@@ -967,6 +967,12 @@ type Reply struct {
 	// version it became, or why it was refused and the report before it stands.
 	// A reply that carried none has none.
 	LaneReport *LaneReportOutcome `json:"lane_report,omitempty"`
+	// Saved is every memory and lane-report write this message made that its
+	// store recorded, in the order they were made, across every round. Each is
+	// durable the moment it is made, so it is carried on a reply that ends in an
+	// error as much as on one that answered: a pass that fails after saving them
+	// still saved them, and its record and the pass run after it are told so.
+	Saved []runstate.SavedWrite `json:"saved,omitempty"`
 	// Restart is the request this reply made of the supervisor, as recorded or
 	// refused. It is recorded and nothing more, so it is reported rather than put
 	// to anybody.
@@ -1516,6 +1522,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if len(parsed.Memories) > 0 {
 			outcomes, err := s.performMemoryWrites(ctx, parsed.Memories)
 			reply.Memories = append(reply.Memories, outcomes...)
+			reply.Saved = append(reply.Saved, savedMemories(outcomes)...)
 			if err != nil {
 				return reply, err
 			}
@@ -1532,6 +1539,9 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if parsed.LaneReportCarried {
 			outcome, err := s.writeLaneReport(ctx, parsed.LaneReport, parsed.LaneReportProblem)
 			reply.LaneReport = &outcome
+			if outcome.Recorded {
+				reply.Saved = append(reply.Saved, runstate.SavedWrite{Kind: runstate.SavedLaneReport, Revision: outcome.Version})
+			}
 			if err != nil {
 				return reply, err
 			}

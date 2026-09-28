@@ -216,6 +216,46 @@ func TestASweepMustSayWhatBecameOfIt(t *testing.T) {
 	}
 }
 
+// A failed pass's saved writes are kept on its record and read back as they
+// were, and a write the record could not name is refused rather than kept.
+func TestAFailedPassRecordsTheWritesItSaved(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
+	failed := Sweep{Task: "a-sweep", Role: "program-manager", StartedAt: at, EndedAt: at, Turns: 1, Failed: true,
+		Problem: "turn 2 failed",
+		Saved: []SavedWrite{
+			{Kind: SavedMemory, Action: "remember", Memory: "line-stalls", Revision: 3},
+			{Kind: SavedLaneReport, Revision: 2},
+		}}
+	store := newSweepStore(t)
+	if err := store.Append(failed); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	recorded, _, err := store.List()
+	if err != nil || len(recorded) != 1 || !recorded[0].Failed || len(recorded[0].Saved) != 2 || recorded[0].Saved[1] != failed.Saved[1] {
+		t.Fatalf("List() = %+v, %v; want the failed pass and its two saved writes", recorded, err)
+	}
+	if !recorded[0].Unfinished() {
+		t.Error("a pass whose turn failed does not read as unfinished")
+	}
+	if got := recorded[0].Saved[0].Describe(); got != `memory "line-stalls" (remember, revision 3)` {
+		t.Errorf("Describe() = %q", got)
+	}
+	for name, write := range map[string]SavedWrite{
+		"no kind":             {Revision: 1},
+		"no revision":         {Kind: SavedLaneReport},
+		"an unnamed memory":   {Kind: SavedMemory, Action: "remember", Revision: 1},
+		"a named lane report": {Kind: SavedLaneReport, Memory: "line-stalls", Revision: 1},
+	} {
+		bad := failed
+		bad.Saved = []SavedWrite{write}
+		if err := newSweepStore(t).Append(bad); err == nil {
+			t.Errorf("%s: a pass naming a write the record cannot name was recorded", name)
+		}
+	}
+}
+
 // The record has to hold what a whole firing can actually produce. A firing folds
 // at most sweep.MaxMergedTurns turns together and each turn's block is capped at
 // sweep.MaxBlockBytes, and each byte of what a block decodes to can take up to

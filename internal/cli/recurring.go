@@ -266,6 +266,10 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		// The criticals the conversation carried in of its own accord, so a pass
 		// that ends complete over one of them is refused as complete.
 		CriticalReports: session.CriticalReportsShown(),
+		// What the turn saved into the role's memory and lane report, which a
+		// turn that failed afterwards still saved: the pass's record says which
+		// writes stood, and the pass run again is told not to make them twice.
+		Saved: reply.Saved,
 	}
 	if err != nil {
 		return turn, notWoken(err)

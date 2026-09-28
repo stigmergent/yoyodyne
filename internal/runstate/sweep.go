@@ -93,6 +93,74 @@ const MaxSweepModelBytes = 1 << 10
 // the criticals past it are delivered on the next pull.
 const MaxSweepCriticals = 10
 
+// MaxSweepSavedWrites bounds how many saved writes one pass records. A reply
+// asks for at most four memories and one lane report, and a pass takes a few
+// turns of a few rounds each, so this is well above what one pass makes; it is
+// exported so the writer holds the list to it rather than lose the pass's
+// report over its length.
+const MaxSweepSavedWrites = 64
+
+// SavedWriteKind is which store a pass's saved write went into.
+type SavedWriteKind string
+
+const (
+	// SavedMemory is a write into the agent's own memory.
+	SavedMemory SavedWriteKind = "memory"
+	// SavedLaneReport is a new version of a program manager's lane report.
+	SavedLaneReport SavedWriteKind = "lane-report"
+)
+
+// SavedWrite is one memory or lane-report write a pass's turns made that its
+// store recorded. Each is durable in its own store the moment it is made, so a
+// pass that fails afterwards does not undo it; the record names it so the pass
+// says which writes stood, and so the pass run again over the same events is
+// told they are already saved rather than writing them twice. It names the
+// write and its number, never its text, which is in the store.
+type SavedWrite struct {
+	Kind SavedWriteKind `json:"kind"`
+	// Action is the memory operation — remember, compact, or retire — and empty
+	// for a lane report.
+	Action string `json:"action,omitempty"`
+	// Memory is the memory's name, and empty for a lane report.
+	Memory string `json:"memory,omitempty"`
+	// Revision is the number the store gave the write: the memory's revision,
+	// or the lane report's version.
+	Revision int `json:"revision"`
+}
+
+// Describe says what the write was, in the words a pass's record and the
+// message waking the next pass use.
+func (w SavedWrite) Describe() string {
+	if w.Kind == SavedLaneReport {
+		return fmt.Sprintf("lane report version %d", w.Revision)
+	}
+	return fmt.Sprintf("memory %q (%s, revision %d)", w.Memory, w.Action, w.Revision)
+}
+
+// Validate reports what makes the write one the record cannot name.
+func (w SavedWrite) Validate() error {
+	var problems []error
+	switch w.Kind {
+	case SavedMemory:
+		if strings.TrimSpace(w.Memory) == "" || len(w.Memory) > MaxSweepModelBytes {
+			problems = append(problems, errors.New("a saved memory names the memory"))
+		}
+		if strings.TrimSpace(w.Action) == "" || len(w.Action) > MaxSweepModelBytes {
+			problems = append(problems, errors.New("a saved memory names its action"))
+		}
+	case SavedLaneReport:
+		if w.Memory != "" || w.Action != "" {
+			problems = append(problems, errors.New("a saved lane report names no memory and no action"))
+		}
+	default:
+		problems = append(problems, fmt.Errorf("kind %q is not %q or %q", w.Kind, SavedMemory, SavedLaneReport))
+	}
+	if w.Revision < 1 {
+		problems = append(problems, fmt.Errorf("revision is %d, and a saved write is numbered from 1", w.Revision))
+	}
+	return errors.Join(problems...)
+}
+
 // SweepClaim is the durable record of one recurring task's cadence: when it last
 // fired, and what stopped that firing where something did.
 //
@@ -268,6 +336,25 @@ type Sweep struct {
 	// failed on its own terms, and on the misses recorded before it existed,
 	// which are read by their shape instead.
 	Missed *MissedPass `json:"missed,omitempty"`
+	// Failed marks a pass a turn of which failed after the firing began: it did
+	// not complete, so a program manager instance's cursor was not moved and the
+	// next pass carries the same events. It is absent on a pass whose turns were
+	// all answered, and on every record written before it existed.
+	Failed bool `json:"failed,omitempty"`
+	// Saved is every memory and lane-report write the pass's turns made that
+	// its store recorded, in the order they were made — on a pass that failed as
+	// much as on one that completed, because a write is kept whatever happens to
+	// the pass after it. The next pass after one that did not complete is told
+	// these, so it does not write them again.
+	Saved []SavedWrite `json:"saved,omitempty"`
+}
+
+// Unfinished reports a record of this task's that did not end the pass owed:
+// one whose turn failed, or a firing that took no turn at all — refused before
+// it, waited out on the provider, missed, or cancelled. The next pass is still
+// owed what this one was, so what it saved is what that pass is told of.
+func (s Sweep) Unfinished() bool {
+	return s.Failed || s.Turns == 0
 }
 
 // PassTrigger is what fires a pass: the cadence, the events a program manager
@@ -571,6 +658,14 @@ func (s Sweep) Validate() error {
 	for i, noticed := range s.PullRequests {
 		if err := noticed.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("pull_requests[%d]: %w", i, err))
+		}
+	}
+	if len(s.Saved) > MaxSweepSavedWrites {
+		problems = append(problems, fmt.Errorf("%d saved writes in one pass, limit is %d", len(s.Saved), MaxSweepSavedWrites))
+	}
+	for i, saved := range s.Saved {
+		if err := saved.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("saved[%d]: %w", i, err))
 		}
 	}
 	if err := errors.Join(problems...); err != nil {
