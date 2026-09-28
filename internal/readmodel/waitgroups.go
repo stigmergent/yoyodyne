@@ -112,12 +112,13 @@ func agree(number int, phrase string) string {
 var waitGroupRank = map[backlog.HoldKind]int{
 	backlog.HeldForAPerson:     0,
 	backlog.HeldByDirective:    1,
-	backlog.HeldByStall:        2,
-	backlog.HeldWaitingOn:      3,
-	backlog.HeldByConversation: 4,
-	backlog.HeldParked:         5,
-	backlog.HeldCovered:        6,
-	backlog.HeldUnread:         7,
+	backlog.HeldForAGate:       2,
+	backlog.HeldByStall:        3,
+	backlog.HeldWaitingOn:      4,
+	backlog.HeldByConversation: 5,
+	backlog.HeldParked:         6,
+	backlog.HeldCovered:        7,
+	backlog.HeldUnread:         8,
 }
 
 // waitGroups gathers not-startable items into their groups as the reading
@@ -164,6 +165,10 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 		return WaitGroup{Kind: kind, Mover: MoverOperator,
 			WaitsOn: "wait on an unresolved directive",
 			Next:    "`yoyo directive resolve` settles it, and the work it pauses is pulled"}
+	case backlog.HeldForAGate:
+		return WaitGroup{Kind: kind, Mover: MoverOperator,
+			WaitsOn: "wait on a step only a person can take",
+			Next:    "the operator records each act with `yoyo gate record <name> --for <item>`, and closing an item never passes one; a declaration nothing could read waits on its author correcting it"}
 	case backlog.HeldByStall:
 		return WaitGroup{Kind: kind, Mover: stallMover(w.stall, w.held),
 			WaitsOn: "are ready and nothing is choosing work: " + w.stall.Says,

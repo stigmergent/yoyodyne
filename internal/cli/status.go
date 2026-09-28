@@ -575,6 +575,10 @@ func standingSources(configPath string) readmodel.Sources {
 		// there, so this surface holds the same items the scheduler holds and for
 		// the same reason rather than reading the run's flags where it looks.
 		sources.Remains = standingRemains(resolved)
+		// The same store answers both, and it is set twice rather than once
+		// because the two are different questions about different records: what
+		// the runs are doing, and what a person has recorded doing.
+		sources.Gates = store
 	}
 	if store, err := runstate.NewConversationStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Conversations = store

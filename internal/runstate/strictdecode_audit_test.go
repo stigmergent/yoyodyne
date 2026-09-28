@@ -91,6 +91,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/divergedtarget.go:(*DivergedTargetStore).Standing": {strictWriter, "a divergence nobody can read is never pulled through as though absent, and the same read precedes every write of the record"},
 	"internal/runstate/conversation.go:(*ConversationStore).readHolder":   {strictValidator, "who is mid-turn with an agent is refused rather than guessed at from part of a record"},
 	"internal/runstate/presence.go:readRunHolder":                         {strictValidator, "whether a process is behind a run is refused rather than guessed at from part of a stamp; the reading then reports the run as found"},
+	"internal/runstate/humanact.go:readHumanAct":                          {strictValidator, "a gate is passed only by an act the harness can read whole; one it cannot is refused where the gate is asked, so the gate holds and the refusal is named rather than read past"},
 	"internal/runstate/stop.go:(*Store).StopRequested":                    {strictValidator, "a run acts on a stop request, and one it cannot read fails its step rather than being ignored"},
 	"internal/runstate/release.go:(*Store).ReleasedWait":                  {strictValidator, "a run acts on the operator's release of a wait, and one it cannot read fails its step rather than being ignored"},
 	"internal/runstate/passcursor.go:(*PassCursorStore).Load":             {strictWriter, "an instance's cursor is read to be advanced and written back, and a cursor nobody can read must stop its passes rather than hand them nothing or everything"},

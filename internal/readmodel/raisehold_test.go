@@ -103,7 +103,7 @@ func TestAReleasedRaiseIsPullableFromTheRecordsProductionKeeps(t *testing.T) {
 		if status == "open" {
 			ready = []string{item}
 		}
-		return backlog.Order(items, ready, held).Entries[0]
+		return backlog.Order(items, ready, held, nil).Entries[0]
 	}
 
 	parked := domain.WorkItemParking(runstate.RaiseParking(raise.RunID, "the architect's review is not recorded"))

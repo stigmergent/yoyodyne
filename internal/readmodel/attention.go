@@ -87,6 +87,11 @@ const (
 	// which the development manager has not yet answered by stopping the run or
 	// letting it finish.
 	AttentionProductDecision AttentionKind = "product-decision"
+	// AttentionHumanGate is an admitted work item declaring a step only a
+	// person can take, which nobody has recorded taking — or a declaration of
+	// one that nothing could read. The item is the WorkItemID and the gate's
+	// name is the ID.
+	AttentionHumanGate AttentionKind = "human-gate"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -107,6 +112,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionHeldWork,
 		AttentionOperatorAction,
 		AttentionProductDecision,
+		AttentionHumanGate,
 	}
 }
 
@@ -363,6 +369,9 @@ type Attention struct {
 	// AttentionProductDecision entry; the run it is about is the ID and its item
 	// is WorkItemID.
 	ProductDecision *triage.ProductDecision `json:"product_decision,omitempty"`
+	// HumanGate is the step the item reserves for a person, on an
+	// AttentionHumanGate entry; the item is WorkItemID.
+	HumanGate *HumanGateWait `json:"human_gate,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -421,6 +430,16 @@ type Publication struct {
 	// decide rather than a person's to merge by hand. One the forge has closed
 	// is offered only the re-run.
 	Unarmed bool `json:"unarmed,omitempty"`
+}
+
+// HumanGateWait is one step an admitted item reserves for a person: the gate's
+// name and what the person has to do, as the item's author declared them — or,
+// where nothing could read the declaration, why not. Exactly one of the two
+// shapes is set.
+type HumanGateWait struct {
+	Gate       string `json:"gate,omitempty"`
+	Statement  string `json:"statement,omitempty"`
+	Unreadable string `json:"unreadable,omitempty"`
 }
 
 // HeldWait is which of the two waits held work is in.
@@ -543,6 +562,15 @@ func (a Attention) What() string {
 		if a.OperatorAction != nil {
 			return a.OperatorAction.Says()
 		}
+	case AttentionHumanGate:
+		if a.HumanGate != nil {
+			if a.HumanGate.Unreadable != "" {
+				return fmt.Sprintf("%s declares a step only a person can take that nothing could read: %s",
+					a.WorkItemID, singleLine(a.HumanGate.Unreadable, maxRefusalBytes))
+			}
+			return fmt.Sprintf("%s waits on the gate %q: %s", a.WorkItemID, a.HumanGate.Gate,
+				singleLine(a.HumanGate.Statement, maxRefusalBytes))
+		}
 	case AttentionProductDecision:
 		if a.ProductDecision != nil {
 			return fmt.Sprintf("%s while run %s is in flight, decided by %s: %s",
@@ -626,6 +654,14 @@ func (a Attention) Whose() string {
 	case AttentionOperatorAction:
 		if a.OperatorAction != nil {
 			return a.Mover.Possessive() + " — only a person can act on this; " + a.OperatorAction.Ends
+		}
+	case AttentionHumanGate:
+		if a.HumanGate != nil {
+			if a.HumanGate.Unreadable != "" {
+				return a.Mover.Possessive() + " — no act records this one; the item's author has to correct the declaration on it before anything pulls it"
+			}
+			return fmt.Sprintf("%s — nothing machinery does passes it, closing an item included; `yoyo gate record %s --for %s` is the act",
+				a.Mover.Possessive(), a.HumanGate.Gate, a.WorkItemID)
 		}
 	case AttentionProductDecision:
 		return a.Mover.Possessive() + " — it is on her docket: \"stop\" stops the run with its change preserved and \"proceed\" lets it finish, and the run goes on until she records one"

@@ -7,6 +7,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/humangate"
 )
 
 // The not-startable line counts its work by what it waits on, names the next
@@ -175,5 +176,30 @@ func TestAStalledGroupsMoverAgreesWithItsReason(t *testing.T) {
 				t.Errorf("%s says %q, and its group names %s", reason, whose, mover)
 			}
 		}
+	}
+}
+
+// A step only a person can take is a group of its own, ranked with the other
+// things a person moves and named as the operator's, because recording the act
+// is his and nothing any role or run does passes it. Counting it among the held
+// work would send whoever reads the line to the development manager for it.
+func TestAGatedItemIsTheOperatorsOwnGroup(t *testing.T) {
+	t.Parallel()
+	gated := backlog.Entry{ID: "yoyodyne-ifd.209.7", HumanGates: humangate.Read(humangate.DeclareMarker + " soak-reviewed — the operator has judged the parity soak")}
+	if kind := gated.HoldKind(); kind != backlog.HeldForAGate {
+		t.Fatalf("kind = %q, want %q", kind, backlog.HeldForAGate)
+	}
+	groups := newWaitGroups(Stall{}, switches{})
+	groups.add(backlog.Entry{ID: "item-waiting", WaitingOn: []string{"item-other"}}, backlog.HeldWaitingOn)
+	groups.add(gated, gated.HoldKind())
+	listed := groups.list()
+	if len(listed) != 2 || listed[0].Kind != backlog.HeldForAGate || listed[0].Mover != MoverOperator {
+		t.Fatalf("groups = %+v, want the gated group first and the operator's", listed)
+	}
+	if !strings.Contains(listed[0].Says(), "yoyo gate record") {
+		t.Fatalf("says = %q, want the act that passes it named", listed[0].Says())
+	}
+	if sentence := ForOperator(listed); !strings.Contains(sentence, "1 item here is the operator's") || !strings.Contains(sentence, "a step only a person can take") {
+		t.Fatalf("for the operator = %q", sentence)
 	}
 }

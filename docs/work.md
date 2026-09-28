@@ -1051,12 +1051,12 @@ had in flight; …; 1 developer slot freed since the last poll: run-… over
 yoyodyne-ifd.12, another process's run` — so a slot left empty is visible there
 rather than inferred from the silence.
 
-Eleven things keep an item out of a pass, and the pass accounts for them at two
-different grains. The first eight are named against the item, because nothing
+Twelve things keep an item out of a pass, and the pass accounts for them at two
+different grains. The first nine are named against the item, because nothing
 else would report that this particular item was passed over; the last three are
 facts about the pass rather than about any one item. The
 [configuration guide](configuration.md#scheduling-ready-work) lists the same
-eleven in the same order, and a test fails when the two lists differ:
+twelve in the same order, and a test fails when the two lists differ:
 
 <!-- selection-rules: the same names, in the same order, as docs/configuration.md and docs/configuration/runs.md; internal/doclink/selectionrules_test.go holds them together -->
 1. **An unresolved directive** withholds the item until a person resolves the
@@ -1076,20 +1076,23 @@ eleven in the same order, and a test fails when the two lists differ:
    or whose publication did not finish, until the development manager's
    decision is carried out, the escalation is answered, or `yoyo reconcile`
    settles the publication.
-7. **A prerequisite the tree does not meet** withholds an item that pinpoints
+7. **A step only a person can take** withholds an item that declares a
+   `human-gate:` nobody has recorded taking, and only a person's
+   `yoyo gate record <name> --for <item>` releases it; closing an item never does.
+8. **A prerequisite the tree does not meet** withholds an item that pinpoints
    code the repository no longer has, or says in its own words that something
    must land first; a pinpoint releases it when the code lands, and a sentence
    when the item is amended or the dependency recorded.
-8. **A label another slot prefers** withholds an item every free developer slot
+9. **A label another slot prefers** withholds an item every free developer slot
    walked past for its preferred label, and the next slot with no preference to
    come free — or the preferring slot, once its label's work is exhausted —
    releases it.
-9. **The tracker not calling it ready** withholds an item with unfinished
-   dependencies or a status that is not open, and the tracker's own readiness
-   releases it.
-10. **A run already in flight for it** withholds the item while that run lasts,
+10. **The tracker not calling it ready** withholds an item with unfinished
+    dependencies or a status that is not open, and the tracker's own readiness
+    releases it.
+11. **A run already in flight for it** withholds the item while that run lasts,
     and the run ending releases it.
-11. **No free developer slot** withholds everything once the slots are taken,
+12. **No free developer slot** withholds everything once the slots are taken,
     and any run ending releases one.
 <!-- /selection-rules -->
 
@@ -1147,8 +1150,8 @@ Reporting both as a single class is what made thirty-three already-decided items
 read as a decision backlog for days on 2026-09-07. And an item **the tree is not ready
 for** — one that pinpoints code the repository no longer has, or that says in its
 own words that something has to land first — is passed over with the unmet
-prerequisite named and routed to the development manager's docket, which the last
-of the paragraphs below is about. And an item every free developer slot
+prerequisite named and routed to the development manager's docket, which the paragraphs
+below on the unready tree are about. And an item every free developer slot
 **walked past for its preferred label** — an unlabelled item ranked above the
 labelled one a preferring slot pulled, with no slot preferring nothing free to
 take it — is passed over as **left for another developer slot** rather than as
@@ -1156,7 +1159,9 @@ deferred, naming the slot and what it pulled ahead of the item: it waits on
 nothing about itself, and the next slot with no preference to come free takes
 it in the order, or the preferring slot does once its label's work is exhausted.
 [A developer slot that prefers a label](configuration.md#a-developer-slot-that-prefers-a-label)
-is how a slot comes to prefer one. The other
+is how a slot comes to prefer one. And an item **held by a step only a person
+can take** is passed over with that step named and with what records it, which
+the last of the paragraphs below is about. The other
 three — nothing reporting an item as ready, a run for it already being in
 flight anywhere, and no free slot — are facts about the pass rather than about any
 one item, so that is how they are reported: the stop reason says which of them
@@ -1398,7 +1403,99 @@ docket, the refusal still stands and says so: dispatching an item the tree canno
 serve in order to avoid losing a line of the record would spend a run to save a
 sentence.
 
-A twelfth thing deliberately keeps nothing out: an item whose goal was amended
+**A step only a person can take is a gate, and closing an item never passes
+one.** Some work must not start until somebody has actually done something —
+read a soak, signed a release off, checked a migration against production. The
+tracker cannot say that. It knows one kind of completion, an item being closed,
+and machinery closes items: on 2026-09-04 the parity soak's done condition
+reserved the operator's own reading of that soak, the only encoding available
+was an item somebody closes, a run closed it, and the flip that depended on it
+became pullable with the operator's step untaken.
+
+So the step is declared on the work it holds, by naming it after `human-gate:`
+on a line of its own — in the item's title, description, design guidance, or
+acceptance criteria, the fields somebody authored and not the notes the harness
+appends each run's record to:
+
+```
+human-gate: soak-reviewed — the operator has read a week of soak runs and is content to flip
+```
+
+Nothing is inferred: a gate invented out of prose would stop work nobody meant
+to stop, so the marker is the whole of it. An item carrying an undischarged gate
+keeps its place in the order, is listed as
+waiting on a person wherever the queue is shown, is named on the status's
+needs-a-human line with what the person has to do, and is never selected however
+far the queue drains. It is not a wait: no run passes it, no check passes it, and
+neither does closing anything — not the item that declares it, and not the item
+it depends on.
+
+The gate holds selection — every route by which the harness chooses the work —
+and not every route into a run. The pull above refuses it, and so does a re-run
+the development manager decides: `yoyo triage rerun` is the harness choosing the
+work, which is why the intake hold applies to it, and the same classification
+puts it behind the gate, refused before the stoppage's one re-run is claimed and
+in the same words the queue holds the item with. Naming the item yourself is
+unaffected, exactly as with parking and the executor: `yoyo run <id>` is you
+deciding, and the step a gate reserves is yours to take or to waive. Waiving it
+that way leaves no record. A gate is listed only while its item is admitted, so
+it leaves `yoyo gate list` and the needs-a-human line the moment your run claims
+the item, and a run that lands closes the item with no act recorded and nothing
+saying the step was passed without one. Record the act first if you want the
+record to say so.
+
+A declaration nothing could read — a mistyped name, no separator between the name
+and the sentence, nothing said about the act — holds the work in exactly the same
+way, and the queue and the status both say what is wrong with it. That is
+deliberate and it is the same failure in miniature: you wrote a line meaning to
+reserve your own step, and a reader that quietly dropped what it could not parse
+would turn that into an item with no gate, pulled past a step nobody was ever
+asked to take. Nothing records an act against one of these, because there is no
+name to record against; what clears it is correcting the line on the item.
+`yoyo gate list` names the item and the problem.
+
+What passes it is
+`yoyo gate record <name> --for <item> --by <you> --did "<what you did>"`, and
+that is the only thing that does. The record says who took the step and what
+they say they did, because a gate passed by nobody in particular and described by
+nothing is the flag this replaced; a gate already passed is refused rather than
+overwritten, so the record keeps saying whose act it was. `yoyo gate list` shows
+what is still waiting, on which item, and what has been recorded.
+
+**A name is not spent by being recorded once.** The act is recorded against the
+item that declared the gate, and passes it there and nowhere else. That is what
+makes the useful names usable: `release-signed` is a step taken once per release
+and `soak-reviewed` once per soak, not once ever. Declare either on the next
+piece of work and it holds that work until somebody signs that one off, whatever
+was recorded before — which is why `--for` is required and not a nicety. If the
+name alone decided it, the first act would pass every later declaration of the
+word, the next release would be pullable on the strength of the last one's
+signature, and you could not even record the new act, because the gate would
+already read as passed. That is this mechanism's own failure arriving through
+the namespace rather than through the tracker.
+
+A workflow definition declares one the same way, as `gate:` on a state, and the
+executor performs nothing at that state until the act is on the record — the
+instance stands exactly where it was, and steps on when it is next stepped after
+somebody records it. A gate whose record cannot be read is never treated as open.
+There the act is recorded against the instance rather than a work item, and for
+a sharper version of the same reason: every instance of one definition reaches
+that same state, so an act against the name alone would approve one run's step
+and every run the harness made afterwards.
+That half is less visible than this one, and it holds less than this one does
+today. An instance held at a gated state says so in the refusal raised when
+something tries to step it, and no status surface lists it. And a gate on a state
+holds what the executor performs — nothing more. Under the delivery trial the
+definition observes the run rather than performing it, so a `gate:` written on a
+delivery state in a project's own copy does not hold the run: the pipeline
+delivers as it always has, the observing instance stops being stepped at the
+gated state, and the run records a `workflow_divergence` saying so. That is this
+mechanism's own failure by another encoding, and it stays so until the executor
+is what delivers. Nothing shipped declares a gate on a state today, so there is
+no such instance to miss; a definition that declares the first one wants that
+surface, and the executor performing, with it.
+
+A thirteenth thing deliberately keeps nothing out: an item whose goal was amended
 after it was admitted is pulled exactly as it would have been, because
 [staleness reports rather than decides](artifacts.md#what-a-change-upstream-leaves-stale),
 and what changed goes into the run's recorded reason instead.

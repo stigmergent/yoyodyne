@@ -37,7 +37,7 @@ func TestAChildBuildingOnAParentWhoseRunNeverLandedIsHeldUntilARunPromotesIt(t *
 	}
 
 	held := heldForAPerson([]runstate.State{stopped}, nil, nothingDecided, asRecorded)
-	entry := backlog.Order(items, []string{child}, held).Entries[1]
+	entry := backlog.Order(items, []string{child}, held, nil).Entries[1]
 	if entry.ID != child || entry.Ready || !entry.AwaitingLanding {
 		t.Fatalf("entry = %#v, want %s held for its parent's change", entry, child)
 	}
@@ -54,7 +54,7 @@ func TestAChildBuildingOnAParentWhoseRunNeverLandedIsHeldUntilARunPromotesIt(t *
 	promoted.StartedAt = started.Add(time.Hour)
 	promoted.UpdatedAt = promoted.StartedAt
 	held = heldForAPerson([]runstate.State{stopped, promoted}, nil, nothingDecided, asRecorded)
-	if entry := backlog.Order(items, []string{child}, held).Entries[1]; !entry.Ready {
+	if entry := backlog.Order(items, []string{child}, held, nil).Entries[1]; !entry.Ready {
 		t.Fatalf("the child is still held after its parent's change was promoted: %s", entry.Hold())
 	}
 }

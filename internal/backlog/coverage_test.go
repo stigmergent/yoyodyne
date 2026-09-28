@@ -25,7 +25,7 @@ func TestCoverNamesTheUnfinishedChildrenInTheQueuesOrder(t *testing.T) {
 		ID: "yoyodyne-ifd.121.3", Title: "Write the index", Status: statusBlocked, Priority: 2, Parent: epic.ID,
 	}
 	admitted := []beads.WorkItem{fielded, epic, edged}
-	queue := Order(admitted, []string{epic.ID, edged.ID}, ReadHolds(nil))
+	queue := Order(admitted, []string{epic.ID, edged.ID}, ReadHolds(nil), nil)
 
 	coverage := Cover(queue, admitted, nil)
 	covering := coverage.Covering(epic.ID)
@@ -50,7 +50,7 @@ func TestCoverReadsTheClaimedChildTheQueueCannotSee(t *testing.T) {
 		ID: "yoyodyne-epic.2", Title: "Rewrite it", Status: StatusClaimed, Priority: 1, Parent: epic.ID,
 	}
 	admitted := []beads.WorkItem{epic}
-	queue := Order(admitted, []string{epic.ID}, ReadHolds(nil))
+	queue := Order(admitted, []string{epic.ID}, ReadHolds(nil), nil)
 
 	if named := Cover(queue, admitted, nil).Covering(epic.ID); len(named) != 0 {
 		t.Fatalf("covering from the queue alone = %v, want the claimed child to be invisible to it", named)
@@ -71,7 +71,7 @@ func TestCoverLeavesAContainerWhoseChildrenHaveClosedUncovered(t *testing.T) {
 	epic := beads.WorkItem{ID: "yoyodyne-epic", Title: "Rewrite it", Status: statusOpen, Priority: 0}
 	closed := beads.WorkItem{ID: "yoyodyne-epic.2", Title: "Rewrite it", Status: "closed", Priority: 1, Parent: epic.ID}
 	admitted := []beads.WorkItem{epic, closed}
-	queue := Order(admitted, []string{epic.ID}, ReadHolds(nil))
+	queue := Order(admitted, []string{epic.ID}, ReadHolds(nil), nil)
 
 	if named := Cover(queue, admitted, nil).Covering(epic.ID); len(named) != 0 {
 		t.Fatalf("covering = %v, want a closed child to cover nothing", named)

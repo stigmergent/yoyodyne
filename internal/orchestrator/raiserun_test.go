@@ -124,6 +124,7 @@ func (r *raisedItem) rerunner() Rerunner {
 		Reruns:    r.store.Reruns(),
 		Decisions: r.store.Triage(),
 		Items:     r.tracker,
+		Gates:     r.store,
 		Capacity:  1,
 		Start: func(ctx context.Context, workItemID string, selection runstate.Selection) (Outcome, error) {
 			fresh := r.pipeline

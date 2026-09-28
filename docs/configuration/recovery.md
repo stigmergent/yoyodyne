@@ -636,7 +636,13 @@ blocker rather than waiting for somebody to remember to reopen the item. What
 still refuses is unfinished work the item waits for, and an item that has left
 the backlog. The intake hold applies too, because the harness is the one
 choosing the work; a re-run under a hold starts nothing and claims nothing, so the
-stoppage keeps its re-run for after the hold is lifted. The fresh run records
+stoppage keeps its re-run for after the hold is lifted. A
+[step only a person can take](../work.md#letting-the-harness-choose-the-work) that
+the item declares and nobody has recorded applies for the same reason and in the
+same way: the re-run is refused before the claim, in the words the queue holds
+the item with, and the stoppage keeps its re-run for after the act is recorded —
+the development manager deciding a re-run is not the operator taking the step the
+item reserved for them. The fresh run records
 the development manager as having chosen it, cites the decision it read that from
 — whose, which conversation, which turn — and carries the reasoning recorded with
 it, which is what `selected-work-passes-intake-and-records-why` asks of anything
