@@ -1106,6 +1106,11 @@ type StaleBlockClear struct {
 	Reads int `json:"reads"`
 	// Status is what the last read returned.
 	Status string `json:"status,omitempty"`
+	// ClaimsRefused is how many claims the tracker refused on the status after a
+	// read had returned open, each retried on a later read within the same bound.
+	// On 2026-09-22 and 2026-09-23 two re-runs met exactly that and lost their
+	// pull to it (yoyodyne-ifd.428.12).
+	ClaimsRefused int `json:"claims_refused,omitempty"`
 }
 
 // Describe says which ending the clear had in the words a surface prints, so
@@ -1115,8 +1120,14 @@ func (c StaleBlockClear) Describe() string {
 	case domain.StaleBlockClearConfirmed:
 		return "the tracker read the cleared status back as open on the first read, and the item was claimed"
 	case domain.StaleBlockClearConfirmedLate:
+		if c.ClaimsRefused > 0 {
+			return fmt.Sprintf("the tracker read the cleared status back as open, refused the claim on the status %d time(s), and the item was claimed on read %d", c.ClaimsRefused, c.Reads)
+		}
 		return fmt.Sprintf("the tracker read the cleared status back as open on read %d, and the item was claimed", c.Reads)
 	case domain.StaleBlockClearUnconfirmed:
+		if c.ClaimsRefused > 0 {
+			return fmt.Sprintf("no claim confirmed the clear: the tracker refused the claim on the status %d time(s) after a read returned open, the last of %d read(s) returned status %q, and the item was left for the next pull", c.ClaimsRefused, c.Reads, c.Status)
+		}
 		return fmt.Sprintf("no read confirmed the clear: %d read(s) returned status %q rather than open, and the item was left for the next pull", c.Reads, c.Status)
 	}
 	return fmt.Sprintf("the clear ended in a way the record does not name (%q)", c.Outcome)
@@ -1133,6 +1144,12 @@ func (c StaleBlockClear) Validate() error {
 	}
 	if c.Outcome != domain.StaleBlockClearUnconfirmed && c.Reads < 1 {
 		problems = append(problems, errors.New("a confirmed clear was read back at least once"))
+	}
+	if c.ClaimsRefused < 0 {
+		problems = append(problems, errors.New("claims_refused cannot be negative"))
+	}
+	if c.ClaimsRefused > c.Reads {
+		problems = append(problems, errors.New("claims_refused cannot exceed reads: a claim is made only after a read"))
 	}
 	return errors.Join(problems...)
 }

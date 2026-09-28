@@ -1531,8 +1531,12 @@ func TestNotesEndWithOnlyTheLastThingAppended(t *testing.T) {
 type fakeRunner struct {
 	responses []string
 	results   []execution.ProcessResult
-	args      [][]string
-	commands  []execution.Command
+	// failures answers the calls at these indexes, past the leading results,
+	// with a failure rather than a response: a bd that refuses a command in the
+	// middle of a sequence.
+	failures map[int]execution.ProcessResult
+	args     [][]string
+	commands []execution.Command
 }
 
 func (f *fakeRunner) Run(_ context.Context, command execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
@@ -1541,6 +1545,9 @@ func (f *fakeRunner) Run(_ context.Context, command execution.Command, _ executi
 	index := len(f.args) - 1
 	if index < len(f.results) {
 		return f.results[index], nil
+	}
+	if failure, failed := f.failures[index]; failed {
+		return failure, nil
 	}
 	if index >= len(f.responses) {
 		return execution.ProcessResult{}, fmt.Errorf("unexpected command %v", command.Args)
@@ -1792,6 +1799,129 @@ func TestClientLeavesAnItemWhoseStaleBlockClearNeverLands(t *testing.T) {
 		t.Fatalf("the note does not say what the tracker returned: %q", note[2])
 	}
 	want := &StaleBlockClear{Outcome: domain.StaleBlockClearUnconfirmed, Reads: 3, Status: "blocked"}
+	if !reflect.DeepEqual(cleared, want) {
+		t.Fatalf("Claim() account = %#v, want %#v", cleared, want)
+	}
+}
+
+// A claim bd refuses on the status after a read returned open. On 2026-09-22
+// and 2026-09-23 a recorded re-run cleared the status on yoyodyne-ifd.432.10
+// and on yoyodyne-ifd.117.3, and bd then refused the claim with "issue not
+// claimable: status blocked", so the carry-out lost its pull and a later pull
+// claimed each item. The claim is retried on a later read within the same
+// bound and taken there, and the account says how many claims were refused.
+func TestClientRetriesAClaimRefusedOnTheStatusAfterTheClearReadBackOpen(t *testing.T) {
+	t.Parallel()
+
+	refused := execution.ProcessResult{
+		Status:   execution.ProcessFailed,
+		ExitCode: 1,
+		Stderr:   "Error claiming yoyodyne-1: issue not claimable: status blocked",
+	}
+	runner := &fakeRunner{
+		results: []execution.ProcessResult{refused},
+		// The claim after the first read that returned open is refused on the
+		// status, exactly as the carry-outs met it.
+		failures: map[int]execution.ProcessResult{6: refused},
+		responses: []string{
+			"",
+			blockedItemJSON(nil),
+			`[]`,
+			blockedItemJSON(nil),
+			workItemJSON("open", ""),
+			workItemJSON("open", ""),
+			"",
+			workItemJSON("open", ""),
+			workItemJSON("in_progress", ""),
+		},
+	}
+	var slept []time.Duration
+	readBack := staleBlockClearReadBack{reads: 5, interval: 7 * time.Millisecond, sleep: func(_ context.Context, interval time.Duration) error {
+		slept = append(slept, interval)
+		return nil
+	}}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
+	if err != nil {
+		t.Fatalf("Claim() error = %v, want the claim retried and taken on the same call", err)
+	}
+	if item.Status != "in_progress" {
+		t.Fatalf("Claim() status = %q, want in_progress", item.Status)
+	}
+	if len(runner.args) != 9 {
+		t.Fatalf("bd was called %d time(s): %#v", len(runner.args), runner.args)
+	}
+	show := []string{"show", "yoyodyne-1", "--json"}
+	claim := []string{"update", "yoyodyne-1", "--claim", "--json"}
+	for index, want := range map[int][]string{5: show, 6: claim, 7: show, 8: claim} {
+		if !reflect.DeepEqual(runner.args[index], want) {
+			t.Fatalf("call %d = %#v, want %#v", index, runner.args[index], want)
+		}
+	}
+	// The retry is spaced like any other read in the bound: one wait, between the
+	// refused claim and the read the retried claim is made on.
+	if !reflect.DeepEqual(slept, []time.Duration{7 * time.Millisecond}) {
+		t.Fatalf("waited %v, want the interval once", slept)
+	}
+	want := &StaleBlockClear{Outcome: domain.StaleBlockClearConfirmedLate, Reads: 2, Status: "open", ClaimsRefused: 1}
+	if !reflect.DeepEqual(cleared, want) {
+		t.Fatalf("Claim() account = %#v, want %#v", cleared, want)
+	}
+}
+
+// A claim bd refuses on the status after every read that returned open is not
+// taken, however the reads came back: the item is left for the next pull, the
+// clear is reported as unconfirmed with the refused claims counted, and the
+// note appended to the item says so.
+func TestClientLeavesAnItemWhoseClaimIsRefusedOnTheStatusThroughoutTheBound(t *testing.T) {
+	t.Parallel()
+
+	refused := execution.ProcessResult{
+		Status:   execution.ProcessFailed,
+		ExitCode: 1,
+		Stderr:   "Error claiming yoyodyne-1: issue not claimable: status blocked",
+	}
+	runner := &fakeRunner{
+		results:  []execution.ProcessResult{refused},
+		failures: map[int]execution.ProcessResult{6: refused, 8: refused},
+		responses: []string{
+			"",
+			blockedItemJSON(nil),
+			`[]`,
+			blockedItemJSON(nil),
+			workItemJSON("open", ""),
+			workItemJSON("open", ""),
+			"",
+			workItemJSON("open", ""),
+			"",
+			workItemJSON("open", ""),
+		},
+	}
+	readBack := staleBlockClearReadBack{reads: 2, interval: time.Second, sleep: func(context.Context, time.Duration) error { return nil }}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo", readBack: readBack}
+	item, cleared, err := client.Claim(context.Background(), "yoyodyne-1")
+	if err == nil {
+		t.Fatal("Claim() error = nil, want the claim left for the next pull")
+	}
+	if item.ID != "" {
+		t.Fatalf("Claim() = %#v, want no item", item)
+	}
+	for _, want := range []string{"was never confirmed", "refused the claim on the status 2 time(s)", "left for the next pull"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Claim() error = %v, want it to say %q", err, want)
+		}
+	}
+	if len(runner.args) != 10 {
+		t.Fatalf("bd was called %d time(s): %#v", len(runner.args), runner.args)
+	}
+	note := runner.args[9]
+	if note[0] != "update" || !strings.HasPrefix(note[2], "--append-notes=") || len(note) != 4 {
+		t.Fatalf("the refused claims were not appended to the item's notes: %#v", note)
+	}
+	if !strings.Contains(note[2], "refused the claim on the status 2 time(s)") || !strings.Contains(note[2], "left for the next pull") {
+		t.Fatalf("the note does not say the claims were refused: %q", note[2])
+	}
+	want := &StaleBlockClear{Outcome: domain.StaleBlockClearUnconfirmed, Reads: 2, Status: "open", ClaimsRefused: 2}
 	if !reflect.DeepEqual(cleared, want) {
 		t.Fatalf("Claim() account = %#v, want %#v", cleared, want)
 	}

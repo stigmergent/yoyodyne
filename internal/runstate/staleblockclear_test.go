@@ -40,6 +40,8 @@ func TestAStaleBlockClearIsRecordedAndRefusedOnItsContract(t *testing.T) {
 		{Outcome: "landed", Reads: 1, Status: "open"},
 		{Outcome: domain.StaleBlockClearConfirmed, Reads: 0, Status: "open"},
 		{Outcome: domain.StaleBlockClearConfirmedLate, Reads: -1, Status: "open"},
+		{Outcome: domain.StaleBlockClearConfirmedLate, Reads: 2, Status: "open", ClaimsRefused: -1},
+		{Outcome: domain.StaleBlockClearUnconfirmed, Reads: 2, Status: "open", ClaimsRefused: 3},
 	} {
 		state.StaleBlockClear = &refused
 		if err := state.Validate(); err == nil || !strings.Contains(err.Error(), "stale_block_clear") {
@@ -61,6 +63,10 @@ func TestAStaleBlockClearDescribesItsEnding(t *testing.T) {
 		{StaleBlockClear{Outcome: domain.StaleBlockClearConfirmed, Reads: 1, Status: "open"}, "on the first read"},
 		{StaleBlockClear{Outcome: domain.StaleBlockClearConfirmedLate, Reads: 3, Status: "open"}, "on read 3"},
 		{StaleBlockClear{Outcome: domain.StaleBlockClearUnconfirmed, Reads: 5, Status: "blocked"}, `5 read(s) returned status "blocked"`},
+		// A claim the tracker refused on the status after a read returned open is
+		// said as that, whether a later claim within the bound was taken or not.
+		{StaleBlockClear{Outcome: domain.StaleBlockClearConfirmedLate, Reads: 2, Status: "open", ClaimsRefused: 1}, "refused the claim on the status 1 time(s), and the item was claimed on read 2"},
+		{StaleBlockClear{Outcome: domain.StaleBlockClearUnconfirmed, Reads: 5, Status: "open", ClaimsRefused: 5}, "refused the claim on the status 5 time(s) after a read returned open"},
 	} {
 		if got := tc.clear.Describe(); !strings.Contains(got, tc.want) {
 			t.Fatalf("Describe(%#v) = %q, want it to say %q", tc.clear, got, tc.want)
