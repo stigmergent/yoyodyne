@@ -59,7 +59,10 @@ import (
 // then the whole of what bounded its repairs. What the work item's notes lost to
 // the context budget is the newest of them and behaves the same way: absent
 // means the item was delivered whole, which is what every run written before the
-// notes were ever truncated meant.
+// notes were ever truncated meant. The replay a moved target refused, handed
+// back to the developer to reconcile, is newer still and behaves the same way:
+// absent means no replay of this run was ever refused, which is what every run
+// written before a conflict went back to its author meant.
 const StateSchemaVersion = 1
 
 // The shape of the three things a run records about how it was configured and
@@ -918,6 +921,17 @@ func (p PathRefusal) Validate() error {
 	return errors.Join(problems...)
 }
 
+// MaxConflictedPaths bounds how many paths a refused replay carries into
+// durable state and into the developer's next attempt, and
+// MaxConflictDetailBytes bounds Git's own account of the refusal. A replay that
+// stopped on a hundred files must not be able to fill either, and what the
+// bound drops is counted beside what it kept, for the reason a bounded path
+// refusal counts its own.
+const (
+	MaxConflictedPaths     = 50
+	MaxConflictDetailBytes = 4 << 10
+)
+
 // MaxCarriedAmendmentRefusals bounds how many refused amendment proposals a run
 // carries into a role's next invocation, and MaxAmendmentRefusalBytes bounds one
 // of them. Both are generous for what actually accumulates — one reply proposes
@@ -1629,7 +1643,7 @@ func (s *State) recordedTexts() []recordedText {
 		nested("integration_stop.detail", "integration_stop.detail", &s.IntegrationStop.Detail, MaxEnvironmentalDetailBytes)
 	}
 	if s.ReplayConflict != nil {
-		nested("replay_conflict.detail", "replay_conflict.detail", &s.ReplayConflict.Detail, MaxEnvironmentalDetailBytes)
+		nested("replay_conflict.detail", "replay_conflict.detail", &s.ReplayConflict.Detail, MaxConflictDetailBytes)
 	}
 	for index := range s.IntegrationResumptions {
 		resumption := &s.IntegrationResumptions[index]

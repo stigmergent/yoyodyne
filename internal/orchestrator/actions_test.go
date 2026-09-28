@@ -1044,6 +1044,9 @@ var notAStep = map[string]string{
 	"blockOnUnlandedPullRequest": "hands a landing the forge did not merge to a person, inside candidate.integrate",
 	"repair":                     "records one repair attempt and re-enters candidate.develop with the findings",
 	"prepareIntegrationRetry":    "replays a change whose promotion lost its race, so candidate.integrate can be re-earned",
+	"moveOntoTargetForRepair":    "puts a change whose replay conflicted onto the target for its developer to reconcile, which is the setup of the repair candidate.develop then performs",
+	"reconcilingPublishedBranch": "reads whether candidate.develop's publication replaces the published branch rather than extending it",
+	"republishRebase":            "replaces the published run branch with the one the local branch now carries, inside candidate.develop's publication",
 	"verifyHandback":             "checks a resumed run still has the change it preserved",
 	"closeCheckStage":            "records how the check stage ended, inside candidate.check",
 

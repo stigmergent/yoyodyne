@@ -650,7 +650,7 @@ func TestAStoppedRunEntryWithABlockerDoesNotAlsoPrintTheFailure(t *testing.T) {
 // on the entry that carries no blocker in particular, because that is the entry
 // yoyodyne-ifd.441 produced when the blocker write timed out, and it was then
 // the only surface that could name the conflict at all.
-func TestAReplayConflictEntryNamesTheConflictAndAPersonNotTheResume(t *testing.T) {
+func TestAReplayConflictEntryNamesTheConflictAndTheRepairNotTheResume(t *testing.T) {
 	t.Parallel()
 
 	conflicted := stoppedRunEntry()
@@ -664,7 +664,7 @@ func TestAReplayConflictEntryNamesTheConflictAndAPersonNotTheResume(t *testing.T
 	for _, want := range []string{
 		"run " + conflicted.RunID + "'s change is approved and its replay onto main conflicted",
 		"a person to settle the conflict",
-		"yoyodyne-ifd.132",
+		"`yoyo triage repair " + conflicted.RunID + "`, which continues the developer that wrote it",
 		"Next mover: you — this change is approved and its replay conflicted",
 		"What the replay found",
 		"carries no blocker",

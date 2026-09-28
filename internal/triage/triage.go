@@ -504,15 +504,16 @@ type ReplayConflict struct {
 
 // ReplayConflictSays is the one sentence every surface says of an approved
 // change whose replay conflicted: that it is approved, what it conflicted with,
-// and who moves next — a person, or the repair-continue once that verb extends
-// to conflicts, and not the resume verb, which replays onto the same target and
-// meets the same conflict. It is one sentence here for the reason
+// and who moves next — the repair-continue, which hands the conflict back to
+// the developer that wrote the change (yoyodyne-ifd.132), or a person, and not
+// the resume verb, which replays onto the same target and meets the same
+// conflict. It is one sentence here for the reason
 // ResumeIntegrationSays is: a docket entry and a run record that say different
 // things about one conflict send the development manager to different verbs.
 func ReplayConflictSays(runID, targetBranch string) string {
 	return fmt.Sprintf(
-		"run %s's change is approved and its replay onto %s conflicted, so what it needs is a person to settle the conflict — or a repair-continue of the developer that wrote it, once `yoyo triage repair` extends to replay conflicts (yoyodyne-ifd.132) — and not `yoyo triage resume`, which would replay onto the same target and meet the same conflict",
-		runID, nonEmpty(targetBranch, "its target branch"))
+		"run %s's change is approved and its replay onto %s conflicted, so what it needs is `yoyo triage repair %s`, which continues the developer that wrote it with the conflict handed back to reconcile against the target, or a person to settle the conflict — and not `yoyo triage resume`, which would replay onto the same target and meet the same conflict",
+		runID, nonEmpty(targetBranch, "its target branch"), runID)
 }
 
 // Prerequisite is one thing an item's own statement asks of the tree that the
@@ -2075,7 +2076,7 @@ func (e Entry) renderNextMover() string {
 			e.RunID, step)
 	}
 	if e.ReplayConflict != nil {
-		return "      Next mover: you — this change is approved and its replay conflicted, so it is waiting on a person to settle the conflict (or on a repair-continue once yoyodyne-ifd.132 extends that verb to conflicts), and `yoyo triage resume` is not the answer.\n"
+		return fmt.Sprintf("      Next mover: you — this change is approved and its replay conflicted, so it is waiting on your decision: a repair (`yoyo triage repair %s`) continues the developer that wrote it with the conflict to reconcile, and `yoyo triage resume` is not the answer.\n", e.RunID)
 	}
 	return "      Next mover: you — " + gone + "nothing the harness has still to carry out is recorded about this stoppage, so what happens to it next is your decision.\n"
 }

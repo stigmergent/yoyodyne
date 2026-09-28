@@ -86,10 +86,12 @@ func conflictedState(t *testing.T) State {
 	return state
 }
 
-// A replay conflict is its own record, and it is a person's: a run carrying one
-// is never resumable, and the record refuses it beside the integration stop it
-// is the alternative to — which is the 441 misreading written down.
-func TestAReplayConflictIsRecordedAsAPersonsAndNeverBesideAnIntegrationStop(t *testing.T) {
+// A replay conflict is its own record, and it is a decision about the change —
+// its author's to reconcile first (yoyodyne-ifd.132), a person's after that: a
+// run carrying one is never resumable, and the record refuses it beside the
+// integration stop it is the alternative to — which is the 441 misreading
+// written down.
+func TestAReplayConflictIsRecordedAsADecisionAndNeverBesideAnIntegrationStop(t *testing.T) {
 	t.Parallel()
 
 	conflicted := conflictedState(t)
@@ -100,8 +102,8 @@ func TestAReplayConflictIsRecordedAsAPersonsAndNeverBesideAnIntegrationStop(t *t
 		t.Fatalf("a replay conflict reads as resumable: %#v", conflicted)
 	}
 	if said := conflicted.ReplayConflict.Says(conflicted.RunID); !strings.Contains(said, "its replay onto main conflicted") ||
-		!strings.Contains(said, "a person to settle the conflict") || !strings.Contains(said, "yoyodyne-ifd.132") || !strings.Contains(said, "not `yoyo triage resume`") {
-		t.Fatalf("Says() = %q, want the conflict, the person or the repair-continue, and the verb that cannot help", said)
+		!strings.Contains(said, "a person to settle the conflict") || !strings.Contains(said, "`yoyo triage repair "+conflicted.RunID+"`") || !strings.Contains(said, "not `yoyo triage resume`") {
+		t.Fatalf("Says() = %q, want the conflict, the repair-continue or the person, and the verb that cannot help", said)
 	}
 	if described := conflicted.ReplayConflict.Describe(); described != "approved, then stopped at the integrating phase by a replay conflict onto main" {
 		t.Fatalf("Describe() = %q", described)

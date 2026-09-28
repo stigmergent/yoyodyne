@@ -421,11 +421,32 @@ stops on the change, as above. A run that cannot be replayed at all is handed
 back instead
 ([operations](../operations.md#recovering-interrupted-runs)).
 
-A replay that **conflicts** is never retried and never resolved automatically.
-The replay is abandoned, the branch and worktree are left exactly as they were,
-both sides of the conflict survive, and the run stops with a blocker on the
-item. Which side of a conflict is right is a decision about the product, not a
-Git operation.
+A replay that **conflicts** is never retried and never resolved automatically
+— which side of a conflict is right is a decision about the product, not a Git
+operation — and it goes back to the developer that wrote the change before it
+goes to anybody else. The change is moved onto where the target went, with
+whatever would not merge left in the worktree between Git's own conflict
+markers, and the same developer session is handed the conflict to settle: the
+branch it could not be replayed onto, the commit that branch is at, and the
+paths the replay stopped on. That hand-back is a repair attempt, spent from
+`execution.repair_attempts_before_replan` like any other, and what the
+developer produces goes through the whole gate again — the protected-path
+refusal, the checks, and a fresh independent review — before it is promoted by
+the same fast-forward. A replay conflict on an approved change therefore costs
+a continuation of the session that wrote it rather than a fresh run. The target
+keeps every commit it has; what the move drops is only the run's own commits,
+whose content is what the developer is handed back as uncommitted work.
+
+A conflict is also a replay that stopped on the change, so it is charged to
+the integration budget above at the same moment, and a run past either budget —
+no repair attempt left, or more conflicting replays than
+`integration_retries_before_reconciliation` permits — stops instead, as every
+conflict did before:
+the replay is abandoned, the branch and worktree are left exactly as they were,
+both sides survive, and the blocker on the item names the paths and the target
+commit. The conflict stays on the run's record, so a repair the development
+manager grants in triage continues that same session with the same conflict,
+moved onto the target first; a re-run starts the change over instead.
 
 A replay the harness itself ended — its local Git budget ran out, its context
 was cancelled, or it went silent past its liveness bound — is **not** a
@@ -450,7 +471,10 @@ same answer.
 
 A published run's pull request follows the replay: the run branch is replaced on
 the remote from exactly the commit the harness published there, so the request
-carries the change that would actually be promoted. That is the same
+carries the change that would actually be promoted. A change handed back to
+reconcile a conflict is replaced the same way, once the developer's attempt is
+committed — never with the target alone in between, since a request whose head
+is already in its base reads as merged. That is the same
 compare-and-swap every other write makes — a remote branch carrying anything
 else is refused rather than overwritten — and the refusal stops the run, because
 nothing has been promoted yet and there is nothing outstanding to report.
