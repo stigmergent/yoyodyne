@@ -75,7 +75,10 @@ retiring these three terms (yoyodyne-ifd.437.17) replaced them with the plain ac
 the harness ended the run; the cause was outside the work, so no repair attempt
 was spent and the change was kept* — and listed them below. Identifiers in the
 code and field names in the records keep their names; only what a person reads
-changed.
+changed. The personas the running roles read, under `.yoyodyne/personas`, say it
+plainly: the development manager's says a failure
+*came from outside the work*, and the only place any of them writes the three
+words is the example each gives of what not to write.
 
 One entry is a command's own name. The sweep replaced `re-arm` in the prose of
 the governed documents, but `yoyo triage rearm` is a verb an operator types and

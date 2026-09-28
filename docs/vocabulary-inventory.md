@@ -73,7 +73,7 @@ which is a key or an identifier rather than words anybody reads.
 | [`docket`](#docket) | replace | registered | 210 | 1 | 251 | 10 |
 | [`crossing`](#crossing) | replace | — | 56 | 0 | 112 | 5 |
 | [`carry-out`](#carry-out) | replace | — | 27 | 0 | 27 | 1 |
-| [`environmental stop`](#environmental-stop) | replace | replaced | 6 | 0 | 0 | 1 |
+| [`environmental stop`](#environmental-stop) | replace | replaced | 1 | 0 | 0 | 1 |
 | [`idle bound`](#idle-bound) | replace | replaced | 2 | 0 | 0 | 0 |
 | [`provider's stream`](#providers-stream) | replace | — | 1 | 0 | 4 | 0 |
 | [`stall`](#stall) | replace | — | 99 | 0 | 146 | 3 |
@@ -157,7 +157,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A run ended by something outside the work — the sandbox, the network, the tracker, a provider limit — which spends none of the item's budgets.
 - **Proposed:** replace it. Write instead: stopped by something outside the work, naming what it was.
-- **Where:** 7 in all, in 4 places: `internal/triage` 4, `internal/runstate` 1, `internal/terms` 1, `docs/designs/recoverable-and-terminal-failures.md` 1.
+- **Where:** 2 in all, in 2 places: `internal/terms` 1, `docs/designs/recoverable-and-terminal-failures.md` 1.
 - **Note:** The item replacing the three words the operator met first (yoyodyne-ifd.437.17) replaces this one. `environmental refusal` and `environmental cause` are counted with it.
 
 ### idle bound

@@ -1454,16 +1454,16 @@ func (e Entry) Validate() error {
 	}
 	if e.Environmental != nil {
 		if strings.TrimSpace(e.Environmental.Cause) == "" {
-			problems = append(problems, errors.New("environmental: the cause is required, because what it excuses the item is decided by which one it was"))
+			problems = append(problems, errors.New("stop outside the work: the cause is required, because what it excuses the item is decided by which one it was"))
 		}
 		if len(e.Environmental.Detail) > MaxMessageBytes {
-			problems = append(problems, fmt.Errorf("environmental: detail is %d bytes, limit is %d", len(e.Environmental.Detail), MaxMessageBytes))
+			problems = append(problems, fmt.Errorf("stop outside the work: detail is %d bytes, limit is %d", len(e.Environmental.Detail), MaxMessageBytes))
 		}
 		if len(e.Environmental.Problem) > MaxMessageBytes {
-			problems = append(problems, fmt.Errorf("environmental: problem is %d bytes, limit is %d", len(e.Environmental.Problem), MaxMessageBytes))
+			problems = append(problems, fmt.Errorf("stop outside the work: problem is %d bytes, limit is %d", len(e.Environmental.Problem), MaxMessageBytes))
 		}
 		if len(e.Environmental.Account) > MaxMessageBytes {
-			problems = append(problems, fmt.Errorf("environmental: account is %d bytes, limit is %d", len(e.Environmental.Account), MaxMessageBytes))
+			problems = append(problems, fmt.Errorf("stop outside the work: account is %d bytes, limit is %d", len(e.Environmental.Account), MaxMessageBytes))
 		}
 	}
 	if e.SessionResumable {
