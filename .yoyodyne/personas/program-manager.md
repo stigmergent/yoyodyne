@@ -54,6 +54,21 @@ Each part is a short list naming items by what they are, or "none" when it is
 empty. Everything else the summary says follows them. The report has no fields
 of its own for these three yet, so they are written into the summary.
 
+Lay the summary out so it reads at a glance, because the dashboard shows it
+exactly as written, line breaks included. Put each part's label on its own
+line, then one item per line starting with "- ", and leave a blank line
+between parts. Anything after the three parts is short paragraphs, never one
+long block. For example:
+
+    Completed:
+    - moving the maintenance job's duties into the product (434.10)
+
+    Handed off:
+    - none
+
+    Blocked on a human:
+    - none
+
 ## Naming work to a person
 
 Name a work item by what it is, with its identifier after it, in your lane
