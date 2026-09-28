@@ -297,6 +297,13 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool {
 		return outstandingPublication(run) && !mergeConfirmed(run)
 	}) {
+		// A merge withdrawn for its target's red check waits on the items filed
+		// for that check, and the harness takes it up once they close: nobody has
+		// anything to decide, so it is the harness's move.
+		if run.WaitingOnRedTarget() {
+			reasons[workItemID] = backlog.Hold{Reason: redTargetPublication(run), Decided: true, Since: run.PullRequest.TargetRed.At}
+			continue
+		}
 		carryOut, problem := decided(workItemID, run.RunID)
 		reasons[workItemID] = heldFor(unmergedPublication(run), carryOut, problem, stoppedAt(run))
 	}
@@ -700,6 +707,15 @@ func unmergedPublication(run runstate.State) string {
 	return fmt.Sprintf(
 		"run %s integrated its change into %s and the forge has not merged it, so what is outstanding is the publication rather than the work",
 		run.RunID, run.Integration.TargetBranch)
+}
+
+// redTargetPublication says why an item whose merge waits on its target's red
+// check is not something to pull: the change is reviewed on its kept branch, and
+// what it waits on is the target being fixed, which is somebody else's item.
+func redTargetPublication(run runstate.State) string {
+	return fmt.Sprintf(
+		"run %s's change is reviewed and its pull request #%d %s; the harness takes the merge up again once that closes, so nothing here needs a decision",
+		run.RunID, run.PullRequest.Number, run.PullRequest.TargetRed.Describe())
 }
 
 // undecidedStoppage says why an item whose stoppage nobody has answered is not

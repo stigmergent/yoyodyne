@@ -38,7 +38,12 @@ type reconcileOutput struct {
 	// rather than folded into it because the two are different acts — one writes
 	// what the forge says, the other finishes what the record says is unfinished.
 	Settlements []orchestrator.PublicationSettlement `json:"settlements"`
-	Convergence orchestrator.Convergence             `json:"convergence"`
+	// RedTargets is what this sweep did about the publications waiting on their
+	// target's red check: still waiting on an open item, brought up to date
+	// where the fix left the head behind, filed again where the check is still
+	// red, or left for the watch to re-arm.
+	RedTargets  []orchestrator.RedTargetResumption `json:"red_targets"`
+	Convergence orchestrator.Convergence           `json:"convergence"`
 	// Docketed is how many entries this sweep is what put on the triage docket.
 	// It is a count rather than the entries because the docket is read where it
 	// is acted on, which is the development manager's conversation; what this
@@ -87,6 +92,7 @@ type reconcileSweep struct {
 	Recoveries   []orchestrator.PublicationRecovery
 	Publications []orchestrator.PublicationRefresh
 	Settlements  []orchestrator.PublicationSettlement
+	RedTargets   []orchestrator.RedTargetResumption
 	Convergence  orchestrator.Convergence
 	Docketed     int
 	// ClosedWithItem is how many docket entries the sweep closed with their item.
@@ -165,6 +171,12 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// would hold an item whose publication is about to stop being outstanding.
 	settlements, settlementErr := reconciler.FinishPublications(ctx)
 	err = errors.Join(err, settlementErr)
+	// The publications waiting on their target's red check are taken up next,
+	// before the docket is built and before the runs this sweep makes live are
+	// hosted: one whose items have closed and whose head the fix left behind is
+	// put back at its promotion here, and hosted with the other updates below.
+	redTargets, redTargetErr := reconciler.ResumeRedTargets(ctx)
+	err = errors.Join(err, redTargetErr)
 	// Convergence is swept even when settling a run failed. The two are
 	// independent — one finishes runs, the other finishes branches — and a
 	// checkout left behind the forge because some unrelated run could not be
@@ -210,6 +222,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		Recoveries:     recoveries,
 		Publications:   publications,
 		Settlements:    settlements,
+		RedTargets:     redTargets,
 		Convergence:    convergence,
 		Docketed:       docketed.Added,
 		ClosedWithItem: closedWithItem,
@@ -547,6 +560,11 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 	// A continuation the pipeline refused or that could not be recorded is a
 	// run still holding its slot with nothing serving it, which is what this
 	// step exists to end; a continued run that ended stopped is not.
+	for _, redTarget := range sweep.RedTargets {
+		if redTarget.Failure != "" {
+			failed = true
+		}
+	}
 	for _, continuation := range sweep.Continuations {
 		if continuation.Failure != "" {
 			failed = true
@@ -563,6 +581,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			Recoveries:     sweep.Recoveries,
 			Publications:   publications,
 			Settlements:    sweep.Settlements,
+			RedTargets:     sweep.RedTargets,
 			Convergence:    convergence,
 			Docketed:       docketed,
 			ClosedWithItem: sweep.ClosedWithItem,
@@ -592,6 +611,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if output.Settlements == nil {
 			output.Settlements = []orchestrator.PublicationSettlement{}
+		}
+		if output.RedTargets == nil {
+			output.RedTargets = []orchestrator.RedTargetResumption{}
 		}
 		if output.Convergence.Targets == nil {
 			output.Convergence.Targets = []gitworktree.Catchup{}
@@ -670,6 +692,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		printRecoveries(stdout, stderr, sweep.Recoveries)
 		printPublications(stdout, stderr, publications)
 		printSettlements(stdout, stderr, sweep.Settlements)
+		printRedTargets(stdout, stderr, sweep.RedTargets)
 		printConvergence(stdout, stderr, convergence)
 		printSupervision(stdout, sweep.Supervision)
 		printStall(stdout, stderr, sweep.Stall, sweep.StallProblem)
@@ -828,6 +851,21 @@ func printSettlements(stdout, stderr io.Writer, settlements []orchestrator.Publi
 			}
 		case settlement.Remaining != "":
 			fmt.Fprintf(stderr, "pull request #%d of %s still outstanding: %s\n", settlement.Number, settlement.WorkItemID, settlement.Remaining)
+		}
+	}
+}
+
+// printRedTargets reports each publication waiting on its target's red check:
+// what it still waits on, or what the sweep did once that closed. It is said on
+// every sweep it stands, because a merge waiting is a merge not landing.
+func printRedTargets(stdout, stderr io.Writer, redTargets []orchestrator.RedTargetResumption) {
+	for _, redTarget := range redTargets {
+		fmt.Fprintf(stdout, "%s (%s): %s\n", redTarget.RunID, redTarget.WorkItemID, redTarget.Action)
+		if redTarget.Detail != "" {
+			fmt.Fprintf(stdout, "  %s\n", redTarget.Detail)
+		}
+		if redTarget.Failure != "" {
+			fmt.Fprintf(stderr, "  not taken up: %s\n", redTarget.Failure)
 		}
 	}
 }

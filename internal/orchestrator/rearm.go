@@ -69,6 +69,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -150,7 +151,18 @@ type Rearmer struct {
 	// forge's merge state is its gate, as it always was. Optional, and a Rearmer
 	// wired without it refuses every first arming rather than arming unchecked.
 	Checks RearmChecks
-	Clock  execution.Clock
+	// Items reads whether the items a publication waiting on its target's red
+	// check waits on are closed, which is what authorizes the harness to arm it
+	// with nobody deciding anything. Optional: a Rearmer wired without it
+	// refuses that arming, and a decision of the development manager's is
+	// carried out as ever.
+	Items RearmItems
+	Clock execution.Clock
+}
+
+// RearmItems reads a work item. It is satisfied by the tracker client.
+type RearmItems interface {
+	Show(ctx context.Context, id string) (beads.WorkItem, error)
 }
 
 // RearmRequest is one decision to carry out: the run whose publication the
@@ -190,6 +202,10 @@ type RearmResult struct {
 	// what this made is the merge request the run's own merge would have made,
 	// rather than a repeat of one the forge dropped.
 	FirstArm bool `json:"first_arm,omitempty"`
+	// TargetRed reports a publication whose merge the harness withdrew for its
+	// target's red check, armed again on the harness's own authority once every
+	// item it waited on closed: nobody decided it, and it spends no re-arm.
+	TargetRed bool `json:"target_red,omitempty"`
 	// Rearmed reports the request having actually been repeated, and Queued the
 	// forge having accepted it to perform later rather than performing it now.
 	Rearmed bool `json:"rearmed"`
@@ -239,6 +255,7 @@ func (r Rearmer) Rearm(ctx context.Context, request RearmRequest) (RearmResult, 
 		Method:     published.MergeMethod,
 		HeadCommit: published.HeadCommit,
 		FirstArm:   prior.PublicationUnarmed(),
+		TargetRed:  prior.WaitingOnRedTarget(),
 	}
 	// The publication has to be on the docket, for the reason a stoppage does: the
 	// entry is what the development manager decided against, and a re-arm of
@@ -254,6 +271,16 @@ func (r Rearmer) Rearm(ctx context.Context, request RearmRequest) (RearmResult, 
 	}
 	if err := noRearmRunInFlight(r.Runs, prior.WorkItemID); err != nil {
 		return result, err
+	}
+	// A publication waiting on its target's red check is the harness's to arm, and
+	// what authorizes it is every item it waits on having closed rather than a
+	// decision; it is read before anything is asked of the forge.
+	if result.TargetRed {
+		if err := r.targetRedAnswered(ctx, *published.TargetRed); err != nil {
+			return result, err
+		}
+		result.Reason = targetRedRearmReason(prior, published, reasoning)
+		return r.repeat(ctx, prior.RunID, integration.TargetBranch, published.MergeRearms, result)
 	}
 	// That the development manager decided this, and that nothing has carried the
 	// decision out, are read before anything is asked of the forge.
@@ -319,7 +346,7 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	if err != nil {
 		return result, fmt.Errorf("run %s was settled while its publication was being checked: %w", runID, err)
 	}
-	if published.Number != result.Number || published.MergeRearms != checked || state.PublicationUnarmed() != result.FirstArm {
+	if published.Number != result.Number || published.MergeRearms != checked || state.PublicationUnarmed() != result.FirstArm || state.WaitingOnRedTarget() != result.TargetRed {
 		return result, fmt.Errorf("run %s was settled while its publication was being checked, so what would be repeated is no longer what was checked", runID)
 	}
 	// What the forge says decides whether this is a drop worth repeating at all,
@@ -328,8 +355,14 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	if err := r.forgeWouldTakeItBack(ctx, state, published, integration); err != nil {
 		return result, err
 	}
-	if result.FirstArm {
+	// A merge withdrawn for its target's red check is armed only on a head level
+	// with its target whose checks pass now, which is the gate a first arming
+	// passes: what it arms is a merge whose checks last failed.
+	if result.FirstArm || result.TargetRed {
 		if err := r.landingChecksPass(ctx, published, integration); err != nil {
+			if result.TargetRed {
+				return result, fmt.Errorf("%w; this merge was withdrawn for its target's red check, and the reconcile sweep brings a head the fix left behind up to date from its kept branch rather than arming it", err)
+			}
 			return result, err
 		}
 	}
@@ -344,12 +377,17 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	}
 	// The counter is written before the request is made, which is the direction
 	// every triage counter fails in. A process that dies here has recorded a
-	// re-arm it did not make, and the publication has spent the one it had.
-	published.MergeRearms++
-	state.PullRequest = &published
-	state.UpdatedAt = r.now()
-	if err := r.Runs.Save(state); err != nil {
-		return result, fmt.Errorf("record the re-arm of pull request %d before repeating it: %w; nothing was asked of the forge", published.Number, err)
+	// re-arm it did not make, and the publication has spent the one it had. An
+	// arming on the harness's own authority, after the target's red check was
+	// answered, spends nothing: nobody decided it, and the publication keeps the
+	// re-arm triage may decide if the forge drops it later.
+	if !result.TargetRed {
+		published.MergeRearms++
+		state.PullRequest = &published
+		state.UpdatedAt = r.now()
+		if err := r.Runs.Save(state); err != nil {
+			return result, fmt.Errorf("record the re-arm of pull request %d before repeating it: %w; nothing was asked of the forge", published.Number, err)
+		}
 	}
 	result.Rearms = published.MergeRearms
 
@@ -382,6 +420,7 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	// reconciliation's to settle, on what the forge does next — a second drop
 	// writes a fresh one there, and a merge closes the item.
 	published.MergeQueued = true
+	published.TargetRed = nil
 	state.PullRequest = &published
 	state.PublishFailure = ""
 	state.Blocker = ""
@@ -392,6 +431,39 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 			published.Number, err)
 	}
 	return result, nil
+}
+
+// targetRedAnswered refuses the harness's own arming of a merge withdrawn for its
+// target's red check while any item it waits on is unfinished, or while that
+// cannot be read: the items closing is the whole of its authority.
+func (r Rearmer) targetRedAnswered(ctx context.Context, waiting runstate.TargetRed) error {
+	if r.Items == nil {
+		return errors.New("nothing is wired to this harness to read whether the items this merge waits on are closed, and the harness arms a merge withdrawn for its target's red check only once they are; nothing was spent")
+	}
+	for _, id := range waiting.WaitingOn() {
+		item, err := r.Items.Show(ctx, id)
+		if err != nil {
+			return fmt.Errorf("read whether %s, filed for a red check on %s, is closed: %w; nothing was spent", id, waiting.TargetBranch, err)
+		}
+		if !strings.EqualFold(item.Status, "closed") {
+			return fmt.Errorf("refused at the red-target gate: this merge waits on %s, filed for a red check on %s, which is %s; the harness arms it once that closes, and nothing was spent",
+				id, waiting.TargetBranch, nonEmpty(item.Status, "not closed"))
+		}
+	}
+	return nil
+}
+
+// targetRedRearmReason is the harness's account of arming a merge it withdrew
+// for its target's red check: nobody decided it, so what it cites is the items
+// that closed rather than a decision.
+func targetRedRearmReason(state runstate.State, published runstate.PullRequest, reasoning string) string {
+	reason := fmt.Sprintf("the harness withdrew the merge of pull request %d for %s's red check (%s), every item it waited on is closed, and its head is level with the target with its checks passing, so the harness armed it again by the %s method on the promotion run %s made, on its own authority and spending no re-arm. ",
+		published.Number, published.TargetRed.TargetBranch, strings.Join(published.TargetRed.WaitingOn(), ", "), published.MergeMethod, state.RunID)
+	room := runstate.MaxSelectionReasonBytes - len(reason)
+	if room < 0 {
+		room = 0
+	}
+	return singleLine(reason+singleLine(reasoning, room), runstate.MaxSelectionReasonBytes)
 }
 
 // rearmablePublication is the publication a re-arm would repeat, and the
@@ -721,7 +793,10 @@ func (r Rearmer) now() time.Time {
 // Render describes what the action did, for whoever asked for it.
 func (result RearmResult) Render() string {
 	var rendered strings.Builder
-	if result.FirstArm {
+	if result.TargetRed {
+		fmt.Fprintf(&rendered, "armed the merge of pull request %d of %s again by the %s method, once the items it waited on for its target's red check closed\n",
+			result.Number, result.WorkItemID, result.Method)
+	} else if result.FirstArm {
 		fmt.Fprintf(&rendered, "armed the merge of pull request %d of %s by the %s method, which nothing had asked the forge for\n",
 			result.Number, result.WorkItemID, result.Method)
 	} else {
@@ -737,7 +812,11 @@ func (result RearmResult) Render() string {
 	} else {
 		fmt.Fprintln(&rendered, "the forge merged it on the spot rather than queuing it; `yoyo reconcile` finishes the publication — the merge commit, the consumed branch, and the local target branch")
 	}
-	fmt.Fprintf(&rendered, "%d re-arm(s) of this publication are now recorded; a further drop is an escalation rather than another re-arm\n", result.Rearms)
+	if result.TargetRed {
+		fmt.Fprintf(&rendered, "no re-arm was spent: %d re-arm(s) of this publication are recorded\n", result.Rearms)
+	} else {
+		fmt.Fprintf(&rendered, "%d re-arm(s) of this publication are now recorded; a further drop is an escalation rather than another re-arm\n", result.Rearms)
+	}
 	fmt.Fprintf(&rendered, "repeated because %s\n", result.Reason)
 	if result.RecordProblem != "" {
 		fmt.Fprintln(&rendered, result.RecordProblem)

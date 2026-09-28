@@ -301,6 +301,9 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 			Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 1}}, MoverDevelopmentManager},
 		"unmerged with another account": {runstate.State{RunID: "run-6", PullRequest: &runstate.PullRequest{Number: 1},
 			PublishFailure: "confirm the pull request merged: the forge did not answer"}, MoverOperator},
+		// A merge withdrawn for its target's red check waits on the item filed for
+		// it, and the harness takes it up once that closes (yoyodyne-m5p).
+		"waiting on the target's red check": {redTargetState(), MoverHarness},
 	} {
 		entry := awaitingForgeAttention(want.state)
 		if entry.Mover != want.mover {
@@ -312,6 +315,17 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		if entry.Publication == nil || (want.state.MergeDrop != nil) != (entry.Publication.MergeDrop != nil) {
 			t.Errorf("%s: publication = %+v, want the drop carried exactly where the record has one", name, entry.Publication)
 		}
+	}
+	// The wait on a red target names the check and the filed item, and says
+	// nobody has anything to decide.
+	waiting := awaitingForgeAttention(redTargetState())
+	for _, want := range []string{"waits on main's red check", "adoption (filed as yoyodyne-red-1)"} {
+		if !strings.Contains(waiting.What(), want) {
+			t.Errorf("what = %q, want it to say %q", waiting.What(), want)
+		}
+	}
+	if !strings.Contains(waiting.Whose(), "waits on yoyodyne-red-1") || !strings.Contains(waiting.Whose(), "nothing here needs a person") {
+		t.Errorf("whose = %q, want the filed item named and no person asked", waiting.Whose())
 	}
 	// The unasked request's sentence names the two decisions on her docket, and
 	// never a merge by hand.
@@ -470,4 +484,14 @@ func TestAQueuedPublicationLineCarriesItsChecks(t *testing.T) {
 			t.Errorf("line %q does not say %q", what, want)
 		}
 	}
+}
+
+// redTargetState is a publication whose merge the sweep withdrew for main's red
+// adoption check, waiting on the item filed for it.
+func redTargetState() runstate.State {
+	return runstate.State{RunID: "run-9", WorkItemID: "item-9", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
+		Integration: &runstate.Integration{TargetBranch: "main"},
+		PullRequest: &runstate.PullRequest{Number: 863, TargetRed: &runstate.TargetRed{At: moment, TargetBranch: "main",
+			Checks: []runstate.TargetRedCheck{{Name: "adoption", WorkItem: "yoyodyne-red-1"}}}},
+		PublishFailure: "the forge's checks fail on main itself"}
 }

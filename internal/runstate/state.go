@@ -1229,6 +1229,10 @@ type PullRequest struct {
 	// handed back for a fresh run, so this request is no longer a publication
 	// anybody is waiting on or has to decide. Absent on every other publication.
 	HandedBack *PublicationHandBack `json:"handed_back,omitempty"`
+	// TargetRed is a queued merge the reconciling sweep withdrew because its
+	// checks failed on the target rather than on the change, and the items it
+	// waits on. It is cleared when the merge is armed again.
+	TargetRed *TargetRed `json:"target_red,omitempty"`
 }
 
 // PublicationHandBack records a publication handed back for a fresh run: when,
@@ -1307,6 +1311,11 @@ func (p PullRequest) Validate() error {
 	}
 	if p.Checks != nil {
 		if err := p.Checks.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("pull_request %w", err))
+		}
+	}
+	if p.TargetRed != nil {
+		if err := p.TargetRed.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("pull_request %w", err))
 		}
 	}
@@ -1685,6 +1694,13 @@ func (s *State) recordedTexts() []recordedText {
 		for index := range s.PullRequest.Checks.Failing {
 			nested("pull_request.checks.failing[].name", at("pull_request.checks.failing", index, "name"), &s.PullRequest.Checks.Failing[index].Name, maxCheckNameBytes)
 			nested("pull_request.checks.failing[].conclusion", at("pull_request.checks.failing", index, "conclusion"), &s.PullRequest.Checks.Failing[index].Conclusion, maxCheckNameBytes)
+		}
+	}
+	// A wait on the target's red check names the checks the forge reported,
+	// phrased by the repository's workflows as the reading's own names are.
+	if s.PullRequest != nil && s.PullRequest.TargetRed != nil {
+		for index := range s.PullRequest.TargetRed.Checks {
+			nested("pull_request.target_red.checks[].name", at("pull_request.target_red.checks", index, "name"), &s.PullRequest.TargetRed.Checks[index].Name, maxCheckNameBytes)
 		}
 	}
 	// A hand-back carries the re-run's own reason, which is the selection
