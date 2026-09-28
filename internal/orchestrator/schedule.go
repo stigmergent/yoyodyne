@@ -2003,7 +2003,7 @@ pulling:
 					free--
 				}
 				go func(workItemID string) {
-					outcome, err := pull.Start(session.dispatching(ctx), workItemID, selection)
+					outcome, err := pull.Start(session.dispatching(ctx, workItemID), workItemID, selection)
 					completions <- completed{index: index, outcome: outcome, err: err}
 				}(workItemID)
 			}
