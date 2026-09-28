@@ -308,7 +308,7 @@ agents:
       path: personas/developer.md
   # The first program manager, created on the operator's direction of
   # 2026-09-25: it owns the factory not getting stuck or halting on a person.
-  # docs/designs/program-manager.md; triggers fire once yoyodyne-ifd.430.13.4 lands.
+  # docs/designs/program-manager.md; its passes fire on the triggers below.
   factory-flow-pm:
     role: program-manager
     backend: claude-code
@@ -323,7 +323,12 @@ agents:
       version: r2
       path: remits/factory-flow.md
     triggers:
-      every: 2h
+      # Every 45 minutes, down from 2h, at the operator's direction of
+      # 2026-09-28: each pass re-reads ~870,000 tokens of context, and the
+      # provider's cache of it expires within the hour, so a 2h schedule paid a
+      # full re-read (~$17) every pass while a pass inside the hour pays well
+      # under $1. Shrinking the context itself is yoyodyne-ifd.430.13.8.
+      every: 45m
       on: [admissions, stoppages]
   development-manager:
     role: development-manager
