@@ -2424,8 +2424,10 @@ forge and no amount of time changes it, and she decides it one of two ways:
   handed back (`handed_back` on the pull request), and from then on nothing
   names it: it is not docketed again, on its age or otherwise, `yoyo status`'s
   fourth line drops it from under `Waiting on the development manager`, and the heartbeat stops counting it as awaiting the
-  forge. The old request is left open on the forge: nothing here closes it
-  yet, and nothing reads it as work once it is marked.
+  forge. The old request stays open on the forge until the fresh run lands,
+  and nothing reads it as work meanwhile; once the fresh run has integrated,
+  the re-run closes it with a comment naming the vehicle, as the convergence
+  sweep below does for every superseded publication.
 
 A request the forge has closed unmerged is docketed the same way, with nothing
 left to arm: a re-run is the one decision offered for it, and the watch never
@@ -2489,7 +2491,9 @@ open and unmerged, and the triage docket and the status surfaces read that rathe
 than the truth. Reconcile asks the forge about each of those and records the
 answer — merged, closed, or still open. It only writes the record: nothing is
 merged, nothing is closed, no branch moves, and the work item is not touched by
-the asking. A request that turns out to have merged outside the harness — a
+the asking. What the sweep does close, one step later, is decided on the
+harness's own promotion record and described below; the refresh is what makes
+that record true first. A request that turns out to have merged outside the harness — a
 dropped merge you made by hand on the forge — is recorded as merged here, and the
 finishing above then confirms it on the remote and settles the item, so a hand
 merge is settled by the sweep that finds it rather than staying handed back for
@@ -2599,6 +2603,62 @@ A deletion is written onto the run it belonged to, under that run's own lease, a
 a retired checkout is: `yoyo status` and the triage docket read the run's record
 for whether its change survived, so a branch deleted with nothing written down
 leaves the run advertising one that is not there.
+
+Between the catch-up and the checkouts it closes the pull requests whose work
+landed by another vehicle. A run branch carries the run that published it, so an
+item attempted again — after a killed process, as the loser of a duplicate
+selection, or as a re-run triage decided — publishes a new branch and opens a new
+request, and nothing revisited the first one: it sat open with a green build and
+no queued merge, indistinguishable from pending work until somebody asked why.
+Thirty of them had accumulated on this project's forge by 2026-09-07. The sweep
+pairs each run that ended without integrating with the latest run of the same
+item that did integrate, and where that landing came after the dead run began,
+closes the dead run's pull request with a comment naming the vehicle — the
+superseding pull request where the forge merged one, otherwise the commit that
+reached the target branch — deletes the remote branch it published, and records
+the supersession on the run's own `pull_request` so no later sweep asks the forge
+about it again:
+
+```
+pull request #109 of yoyodyne-ifd.113 closed: pull request #111, which the forge merged for run run-813384f1… superseded it
+```
+
+It refuses on evidence here too. A run that integrated something of its own is
+left alone, because its publication is outstanding rather than superseded and
+the [triage docket](configuration.md#triage-thresholds) is where that goes —
+except one whose publication the development manager handed back for a fresh
+run, which is superseded once that fresh run lands and is closed in its name,
+while its own promotion is never counted as a landing of the item; a request the forge
+reports merged is never touched; a request opened after the landing is pending
+work rather than an orphan; and a request somebody already closed collects no
+second comment — and settles all the same, its remote branch read as already
+deleted where a hand-closer took it too. What it never does is guess: a request
+whose item no run of this harness ever landed is not closed on the strength of a
+merge it cannot see. Those are what is left open, and they are named rather than
+left in silence, on one line:
+
+```
+3 open pull request(s) belong to runs that ended without landing, and no later run of their item has landed to supersede them; each is a person's to merge or close: #125 (yoyodyne-ifd.121), #244 (yoyodyne-ifd.158), #342 (yoyodyne-ifd.241)
+```
+
+Each of those is one of two things, and the two call for opposite actions:
+work still pending on the preserved branch, waiting on a repair or a re-run, or
+work that landed by a vehicle the harness did not record — a hand merge, or
+another item's change that made this one moot. `yoyo reconcile --json` carries
+the reason for each under `convergence.unsuperseded`. Once you have decided one,
+closing or merging it at the forge is all it takes: the next sweep's refresh
+records the answer and the request leaves the list. A request a run left open
+because your integration policy has a person approve the merge is not on it —
+that is the run's deliverable, open because you said so, and a project under
+`integration: human` would otherwise be shown every pull request it has.
+
+What the dead run kept locally is not this step's. Its checkout is retired by the
+checkout sweep below on the same terms as every other settled run's, and its
+local branch is judged by the branch sweep above — **a branch carrying work
+nothing promoted is still kept**, and once the published copy has gone it is the
+only copy of that work left, so deleting one is your decision rather than the
+sweep's. A re-run closes the same request itself at the moment its fresh run
+integrates, so the forge's open list stays honest between sweeps.
 
 The same sweep retires the leftover checkouts, which is what makes the worktree
 registrations a machine carries live runs plus a bounded tail rather than

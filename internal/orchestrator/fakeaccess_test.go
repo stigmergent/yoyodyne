@@ -35,6 +35,7 @@ type recordingBackend interface {
 // answers, including the merges it queues and later performs or drops.
 type queuedForge interface {
 	PullRequests
+	SupersededPublications
 	OpenedRequests() []publish.Request
 	MergeRequests() []publish.MergeRequest
 	HoldsQueuedMerge() bool
@@ -50,6 +51,8 @@ type queuedForge interface {
 	SetHeadCommit(commit string)
 	SetTargetProtection(protection publish.BranchProtection)
 	SetOnMerge(onMerge func())
+	Hold(branch string, request publish.PullRequest)
+	ClosedRequests() []publish.CloseRequest
 }
 
 var (

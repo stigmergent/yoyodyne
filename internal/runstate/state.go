@@ -1235,6 +1235,19 @@ type PullRequest struct {
 	// every triage counter fails in: a process that dies between the two has
 	// recorded a re-arm it did not make rather than made one it did not record.
 	MergeRearms int `json:"merge_rearms,omitempty"`
+	// Superseded names the vehicle this publication's work landed by, when it
+	// landed by another one: a later run's pull request, or the commit that run
+	// integrated. A branch carries the run that published it, so an item run
+	// again publishes a fresh branch and a fresh request rather than reusing this
+	// one, and this request would otherwise sit open for work that is already on
+	// the target branch.
+	//
+	// It is written when the harness retires the publication — the request
+	// closed with a comment naming that vehicle, the branch it carried deleted —
+	// and it is what stops a later sweep asking the forge about a request it has
+	// already dealt with. Absent is every publication that merged, that is still
+	// pending, or that stopped for a reason somebody has to decide about.
+	Superseded string `json:"superseded,omitempty"`
 	// Checks is the forge's check state for the request's head as the
 	// reconciling sweep last read it, written on every sweep that finds the merge
 	// still queued. It is what says whether a queued merge is going to land at
@@ -1324,6 +1337,12 @@ func (p PullRequest) Validate() error {
 	// repeated.
 	if p.MergeRearms > 0 && strings.TrimSpace(p.MergeMethod) == "" {
 		problems = append(problems, errors.New("pull_request merge_rearms requires the merge method the repeated request was made by"))
+	}
+	// The two are contradictory claims about one request: a merge is this
+	// publication's work reaching the remote, and a supersession is another
+	// vehicle's work reaching it instead.
+	if p.Merged && strings.TrimSpace(p.Superseded) != "" {
+		problems = append(problems, errors.New("a merged pull request was not superseded; what landed is its own work"))
 	}
 	if p.Checks != nil {
 		if err := p.Checks.Validate(); err != nil {
@@ -1738,6 +1757,10 @@ func (s *State) recordedTexts() []recordedText {
 	if s.PullRequest != nil && s.PullRequest.HandedBack != nil {
 		unstated("pull_request.handed_back.reason", "pull_request.handed_back.reason", &s.PullRequest.HandedBack.Reason, MaxRecordedTextBytes)
 		unstated("pull_request.handed_back.docket_key", "pull_request.handed_back.docket_key", &s.PullRequest.HandedBack.DocketKey, MaxRecordedTextBytes)
+	}
+	// A supersession names the vehicle the work landed by in one line.
+	if s.PullRequest != nil {
+		unstated("pull_request.superseded", "pull_request.superseded", &s.PullRequest.Superseded, MaxRecordedTextBytes)
 	}
 	own("publish_failure", &s.PublishFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	// The drop's reason is the publication failure's sentence kept beside the

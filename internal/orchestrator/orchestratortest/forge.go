@@ -74,6 +74,13 @@ type Forge struct {
 	// OnMerge runs when the forge is asked to merge, before it answers. It is
 	// how a test reads where the local target stood at that moment.
 	OnMerge func()
+	// Closable is the pull requests this forge holds beyond the one it issues
+	// for the run, keyed by the branch that carries each: an earlier run's
+	// publication, which is what a superseded one is. Closed is what it was asked
+	// to close, and CloseErr is what it answers instead of closing.
+	Closable map[string]publish.PullRequest
+	Closed   []publish.CloseRequest
+	CloseErr error
 }
 
 // ConnectionReset is what the transport writes when it drops a request, in the
@@ -218,6 +225,39 @@ func (f *Forge) State(context.Context, string) (publish.PullRequest, error) {
 	}
 	return publish.PullRequest{Number: f.Number, URL: url, State: "MERGED", Merged: true, HeadCommit: f.HeadCommit}, nil
 }
+
+// Close retires a request the forge holds beyond the run's own, the way the
+// adapter does: an open one is closed once and a closed one is reported as it
+// stands, so a sweep that repeats leaves one comment rather than one per pass.
+func (f *Forge) Close(_ context.Context, request publish.CloseRequest) (publish.Closure, error) {
+	if f.CloseErr != nil {
+		return publish.Closure{}, f.CloseErr
+	}
+	existing, known := f.Closable[request.Head]
+	if !known {
+		return publish.Closure{}, fmt.Errorf("no pull request exists for branch %s", request.Head)
+	}
+	if existing.Merged || !strings.EqualFold(existing.State, "OPEN") {
+		return publish.Closure{State: existing.State, Merged: existing.Merged}, nil
+	}
+	f.Closed = append(f.Closed, request)
+	existing.State = "CLOSED"
+	f.Closable[request.Head] = existing
+	return publish.Closure{Closed: true, State: "CLOSED"}, nil
+}
+
+// Hold gives the forge a request on a branch some earlier run published, which
+// is what a superseded publication looks like from here. A test states the
+// request's state, so one a person already closed is expressed the same way.
+func (f *Forge) Hold(branch string, request publish.PullRequest) {
+	if f.Closable == nil {
+		f.Closable = map[string]publish.PullRequest{}
+	}
+	f.Closable[branch] = request
+}
+
+// ClosedRequests is every close this forge performed, comments and all.
+func (f *Forge) ClosedRequests() []publish.CloseRequest { return f.Closed }
 
 // Protection answers what the forge says about the target branch. A forge that
 // was told nothing reports it unprotected, which is the arrangement every test
