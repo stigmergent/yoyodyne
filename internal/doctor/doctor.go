@@ -543,7 +543,8 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 func (d *diagnosis) checkBinding(productID, repository, remote string) Finding {
 	resolved, err := runstate.ResolveRoot(d.getenv, d.homeDir, d.env.GOOS)
 	if err != nil {
-		return Finding{Check: "project", Status: StatusWarning, Summary: "the project's binding could not be read, because the home could not be resolved", Detail: err.Error()}
+		return Finding{Check: "project", Status: StatusWarning, Summary: "the project's binding could not be read, because the home could not be resolved",
+			Detail: err.Error(), Remedy: "export YOYODYNE_STATE_HOME=$HOME/.yoyodyne"}
 	}
 	agreement, err := home.Agree(home.AgreeOptions{Root: resolved.Path, ProductID: productID, Checkout: repository, Remote: remote, ReadOnly: true})
 	var refusal *home.BindingError
@@ -560,7 +561,7 @@ func (d *diagnosis) checkBinding(productID, repository, remote string) Finding {
 			Summary: fmt.Sprintf("project %s is bound to another repository, so every command from here refuses to start", productID),
 			Detail:  err.Error(), Remedy: remedy}
 	case err != nil:
-		return Finding{Check: "project", Status: StatusWarning, Summary: "the project's binding could not be read", Detail: err.Error()}
+		return Finding{Check: "project", Status: StatusWarning, Summary: "the project's binding could not be read", Detail: err.Error(), Remedy: home.ListCommand}
 	case agreement.Path != "":
 		return Finding{Check: "project", Status: StatusOK,
 			Summary: fmt.Sprintf("project %s is bound to this repository, recorded in %s", productID, agreement.Path)}
