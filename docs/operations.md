@@ -400,7 +400,14 @@ each running part and its build. A part started from a build older than the
 record writes none, and the comparison says nothing about it rather than
 calling it current. `yoyo config validate` says the same on its standard error
 and under `unreadable_by_running` in `--json`, without moving its exit code,
-and `yoyo status` carries each one on its fourth line (below).
+and `yoyo status` carries each one on its fourth line (below), as the
+harness's move. A run that lands makes the same comparison once it is over,
+against the configuration the landing left: each running part that cannot read
+it is named on the landed item, in a note that opens `Running parts that cannot
+read the configuration this landing left:`, and in the run's outcome under
+`config_mismatches` — so a landing that adds a key names the parts it leaves
+behind at the moment it lands, rather than when somebody next opens the
+dashboard.
 
 It changes nothing. Nothing here installs, authenticates, restarts, or edits a
 configuration, and no credential is ever read: whether a secret is stored is
@@ -3381,10 +3388,10 @@ has the rule.
   part of the product [its supervisor has left down](#starting-the-product-and-stopping-it)
   as degraded, with the reason, a running part whose build
   [cannot read the configuration](#checking-the-installation) — the part, its
-  build, and the keys, as the harness's move where the harness moves the part
-  onto a deployed build itself (the scheduler, and the Slack sink under the
-  supervisor) and the operator's for the dashboard and the supervisor, which
-  nothing restarts yet — a
+  build, and the keys, as the harness's move whichever part it is, with what
+  brings the part onto a build that reads the file: the watch restarts itself
+  and the supervisor restarts the Slack sink, and for the dashboard and the
+  supervisor, which nothing restarts yet, the restart to make — a
   [recurring task whose firings keep failing before their first turn](#reading-what-the-recurring-tasks-found),
   with the failure and how many in a row, and a
   [pile of collected reports](reporting.md#whether-the-pile-is-draining) whose

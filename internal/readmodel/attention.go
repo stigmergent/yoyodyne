@@ -876,15 +876,13 @@ func degradedServiceAttention(child runstate.SupervisedChild) Attention {
 
 // configMismatchAttention is a running part whose build cannot read the
 // configuration, as the attention line carries it. It is the harness's move
-// where the harness moves the part onto a deployed build itself — the watch,
-// and the sink under the supervisor — and the operator's where nothing does
-// yet: the dashboard until the supervisor adopts it, and the supervisor.
+// whichever part it is: a part running a stale build is the harness's own
+// state, and under the operator's rule of 2026-09-26 only a change to the
+// fundamental goals is his. The whose sentence says what brings each part
+// onto a build that reads the file, the restart included where nothing does
+// it yet.
 func configMismatchAttention(mismatch runstate.ConfigMismatch) Attention {
-	mover := MoverOperator
-	if runstate.ConfigMismatchMovedByHarness(mismatch.Service) {
-		mover = MoverHarness
-	}
-	return Attention{Kind: AttentionConfigMismatch, ID: mismatch.Service, Mover: mover, ConfigMismatch: &mismatch}
+	return Attention{Kind: AttentionConfigMismatch, ID: mismatch.Service, Mover: MoverHarness, ConfigMismatch: &mismatch}
 }
 
 // heldWorkAttention is one of the two waits held work is in, with how many

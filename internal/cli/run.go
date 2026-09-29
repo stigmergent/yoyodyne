@@ -493,6 +493,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// agent is ever asked to perform either.
 		Landings: parts.worktrees,
 		Filer:    parts.tracker(),
+		// And each running part's record of the configuration keys its build
+		// reads, so a landing names the parts that cannot read what landed.
+		ConfigReaders: landingConfigReaders(parts.stateRoot, cfg.Product.ID),
 		// The reviewer runs its own provider invocation, so it is built from a
 		// separate backend value rather than sharing the developer's, and with
 		// the reviewer agent's own required model selector and effective

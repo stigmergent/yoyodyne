@@ -20,6 +20,8 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -82,4 +84,15 @@ func describeConfigMismatches(mismatches []runstate.ConfigMismatch, problem erro
 		lines = append(lines, "warning: whether every running part of the product can read this configuration was not fully checked: "+problem.Error())
 	}
 	return strings.Join(lines, "\n")
+}
+
+// landingConfigReaders is the store a landing asks, or nothing where the
+// product has no state root to read it from — returned as an untyped nil, so
+// the pipeline's optional field reads as unwired rather than as a nil store.
+func landingConfigReaders(stateRoot string, productID domain.ProductID) orchestrator.ConfigReaders {
+	store, err := runstate.NewConfigReaderStore(stateRoot, productID)
+	if err != nil {
+		return nil
+	}
+	return store
 }

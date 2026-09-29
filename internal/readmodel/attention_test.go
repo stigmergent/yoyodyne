@@ -509,16 +509,16 @@ func redTargetState() runstate.State {
 		PublishFailure: "the forge's checks fail on main itself"}
 }
 
-// A part the harness moves onto a deployed build itself is the harness's move;
-// the dashboard, which nothing moves until the supervisor adopts it, is the
-// operator's, and says what brings it back.
-func TestAConfigMismatchIsMovedByWhoeverRestartsThePart(t *testing.T) {
+// A part running a stale build is the harness's move whichever part it is, as
+// the work item asks; the dashboard, which nothing restarts yet, says in its
+// whose sentence what brings it back.
+func TestAConfigMismatchIsTheHarnesssMove(t *testing.T) {
 	t.Parallel()
 	for service, want := range map[string]Mover{
 		"scheduler":  MoverHarness,
 		"slack":      MoverHarness,
-		"dashboard":  MoverOperator,
-		"supervisor": MoverOperator,
+		"dashboard":  MoverHarness,
+		"supervisor": MoverHarness,
 	} {
 		entry := configMismatchAttention(runstate.ConfigMismatch{Service: service, PID: 7, ConfigPath: "/c.yaml", Keys: []string{"agents.developer.effort"}})
 		if entry.Mover != want {

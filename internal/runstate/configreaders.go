@@ -120,15 +120,6 @@ func (m ConfigMismatch) Says() string {
 		m.Service, build, m.PID, m.StartedAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(m.Keys, ", "), m.ConfigPath)
 }
 
-// ConfigMismatchMovedByHarness reports a part the harness itself moves onto
-// the build deployed over it: the watch restarts itself between runs, and the
-// supervisor restarts the Slack sink between its passes. Nothing yet moves the
-// dashboard, whose adoption by the supervisor is yoyodyne-ifd.414, or the
-// supervisor itself, so a mismatch on either waits on a person.
-func ConfigMismatchMovedByHarness(service string) bool {
-	return service == string(config.ServiceScheduler) || service == string(config.ServiceSlack)
-}
-
 // ConfigMismatchRemedy says what brings a part onto a build that reads the
 // file, in the words every surface uses for it.
 func ConfigMismatchRemedy(service string) string {

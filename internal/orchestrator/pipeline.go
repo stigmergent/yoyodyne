@@ -456,7 +456,13 @@ type Pipeline struct {
 	// the same way: a red landing nothing can file is still recorded and reported
 	// as red, with the record saying no item could be filed and why.
 	Filer WorkFiler
-	Clock execution.Clock
+	// ConfigReaders is what the running parts of the product recorded about the
+	// configuration keys their builds read. A landing asks it, once the run is
+	// over, which running parts cannot read the configuration the landing left,
+	// and names each on the item and in the outcome. It is optional: a pipeline
+	// wired without one lands exactly as it would have and names nothing.
+	ConfigReaders ConfigReaders
+	Clock         execution.Clock
 	// Sleep waits out a usage-limit pause. It is a field so a test can drive a
 	// pause without spending the real time, and so the wait is always cut short
 	// by a cancelled context rather than holding the process past a shutdown.
@@ -708,9 +714,13 @@ type Outcome struct {
 	// LandingChecks is what the landing checks made of the integrated commit,
 	// once the run was over. It is absent from a run that integrated nothing and
 	// from a project that configured no landing checks.
-	LandingChecks *runstate.LandingChecks   `json:"landing_checks,omitempty"`
-	Changes       gitworktree.ChangeSummary `json:"changes"`
-	Summary       string                    `json:"summary,omitempty"`
+	LandingChecks *runstate.LandingChecks `json:"landing_checks,omitempty"`
+	// ConfigMismatches is every running part of the product whose build cannot
+	// read a key in the configuration this landing left, as the landing found
+	// them once the run was over. It is absent where every part reads the file.
+	ConfigMismatches []runstate.ConfigMismatch `json:"config_mismatches,omitempty"`
+	Changes          gitworktree.ChangeSummary `json:"changes"`
+	Summary          string                    `json:"summary,omitempty"`
 	// Reports are what this run's agents noticed and reported while their work
 	// carried on: risks worked around, assumptions that may not hold, things
 	// outside the assigned work. They are collected beside the run rather than
@@ -5706,6 +5716,11 @@ func (a *activeRun) finish(ctx context.Context) (Outcome, error) {
 		return a.pipeline.reportOutstandingCleanup(a.state, a.outcome, err)
 	}
 	a.observe(ctx, deliveryCleanUp, "cleaned")
+	// A landing that added a configuration key leaves every part still running
+	// a build from before the key refusing the whole file, so the parts that
+	// cannot read what landed are named now, on the item and in the outcome,
+	// rather than found by whoever next looks at the dashboard.
+	a.nameUnreadingParts()
 	// The landing checks come after everything the run is judged by. The run is
 	// terminal, its item is settled, and its artifacts are gone; what runs now is
 	// over the target branch rather than over the change, and nothing it finds
@@ -5843,6 +5858,45 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 		landed.Problem = strings.Join(append(problems, fmt.Sprintf("the item could not be told: %v", err)), "; ")
 		a.saveLanding(landed)
 	}
+}
+
+// ConfigReaders is what the running parts of the product recorded about the
+// configuration keys their builds read, compared against the file each reads.
+// It is satisfied by *runstate.ConfigReaderStore.
+type ConfigReaders interface {
+	Mismatches() ([]runstate.ConfigMismatch, error)
+}
+
+// nameUnreadingParts compares the configuration this landing left against
+// every running part of the product, and names each part whose build cannot
+// read a key in it — the part, its build, its process, and the keys — on the
+// item and in the outcome. Like the landing checks it judges nothing about the
+// run, which is over: what it finds is news about the running parts, and the
+// part moves onto a build that reads the key the way the attention line says.
+// A comparison that could not be made whole is said as that rather than as
+// every part reading the file.
+func (a *activeRun) nameUnreadingParts() {
+	p := a.pipeline
+	if a.outcome.Integration == nil || p.ConfigReaders == nil {
+		return
+	}
+	mismatches, err := p.ConfigReaders.Mismatches()
+	a.outcome.ConfigMismatches = mismatches
+	if len(mismatches) == 0 && err == nil {
+		return
+	}
+	lines := make([]string, 0, len(mismatches)+1)
+	for _, mismatch := range mismatches {
+		lines = append(lines, mismatch.Says()+"; "+runstate.ConfigMismatchRemedy(mismatch.Service))
+	}
+	if err != nil {
+		lines = append(lines, "whether every running part of the product can read the configuration could not be read whole: "+err.Error())
+	}
+	noteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// A note the item will not take loses only the note: the outcome still
+	// carries the mismatches, and `yoyo status` names them from the records.
+	_, _ = p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, "Running parts that cannot read the configuration this landing left: "+strings.Join(lines, "; "))
 }
 
 // landingQueueSlack is the margin a landing's wait allows beyond the checks of

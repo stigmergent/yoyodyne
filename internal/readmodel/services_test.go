@@ -153,9 +153,8 @@ func (f fakeConfigReaders) Mismatches() ([]runstate.ConfigMismatch, error) {
 }
 
 // A running part whose build cannot read the configuration is on the attention
-// line naming the part, its build, and the key: under the operator's head for
-// the dashboard, which nothing restarts yet, and the harness's for the watch,
-// which restarts itself into a deployed build.
+// line naming the part, its build, and the key, as the harness's move — the
+// dashboard as well as the watch, with what restarts each said beside it.
 func TestAPartWhoseBuildCannotReadTheConfigurationIsNamed(t *testing.T) {
 	t.Parallel()
 
@@ -175,8 +174,8 @@ func TestAPartWhoseBuildCannotReadTheConfigurationIsNamed(t *testing.T) {
 			}
 		}
 	}
-	if movers["dashboard"] != MoverOperator || movers["scheduler"] != MoverHarness {
-		t.Fatalf("movers = %v, want the dashboard the operator's and the scheduler the harness's", movers)
+	if movers["dashboard"] != MoverHarness || movers["scheduler"] != MoverHarness {
+		t.Fatalf("movers = %v, want both the harness's", movers)
 	}
 	rendered := standing.Render()
 	if !strings.Contains(rendered, "the dashboard service, running build 0364141b2c3d") {
