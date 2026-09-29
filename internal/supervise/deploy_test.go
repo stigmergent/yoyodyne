@@ -378,3 +378,95 @@ func TestADeathWithNoDeployIsStillADeath(t *testing.T) {
 		t.Errorf("scheduler = %+v, want a death counted and no restart recorded", got)
 	}
 }
+
+// passingChild is the sink: its work comes in passes, and the supervisor holds
+// it between two of them for the length of its stop.
+type passingChild struct {
+	*deployableChild
+	inPass bool
+	held   bool
+}
+
+func (p *passingChild) HoldBetweenPasses(context.Context) (func(), string, error) {
+	if p.inPass {
+		return nil, "the pass over the records it is making", nil
+	}
+	p.held = true
+	p.note("hold")
+	return func() { p.held = false; p.note("release") }, "", nil
+}
+
+// A part in the middle of a pass is restarted only once the pass is over, and
+// is held from starting another for as long as its stop takes, so the restart
+// lands between two passes.
+func TestARestartWaitsOutAPassAndHoldsThePartBetweenPassesWhileItStops(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	var events []string
+	sink := &passingChild{deployableChild: newDeployable(config.ServiceSlack, binary, &events)}
+	supervisor := deploySupervisor(t, store, clock, binary, sink)
+	supervisor.Tick(context.Background())
+
+	sink.inPass = true
+	binary.deploy(t, "2222222222222222")
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	if sink.stopCount() != 0 {
+		t.Fatalf("stops = %d, want a part in the middle of a pass left running", sink.stopCount())
+	}
+	waiting := child(t, loaded(t, store), config.ServiceSlack)
+	if !strings.Contains(waiting.Redeploy, "once it finishes the pass over the records it is making") || waiting.RestartingInto != "" {
+		t.Fatalf("slack = %+v, want it waiting out the pass with no restart begun", waiting)
+	}
+
+	sink.inPass = false
+	events = nil
+	clock.advance(DeployEvery)
+	supervisor.Tick(context.Background())
+	if got, want := strings.Join(events, ","), "slack hold,slack stop,slack release,slack start"; got != want {
+		t.Fatalf("events = %s, want %s: held between passes for the stop, and let go before the part in its place starts", got, want)
+	}
+	if sink.held {
+		t.Error("the part is still held between passes after its restart, so the part started in its place would never make one")
+	}
+	if got := child(t, loaded(t, store), config.ServiceSlack); got.Build != "2222222222222222" || got.Restarts != 1 || got.Failures != 0 {
+		t.Errorf("slack = %+v, want it moved onto the deployed build as one restart", got)
+	}
+}
+
+// A part the supervisor found already running is on its build since a moment
+// the supervisor never saw, so the record gives no date for it rather than the
+// moment of the first look; a move the supervisor sees is dated.
+func TestAReattachedPartIsNotDatedOnItsBuildUntilItMoves(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)}
+	binary := newBinary(t, "1111111111111111")
+	scheduler := selfRestartingChild{newDeployable(config.ServiceScheduler, binary, nil)}
+	scheduler.running, scheduler.pid, scheduler.build = true, 555, "1111111111111111"
+	supervisor := deploySupervisor(t, store, clock, binary, scheduler)
+
+	supervisor.Tick(context.Background())
+	got := child(t, loaded(t, store), config.ServiceScheduler)
+	if got.Build != "1111111111111111" || !got.BuildSince.IsZero() {
+		t.Fatalf("scheduler = %+v, want its build known and no date given for when it moved there", got)
+	}
+	if said := DescribeChild(got); !strings.Contains(said, "on build 111111111111") || strings.Contains(said, "since") {
+		t.Errorf("DescribeChild = %q, want the build named with no date the record does not have", said)
+	}
+
+	binary.deploy(t, "2222222222222222")
+	scheduler.letGo()
+	clock.advance(DefaultPoll)
+	supervisor.Tick(context.Background())
+	scheduler.comeBack()
+	clock.advance(DefaultPoll)
+	supervisor.Tick(context.Background())
+	if moved := child(t, loaded(t, store), config.ServiceScheduler); moved.Build != "2222222222222222" || !moved.BuildSince.Equal(clock.Now()) {
+		t.Errorf("scheduler = %+v, want the move it was seen to make dated", moved)
+	}
+}

@@ -566,3 +566,50 @@ func TestTheRealChildrenSayWhichBuildTheyRunAndWhatTheyAreDoing(t *testing.T) {
 		t.Fatal("the sink says it restarts itself, so nothing would move it onto a deployed build")
 	}
 }
+
+// Every part the supervisor starts has to say which build it runs, or a deploy
+// never reaches it — which is how the dashboard served a day and a half from a
+// stale build. So a part adopted as a child (the dashboard's adoption,
+// yoyodyne-ifd.414, first among them) cannot land without it: this fails for any
+// child that does not.
+func TestEveryPartTheSupervisorStartsIsMovedOntoADeployedBuild(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := config.LoadResolved(writeConfig(t, validConfig+`slack:
+  enabled: true
+  channel: C0123456789
+services:
+  slack:
+    enabled: true
+  dashboard:
+    enabled: true
+  scheduler:
+    enabled: true
+  maintenance:
+    enabled: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &product{resolved: resolved, stateRoot: t.TempDir(), program: "/opt/yoyo/bin/yoyo", launcher: slack.DetachedLauncher{}, goos: "darwin"}
+	children, _, _, err := p.realChildren()
+	if err != nil {
+		t.Fatalf("realChildren() error = %v", err)
+	}
+	if len(children) == 0 {
+		t.Fatal("realChildren() started nothing with every part enabled")
+	}
+	for _, child := range children {
+		if _, ok := child.(supervise.Deployable); !ok {
+			t.Errorf("the %s service is not a supervise.Deployable: it does not say which build it runs or what it is in the middle of, so no deploy would ever move it", child.Name())
+		}
+		_, self := child.(supervise.RestartsItself)
+		_, passes := child.(supervise.Passes)
+		if child.Name() == config.ServiceSlack && !passes {
+			t.Error("the slack service cannot be held between passes, so a restart into a deployed build could land in the middle of one")
+		}
+		if child.Name() == config.ServiceScheduler && !self {
+			t.Error("the scheduler does not say it restarts itself, so the supervisor would stop it and cancel its runs")
+		}
+	}
+}

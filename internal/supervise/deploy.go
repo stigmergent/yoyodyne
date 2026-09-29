@@ -54,6 +54,15 @@ type Deployable interface {
 	Busy(ctx context.Context) (string, error)
 }
 
+// Passes is a child whose work comes in passes — the Slack sink's passes over
+// the records. HoldBetweenPasses keeps it from starting another pass until
+// release is called, so a restart lands between two passes rather than inside
+// one; where it could not, because a pass is under way, it says what that pass
+// is and holds nothing.
+type Passes interface {
+	HoldBetweenPasses(ctx context.Context) (release func(), pass string, err error)
+}
+
 // RestartsItself is a child that takes a deployed build up on its own, in its
 // own time, so the supervisor waits for it rather than stopping it. What it
 // returns says how, in the words the record carries.
@@ -147,8 +156,16 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		return
 	}
 	if build != "" && build != state.Build {
+		// When a part moved is known only where the supervisor saw it move: a
+		// part it reattached was on its build since some moment before the
+		// supervisor looked, and saying it moved at the first look would be a
+		// date the record does not have.
+		if state.Build != "" {
+			state.BuildSince = now
+		} else {
+			state.BuildSince = time.Time{}
+		}
 		state.Build = build
-		state.BuildSince = now
 	}
 	if state.RestartingInto != "" && build == state.RestartingInto {
 		s.restarted(child, state, now, "took the deployed build up itself")
@@ -189,10 +206,27 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 // ordinary lease-checked start, so a part restarted here holds exactly what it
 // held before.
 func (s *Supervisor) restart(ctx context.Context, child Child, state *runstate.SupervisedChild, now time.Time, from string) {
+	behind := fmt.Sprintf("on build %s, behind the deployed %s", short(from), short(s.deployed))
+	release := func() {}
+	if between, ok := child.(Passes); ok {
+		held, pass, err := between.HoldBetweenPasses(ctx)
+		switch {
+		case err != nil:
+			state.Redeploy = fmt.Sprintf("%s; not restarted, because it could not be held between two passes: %v", behind, err)
+			return
+		case pass != "":
+			state.Redeploy = fmt.Sprintf("%s; restarted into it once it finishes %s", behind, pass)
+			return
+		}
+		release = held
+	}
 	state.RestartingInto = s.deployed
 	state.Redeploy = fmt.Sprintf("restarting from build %s into the deployed %s", short(from), short(s.deployed))
 	s.log("the %s service is on build %s and %s was deployed over it; restarting it into the deployed build", child.Name(), short(from), short(s.deployed))
 	stopped, err := child.Stop(ctx)
+	// Let go once the part is stopped, so the part started in its place can take
+	// its passes up; it is held no longer than the stop.
+	release()
 	if err != nil {
 		state.RestartingInto = ""
 		state.Redeploy = fmt.Sprintf("on build %s, behind the deployed %s; it could not be stopped to move it, and is tried again at the next look: %v", short(from), short(s.deployed), err)

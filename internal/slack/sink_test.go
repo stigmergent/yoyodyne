@@ -1971,3 +1971,77 @@ func workItemTopic(t *testing.T, id string) notify.Topic {
 	}
 	return topic
 }
+
+// A pass is made under the pass lease, and a sink that finds the lease held —
+// the supervisor stopping it to restart it into a deployed build — makes no pass
+// rather than starting one the stop would land in the middle of.
+func TestASinkMakesNoPassWhileItsPassLeaseIsHeldElsewhere(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	posts := &recordedPosts{}
+	sink := newTestSink(t, root, &fixedFeed{deliveries: []Delivery{milestone(1, notify.KindRunStarted)}}, posts)
+
+	held, taken, err := sink.store.PassLease()
+	if err != nil || !taken {
+		t.Fatalf("PassLease() = %t, %v, want it free before any pass", taken, err)
+	}
+	if err := sink.heldPass(context.Background()); err != nil {
+		t.Fatalf("heldPass() error = %v", err)
+	}
+	if len(posts.requests) != 0 {
+		t.Fatalf("posts = %d, want no pass made while another holds the pass lease", len(posts.requests))
+	}
+	if err := held.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+
+	if err := sink.heldPass(context.Background()); err != nil {
+		t.Fatalf("heldPass() error = %v", err)
+	}
+	if len(posts.requests) == 0 {
+		t.Fatal("posts = 0, want the pass made once the lease is free")
+	}
+	// And the pass let the lease go when it ended, so a restart can take it.
+	again, taken, err := sink.store.PassLease()
+	if err != nil || !taken {
+		t.Fatalf("PassLease() after a pass = %t, %v, want it free between passes", taken, err)
+	}
+	again.Release()
+}
+
+// leaseProbingFeed asks for the pass lease from inside a pass, which is what the
+// supervisor does when it wants to restart the sink while the pass is going.
+type leaseProbingFeed struct {
+	store *Store
+	taken *bool
+}
+
+func (f leaseProbingFeed) Poll(context.Context, Cursors) (Batch, error) {
+	lease, taken, err := f.store.PassLease()
+	if err == nil && taken {
+		lease.Release()
+	}
+	*f.taken = taken
+	return Batch{}, err
+}
+
+// While a pass is under way the pass lease is the sink's, so a supervisor asking
+// for it is told a pass is going and waits rather than stopping the sink inside it.
+func TestAPassHoldsThePassLeaseForItsWholeLength(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := NewStore(root, testProduct)
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	taken := true
+	sink := newTestSink(t, root, leaseProbingFeed{store: store, taken: &taken}, &recordedPosts{})
+	if err := sink.heldPass(context.Background()); err != nil {
+		t.Fatalf("heldPass() error = %v", err)
+	}
+	if taken {
+		t.Fatal("the pass lease was taken from inside a pass, want it held by the pass for its whole length")
+	}
+}

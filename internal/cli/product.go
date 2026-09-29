@@ -565,6 +565,10 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 			// The dashboard's adoption as a child is yoyodyne-ifd.414; until it
 			// lands the command is started by hand, and the product says so
 			// rather than starting a part it does not know how to.
+			// The child that adoption adds has to be a supervise.Deployable —
+			// saying which build it runs and which request it is serving — or no
+			// deploy reaches it; TestEveryPartTheSupervisorStartsIsMovedOntoADeployedBuild
+			// fails for a child that is not.
 			notYet = append(notYet, supervise.NotYet{
 				Name:   name,
 				Reason: "its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`",
@@ -643,10 +647,8 @@ func (c slackChild) Build(context.Context) (string, error) {
 }
 
 // Busy is a product manager turn the sink is answering in a thread, which a
-// restart would cut off in the middle. A pass over the records is not waited
-// for: a stopped sink stops between two deliveries with its cursors where the
-// last one left them, so the sink started in its place carries on from there
-// and nothing is posted twice or dropped.
+// restart would cut off in the middle. A pass over the records is the other
+// thing a restart waits out, and HoldBetweenPasses is how.
 func (c slackChild) Busy(context.Context) (string, error) {
 	pid := c.presencePID()
 	if pid <= 0 || c.conversations == nil {
@@ -657,6 +659,22 @@ func (c slackChild) Busy(context.Context) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("the turn it is answering in the %s conversation", strings.Join(held, " and ")), nil
+}
+
+// HoldBetweenPasses takes the sink's pass lease, which the sink holds for each
+// pass over the records, so the sink starts no pass while the supervisor stops
+// it. A lease the sink is holding is a pass under way, which the restart waits
+// for: a sink stopped while a post is on its way can have the post land with its
+// cursor never written, and the sink started in its place posts it again.
+func (c slackChild) HoldBetweenPasses(context.Context) (func(), string, error) {
+	lease, held, err := c.store.PassLease()
+	if err != nil {
+		return nil, "", err
+	}
+	if !held {
+		return nil, "the pass over the records it is making", nil
+	}
+	return func() { _ = lease.Release() }, "", nil
 }
 
 func (c slackChild) Stop(ctx context.Context) (supervise.Stopped, error) {

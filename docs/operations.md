@@ -170,15 +170,20 @@ the part is doing:
   cancel those runs. The moment the session lets its lease go to re-execute is
   read as that restart rather than as a death, and a session that has not taken
   its lease back thirty seconds later is started from the binary.
-- **The Slack sink is restarted by the supervisor**, once it is not answering a
-  product manager turn in a thread: it is stopped the way `yoyo stop` stops it
-  and started again from the binary. A pass over the records is not waited
-  for, because none needs to be: a stopped sink stops between two deliveries
-  with its cursors where the last one left them, and the sink started in its
-  place carries on from there.
+- **The Slack sink is restarted by the supervisor**, between two passes over
+  the records and never while it is answering a product manager turn in a
+  thread. The sink makes each pass under a lease of its own; the supervisor
+  waits while a pass holds it, then takes it itself for the length of the stop,
+  so the sink starts no new pass while it is being stopped, and lets it go
+  before the sink is started again from the binary. A stop landing inside a
+  pass could post a message whose cursor was never written, and the sink in its
+  place would post it again; waiting the pass out is what rules that out.
 - **The dashboard** is moved the same way as soon as it is a child of the
   supervisor, which is `yoyodyne-ifd.414`; until then it is started by hand and
-  restarted by hand.
+  restarted by hand. A part can only become a child by saying which build it
+  runs and what it is in the middle of — a test over the parts the supervisor
+  starts fails for one that does not — so the dashboard cannot be adopted
+  without a deploy reaching it.
 
 A part somebody started by hand, and the supervisor took back, is moved exactly
 as one the supervisor started. Every move is recorded as a restart and not as
@@ -202,7 +207,10 @@ Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1
 A product no supervisor has run for prints no such line. `--json` carries the
 same under `standing.services`: the binary's build as the record's `deployed`,
 and each part's `build`, `build_since`, `restarts`, `restarted_at`, and, while a
-move is under way, `restarting_into` and `redeploy`. A part whose build cannot
+move is under way, `restarting_into` and `redeploy`. A part the supervisor found
+already running is named on its build with no date, because it moved there
+before the supervisor looked; the date appears once the supervisor has seen it
+move. A part whose build cannot
 be read — one that recorded none, such as a binary built without Go's stamp —
 is compared with nothing and moved by nothing, and its line names no build.
 
