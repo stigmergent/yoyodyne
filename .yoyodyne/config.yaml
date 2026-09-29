@@ -309,6 +309,12 @@ agents:
     # judgment pays. Same rule as the product and development managers.
     model: fable
     effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
+    # Served by opus while fable has no capacity, at the operator's direction of
+    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
+    # and every management role stopped. Back on fable once it has capacity.
+    failover:
+      enabled: true
+      model: opus
     instances: 1
     persona:
       version: v2
@@ -332,6 +338,12 @@ agents:
     backend: claude-code
     model: fable
     effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
+    # Served by opus while fable has no capacity, at the operator's direction of
+    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
+    # and every management role stopped. Back on fable once it has capacity.
+    failover:
+      enabled: true
+      model: opus
     instances: 1
     persona:
       version: v3
@@ -356,6 +368,12 @@ agents:
     # product manager below.
     model: fable
     effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
+    # Served by opus while fable has no capacity, at the operator's direction of
+    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
+    # and every management role stopped. Back on fable once it has capacity.
+    failover:
+      enabled: true
+      model: opus
     instances: 1
     persona:
       version: v2
@@ -368,6 +386,12 @@ agents:
     # family alias floats; run evidence records what the provider served.
     model: fable
     effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
+    # Served by opus while fable has no capacity, at the operator's direction of
+    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
+    # and every management role stopped. Back on fable once it has capacity.
+    failover:
+      enabled: true
+      model: opus
     instances: 1
     persona:
       version: v2
