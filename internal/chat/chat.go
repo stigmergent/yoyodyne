@@ -999,6 +999,31 @@ type Reply struct {
 	Evidence Evidence        `json:"evidence"`
 }
 
+// AdmittedWork is every work item this reply put in the queue, by identifier,
+// once each: the items admitted from its proposals without asking, and the
+// creations among its tracker actions that the tracker carried out.
+func (r Reply) AdmittedWork() []string {
+	seen := map[string]bool{}
+	var admitted []string
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		admitted = append(admitted, id)
+	}
+	for _, item := range r.Admitted {
+		add(item.WorkItemID)
+	}
+	for _, outcome := range r.Actions {
+		if outcome.Applied && outcome.Action.Action == actionCreate {
+			add(outcome.WorkItemID)
+		}
+	}
+	return admitted
+}
+
 // Open loads or starts a role's conversation. A recorded conversation with a
 // provider session is resumed; anything else starts a new one, because a
 // conversation with no session cannot be continued and pretending otherwise

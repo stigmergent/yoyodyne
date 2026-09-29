@@ -759,6 +759,24 @@ same persona, the same authority, the same `handle` action — and what each pas
 decided is on the record twice over, as a handling beside each report and as the
 pass's own durable account in `yoyo sweeps`.
 
+**A finding has to leave a trace outside the pass's account.** The account in
+`yoyo sweeps` is read by a person; the role never reads it back, and its
+conversation is compacted. So a pass of any role that reports findings has to
+leave, on the same pass, at least one of four traces: a memory written, its lane
+report changed where it keeps one, a report filed, or work admitted. Every sweep
+and pass message says so. After each pass the harness reads whether the account
+reported findings of the role's own — the forge's open pull requests the harness
+lists on a development manager's pass are not hers — and whether any of the four
+happened. A pass that found something and left none is recorded as untraced:
+`yoyo sweeps` marks it `UNTRACED`, and `--json` carries `untraced` beside the
+traces it counted, `saved`, `reports_filed`, and `admitted`. The task's next pass
+that takes a turn is told which findings they were, so the role can leave the
+trace then, and until that pass the untraced pass is an entry on the attention
+line with the role as the one to move, under `Waiting on the development
+manager` or whichever role's pass it was. It asks nothing of a person. The
+dashboard's factory-problems section, once it is built, is meant to show it as
+one of that section's problems.
+
 Whether it is keeping up, or whether there is no cadence at all, is a question
 about a week rather than about a moment, so every listing of the pile leads with
 the two numbers that answer it:

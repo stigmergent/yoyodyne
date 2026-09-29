@@ -43,6 +43,12 @@ type scriptedTurn struct {
 	cost    float64
 	// model is the model the turn says served it.
 	model string
+	// saved, reports, and admitted are the traces the turn says it left: the
+	// memory and lane-report writes it saved, how many reports it filed, and
+	// the work it admitted.
+	saved    []runstate.SavedWrite
+	reports  int
+	admitted []string
 }
 
 func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string) (Turn, error) {
@@ -58,7 +64,10 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 	}
 	answer := r.answers[0]
 	r.answers = r.answers[1:]
-	return Turn{ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem}, answer.err
+	return Turn{
+		ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem,
+		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted,
+	}, answer.err
 }
 
 func sweepStore(t *testing.T) *runstate.SweepStore {

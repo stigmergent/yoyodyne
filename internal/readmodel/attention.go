@@ -96,6 +96,10 @@ const (
 	// one that nothing could read. The item is the WorkItemID and the gate's
 	// name is the ID.
 	AttentionHumanGate AttentionKind = "human-gate"
+	// AttentionUntracedPass is a role's last pass that reported findings and
+	// left no trace of them outside its account. The task is the ID, and the
+	// role is the mover.
+	AttentionUntracedPass AttentionKind = "untraced-pass"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -118,6 +122,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionOperatorAction,
 		AttentionProductDecision,
 		AttentionHumanGate,
+		AttentionUntracedPass,
 	}
 }
 
@@ -175,6 +180,10 @@ const (
 	MoverProductManager     = Mover(domain.RoleProductManager)
 	MoverArchitect          = Mover(domain.RoleArchitect)
 	MoverDevelopmentManager = Mover(domain.RoleDevelopmentManager)
+	// MoverProgramManager is a program manager instance, on an entry about its
+	// own passes: the one role whose agents are many, so the entry's record names
+	// which instance.
+	MoverProgramManager = Mover(domain.RoleProgramManager)
 )
 
 // MoverOf is the mover for one of the harness's roles, and the unnamed mover
@@ -198,6 +207,7 @@ func Movers() []Mover {
 		MoverProductManager,
 		MoverArchitect,
 		MoverDevelopmentManager,
+		MoverProgramManager,
 		Mover(domain.RoleDeveloper),
 		Mover(domain.RoleReviewer),
 		MoverHarness,
@@ -380,6 +390,9 @@ type Attention struct {
 	// HumanGate is the step the item reserves for a person, on an
 	// AttentionHumanGate entry; the item is WorkItemID.
 	HumanGate *HumanGateWait `json:"human_gate,omitempty"`
+	// UntracedPass is the pass and the findings it left no trace of, on an
+	// AttentionUntracedPass entry; the task is the ID.
+	UntracedPass *UntracedPass `json:"untraced_pass,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -595,6 +608,10 @@ func (a Attention) What() string {
 			return fmt.Sprintf("%s while run %s is in flight, decided by %s: %s",
 				a.ProductDecision.Says(a.WorkItemID), a.ID, a.ProductDecision.DecidedBy, singleLine(a.ProductDecision.Reason, maxRefusalBytes))
 		}
+	case AttentionUntracedPass:
+		if a.UntracedPass != nil {
+			return a.UntracedPass.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -686,6 +703,8 @@ func (a Attention) Whose() string {
 		}
 	case AttentionProductDecision:
 		return a.Mover.Possessive() + " — it is on her docket: \"stop\" stops the run with its change preserved and \"proceed\" lets it finish, and the run goes on until she records one"
+	case AttentionUntracedPass:
+		return a.Mover.Possessive() + " — its next pass is told which findings they were, and a pass of the task that takes a turn clears this; nothing here needs a person"
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }

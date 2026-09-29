@@ -19,6 +19,7 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 		MoverProductManager:     "Waiting on the Lead Product Manager (1):\n",
 		MoverArchitect:          "Waiting on the architect (1):\n",
 		MoverDevelopmentManager: "Waiting on the development manager (1):\n",
+		MoverProgramManager:     "Waiting on the program manager (1):\n",
 		Mover("developer"):      "Waiting on the developer (1):\n",
 		Mover("reviewer"):       "Waiting on the reviewer (1):\n",
 		MoverHarness:            "Waiting on the harness (1):\n",

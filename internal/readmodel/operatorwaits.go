@@ -73,6 +73,10 @@ func (a Attention) Since() time.Time {
 		if a.OperatorAction != nil {
 			return a.OperatorAction.Since
 		}
+	case AttentionUntracedPass:
+		if a.UntracedPass != nil {
+			return a.UntracedPass.StartedAt
+		}
 	}
 	return time.Time{}
 }
