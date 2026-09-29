@@ -110,11 +110,14 @@ through a fixed set of named operations the harness carries
 out for it — read an item in full, survey the open queue, create, attribute to a
 goal, update, label and unlabel, reparent, reprioritize, park and unpark, link
 and unlink a dependency, repair state the records have made stale, close, and
-retire. Two further operations are about none of that: `handle` records
+retire. Three further operations are about none of that: `handle` records
 what became of a report another role filed, which is how the pile it is shown
 [stops being asked about](reporting.md#who-reads-them-and-what-became-of-each-one),
-and `withdraw` takes back a proposal of the Lead Product Manager's own that you
-have not decided yet ([below](#proposals-and-deciding-them-in-batches)). Every
+`withdraw` takes back a proposal of the Lead Product Manager's own that you
+have not decided yet ([below](#proposals-and-deciding-them-in-batches)), and
+`directive` ends a directive you recorded, by resolving it into what now carries
+it or withdrawing one that directs nothing
+([below](#directives-and-the-work-they-pause)). Every
 argument is validated before anything runs, at most ten actions happen per reply,
 each one is recorded in the conversation's log as asked-for and then as applied
 or failed, and all of them are printed to you as they happen. An action that
@@ -1010,11 +1013,13 @@ smaller pull requests" is still the instruction after the work it prompted is
 admitted, so it still applies and stays in the listing, now with an account of
 what it produced under it.
 
-What ends a directive is you withdrawing it. `/withdraw <id> <why you no longer
-mean it>` takes it out of force: nothing is enforced against it from then on, no
+What ends a directive is you withdrawing it, or the Lead Product Manager ending
+it from her conversation, as described below.
+`/withdraw <id> <why you no longer mean it>` takes it out of force: nothing is enforced against it from then on, no
 run is held by it, and `/directives` stops listing it among what still applies.
-It is the only thing that ends an operational directive, which otherwise stands
-from the moment it is recorded and never lapses — including one that was never an
+It and the Lead Product Manager's two endings are the only things that end an
+operational directive, which otherwise stands from the moment it is recorded
+and never lapses — including one that was never an
 instruction, like a question the harness read as a directive, which would
 otherwise be listed as live direction and met by every run forever.
 
@@ -1067,7 +1072,33 @@ therefore pauses all of it, which is the safe reading rather than a clever one.
 recorded from the conversation names none, so it pauses everything and reports
 the work in flight and claimed as what it just stopped.
 
-Only you reach any of this. The Lead Product Manager owns what the queue says and the
+**The Lead Product Manager can end a directive too**, from her own tracker block,
+so a directive she has carried into a document or a question that was recorded
+as one does not wait on you to type a command. The `directive` action names the
+directive by its identifier or any prefix that names exactly one, says which
+ending it is, and says why:
+
+```text
+{"action":"directive","directive":"directive-e824","decision":"resolve","became":"docs/product/operating-rules.md","reason":"written into the operating rules as a standing rule"}
+{"action":"directive","directive":"directive-05d6","decision":"withdraw","reason":"a question, not a direction"}
+```
+
+`resolve` is for a directive whose content now lives somewhere else: a standing
+rule written into a product document, or an instruction a work item answers in
+full. `became` names that document by its path or that item by its identifier,
+and is required. The directive stops applying as a directive, and its record
+says what it became, why, and who did it. An operational directive keeps any
+outcome it had already collected beside that, and a directive that pauses work
+is resolved with her reason as the answer, which lifts the pause. `withdraw` is
+for a directive that directs nothing, and takes no `became`: it is recorded
+exactly as your withdrawal is, with her named as who withdrew it. Either way the
+record names her role, her conversation, and the turn, never you, and
+`/directives` and `yoyo directive list --all` show it under what no longer
+applies, with your words kept. A directive that has already ended, however it
+ended, is refused, and the refusal says how it ended. No other role holds the
+action.
+
+Apart from ending one, only you reach any of this. The Lead Product Manager owns what the queue says and the
 order it is in; running, stopping, and redirecting the work itself stays yours,
 so nothing it writes starts or stops anything — a reply that contains `/work` is
 prose. What it does get is an account of what you had the harness do, carried
@@ -1196,7 +1227,7 @@ project rewrites any persona it likes and the boundaries do not move:
 
 | Role | Reads the tracker | Writes to the tracker | Reads the repository by path | Its own documents |
 | --- | --- | --- | --- | --- |
-| Lead Product Manager | yes | admits (governed by [`approvals.work_items`](configuration.md#what-reaches-the-queue)), orders, attributes, labels, parks and releases, closes, retires, [repairs stale state](#backlog-state-that-has-stopped-being-true) | yes, [labelled as description](#reading-the-repository-at-a-recorded-commit) | brief and goals: proposes, never writes |
+| Lead Product Manager | yes | admits (governed by [`approvals.work_items`](configuration.md#what-reaches-the-queue)), orders, attributes, labels, parks and releases, closes, retires, [repairs stale state](#backlog-state-that-has-stopped-being-true), [ends a directive](#directives-and-the-work-they-pause) | yes, [labelled as description](#reading-the-repository-at-a-recorded-commit) | brief and goals: proposes, never writes |
 | architect | yes | nothing | yes | designs, decisions, invariants: decides, and you record |
 | development manager | yes | creates and links **only underneath admitted work**; updates and labels items; records triage decisions on stopped work | yes | none |
 | developer, reviewer | yes | nothing | no | none |

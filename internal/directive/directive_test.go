@@ -560,6 +560,115 @@ func TestValidateHoldsAWithdrawalToWhoAndWhen(t *testing.T) {
 	}
 }
 
+// A standing instruction written into a document is resolved into it: it stops
+// applying as a directive, says what it became, who did it and why, and keeps the
+// outcome it had collected while it stood.
+func TestResolvingAStandingDirectiveIntoADocumentEndsIt(t *testing.T) {
+	t.Parallel()
+
+	carried, err := operational().CarryOut("admitted yoyodyne-ifd.170 to the backlog", recordedAt.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("CarryOut() error = %v", err)
+	}
+	ended, err := carried.ResolveInto("docs/product/operating-rules.md",
+		"the Lead Product Manager, from conversation chat-1, after turn 956", domain.RoleProductManager,
+		"written into the operating rules", recordedAt.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("ResolveInto() error = %v", err)
+	}
+	if ended.InForce() || !ended.ResolvedInto() {
+		t.Fatalf("ended = %#v, want it out of force and resolved into the document", ended)
+	}
+	if ended.Resolution != "admitted yoyodyne-ifd.170 to the backlog" {
+		t.Fatalf("resolution = %q, want the earlier outcome kept", ended.Resolution)
+	}
+	rendered := ended.Render()
+	for _, want := range []string{
+		"carried out " + recordedAt.Add(time.Hour).Format(time.RFC3339),
+		"resolved into docs/product/operating-rules.md",
+		"(as the lead product manager)",
+		"written into the operating rules",
+	} {
+		if !strings.Contains(strings.ToLower(rendered), strings.ToLower(want)) {
+			t.Errorf("Render() = %q, want it to contain %q", rendered, want)
+		}
+	}
+	// Nothing further is written onto it, however it would have ended.
+	if _, err := ended.ResolveInto("docs/elsewhere.md", "someone", "", "again", recordedAt.Add(3*time.Hour)); err == nil ||
+		!strings.Contains(err.Error(), "was resolved into docs/product/operating-rules.md") {
+		t.Fatalf("ResolveInto() again error = %v, want a refusal naming the first", err)
+	}
+	if _, err := ended.Withdraw("the operator, at a command line", "", "never mind", recordedAt.Add(3*time.Hour)); err == nil {
+		t.Fatal("Withdraw() on a resolved-into directive error = nil, want a refusal")
+	}
+	if _, err := ended.CarryOut("more", recordedAt.Add(3*time.Hour)); err == nil {
+		t.Fatal("CarryOut() on a resolved-into directive error = nil, want a refusal")
+	}
+}
+
+// Resolving a pausing directive into what carries it answers the pause with the
+// reason given, so every reader asking whether it was answered agrees.
+func TestResolvingAPausingDirectiveIntoAnItemLiftsThePause(t *testing.T) {
+	t.Parallel()
+
+	pausing := operational()
+	pausing.Kind = KindAmbiguous
+	pausing.Unresolved = "which of the two readings was meant"
+	pausing.Scope = []string{"yoyodyne-ifd.1"}
+	ended, err := pausing.ResolveInto("yoyodyne-ifd.2", "the Lead Product Manager, from conversation chat-1, after turn 3",
+		domain.RoleProductManager, "the second reading, admitted as its own item", recordedAt.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("ResolveInto() error = %v", err)
+	}
+	if !ended.Resolved() || ended.Resolution != "the second reading, admitted as its own item" || ended.Pauses() {
+		t.Fatalf("ended = %#v, want it resolved with the reason and holding nothing", ended)
+	}
+	if _, err := ended.Resolve("again", recordedAt.Add(2*time.Hour)); err == nil {
+		t.Fatal("Resolve() after ResolveInto() error = nil, want a refusal")
+	}
+}
+
+// Resolving refuses what would leave the record unanswerable, and a directive
+// that already ended some other way.
+func TestResolvingIntoRefusesWhatItCannotRecord(t *testing.T) {
+	t.Parallel()
+
+	recorded := operational()
+	for _, bad := range []struct{ became, by, reason string }{
+		{"", "someone", "why"},
+		{"docs/x.md", "", "why"},
+		{"docs/x.md", "someone", " "},
+		{"docs/x.md\nand more", "someone", "why"},
+	} {
+		if _, err := recorded.ResolveInto(bad.became, bad.by, "", bad.reason, recordedAt.Add(time.Hour)); err == nil {
+			t.Fatalf("ResolveInto(%q, %q, %q) error = nil, want a refusal", bad.became, bad.by, bad.reason)
+		}
+	}
+	withdrawn, err := recorded.Withdraw("the operator, at a command line", "", "a question", recordedAt.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Withdraw() error = %v", err)
+	}
+	if _, err := withdrawn.ResolveInto("docs/x.md", "someone", "", "why", recordedAt.Add(2*time.Hour)); err == nil ||
+		!strings.Contains(err.Error(), "was withdrawn at") {
+		t.Fatalf("ResolveInto() on a withdrawn directive error = %v, want a refusal naming the withdrawal", err)
+	}
+	pausing := operational()
+	pausing.Kind = KindAmbiguous
+	pausing.Unresolved = "which"
+	resolved, err := pausing.Resolve("the first", recordedAt.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if _, err := resolved.ResolveInto("docs/x.md", "someone", "", "why", recordedAt.Add(2*time.Hour)); err == nil {
+		t.Fatal("ResolveInto() on a resolved pausing directive error = nil, want a refusal")
+	}
+	half := operational()
+	half.Became = "docs/x.md"
+	if err := half.Validate(); err == nil || !strings.Contains(err.Error(), "requires who resolved it") {
+		t.Fatalf("Validate() of half a resolution error = %v, want a refusal", err)
+	}
+}
+
 func operational() Directive {
 	return Directive{
 		SchemaVersion: SchemaVersion,

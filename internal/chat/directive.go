@@ -62,6 +62,11 @@ type Directives interface {
 	// was made in, so a surface answering the thread it came from can answer in
 	// that voice.
 	Withdraw(ctx context.Context, reference, by string, role domain.AgentRole, reason string) (directive.Directive, error)
+	// ResolveInto ends a directive of any kind by naming the document or work item
+	// that now carries it, recording who did it and why. It is the Lead Product
+	// Manager's, through the tracker block's "directive" action, and the record
+	// refuses one that has already ended.
+	ResolveInto(ctx context.Context, reference, became, by string, role domain.AgentRole, reason string) (directive.Directive, error)
 }
 
 // DirectiveRequest is what the operator asked to have recorded. The harness

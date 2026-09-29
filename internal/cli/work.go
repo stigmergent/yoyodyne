@@ -141,6 +141,13 @@ func (d conversationDirectives) Withdraw(_ context.Context, reference, by string
 	return d.store.Withdraw(reference, by, role, reason, time.Now())
 }
 
+// ResolveInto ends a directive in the same product-scoped store by naming what
+// now carries it, so a directive the Lead Product Manager wrote into a document
+// stops reaching the runs every other process makes as live direction.
+func (d conversationDirectives) ResolveInto(_ context.Context, reference, became, by string, role domain.AgentRole, reason string) (directive.Directive, error) {
+	return d.store.ResolveInto(reference, became, by, role, reason, time.Now())
+}
+
 // Survey reads what the harness has in flight from durable run state and what
 // the work looks like from the tracker. The two are separate questions: a run
 // another process is executing is in the state whether or not the tracker has

@@ -262,6 +262,15 @@ func (s *DirectiveStore) Withdraw(reference, by string, role domain.AgentRole, r
 	})
 }
 
+// ResolveInto ends a directive by naming the document or work item that now
+// carries it, recording who did it and why. It is the Lead Product Manager's act
+// on a directive she carried somewhere; the record refuses one already ended.
+func (s *DirectiveStore) ResolveInto(reference, became, by string, role domain.AgentRole, reason string, at time.Time) (directive.Directive, error) {
+	return s.settle(reference, func(found directive.Directive) (directive.Directive, error) {
+		return found.ResolveInto(became, by, role, reason, at)
+	})
+}
+
 // settle is the one revision path: find what the reference names, let the record
 // itself decide whether the act is one it can take, and replace it. Every caller
 // goes through it so a revision is never written by one route that another would

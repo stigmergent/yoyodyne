@@ -136,6 +136,10 @@ var auditedDispositionReads = []dispositionSite{
 		Means: "names when a directive that is already out of force was settled, in the refusal. Whether it is out of force was asked of InForce a line above.",
 	},
 	{
+		File: "internal/directive/directive.go", Declaration: "(Directive) ResolveInto", Read: "ResolvedAt", Reads: 2,
+		Means: "names when a directive already out of force was settled, in the refusal, having asked InForce a line above; and writes the resolution a pausing directive takes when it is resolved into what carries it, so the pause reads as answered everywhere.",
+	},
+	{
 		File: "internal/directive/directive.go", Declaration: "(Directive) alreadySettled", Read: "ResolvedAt", Reads: 1,
 		Means: "names when it was settled, in the refusal of settling it again.",
 	},
