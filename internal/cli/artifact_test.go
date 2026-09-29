@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
 func TestArtifactsAreListedAndShownWithTheirIdentity(t *testing.T) {
@@ -576,5 +578,47 @@ func TestIdentifyingGoalsLeavesTheApprovalStandingAndRefusesAnyOtherChange(t *te
 	if after, _ := os.ReadFile(document); !strings.Contains(string(after), "action: identified") ||
 		!strings.Contains(string(after), "- [traceable-chain] Maintain a traceable chain.") {
 		t.Fatalf("document = %q", after)
+	}
+}
+
+// A goals document the Lead Product Manager has reworded under the operator's
+// approval reads as approved and says so, so a document that no longer reads word
+// for word as it was approved is not silently the same thing. An amendment
+// labelled consistent that the record does not carry — no item named — is still
+// counted, and the reason it is counted is said, so the label does not read as
+// ignored.
+func TestAnApprovedGoalsDocumentNamesTheRewordingsItStandsThrough(t *testing.T) {
+	t.Parallel()
+
+	approvedAt := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	goals := artifact.Artifact{
+		ID: "v1-goals", Kind: artifact.KindGoals,
+		Revisions: []artifact.Revision{
+			{Action: artifact.ActionCreated, By: domain.RoleProductManager, At: approvedAt, Reason: "recorded"},
+			{Action: artifact.ActionAmended, By: domain.RoleProductManager, At: approvedAt.Add(time.Hour),
+				Reason: "yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager", Intent: artifact.IntentConsistent},
+		},
+		Approvals: []artifact.Approval{{Revision: 0, By: artifact.ApproverOperator, At: approvedAt, Reason: "approved"}},
+	}
+	policy := artifact.Policy{Goals: domain.ApprovalHuman}
+	rendered := renderArtifactApproval(goals, policy)
+	for _, want := range []string{"approved as it stands", "the Lead Product Manager has since recorded 1 rewording as consistent with intent"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered = %q, want it to contain %q", rendered, want)
+		}
+	}
+
+	goals.Revisions = append(goals.Revisions, artifact.Revision{Action: artifact.ActionAmended, By: domain.RoleProductManager,
+		At: approvedAt.Add(2 * time.Hour), Reason: "tightened the wording", Intent: artifact.IntentConsistent})
+	rendered = renderArtifactApproval(goals, policy)
+	for _, want := range []string{
+		"approved and amended since",
+		"one revision was recorded after it",
+		"1 rewording as consistent with intent",
+		"revision 2 is labelled consistent and still counts, because its reason does not open with the work item that directed it",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered = %q, want it to contain %q", rendered, want)
+		}
 	}
 }

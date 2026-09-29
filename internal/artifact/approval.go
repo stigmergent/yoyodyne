@@ -16,9 +16,13 @@ package artifact
 // append-only, and an index into it always means the same change. An artifact
 // amended after its approval is therefore distinguishable from one still
 // approved, by arithmetic rather than by judgement: a revision that changed what
-// the document says was recorded after the approved one. A revision that only
-// gave its goals identifiers is not one of those (see identity.go), because it
-// changed nothing the operator was asked to agree to.
+// the document says, and that the operator did not delegate, was recorded after
+// the approved one. A revision that only gave its goals identifiers is not one
+// of those (see identity.go), because it changed nothing the operator was asked
+// to agree to. The one judgement in it is the owning role's, recorded on the
+// amendment itself: a rewording of the goals the Lead Product Manager records as
+// consistent with intent is delegated, and the approval stands through it (see
+// rewording.go).
 //
 // # What this deliberately does not do
 //
@@ -155,6 +159,12 @@ func (a Artifact) LatestApproval() (Approval, bool) {
 // the intent the document still states, and reading it as amended-since would
 // put every admission under the document back to the operator over a change to
 // nothing they were asked about.
+//
+// Nor does a rewording the Lead Product Manager recorded as consistent with
+// intent (see rewording.go). The goals admit and refuse the same work after it
+// as before, which is what the operator approved, and reading it as
+// amended-since would put every admission under the document back to the
+// operator over a decision the operator's ruling of 2026-09-26 delegated.
 func (a Artifact) ApprovalState() ApprovalState {
 	if _, approved := a.LatestApproval(); !approved {
 		return ApprovalUnapproved
@@ -166,8 +176,9 @@ func (a Artifact) ApprovalState() ApprovalState {
 }
 
 // RevisionsSinceApproval counts the revisions recorded after the approved one
-// that changed what the document says, which is how much of it has moved since
-// the operator saw it. Identity revisions are not counted, for the reason
+// that changed what the document says and that the operator did not delegate,
+// which is how much of it has moved since the operator saw it. Identity
+// revisions and delegated rewordings are not counted, for the reasons
 // ApprovalState gives. It is zero for an artifact that is approved as it stands
 // and for one that was never approved, because in neither case is there an
 // approval something has drifted from.
@@ -178,11 +189,30 @@ func (a Artifact) RevisionsSinceApproval() int {
 	}
 	count := 0
 	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
-		if a.Revisions[index].Action != ActionIdentified {
+		revision := a.Revisions[index]
+		if delegated, _ := a.Rewording(revision); revision.Action != ActionIdentified && !delegated {
 			count++
 		}
 	}
 	return count
+}
+
+// RewordingsSinceApproval returns the delegated rewordings recorded after the
+// approved revision: what the Lead Product Manager changed under the operator's
+// approval without asking again, which a surface names so the approval
+// standing through them is visible rather than silent.
+func (a Artifact) RewordingsSinceApproval() []Revision {
+	latest, approved := a.LatestApproval()
+	if !approved {
+		return nil
+	}
+	var rewordings []Revision
+	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
+		if delegated, _ := a.Rewording(a.Revisions[index]); delegated {
+			rewordings = append(rewordings, a.Revisions[index])
+		}
+	}
+	return rewordings
 }
 
 // approvalProblems reports what makes a recorded approval unusable: one that

@@ -78,6 +78,13 @@ type Change struct {
 	At         time.Time        `json:"at"`
 	By         domain.AgentRole `json:"by"`
 	Reason     string           `json:"reason"`
+	// Rewording marks an amendment the Lead Product Manager recorded as
+	// consistent with intent, naming the item that directed it: a change of words
+	// the operator's approval stands through, as opposed to an amendment of what
+	// the goals admit. It is still reported, because work admitted under the old
+	// wording may still read differently, and it is said apart so nobody has to
+	// open the reason to learn which of the two it is.
+	Rewording bool `json:"rewording,omitempty"`
 }
 
 // Document is one canonical artifact that something upstream of it changed
@@ -255,12 +262,15 @@ func upstream(recorded map[string]artifact.Artifact, start artifact.Artifact) []
 // superseding, and retiring one each change what everything downstream was
 // built on. An identity revision is none of those: it gave the document's goals
 // identifiers and changed no goal's words, so nothing downstream was built on
-// anything it moved, and it is not reported.
+// anything it moved, and it is not reported. A delegated rewording is reported
+// like any amendment, marked as the rewording it is (see
+// artifact.Artifact.Rewording).
 func recordedChanges(recorded artifact.Artifact) []Change {
 	changes := make([]Change, 0, len(recorded.Revisions))
 	for _, revision := range recorded.Revisions {
 		switch revision.Action {
 		case artifact.ActionAmended, artifact.ActionSuperseded, artifact.ActionRetired:
+			rewording, _ := recorded.Rewording(revision)
 			changes = append(changes, Change{
 				ArtifactID: recorded.ID,
 				Path:       recorded.Path,
@@ -268,6 +278,7 @@ func recordedChanges(recorded artifact.Artifact) []Change {
 				At:         revision.At.UTC(),
 				By:         revision.By,
 				Reason:     revision.Reason,
+				Rewording:  rewording,
 			})
 		}
 	}
