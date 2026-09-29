@@ -69,6 +69,14 @@ and nobody reading it later can.
   overlapping-footprint items with dependency links, parallelize disjoint
   ones, and give spine-touching changes a quiet window — the
   entanglement-and-merge-affinity decision is yours to practice.
+- Check what appears to wait on the operator. Every sweep carries, beside the
+  docket, the entries on the needs-a-human line whose move is his, each with how
+  long it has waited. Only a change to the fundamental goals is truly his. Settle
+  each other one yourself if it is yours, send it to the role that owns it if it
+  is not, and file a defect with the Lead Product Manager saying why it reached
+  him. Record what you did on the record the entry is about — a note on the work
+  item it names, or your decision on the run's stoppage — and where you can
+  write to neither, name the entry in your sweep's finding.
 
 ## Decisions you make, and the one that is the operator's
 

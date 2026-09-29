@@ -97,6 +97,11 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			docketer: docketerFrom(parts),
 			items:    chatTracker(parts.runner, parts.repository),
 			window:   parts.docket,
+			// The standing `yoyo status` reads, so what she is shown as waiting on
+			// the operator is his needs-a-human line and not a second reading of it.
+			standing: func() readmodel.Standing {
+				return readmodel.ReadStanding(context.Background(), standingSources(configPath))
+			},
 		}
 	}
 	// The program manager instances their triggers wake, with the cursor each
@@ -156,14 +161,34 @@ type sweepDocket struct {
 	// conversation, so a pass resumes the walk past what she was last shown
 	// wherever she was shown it. Nil starts every pass at the oldest stoppage.
 	window docketWindow
+	// standing reads the needs-a-human line, whose entries the operator moves
+	// are carried beside the docket: her sweep is asked to check what appears to
+	// wait on him and does not really need him, and the docket alone shows her
+	// only what waits on her. Nil carries no such section.
+	standing func() readmodel.Standing
+	// now is the moment the ages are reckoned from; nil is the clock.
+	now func() time.Time
 }
 
-// Window builds the docket and renders it. A build that failed outright is
+// Window is the docket, then what waits on the operator.
+func (d sweepDocket) Window() string {
+	rendered := d.docket()
+	if d.standing == nil {
+		return rendered
+	}
+	now := time.Now()
+	if d.now != nil {
+		now = d.now()
+	}
+	return rendered + "\n" + d.standing().RenderOperatorWaits(now)
+}
+
+// docket builds the docket and renders it. A build that failed outright is
 // rendered as unreadable, one that failed part way is rendered with what it
 // found and says it is incomplete, and an empty docket says so in words — a
 // pass handed no docket section could not tell nothing waiting from nothing
 // read.
-func (d sweepDocket) Window() string {
+func (d sweepDocket) docket() string {
 	built, err := d.docketer.Build()
 	if err != nil && len(built.Entries) == 0 {
 		rendered, _ := contextbundle.TriageDocket(contextbundle.ProductRequest{TriageDocketUnavailable: err.Error()})

@@ -690,6 +690,13 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       cause in place is a repair you will make again next hour.
 #       When the harness is healthy this finds nothing, and that is the report.
 #       A sweep that keeps finding things is itself the signal: say so.
+#       Then check everything that appears to wait on the operator: the
+#       needs-a-human entries whose move is his, which the pass carries beside
+#       the docket with how long each has waited. Only a change to the
+#       fundamental goals is truly his. Settle each other one if it is yours,
+#       send it to the role that owns it if it is not, and file a defect with
+#       the Lead Product Manager saying why it reached him. Record what you did
+#       on the record the entry is about.
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.

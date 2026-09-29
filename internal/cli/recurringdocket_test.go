@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -221,5 +222,118 @@ func TestASweepsDocketIsTheLiveWindowAndAdvancesTheSharedWalk(t *testing.T) {
 	}
 	if position.Key != triage.Key(triage.ClassStoppedRun, fmt.Sprintf("run-%032x", 3)) {
 		t.Errorf("the pass left the walk at %+v, want past the newest entry it listed", position)
+	}
+}
+
+// A scheduled pass of the development manager's carries, beside the docket,
+// every needs-a-human entry whose move is the operator's, each with its kind,
+// what it says, since when in this machine's zone, and how long ago — and
+// nothing another mover moves. On 2026-09-28 her sweep was asked to check what
+// appears to wait on him and does not really need him, and was shown only her
+// own docket to check it against.
+func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	escalated := now.Add(-3 * time.Hour)
+	died := now.Add(-50 * time.Hour)
+	failing := now.Add(-20 * time.Minute)
+	standing := readmodel.Standing{NeedsHuman: []readmodel.Attention{
+		{
+			Kind: readmodel.AttentionOperatorAction, ID: "run:run-escalated", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.272",
+			OperatorAction: &readmodel.OperatorAction{
+				Key: "run:run-escalated", Subject: "yoyodyne-ifd.272", RunID: "run-escalated", WorkItemID: "yoyodyne-ifd.272",
+				Needs: "the target branch diverged from the forge", RecordedIn: "the triage decision on run-escalated",
+				FoundBy: "the development manager, escalating the stopped run to the operator", Since: escalated,
+			},
+		},
+		{
+			Kind: readmodel.AttentionDegradedService, ID: "dashboard", Mover: readmodel.MoverOperator,
+			Service: &runstate.SupervisedChild{Service: "dashboard", Reason: "died 6 times within 2m0s of being started", DiedAt: died},
+		},
+		{
+			Kind: readmodel.AttentionFailingTask, ID: "report-triage", Mover: readmodel.MoverOperator,
+			FailingTask: &readmodel.FailingTask{
+				Task: "report-triage", Role: domain.RoleProductManager, Cause: runstate.PreTurnConversationUnopened,
+				Problem: "no agent fills the role", Failures: 2, FirstAt: failing, RaisedAt: failing, LatestAt: failing,
+			},
+		},
+		{
+			Kind: readmodel.AttentionHeldWork, Mover: readmodel.MoverDevelopmentManager,
+			HeldWork: &readmodel.HeldWork{Awaiting: readmodel.HeldAwaitingDecision, Count: 4},
+		},
+	}}
+
+	runs, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewStore() error = %v", err)
+	}
+	docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewDocketStore() error = %v", err)
+	}
+	sweeps, err := runstate.NewSweepStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewSweepStore() error = %v", err)
+	}
+	role := &wakeCapture{}
+	trigger := orchestrator.Trigger{
+		Tasks:   developmentManagerSweep(),
+		Claims:  sweeps,
+		Reports: sweeps,
+		Roles:   role,
+		Docket: sweepDocket{
+			docketer: docketerOverDocket(runs, docket),
+			standing: func() readmodel.Standing { return standing },
+			now:      func() time.Time { return now },
+		},
+	}
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatalf("Fire() error = %v", err)
+	}
+	if len(role.messages) != 1 {
+		t.Fatalf("messages = %d, want the one turn of the pass", len(role.messages))
+	}
+	message := role.messages[0]
+	local := func(moment time.Time) string { return moment.Local().Format("2006-01-02 15:04 MST") }
+	for _, want := range []string{
+		"## Triage docket",
+		"## Waiting on the operator",
+		"3 entries on the needs-a-human line are the operator's",
+		"- [operator-action run:run-escalated, item yoyodyne-ifd.272] yoyodyne-ifd.272 needs your hand: the target branch diverged from the forge",
+		"since " + local(escalated) + ", 3 hours ago",
+		"- [degraded-service dashboard] the dashboard service is degraded: died 6 times within 2m0s of being started — since " + local(died) + ", 2 days ago",
+		"- [failing-task report-triage] the recurring task report-triage has failed before its first turn 2 times in a row",
+		"since " + local(failing) + ", 20 minutes ago",
+		"file a defect with the Lead Product Manager saying why it reached him",
+		"Record what you did on the record the entry is about",
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("the wake message does not carry %q:\n%s", want, message)
+		}
+	}
+	if strings.Contains(message, "admitted items await the development manager's decision") {
+		t.Errorf("an entry the development manager moves was carried as the operator's:\n%s", message)
+	}
+	// Beside the docket, and ahead of the task that asks her to check them.
+	if strings.Index(message, "## Triage docket") > strings.Index(message, "## Waiting on the operator") ||
+		strings.Index(message, "## Waiting on the operator") > strings.Index(message, "sweep for unresolved issues") {
+		t.Errorf("the operator's entries are not between the docket and the task:\n%s", message)
+	}
+}
+
+// A line with nothing of the operator's on it says so in words, and one that
+// could not be read whole says that, so a pass can tell nothing waiting on him
+// from nothing read.
+func TestASweepSaysWhenNothingWaitsOnTheOperatorAndWhenTheLineWasNotRead(t *testing.T) {
+	t.Parallel()
+
+	empty := readmodel.Standing{}.RenderOperatorWaits(time.Now())
+	if !strings.Contains(empty, "Nothing on the needs-a-human line is the operator's.") {
+		t.Errorf("an empty line rendered as %q, want it said in words", empty)
+	}
+	partial := readmodel.Standing{NeedsHumanProblem: "the directive log is locked"}.RenderOperatorWaits(time.Now())
+	if !strings.Contains(partial, "not fully read: the directive log is locked") {
+		t.Errorf("a partial reading rendered as %q, want it said", partial)
 	}
 }

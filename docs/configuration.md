@@ -4891,7 +4891,9 @@ anything about.
 The docket is built when something scans: `yoyo reconcile`, the moment a
 development manager conversation opens, and every firing of a
 [recurring task](#recurring-tasks) of hers, which carries the docket in the
-message that wakes her. Only that last is scheduled, and only where a project
+message that wakes her — and beside it the "Needs a human" entries whose move is
+the operator's, each with its age
+([operations](operations.md#reading-what-the-recurring-tasks-found)). Only that last is scheduled, and only where a project
 configures one, so `stuck_merge_age` is a floor rather than a promise — a
 publication becomes docketable at that age and is docketed the next time one of
 those happens.
