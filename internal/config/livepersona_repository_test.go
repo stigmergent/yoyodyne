@@ -44,7 +44,6 @@ var templateOnlyPassages = map[string]map[string]string{
 	},
 	"product-manager.md": {
 		"- Open a project that has not written its intent down": plainWordsInTheLiveCopy,
-		"- Know which changes to the goals are the human's":     awaitingTheLiveCopyGrant,
 	},
 	"program-manager.md": {
 		"You own one outcome":                            plainWordsInTheLiveCopy,
@@ -61,13 +60,6 @@ var templateOnlyPassages = map[string]map[string]string{
 // templates take the same wording under yoyodyne-ifd.430.23, and each entry
 // goes when its template passage does.
 const plainWordsInTheLiveCopy = "reworded in plain words in the live copy by the operator's hand change of 2026-09-27; the template follows under yoyodyne-ifd.430.23"
-
-// awaitingTheLiveCopyGrant is the reason for a passage delivered to the template
-// by a work item that did not grant .yoyodyne/personas: the Lead Product
-// Manager's account of which goals revisions are the operator's
-// (yoyodyne-ifd.433.10) is in the template, and the live copy takes it once a
-// person or a run granted that path carries it over. The entry goes when it does.
-const awaitingTheLiveCopyGrant = "delivered to the template by yoyodyne-ifd.433.10, which grants no path under .yoyodyne/personas; the live copy takes it by hand or under a grant"
 
 // TestThisRepositorysPersonasCarryEveryTemplatePassage fails when a passage of a
 // shipped persona is missing from the copy this repository's roles read. The
