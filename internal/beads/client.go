@@ -995,8 +995,12 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 			"%s is blocked and waits on unfinished work (%s), so its status is not stale and the claim stands refused: %w",
 			id, strings.Join(waiting, ", "), refusal)
 	}
+	// The refusal is quoted first and said to be the one that came before the
+	// clear. Quoted after the promise of a claim, it read as bd refusing the claim
+	// that followed the clear: on 2026-09-28 the reviewer of yoyodyne-ifd.428.44
+	// reported exactly that from the item's notes, over a claim that had landed.
 	corrected := fmt.Sprintf(
-		"The harness is clearing this item's blocked status to claim it: nothing unfinished blocks it, and the status was left over from whatever did. The claim follows once the tracker reads the status back as open. %s",
+		"%s. That refusal came before anything below. The harness is clearing this item's blocked status to claim it: nothing unfinished blocks it, and the status was left over from whatever did. The claim follows once the tracker reads the status back as open.",
 		singleLineNote(refusal.Error()))
 	if _, err := c.run(ctx, "update", id, "--status=open", "--append-notes="+corrected, "--json"); err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, fmt.Errorf("clear the stale blocked status on %s: %w", id, err))
@@ -1012,20 +1016,50 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 			returned = fmt.Sprintf("%d read(s) over %s, the last returning status %q, and bd refused the claim on the status %d time(s) after a read that returned open",
 				account.Reads, c.readBack.settled().span(account.Reads), account.Status, account.ClaimsRefused)
 		}
+		// The order of the writes leads, and the tracker's own words follow it: a
+		// refusal that quoted bd alone read as the first claim refused a second
+		// time, when what it was is a clear that was written and never took.
 		unconfirmed := fmt.Errorf(
-			"the clear of the stale blocked status on %s was never confirmed: %s, so the item is left for the next pull rather than claimed",
-			id, returned)
+			"%s, so the item is left for the next pull rather than claimed",
+			clearOrder(id, account, returned))
 		// The note the write carried promised a claim on a read that never came,
 		// so what came instead is written beside it: the next reader of the item
 		// finds the account rather than a promise, and a status the tracker still
 		// holds as blocked with nothing saying why the claim never followed.
 		note := fmt.Sprintf("The harness could not confirm the clear above: %s. The item is left for the next pull rather than claimed.", returned)
 		if _, err := c.run(ctx, "update", id, "--append-notes="+note, "--json"); err != nil {
-			return WorkItem{}, account, errors.Join(refusal, unconfirmed, fmt.Errorf("record the unconfirmed clear on %s: %w", id, err))
+			return WorkItem{}, account, errors.Join(unconfirmed, refusal, fmt.Errorf("record the unconfirmed clear on %s: %w", id, err))
 		}
-		return WorkItem{}, account, errors.Join(refusal, unconfirmed)
+		return WorkItem{}, account, errors.Join(unconfirmed, refusal)
 	}
+	// The claim is the second write, and it is recorded on the item beside the
+	// first: without it the notes end on the promise of a claim and the refusal
+	// that preceded it, and a reader cannot tell whether the claim ever came. The
+	// note is written after the claim rather than riding it, because a note on a
+	// claim bd refuses is a note about a claim that did not happen. A note that
+	// cannot be written does not undo the claim — the item is claimed either way,
+	// and failing here would strand it claimed with no run behind it; the run's
+	// own record carries the same account from the value returned.
+	claimedNote := fmt.Sprintf("The harness read the cleared status back as open on read %d and claimed the item.", account.Reads)
+	if account.ClaimsRefused > 0 {
+		claimedNote = fmt.Sprintf("The harness read the cleared status back as open, bd refused the claim on the status %d time(s) after that, and the item was claimed on read %d.", account.ClaimsRefused, account.Reads)
+	}
+	_, _ = c.run(ctx, "update", id, "--append-notes="+claimedNote, "--json")
 	return claimed, account, nil
+}
+
+// clearOrder says what the claim past a stale blocked status did, in the order
+// it did it: the claim bd refused on the status, the clear written after it, and
+// what reading the clear back returned. A refusal that ends the claim after a
+// clear leads with this, so it is never read as the first refusal repeated.
+func clearOrder(id string, account *StaleBlockClear, readBack string) string {
+	claims := "no read returned open, so no claim followed the clear"
+	if account.ClaimsRefused > 0 {
+		claims = fmt.Sprintf("each claim made after a read returned open was refused on the status (%d)", account.ClaimsRefused)
+	}
+	return fmt.Sprintf(
+		"bd refused the claim on %s for its blocked status; the harness then wrote the status open and read it back: %s; %s; the clear of the stale blocked status on %s was never confirmed",
+		id, readBack, claims, id)
 }
 
 // claimOnConfirmedClear reads the status back after the clear was written and
@@ -1071,7 +1105,7 @@ func (c Client) claimOnConfirmedClear(ctx context.Context, id string) (WorkItem,
 			return claimed, account, nil
 		}
 		if !staleBlockedRefusal.MatchString(err.Error()) {
-			return WorkItem{}, account, fmt.Errorf("claim %s after its stale blocked status was read back as open: %w", id, err)
+			return WorkItem{}, account, fmt.Errorf("bd refused the claim on %s for its blocked status; the harness then wrote the status open, read %d returned it as open, and the claim made on that read failed: %w", id, attempt, err)
 		}
 		account.ClaimsRefused++
 	}
