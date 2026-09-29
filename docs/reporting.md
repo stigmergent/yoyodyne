@@ -1488,13 +1488,17 @@ It is said once and never again while it stands. The sink marks each finding by
 name in its own durable cursors, so a second pass, a restarted sink, and every
 poll afterwards send nothing more; `yoyo status` names it under `Needs a human`
 until it ends, which is the record that says it is done — the report handled,
-the change recorded made, the escalated run decided again, every proposal in a
-batch decided — and the mark is
+the change recorded made, the escalated run decided again or its escalation
+ended, every proposal in a batch decided — and the mark is
 dropped with it, so the same report handled as yours again later is a second
 finding, said once more. An escalated stoppage is read here from the runs and
 the triage record alone, without asking the tracker whether the item is still
-admitted, so one that ended by the item leaving the backlog keeps its mark; it
-was said once either way, and `yoyo status` reads the queue and drops it. A
+admitted or parked, or the repository whether the run's change is still there.
+So an escalation ended by one of those keeps its mark until the next `yoyo
+reconcile` records the ending on the run, and the mark is dropped then. It was
+said once either way, and `yoyo status` reads the queue and the repository and
+drops it at once. One that ended before the channel said it is not said at all
+once the sweep has recorded the ending. A
 finding whose report was filed before this channel was turned on is history
 like every other record from before the watermark, and is marked without being
 said; its moment is the record that made it, so a handling made today of a
