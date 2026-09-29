@@ -635,7 +635,7 @@ it), which no link follows.
 
 Also corrected in the rewrite: `init` copies six personas, not five; the
 `yoyo version` example names no fixed tag; the repository's home is
-`github.com/stigmergent/yoyodyne` in every clone and release line, and the
+`github.com/swarmgraph/yoyodyne` in every clone and release line, and the
 install lines keep the module path `github.com/mason-bryant/yoyodyne`, which
 installs through GitHub's redirect; and "harness" is defined where it is first
 used.
