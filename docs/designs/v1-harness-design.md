@@ -110,6 +110,10 @@ revisions:
       by: architect
       at: 2026-09-26T16:00:00Z
       reason: yoyodyne-ifd.375 - the harness may cut a release the product manager decided under the delegated cadence, as the opt-in approvals.releases defaulting to human, performed by the supervisor's pass and never an agent; the notes and readiness stamp land through the release item's reviewed run, so the cut writes nothing to main and pushes the tag alone
+    - action: amended
+      by: architect
+      at: 2026-09-29T02:00:00Z
+      reason: yoyodyne-ifd.434 - the state root's default is the machine home ~/.yoyodyne; the layout under it, the repository binding, and the migration are the machine-home design's
 approvals:
     - revision: 0
       by: operator
@@ -356,6 +360,13 @@ The harness uses the `bd` CLI through a narrow adapter in v1. Domain code must n
 ### Runtime state
 
 Provider event streams, process metadata, locks, caches, and temporary run state live outside the product repository under an operating-system-appropriate state directory. Durable outcomes are summarized into Beads. Worktrees also live outside the primary checkout by default. Where that state directory is may be set for the machine: `state_root` in the machine-local `machine.yaml` under the configurations home, and never in the project file, which is committed and describes no machine — a `state_root` in a project configuration is refused at load by name. Resolution is `YOYODYNE_STATE_HOME`, then the machine key, then `XDG_STATE_HOME/yoyodyne`, then the platform default, in that order, the variable winning as the explicit instruction it already is. Every process that opens the root records the root it resolved in `.git/yoyodyne/state-root` of the primary checkout, and a process resolving a different root refuses to start naming both, so one product's state is never split across two roots by two layers; moving it is stopping the product, moving the directory, changing the setting, and removing the marker. `yoyo config show --origins` names the layer the root came from, and `yoyo doctor` reports the root, its origin, and whether the marker agrees. Secrets and provider credentials remain managed by the provider CLIs — including the forge CLI publishing uses — and are never copied into Beads, into project Markdown, or into an agent's prompt or context bundle. That is a statement about what the harness puts in front of an agent; it is not a claim that the credentials are unreachable from a process the harness started. See [what the Git model enforces](#what-is-enforced-and-what-is-not).
+
+The root's default is the machine home `~/.yoyodyne`, and what lies under it —
+one directory per project named by `product.id` and bound to its repository, the
+machine-wide operator hold and the accounts at the top, and the migration from
+the platform's earlier default — is [the machine home design](machine-home.md).
+The key, this precedence, the one resolver, and the guard are unchanged by it;
+the guard's marker records the home the repository is bound into.
 
 All durable records include `ProductID` and, where applicable, `RepositoryID`, even though v1 configures exactly one of each.
 
