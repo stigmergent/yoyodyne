@@ -53,11 +53,13 @@ proposal is put to you, and approving it creates the item. Set `work_items` to
 ask, and they are exactly what the Lead Product Manager escalates rather than
 proposes: work it can attach to no goal, work it says would cut against one, and
 work that fits the goals and that it judges to be against what the product is
-for. A change to what the goals admit is yours and reaches the queue through
-nothing at all — the Lead Product Manager argues for one in prose and cannot make
-one. A rewording that leaves them admitting and refusing the same work is the Lead
-Product Manager's to record, and your approval stands through it — see
-[approving a document](artifacts.md#approving-a-document).
+for. A change to what the goals admit is yours to decide and reaches the queue
+through nothing at all: the Lead Product Manager drafts it, and it reaches the
+repository only as a [typed write you
+approve](../artifacts.md#writing-a-document-from-a-conversation). A rewording that
+leaves them admitting and refusing the same work is the Lead Product Manager's
+to record, and your approval stands through it — see [approving a
+document](artifacts.md#approving-a-document).
 
 **Nothing is admitted without asking until a goal is actually approved.** The
 attribution has to resolve to a goal an active document states, and that

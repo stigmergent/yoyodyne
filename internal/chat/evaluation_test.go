@@ -250,7 +250,7 @@ func TestAnUnreadableEvaluationBlockLosesOnlyTheRecord(t *testing.T) {
 func TestTheContractCarriesResearchAndEvaluation(t *testing.T) {
 	t.Parallel()
 
-	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, hostilePersona)
+	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, nil, hostilePersona)
 	for _, required := range []string{
 		research.Fence,
 		evaluation.Fence,
@@ -263,7 +263,7 @@ func TestTheContractCarriesResearchAndEvaluation(t *testing.T) {
 	}
 	// No other role is told it may do either, because no other role may.
 	for _, role := range []domain.AgentRole{domain.RoleArchitect, domain.RoleDevelopmentManager, domain.RoleDeveloper, domain.RoleReviewer} {
-		other := SystemPrompt(role, Admission{}, "")
+		other := SystemPrompt(role, Admission{}, nil, "")
 		if strings.Contains(other, research.Fence) || strings.Contains(other, evaluation.Fence) {
 			t.Fatalf("the %s is offered a capability it has no authority for", role)
 		}

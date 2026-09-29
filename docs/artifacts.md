@@ -134,9 +134,10 @@ Who may change one of these documents is in the code rather than in a persona.
 The Lead Product Manager owns the brief and the goals, the architect owns the designs,
 specifications, and decision records, and the development manager owns no
 document at all. Creating, amending, superseding, and retiring an artifact each
-refuse a role that does not own the kind, the way the invariants already do —
-though no command reaches that path yet, so what it constrains today is nothing
-that is happening. What does run on every load is the other half: a document
+refuse a role that does not own the kind, the way the invariants already do,
+and that is the path a document [written from a
+conversation](#writing-a-document-from-a-conversation) takes. What runs on every
+load is the other half: a document
 whose revision log records a change by a role that does not own it is reported,
 naming the file and the entries that crossed. It is reported rather than refused
 because the log is append-only, so losing the document would leave one that could
@@ -188,6 +189,85 @@ generated. [`yoyo doctor`](operations.md#checking-the-installation) reports one
 that is missing or has stopped answering, and `yoyo setup` offers to write it,
 which is how a project configured before these existed gets them.
 
+## Writing a document from a conversation
+
+A document the owning role drafted used to reach the repository by hand: fenced
+Markdown in a reply, your approval in prose, and then you or an agent of yours
+working out the path, writing the frontmatter, and committing it. The drafted
+content was rarely the part that went wrong — the transcription was.
+
+So a document is written the way work is proposed. Ask the Lead Product Manager
+for the goals or the architect for a design, and what comes back is prose you
+read plus a typed action carrying the document. Nothing is written yet. You are
+shown what would happen and the document itself, and asked:
+
+```
+document document-4.1 · create v2-goals (goals) in docs/product
+  title: What v2 is for
+  because: drafted with you in this conversation
+
+  # Goals
+  ...
+
+create v2-goals (goals) in docs/product? [y or yes writes it and records your
+approval in it; anything else declines, and is kept as the reason]
+```
+
+On your `y` the harness performs the write itself: it files the document in the
+artifact home, generates the frontmatter the contract requires, records the
+revision under the role that wrote it, and records your approval against that
+revision. `yoyo artifact show v2-goals` then reads back exactly what any
+hand-written document reads back as, because it is one. Anything else declines,
+and what you said is kept as the reason.
+
+Nothing about that widens what a role may do. The write goes through the same
+ownership boundary every other change to these documents goes through, so the
+architect cannot write the goals and the Lead Product Manager cannot write a
+design — each proposes to the other instead. Each kind also has one home and is
+written only there: the brief, the goals, and the non-goals go under
+`product.specifications`, designs and specifications under `product.designs`,
+and decision records under `product.decisions`. A role is told which of those its
+own kinds go in rather than being handed the list, so a design filed under the
+Lead Product Manager's home is refused even though that is an artifact home — it
+is not the one a design is filed in.
+
+A kind the role does not own, a document filed anywhere but its kind's home, a
+revision of a document that belongs to another role, a revision of one that was
+superseded or retired, and a block the harness cannot read are all refused before
+anything is written, and you are never asked to approve one. A revision naming a
+document nothing records is refused the same way, saying that a document which
+does not exist yet is created rather than revised — and a creation over an id
+something already answers to is refused for the mirror of that reason. A role
+that owns no document at all — the development manager, the developer, the
+reviewer — cannot write one under any circumstances.
+
+A revision is the same action, carrying the document whole:
+
+```sh
+./bin/yoyo chat --message "revise the second goal to name the adoption path"
+./bin/yoyo chat --message "approve document-5.1"
+```
+
+Deciding it as its own message is what makes this work outside an interactive
+conversation: the drafted document is recorded with the conversation, so it
+survives the process that wrote it and your approval names it hours later. An
+approval sent as a message has to name the document — a bare "yes" decides
+nothing, because a message is not an answer to a question you were just asked.
+What is left undecided when a conversation ends is named on the way out.
+
+**The write stops at your working tree, and it says so as it writes.** This is
+the settled shape, recorded in [the artifact
+contract](designs/artifact-contract.md#how-a-write-reaches-disk), and it is the
+same one [an approval](#artifact-identity) has: the document is an uncommitted
+change in the checkout the configuration pointed the write at, a run against
+that checkout refuses to start while it is, and committing it is yours, under
+your own identity. The harness commits nothing and opens no pull request for it,
+because the artifact homes are what every run reads as context and a run started
+on intent that has only half landed is worse than one that waits. The line
+printed under each written document names the checkout and the file, in the
+same words `yoyo artifact approve` uses, and `--json` carries it as
+`pending_commit`.
+
 ## Goals, and what work serves them
 
 The last link of the chain is the goal a work item names, and that link is
@@ -230,8 +310,8 @@ the item.
 ./bin/yoyo goals guard         # refuse a command that would replace notes and destroy a goal, or set a status with no note
 ```
 
-No command there decides what a piece of work is for, for the same reason
-nothing writes an artifact: that judgement is a product one, made by the Lead Product
+No command there decides what a piece of work is for, for the same reason no
+command writes an artifact's content: that judgement is a product one, made by the Lead Product
 Manager in the conversation where you can see it. What the harness owns is
 resolving the claim. Two of those commands do write — `witness` and
 `reattribute` — and neither writes a judgement: each records the goal an item

@@ -168,7 +168,7 @@ func TestBothContractsDocumentTheLabelShape(t *testing.T) {
 	t.Parallel()
 
 	for _, role := range []domain.AgentRole{domain.RoleProductManager, domain.RoleDevelopmentManager} {
-		contract := SystemPrompt(role, Admission{}, "")
+		contract := SystemPrompt(role, Admission{}, nil, "")
 		for _, required := range []string{
 			`"labels":["reliability"]`,
 			`{"action":"label","id":"beads-id","add":"reliability"`,

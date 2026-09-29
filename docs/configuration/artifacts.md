@@ -374,8 +374,10 @@ yoyo artifact show v1-goals         # one artifact, its revisions, and your appr
 ```
 
 There is no `yoyo artifact create` or `amend`, unlike the invariant commands: an
-artifact's content is written by the role that owns it, and its frontmatter is
-edited in the same file at the same time. What the harness owns is refusing a
+artifact's content is written by the role that owns it — by hand, or from its
+conversation as a typed write you approve, which the harness files with the
+frontmatter generated ([writing a document from a
+conversation](../artifacts.md#writing-a-document-from-a-conversation)). What the harness owns is refusing a
 document whose identity is missing, malformed, or claimed by something else,
 [reporting a change recorded by a role that does not own it](#who-may-change-an-artifact),
 and [recording your approval](#approving-a-document).
@@ -536,21 +538,25 @@ document: its decomposition is Beads work rather than Markdown. Nothing here
 constrains **you**. The boundary is between agent roles, and the operator directs
 any of them.
 
-It holds in two places, and only one of them is live today.
+It holds in two places, and both are live.
 
 **Writing.** The package that writes an artifact refuses a role that does not own
 the kind, on creating, amending, superseding, and retiring one, and records the
-role that did in the revision log. That path exists and is enforced, but no
-command reaches it yet — there is no `yoyo artifact create`, and the roles that
-own documents reach no tools from a conversation — so today it constrains nothing
-that is actually happening. It is the boundary a role meets when it arrives, rather than a persona
-asking it to behave.
+role that did in the revision log. That is the path a document written from a
+conversation takes: the owning role emits a typed action, you approve it, and the
+harness performs the write through this boundary under that role's authority —
+see [writing a document from a
+conversation](../artifacts.md#writing-a-document-from-a-conversation). A role that
+names a kind it does not own, or a home its kind is not filed in, is refused
+before you are asked about it. There is still no `yoyo artifact create`: a
+command would need the document's prose typed at a shell, which is the
+transcription the typed action exists to end.
 
 **Reading.** A document whose revision log records a change by a role that does
 not own it is **reported every time the artifacts are loaded**, as an
 `unauthorized-revision` beside the [broken relationships](goals.md#traceability-references-and-orphans),
-naming the file and which entries crossed. This is the half that bites now: it
-catches a hand-edited log wherever it came from.
+naming the file and which entries crossed. It is the half that catches a
+hand-edited log, wherever it came from.
 
 It reports rather than refuses, deliberately. The revision log is append-only, so
 a past entry cannot be made lawful without rewriting history, which is the one
@@ -842,7 +848,11 @@ is shown what has been proposed against its documents and argues for or against
 it — proposals against the brief and the goals are carried into the Lead Product
 Manager's conversation, and proposals against the designs, the specifications,
 and the decision records are carried into the architect's, each told in so many
-words that it cannot decide one and cannot edit anything. Both owners can now be
+words that it cannot decide one. An owner may write its own documents, which is
+how an approved change is made: it writes the revision as a typed action, you
+approve it, and the harness performs the write — see [writing a document from a
+conversation](../artifacts.md#writing-a-document-from-a-conversation). What no
+owner can do is decide the proposal from there. Both owners can now be
 asked directly: `yoyo agent chat architect` is where the argument about a design
 happens. But no agent records a decision, `yoyo amendment` is the only thing that
 does, and the record says you exercised the owner's authority rather than that

@@ -392,7 +392,7 @@ func TestWithoutALaneNothingIsWritableAndCloseAndRetireNeverAre(t *testing.T) {
 	}
 
 	// And the contract states the lane's rules and the admission it goes through.
-	contract := SystemPrompt(domain.RoleProgramManager, Admission{}, "")
+	contract := SystemPrompt(domain.RoleProgramManager, Admission{}, nil, "")
 	for _, required := range []string{
 		"puts your lane label on it in the same write",
 		"at the moment the action runs",

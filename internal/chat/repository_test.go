@@ -236,7 +236,7 @@ func TestTheContractOffersTheRepositoryBlockToTheManagementRoles(t *testing.T) {
 		domain.RoleDeveloper:          false,
 		domain.RoleReviewer:           false,
 	} {
-		prompt := SystemPrompt(role, testAdmission, "")
+		prompt := SystemPrompt(role, testAdmission, nil, "")
 		if strings.Contains(prompt, repositoryread.Fence) != offered {
 			t.Errorf("the %s's contract offers the repository block: %t, want %t", role, !offered, offered)
 		}
@@ -244,10 +244,10 @@ func TestTheContractOffersTheRepositoryBlockToTheManagementRoles(t *testing.T) {
 			t.Errorf("the %s's contract still says it cannot read a file, which the block makes untrue for the roles that hold it and imprecise for the rest", role)
 		}
 	}
-	if !strings.Contains(SystemPrompt(domain.RoleProductManager, testAdmission, ""), repositoryread.ProductManagerClause) {
+	if !strings.Contains(SystemPrompt(domain.RoleProductManager, testAdmission, nil, ""), repositoryread.ProductManagerClause) {
 		t.Fatal("the product manager's contract does not state the labelling rule")
 	}
-	if strings.Contains(SystemPrompt(domain.RoleArchitect, testAdmission, ""), repositoryread.ProductManagerClause) {
+	if strings.Contains(SystemPrompt(domain.RoleArchitect, testAdmission, nil, ""), repositoryread.ProductManagerClause) {
 		t.Fatal("the architect's contract carries the product manager's labelling rule")
 	}
 }

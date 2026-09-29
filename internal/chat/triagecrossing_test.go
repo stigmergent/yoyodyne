@@ -342,7 +342,7 @@ func TestTheContractStatesTheCrossingBoundTheStoreEnforces(t *testing.T) {
 	}
 	// And it is actually in the contract, rather than a constant nothing reaches:
 	// the number agreeing with the guard buys nothing if the role never sees it.
-	prompt := SystemPrompt(domain.RoleDevelopmentManager, Admission{}, hostilePersona)
+	prompt := SystemPrompt(domain.RoleDevelopmentManager, Admission{}, nil, hostilePersona)
 	for _, required := range []string{
 		`"decision":"repair|rerun|rescope|rearm|wait|escalate|stop|proceed|retire-raise|cross"`,
 		maxDelegatedCapCrossingsText + " times per item",

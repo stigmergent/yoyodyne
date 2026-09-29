@@ -91,6 +91,15 @@ const (
 	// rejection: nobody turned it down, and a record reading as though the
 	// operator had would put words in his mouth.
 	EventProposalWithdrawn EventType = "proposal.withdrawn"
+	// A document an owning role wrote, the operator's decision about it, and the
+	// write itself are three events rather than one. What was drafted is evidence
+	// whether or not it was ever filed, an approval is the operator's and is
+	// recorded before anything is written so a failed write cannot erase it, and
+	// only the last of these says the repository changed.
+	EventDocumentDrafted  EventType = "document.drafted"
+	EventDocumentApproved EventType = "document.approved"
+	EventDocumentDeclined EventType = "document.declined"
+	EventDocumentWritten  EventType = "document.written"
 	// A concern is work the product manager judged against the goals and put to
 	// the operator as a question instead of proposing. What it raised and what
 	// it was told are separate events for the same reason a proposal and its

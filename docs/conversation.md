@@ -294,9 +294,15 @@ the architect's, through `yoyo amendment`. That separation is the point. Researc
 that could quietly turn an idea into approved work would be a way to approve work
 by asking a model to look something up.
 
-The brief and the goals stay yours. The Lead Product Manager proposes a change to a
-goal and says plainly that it is yours to make; it cannot make one, and with no
-way to write a file it could not if it tried.
+The brief and the goals are the Lead Product Manager's documents and yours to
+approve. It has no way to write a file, so it hands the harness the document
+instead: you are shown what would be written and asked, and only your `y` files
+it — with the revision recorded under the Lead Product Manager and your approval
+recorded in the document. The file then sits uncommitted in your checkout, and a
+run refuses to start until you commit it. It is the same mechanism whichever
+role owns the document, and it is [writing a document from a
+conversation](artifacts.md#writing-a-document-from-a-conversation). A change that
+moves what the goals admit or refuse is still yours to decide, and it says so.
 
 The listing it is given names items by title, so when a title is not enough to
 judge whether new work belongs inside an existing item or beside it, it reads
@@ -368,7 +374,11 @@ as the reason. A bare `y` works where exactly one proposal is waiting and no
 question is, which is the same rule a prompt answers by; with a question waiting
 beside it the `y` is refused with both named, because
 [a message answers a question by naming it](#answering-a-question-from-a-single-message)
-and must never answer one thing by deciding another.
+and must never answer one thing by deciding another. A document the
+conversation wrote is decided the same way and only by name —
+`approve document-4.1`, `decline document-4.1 <reason>` — and a bare `y` never
+decides one; see [writing a document from a
+conversation](artifacts.md#writing-a-document-from-a-conversation).
 
 **Two shapes decide, and everything else is speech.** A message decides when it
 names a proposal by its identifier — `approve 3.1`, `decline 3.1 too vague` —
@@ -1249,12 +1259,16 @@ thinks and records none of it as scope. Decomposition of work whose change is on
 the target branch is untouched, and so is the dependency structure the
 development manager records itself.
 
-The architect owns the designs, the decision records, and the invariants, and it
-cannot edit any of them from a conversation, because no conversation has tools.
-Decide the change with it and then record it yourself — `yoyo invariant` for an
-invariant, a revision to the document for the rest. Changes other roles proposed
-against its documents are carried into its conversation for it to argue, the
-same way the Lead Product Manager hears proposals against the brief and the goals.
+The architect owns the designs, the decision records, and the invariants. It
+still has no tools, and a design or a decision record it writes reaches the
+repository anyway: it emits the document as a typed action, you are shown the
+document and asked, and the harness writes it into your checkout under the
+architect's authority with your approval recorded in it — see [writing a
+document from a conversation](artifacts.md#writing-a-document-from-a-conversation).
+An invariant is the exception and stays yours to record with `yoyo invariant`.
+Changes other roles proposed against its documents are carried into its
+conversation for it to argue, the same way the Lead Product Manager hears
+proposals against the brief and the goals.
 
 Each role is also given the documents it answers for. The architect gets the
 designs, the invariants, and the decision records alongside the specifications;

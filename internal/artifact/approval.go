@@ -373,8 +373,8 @@ func (s Store) Approve(id, reason string, now time.Time) (Artifact, error) {
 // It is a function here rather than prose at each call site because every
 // surface that writes an approval owes the operator the same fact, and a second
 // one wording it differently would be a second account of what the harness just
-// did. Today the only caller is `yoyo artifact approve`; the typed artifact
-// write drafted from a conversation is the next.
+// did. Its callers are `yoyo artifact approve` and the typed artifact write a
+// conversation performs once the operator approves the document.
 //
 // What it says is the settled shape rather than an apology for an unfinished
 // one. The write stops at the working tree because the only ways into the target
