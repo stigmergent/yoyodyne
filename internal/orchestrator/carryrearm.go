@@ -152,7 +152,7 @@ func (c CarryOut) readRearms(ctx context.Context, entries []triage.Entry, inFlig
 	var held []heldDecision
 	var problems []error
 	for _, state := range recorded {
-		if !candidates[state.RunID] || !rearmable(state) {
+		if !candidates[state.RunID] || !unmergedPublication(state) {
 			continue
 		}
 		delete(candidates, state.RunID)
@@ -164,6 +164,9 @@ func (c CarryOut) readRearms(ctx context.Context, entries []triage.Entry, inFlig
 		key := triage.PublicationKey(state.RunID, state.PullRequest.Number)
 		var task CarryOutTask
 		if state.WaitingOnRedTarget() {
+			if !rearmable(state) {
+				continue
+			}
 			// A merge withdrawn for its target's red check is the harness's to arm,
 			// with nobody deciding: it is attempted once every item it waits on is
 			// closed, and until then it is waiting rather than refused.
@@ -251,6 +254,22 @@ func rearmable(state runstate.State) bool {
 	return err == nil && publicationIsSettled(state, published) == nil
 }
 
+// unmergedPublication reports a run whose publication a re-arm decision could
+// stand about and nothing has finished: it ended, it published a request, and
+// the forge has neither merged it nor holds a merge of it queued. It is wider
+// than rearmable on purpose. A decision about a publication whose record cannot
+// describe the merge a re-arm makes — a run that stopped before it promoted is
+// the case — is still a decision, and it is offered so that the Rearmer refuses
+// it aloud onto the item rather than the watch passing it over in silence,
+// which is what the re-arm of the supervisor's periodic pass (yoyodyne-ifd.413)
+// met for a day (yoyodyne-edi).
+func unmergedPublication(state runstate.State) bool {
+	if state.PullRequest == nil || !state.Status.Terminal() {
+		return false
+	}
+	return !state.PullRequest.Merged && !state.PullRequest.MergeQueued
+}
+
 // carryRearm makes the one merge request a decision authorizes, and writes a
 // refusal onto the item where the development manager reads it.
 func (c CarryOut) carryRearm(ctx context.Context, task CarryOutTask) CarriedOut {
@@ -262,11 +281,38 @@ func (c CarryOut) carryRearm(ctx context.Context, task CarryOutTask) CarriedOut 
 	}
 	result, err := c.Rearmer.Rearm(ctx, RearmRequest{Run: task.RunID, Reason: task.Reason})
 	if err != nil || !result.Rearmed {
-		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusalText(err),
-			"what the refusal names: a head brought level with its target, checks that pass, a requirement on the forge met, or a forge that can be read again — nothing was spent where the refusal says so, and the decision is attempted again once the refusal has cooled; a re-run is the other decision, and hands the change back for a fresh run")
+		clears := "what the refusal names: a head brought level with its target, checks that pass, a requirement on the forge met, or a forge that can be read again — nothing was spent where the refusal says so, and the decision is attempted again once the refusal has cooled; a re-run is the other decision, and hands the change back for a fresh run"
+		var unrearmable UnrearmablePublicationError
+		if errors.As(err, &unrearmable) {
+			clears = fmt.Sprintf("nothing on the forge: the record of run %s cannot describe the merge a re-arm makes, so no later attempt makes it and none brings pull request %d's head up to date. The decision that applies is a re-run, recorded in place of this re-arm, which hands the change back for a fresh run from the target branch — the fallback a re-arm decision names for a head it cannot bring up to date",
+				unrearmable.RunID, unrearmable.Number)
+		}
+		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusalText(err), clears)
 	}
 	carried.Carried = true
 	carried.Reason = result.Reason
 	carried.RecordProblem = result.RecordProblem
+	// A finding an earlier refused attempt left is taken back now the merge is
+	// asked for: left standing, the docket would go on saying this decision is not
+	// happening while the forge holds its merge.
+	if !task.Harness {
+		if problem := c.clearFinding(ctx, task); problem != "" {
+			carried.RecordProblem = joinProblem(carried.RecordProblem, problem)
+		}
+	}
 	return carried
+}
+
+// clearFinding takes back the carry-out finding standing about one decision,
+// and reports what it could not do. Only a finding that is there is cleared, so
+// the first attempt, which left none, writes nothing.
+func (c CarryOut) clearFinding(ctx context.Context, task CarryOutTask) string {
+	counters, err := c.Decisions.Counters(task.WorkItemID)
+	if err != nil {
+		return fmt.Sprintf("the re-arm was made and whether an earlier refusal of it stands on %s's triage record could not be read, so the docket may still say this decision is not happening: %v", task.WorkItemID, err)
+	}
+	if _, standing := counters.CarryOutOf(task.RunID); !standing {
+		return ""
+	}
+	return clearCarryOutFinding(ctx, c.Decisions, task.WorkItemID, task.RunID, c.now())
 }

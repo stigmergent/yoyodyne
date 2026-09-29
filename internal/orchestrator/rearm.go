@@ -479,8 +479,8 @@ func rearmablePublication(state runstate.State) (runstate.PullRequest, runstate.
 	}
 	published := *state.PullRequest
 	if state.Integration == nil {
-		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf(
-			"run %s recorded no promotion, so pull request %d carries nothing this harness integrated and its merge is not one to repeat", state.RunID, published.Number)
+		return runstate.PullRequest{}, runstate.Integration{}, UnrearmablePublicationError{RunID: state.RunID, Number: published.Number, Why: fmt.Sprintf(
+			"run %s recorded no promotion, so pull request %d carries nothing this harness integrated and its merge is not one to repeat", state.RunID, published.Number)}
 	}
 	if published.Merged {
 		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf("pull request %d is merged, so there is no dropped merge to repeat", published.Number)
@@ -493,17 +493,36 @@ func rearmablePublication(state runstate.State) (runstate.PullRequest, runstate.
 		published.MergeMethod = string(mergeMethod)
 	}
 	if strings.TrimSpace(published.MergeMethod) == "" {
-		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf(
+		return runstate.PullRequest{}, runstate.Integration{}, UnrearmablePublicationError{RunID: state.RunID, Number: published.Number, Why: fmt.Sprintf(
 			"run %s records no merge method for pull request %d, so nothing says which request the reviewer's verdict authorized; a re-arm repeats that request rather than making one of its own",
-			state.RunID, published.Number)
+			state.RunID, published.Number)}
 	}
 	if published.HeadCommit != state.Integration.SourceCommit {
-		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf(
+		return runstate.PullRequest{}, runstate.Integration{}, UnrearmablePublicationError{RunID: state.RunID, Number: published.Number, Why: fmt.Sprintf(
 			"pull request %d carries %s and run %s promoted %s, so repeating its merge would put on the remote a change the authoritative branch does not have",
-			published.Number, published.HeadCommit, state.RunID, state.Integration.SourceCommit)
+			published.Number, published.HeadCommit, state.RunID, state.Integration.SourceCommit)}
 	}
 	return published, *state.Integration, nil
 }
+
+// UnrearmablePublicationError is a publication whose run's record cannot
+// describe the merge a re-arm makes: no promotion, no merge method, or a head
+// that is not the promoted commit. Nothing the forge does and no later attempt
+// changes that, so a re-arm decision about it is one the harness can only
+// refuse, and what carries the change forward is a re-run.
+//
+// The re-arm decision of 2026-09-28 about the supervisor's periodic pass
+// (yoyodyne-ifd.413) was of this kind — its run stopped on a diverged target
+// before it promoted — and until yoyodyne-edi the watch passed it over without
+// a word rather than refusing it
+// (docs/diagnoses/yoyodyne-edi-rearms-never-carried-out.md).
+type UnrearmablePublicationError struct {
+	RunID  string
+	Number int
+	Why    string
+}
+
+func (e UnrearmablePublicationError) Error() string { return e.Why }
 
 // publicationIsSettled reports the run that made the publication being over.
 //

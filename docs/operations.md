@@ -2412,11 +2412,27 @@ Neither waits on anybody typing a verb. A watching `yoyo work` session carries
 the re-arm out itself on its next pull — outside the developer slots, since it
 is one merge request rather than a run, and not while the operator's pause or
 the intake hold stands — and fires the re-run as it fires any other. A refused
-arming is written onto the item's triage record naming the gate, where the
-development manager reads it, and is attempted again only once the refusal has
-cooled. `yoyo triage rearm <run-id>` makes the request now rather than at the
-next pull; a re-arm of a merge the forge dropped is still made only by that
-verb.
+arming is written onto the item's triage record naming the gate, and the
+publication's docket entry comes back onto the development manager's docket
+carrying it, ahead of the rest, even though her re-arm decision had settled that
+entry. The refusal is attempted again only once it has cooled, and a later
+arming that goes through takes it back off. `yoyo triage rearm <run-id>` makes
+the request now rather than at the next pull, for a merge the forge dropped as
+for one nothing ever asked for.
+
+**A re-arm the harness cannot make is refused, not skipped.** A re-arm
+decided about a run whose record cannot describe the merge — most often a run
+that stopped before it promoted, such as one refused at a
+[diverged target](#unwedging-a-target-branch-that-diverged-from-the-forge) —
+is attempted at the next pull like any other. It is refused with the reason,
+which names the re-run as the decision that applies. A re-arm never brings a
+head up to date: it makes the merge request the reviewer's verdict authorized,
+on the head that verdict saw. A head behind its target, or in conflict with it,
+is refused, and the fallback is a re-run. Until yoyodyne-edi the watch passed
+this case over without a word, and it hid every re-arm refusal from the
+docket. On 2026-09-28 that is how two re-arm decisions sat unexplained for a
+day. [The account](diagnoses/yoyodyne-edi-rearms-never-carried-out.md) covers
+both.
 
 **None of the three stands forever.** Every sweep asks the remote again about
 each publication the record says is merged and unfinished, and finishes the ones

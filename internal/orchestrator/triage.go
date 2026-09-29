@@ -407,12 +407,19 @@ func listableDocket(entries []triage.Entry, now time.Time) ([]triage.Entry, int)
 	return listable, unlisted
 }
 
-// harnessCarriesOut reports a decision the scheduling pass fires itself, which
-// is the two that ask for a run. A re-arm is a merge request the operator still
-// repeats by hand, and the other three ask for nothing.
+// harnessCarriesOut reports a decision the scheduling pass fires itself: the two
+// that ask for a run, and a re-arm, which the watch has made as a merge request
+// since yoyodyne-ifd.429.31 and yoyodyne-ifd.428.46. The other three ask for
+// nothing.
+//
+// A re-arm was left out after the watch began carrying it out, so every refusal
+// of one was written onto the item's triage record and then dropped here with
+// its settled entry: the re-arm of the maintenance-duties item's merge
+// (yoyodyne-ifd.434.10) was refused fifty-five times on 2026-09-28 and 29 and the
+// development manager was shown none of them (yoyodyne-edi).
 func harnessCarriesOut(decision string) bool {
 	switch strings.TrimSpace(decision) {
-	case runstate.TriageDecisionRepair, runstate.TriageDecisionRerun:
+	case runstate.TriageDecisionRepair, runstate.TriageDecisionRerun, runstate.TriageDecisionRearm:
 		return true
 	default:
 		return false

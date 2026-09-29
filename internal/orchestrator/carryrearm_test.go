@@ -8,6 +8,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // A re-arm the development manager records about a merge the forge dropped is
@@ -138,6 +139,121 @@ func TestASwitchShutForEverythingIsWrittenOnceOnARearmAndTheFirstPullAfterFiresI
 			}
 		})
 	}
+}
+
+// A re-arm recorded about a run that stopped before it promoted — its target had
+// diverged — against a publication whose docket entry an earlier wait closed is
+// refused aloud at the next pull rather than passed over: the refusal is on the
+// item's triage record, names the missing promotion and the re-run that applies,
+// and the entry comes back onto the docket the development manager reads. That
+// is the re-arm of the supervisor's periodic pass (yoyodyne-ifd.413), which no
+// pull attempted for a day and nothing recorded (yoyodyne-edi).
+func TestARearmOfAPublicationItsRunNeverPromotedIsRefusedAloudAtTheNextPull(t *testing.T) {
+	t.Parallel()
+
+	harness := newRearmHarness(t)
+	unpromoted := harness.state
+	published := *unpromoted.PullRequest
+	published.MergeMethod = ""
+	unpromoted.PullRequest = &published
+	unpromoted.Integration = nil
+	unpromoted.PublishFailure = ""
+	unpromoted.Blocker = "Yoyodyne stopped this item: its target branch and the one on the remote have diverged, so the change was never promoted."
+	if err := harness.runs.Save(unpromoted); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	harness.docket.waitOn(harness.publication(), docketedNow, docketedNow.Add(time.Hour))
+	harness.decide(t)
+	harness.docket.close(harness.publication(), runstate.TriageDecisionRearm, docketedNow)
+	watch := harness.carryOut(nil)
+	watch.Clock = laterClock{after: time.Minute}
+
+	carried, err := watch.CarryRearms(context.Background(), false)
+	if err != nil {
+		t.Fatalf("CarryRearms() error = %v", err)
+	}
+	if len(carried) != 1 || carried[0].Carried || carried[0].Decision != runstate.TriageDecisionRearm ||
+		!strings.Contains(carried[0].Problem, "recorded no promotion") || !strings.Contains(carried[0].Problem, "re-run") {
+		t.Fatalf("carried = %+v, want the re-arm refused naming the missing promotion and the re-run that applies", carried)
+	}
+	if len(harness.forge.requested) != 0 || len(harness.leases.promoted) != 0 {
+		t.Fatalf("a refused re-arm asked the forge for %#v under leases %#v", harness.forge.requested, harness.leases.promoted)
+	}
+	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+	finding, found := counters.CarryOutOf(harness.state.RunID)
+	if !found || finding.Waiting || finding.Gate != runstate.TriageGateHarness || !strings.Contains(finding.Refusal, "recorded no promotion") {
+		t.Fatalf("finding = %+v (found %v), want the refusal on the item's triage record", finding, found)
+	}
+
+	docketed := refusedOnTheDocket(t, harness)
+	if !docketed.Critical() || !strings.Contains(docketed.CarryOut.Refusal, "recorded no promotion") {
+		t.Fatalf("docketed = %+v, want the refused re-arm urgent on the docket", docketed)
+	}
+}
+
+// A re-arm the forge refuses — the maintenance-duties item's merge (yoyodyne-ifd.434.10)
+// conflicting with its base — is refused onto the item, and the refusal reaches
+// the docket the development manager reads rather than being dropped with the
+// entry the decision settled. Once a later pull makes the merge request, the
+// finding is taken back and the entry leaves the docket again.
+func TestARefusedRearmReachesTheDocketAndLeavesItOnceTheMergeIsMade(t *testing.T) {
+	t.Parallel()
+
+	harness := newRearmHarness(t)
+	harness.forge.status = "DIRTY"
+	harness.decide(t)
+	harness.docket.close(harness.publication(), runstate.TriageDecisionRearm, docketedNow)
+	watch := harness.carryOut(nil)
+	watch.Clock = laterClock{after: time.Minute}
+
+	refused, err := watch.CarryRearms(context.Background(), false)
+	if err != nil || len(refused) != 1 || refused[0].Carried || len(harness.forge.requested) != 0 {
+		t.Fatalf("CarryRearms() = %+v, %v with requests %#v; want the re-arm refused and nothing asked", refused, err, harness.forge.requested)
+	}
+	if docketed := refusedOnTheDocket(t, harness); !strings.Contains(docketed.CarryOut.Refusal, "only a person can satisfy") {
+		t.Fatalf("docketed = %+v, want the forge's refusal on the entry", docketed.CarryOut)
+	}
+
+	harness.forge.status = "CLEAN"
+	watch.Clock = laterClock{after: time.Minute + runstate.TriageCarryOutRetryDelay + time.Second}
+	carried, err := watch.CarryRearms(context.Background(), false)
+	if err != nil || len(carried) != 1 || !carried[0].Carried || carried[0].RecordProblem != "" || len(harness.forge.requested) != 1 {
+		t.Fatalf("CarryRearms() once the refusal cooled = %+v, %v with requests %#v; want the merge made and the record clean", carried, err, harness.forge.requested)
+	}
+	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+	if finding, found := counters.CarryOutOf(harness.state.RunID); found {
+		t.Fatalf("finding = %+v still stands over a re-arm that was made", finding)
+	}
+	build, _ := docketerOverStore(harness.docket, harness.runs, rearmConfig()).Build()
+	for _, entry := range build.Entries {
+		if entry.RunID == harness.state.RunID && entry.CarryOut != nil {
+			t.Fatalf("entry %s still carries %+v after the re-arm was made", entry.Key, entry.CarryOut)
+		}
+	}
+}
+
+// refusedOnTheDocket is the entry the docket build shows for the harness's run
+// carrying a refused carry-out, failing the test where there is none.
+func refusedOnTheDocket(t *testing.T, harness *rearmHarness) triage.Entry {
+	t.Helper()
+	docketer := docketerOverStore(harness.docket, harness.runs, rearmConfig())
+	docketer.Clock = laterClock{after: 2 * time.Minute}
+	build, err := docketer.Build()
+	for _, entry := range build.Entries {
+		for _, candidate := range append([]triage.Entry{entry}, entry.Earlier...) {
+			if candidate.RunID == harness.state.RunID && candidate.CarryOut != nil {
+				return candidate
+			}
+		}
+	}
+	t.Fatalf("the docket build (%v) shows %d entries and none carries the refused re-arm of run %s", err, len(build.Entries), harness.state.RunID)
+	return triage.Entry{}
 }
 
 // A re-arm held back because a run of its item is in flight is attempted by no

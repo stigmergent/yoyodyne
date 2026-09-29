@@ -99,6 +99,7 @@ type CarryOutDecisions interface {
 	Counters(workItemID string) (runstate.TriageCounters, error)
 	RecordCarryOutRefusal(ctx context.Context, workItemID string, refusal runstate.TriageCarryOut, at time.Time) (runstate.TriageCounters, error)
 	RecordCarryOutUnattempted(ctx context.Context, workItemID string, unattempted runstate.TriageCarryOut, at time.Time) (runstate.TriageCounters, error)
+	ClearCarryOut(ctx context.Context, workItemID, runID string, at time.Time) (runstate.TriageCounters, error)
 }
 
 // CarryOutReruns is what the harness has already claimed of the re-run decisions.
