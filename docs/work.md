@@ -947,6 +947,18 @@ three endings the clear had — confirmed on the first read, confirmed on a late
 one, or never confirmed — with the refused claims counted beside it, and `yoyo
 status` prints it on the run.
 
+So the order is always the same: the claim bd refused on the status, then the
+clear, then the status read back, and only then the claim. Both writes are
+recorded on the item. The clear's note quotes the refusal that came before it
+and says so, ahead of saying that the claim waits on the read back; once the
+claim lands, a second note says which read returned `open` and how many claims
+bd refused after it. A claim that still cannot be made after the clear is
+refused with that order spelled out first — the refusal, the clear, what the
+reads returned, whether any claim followed — and bd's own words after it. On
+2026-09-28 the reviewer of yoyodyne-ifd.428.44 read the old note, which quoted
+bd's refusal after promising a claim, as bd refusing the claim that followed the
+clear, when the claim had in fact landed.
+
 **This is the same claim on every path that starts a run.** A pull choosing the
 item, you naming it with `yoyo run`, and the harness carrying out a re-run the
 development manager recorded all claim through it, so a re-run carried out
