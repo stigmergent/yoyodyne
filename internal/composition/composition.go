@@ -92,7 +92,7 @@ var Classes = []Class{
 		ID:         "markdown",
 		Extensions: []string{".md"},
 		Checks:     []string{"make test"},
-		Exercised:  "every internal link and `#fragment` resolved by internal/doclink; the goals held to one line each and the governed artifacts held to their frontmatter and their chain by internal/cli's repository tests; the artifact homes held to the coined-term register by internal/terms.",
+		Exercised:  "every internal link and `#fragment` resolved by internal/doclink; the goals held to one line each and the governed artifacts held to their frontmatter and their chain by internal/cli's repository tests; the artifact homes held to the coined-term register by internal/terms; CLAUDE.md and AGENTS.md held identical, and free of the section `bd setup` writes, by composition's own repository test.",
 	},
 	{
 		ID:         ShellClass,
