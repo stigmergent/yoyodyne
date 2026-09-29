@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/admission"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -43,9 +44,14 @@ import (
 // of a guard that never ran is the duplicate the guard exists to stop. The
 // refusal carries the reason, so the role can ask again once the tracker answers
 // rather than describing work as admitted that was not.
-func (s *Session) alreadyAdmitted(ctx context.Context, candidate admission.Candidate) ([]admission.Match, error) {
+//
+// The listing is returned beside the matches because a creation that names a
+// closed item as distinct from it is judged against the same reading: the item
+// it names need not be among the matches, and its state is what decides whether
+// the distinction is recorded.
+func (s *Session) alreadyAdmitted(ctx context.Context, candidate admission.Candidate) ([]admission.Match, []beads.WorkItem, error) {
 	if s.options.Tracker == nil {
-		return nil, errors.New("no work tracker is configured, so nothing could check whether this work is already admitted")
+		return nil, nil, errors.New("no work tracker is configured, so nothing could check whether this work is already admitted")
 	}
 	// Every item rather than the open queue. The duplicate that costs a run is a
 	// duplicate of work that has already landed — a diff against the target branch
@@ -53,9 +59,87 @@ func (s *Session) alreadyAdmitted(ctx context.Context, candidate admission.Candi
 	// work is exactly what an open-queue listing leaves out.
 	admitted, err := s.options.Tracker.List(ctx, "")
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", unlistedAdmittedWork, err)
+		return nil, nil, fmt.Errorf("%s: %w", unlistedAdmittedWork, err)
 	}
-	return admission.Resembling(candidate, admitted), nil
+	return admission.Resembling(candidate, admitted), admitted, nil
+}
+
+// maxDistinctionBytes bounds the sentence a creation gives for what separates it
+// from the closed item it names. It is one sentence rather than a paragraph,
+// because the paragraph is the item's description and this is written beside it.
+const maxDistinctionBytes = 512
+
+// Distinction is a creation's statement that it is separate work from one
+// closed item the duplicate check would match it against: the item, and one
+// sentence of what is separate. It is written onto the new item, so whoever
+// reads the item later reads why it was admitted beside the one it resembles.
+type Distinction struct {
+	ID       string `json:"id"`
+	Separate string `json:"separate"`
+}
+
+// problems checks a distinction as far as one action can: it names an item, and
+// it says in one bounded line what is separate. Whether the item is closed needs
+// the tracker, so it is judged where the creation is carried out.
+func (d Distinction) problems() []error {
+	var problems []error
+	switch id := strings.TrimSpace(d.ID); {
+	case id == "":
+		problems = append(problems, errors.New("distinct_from requires \"id\", the closed item this work is separate from"))
+	default:
+		if err := beads.ValidateIssueID(id); err != nil {
+			problems = append(problems, fmt.Errorf("distinct_from: %w", err))
+		}
+	}
+	switch separate := strings.TrimSpace(d.Separate); {
+	case separate == "":
+		problems = append(problems, errors.New("distinct_from requires \"separate\", one sentence of what is separate about this work; a distinction nobody stated is the guard switched off"))
+	case strings.ContainsAny(separate, "\r\n"):
+		problems = append(problems, errors.New("distinct_from \"separate\" is one sentence and cannot span lines"))
+	case len(separate) > maxDistinctionBytes:
+		problems = append(problems, fmt.Errorf("distinct_from \"separate\" is %d bytes, limit is %d", len(separate), maxDistinctionBytes))
+	}
+	return problems
+}
+
+// distinguished sets aside the item a creation named as distinct from it, or
+// says why it may not. The refusal names what to do instead, for the reason a
+// duplicate refusal does: a refusal that only says no is answered by asking again
+// in different words.
+func distinguished(matches []admission.Match, admitted []beads.WorkItem, distinction *Distinction) ([]admission.Match, admission.Match, string) {
+	if distinction == nil {
+		return matches, admission.Match{}, ""
+	}
+	remaining, distinct, err := admission.Distinguish(matches, admitted, distinction.ID)
+	if err != nil {
+		return matches, admission.Match{}, fmt.Sprintf("nothing was created: %s. Open work is acted on — updated or widened — and where this is genuinely separate from it, propose it so the operator decides with the match in front of them",
+			singleLine(err.Error(), maxTrackerFailureBytes))
+	}
+	return remaining, distinct, ""
+}
+
+// distinctionNote is what a created item records about the closed item it was
+// admitted beside, and is nothing on the ordinary creation that names none.
+func distinctionNote(distinct admission.Match, distinction *Distinction) string {
+	if distinction == nil || distinct.ID == "" {
+		return ""
+	}
+	matched := "which the duplicate check did not match"
+	if distinct.Because != "" {
+		matched = "which the duplicate check matched because " + distinct.Because
+	}
+	return fmt.Sprintf("\n\nDistinct from %s (%s) %q, %s. What is separate: %s",
+		distinct.ID, distinct.Status, singleLine(distinct.Title, maxSurveyTitleBytes), matched,
+		singleLine(distinction.Separate, maxDistinctionBytes))
+}
+
+// distinctionClause is what one line about a creation says about the closed item
+// it was admitted beside, folded into the summary as the report's clause is.
+func distinctionClause(distinct admission.Match) string {
+	if distinct.ID == "" {
+		return ""
+	}
+	return fmt.Sprintf(", recorded as distinct from %s (%s)", distinct.ID, distinct.Status)
 }
 
 // unlistedAdmittedWork is how both doors say the duplicate check could not be
@@ -82,10 +166,12 @@ func admissionSources(cited ...string) []string {
 // do about it — because a refusal that only says no is one the role answers by
 // asking again in different words.
 //
-// What it does not offer is a way to insist that this is not a duplicate. There
-// is one already and it is the right one: work the role believes is genuinely
-// different is proposed, and the operator decides with the same match in front of
-// them.
+// What it does not offer is a way to insist that open work is not a duplicate.
+// Work the role believes is genuinely different from open work is proposed, and
+// the operator decides with the same match in front of them. Closed work is the
+// other case: the role names it in "distinct_from" with what is separate, and
+// the creation is admitted with that recorded, because deciding that the build
+// of a closed design is not the design is the admitter's to make.
 func duplicateRefusal(verb creation, matches []admission.Match) string {
 	return fmt.Sprintf("%s already looks like work the tracker holds, so nothing was created: %s. %s",
 		verb.subject, admission.Describe(matches), duplicateRemedy(matches))
@@ -102,9 +188,15 @@ func duplicateRefusal(verb creation, matches []admission.Match) string {
 // second piece of work is admitted without the citation rather than not admitted,
 // and this says so. Leaving that out would turn a guard into a wall in front of
 // something the role is told to do.
+//
+// The proposal is offered only where the match is open. A closed match that is
+// genuinely separate work — the build of a design the matched item recorded, say
+// — is admitted again naming it in "distinct_from", because a proposal there puts
+// a decision the role's own authority covers in front of the operator as an
+// approval, which is what proposal 959.1 did on 2026-09-28.
 func duplicateRemedy(matches []admission.Match) string {
 	remedy := "That work is closed, so it is already done and a run made for this one could not contain anything it does not already carry. " +
-		"Say so rather than admitting it again, and where something is genuinely left over, propose it with what is left over named."
+		"Say so rather than admitting it again. Where you have read it and this is genuinely separate work, admit it again with \"distinct_from\" naming that item and one sentence of what is separate, which is recorded on the new item; nothing is put to the operator for that."
 	for _, match := range matches {
 		if match.Status != closedWorkItemStatus {
 			remedy = "Act on that item — update it, or say why this is separate work and propose it instead so the operator decides — rather than admitting this beside it."

@@ -161,6 +161,63 @@ func Resembling(candidate Candidate, admitted []beads.WorkItem) []Match {
 	return append(fromSource, fromScope...)
 }
 
+// closedStatus is the state a distinction may be recorded against. It is the
+// tracker's own word for work that has left the backlog, finished or retired.
+const closedStatus = "closed"
+
+// Distinguish sets aside the one item the admitter named as separate work, and
+// returns the matches still standing beside what was set aside.
+//
+// It exists for the match that is right about the words and wrong about the
+// work: a design closed by the architect and the build of that design share a
+// parent and most of a title, and on 2026-09-28 the build of the configurable
+// state root was refused against yoyodyne-ifd.434.2, the closed design it was
+// built from. Before this the only way past was a proposal, which put a decided
+// admission in front of the operator as an approval.
+//
+// Only closed work may be named. A duplicate of open work is work to fold this
+// into or to widen, and a way to name it and carry on would be the guard
+// switched off by whoever it was guarding against. The named item has to be one
+// the tracker holds; it need not be among the matches, and what is set aside
+// says whether it was, so the record does not claim the check matched an item it
+// never looked at twice.
+func Distinguish(matches []Match, admitted []beads.WorkItem, named string) ([]Match, Match, error) {
+	named = strings.TrimSpace(named)
+	if named == "" {
+		return matches, Match{}, nil
+	}
+	var (
+		held  beads.WorkItem
+		found bool
+	)
+	for _, item := range admitted {
+		if strings.TrimSpace(item.ID) == named {
+			held, found = item, true
+			break
+		}
+	}
+	if !found {
+		return matches, Match{}, fmt.Errorf("the tracker holds no item %s, so there is nothing for this work to be distinct from", named)
+	}
+	distinct := Match{
+		ID:     named,
+		Title:  strings.TrimSpace(held.Title),
+		Status: strings.TrimSpace(held.Status),
+	}
+	if distinct.Status != closedStatus {
+		return matches, Match{}, fmt.Errorf("%s is %s rather than closed, and a distinction is recorded only against closed work", named, distinct.state())
+	}
+	remaining := make([]Match, 0, len(matches))
+	for _, match := range matches {
+		if match.ID == named {
+			distinct.Because = match.Because
+			continue
+		}
+		remaining = append(remaining, match)
+	}
+	return remaining, distinct, nil
+}
+
 // Describe names what a candidate looks like, in one line, so a refusal and a
 // proposal put to an operator say it in the same words. It is empty for the
 // ordinary candidate that looks like nothing.

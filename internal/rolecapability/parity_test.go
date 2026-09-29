@@ -206,8 +206,15 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // 2026-09-27 (yoyodyne-ifd.428.40). It decides nothing about the run, which
 // stays the development manager's, and is held under the same capability as
 // retiring, which is admission run backwards.
+//
+// The product manager's `withdraw` takes back a proposal of her own that the
+// operator has not decided. It is the same 2026-09-26 rule applied to proposal
+// 959.1, which the duplicate guard's fallback put in front of the operator on
+// 2026-09-28 for an admission her own authority covered, with nothing she held
+// able to take it back (yoyodyne-ifd.433.18). It admits nothing and is held
+// under the same capability as admitting.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label", "inflight"},
+	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw"},
 	domain.RoleDevelopmentManager: {"brake", "label"},
 }
 

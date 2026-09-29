@@ -110,9 +110,11 @@ through a fixed set of named operations the harness carries
 out for it — read an item in full, survey the open queue, create, attribute to a
 goal, update, label and unlabel, reparent, reprioritize, park and unpark, link
 and unlink a dependency, repair state the records have made stale, close, and
-retire. One further operation is about none of that: `handle` records
+retire. Two further operations are about none of that: `handle` records
 what became of a report another role filed, which is how the pile it is shown
-[stops being asked about](reporting.md#who-reads-them-and-what-became-of-each-one). Every
+[stops being asked about](reporting.md#who-reads-them-and-what-became-of-each-one),
+and `withdraw` takes back a proposal of the Lead Product Manager's own that you
+have not decided yet ([below](#proposals-and-deciding-them-in-batches)). Every
 argument is validated before anything runs, at most ten actions happen per reply,
 each one is recorded in the conversation's log as asked-for and then as applied
 or failed, and all of them are printed to you as they happen. An action that
@@ -186,6 +188,34 @@ nobody reads. One record can genuinely prompt more than one piece of work — a
 directive of yours routinely does — so the refusal for a source says what to do
 about that too: the citation belongs on the one item that answers the record, and
 the second is admitted without it.
+
+**A match against closed work can be named as separate work.** A closed item can
+match work that is genuinely different, and the ordinary case is a design: the
+architect's design item closes when the design is recorded, and the item that
+builds it hangs under the same parent with most of the same title. On 2026-09-28
+the build of the configurable state root was refused against
+yoyodyne-ifd.434.2, the closed design it was built from; the refusal told the
+Lead Product Manager to propose it instead, and proposal 959.1 then waited on you
+for a decision her own authority covered. So a creation can carry
+`distinct_from`, naming the closed item and saying in one sentence what is
+separate:
+
+```text
+{"action":"create","title":"…","description":"…","goal":"…","parent":"yoyodyne-ifd.434",
+ "distinct_from":{"id":"yoyodyne-ifd.434.2","separate":"434.2 recorded the design; this builds it."},
+ "reason":"…"}
+```
+
+The harness sets that one match aside and writes the item and the sentence onto
+the new item's notes — whether the check had matched it, and why — so whoever
+reads the item later reads why it was admitted beside the one it resembles.
+Nothing is put to you. The field is refused where the item it names is open or
+not in the tracker, and where the sentence is missing or runs past one line; it
+sets aside only the item it names, so any other match still refuses the
+creation. The proposal is what is left for a match against open work: the
+refusal names it only there, because open work is acted on — updated or widened
+— or, where it is genuinely separate, proposed so you decide with the match in
+front of you.
 
 A proposal is never refused for any of this. What happens there is that the
 harness does not admit it on an approved goal's authority: it comes to you with
@@ -312,6 +342,22 @@ card with its reasoning, and created only after an answer that approves it by
 name. A proposal you left undecided is named when the conversation ends, and a
 created item records the conversation, the turn, and the rationale it came from.
 A proposal the harness cannot read is reported and the conversation carries on.
+
+**The Lead Product Manager can take back a proposal of her own.** Until you
+decide one, a proposal she made is hers to withdraw, with the `withdraw` tracker
+action naming it exactly as it was listed and saying why:
+
+```text
+{"action":"withdraw","proposal":"959.1","reason":"the admission was mine to make; the duplicate guard's fallback proposed it"}
+```
+
+It comes off your list at once, from this process and from the conversation's
+record, so no later `yoyo chat` offers it to you. The log keeps the proposal and
+records it as withdrawn, with her reason and her role — never as declined, which
+is your answer and keeps your words. A proposal already decided, or one this
+conversation never made, cannot be withdrawn and the action says so. It is what
+she does when a proposal should never have reached you: a decision her own
+authority covered, or work since admitted another way.
 
 **A single message decides a proposal too, and it is the same decision.** A
 `--message` invocation has nobody standing at a prompt, so it creates nothing and
