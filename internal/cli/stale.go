@@ -230,15 +230,21 @@ func contradictionCount(report staleness.Report) string {
 // printChanges names what changed upstream of one stale thing, most recent
 // first. The reason each change recorded is carried because it is what decides
 // whether anything has to be done: a rewording and a reversal of intent look
-// identical without it.
+// identical without it. A rewording the Lead Product Manager recorded as
+// consistent with intent is said as one, so it is not read as an amendment the
+// operator has yet to see.
 func printChanges(stdout io.Writer, changes []staleness.Change) {
 	listed := changes
 	if len(listed) > maxRenderedChanges {
 		listed = listed[:maxRenderedChanges]
 	}
 	for _, change := range listed {
+		action := string(change.Action)
+		if change.Rewording {
+			action = "reworded, consistent with intent,"
+		}
 		fmt.Fprintf(stdout, "    %s was %s %s by the %s: %s\n",
-			change.ArtifactID, change.Action, day(change.At), change.By,
+			change.ArtifactID, action, day(change.At), change.By,
 			singleLine(change.Reason))
 	}
 	if remaining := len(changes) - len(listed); remaining > 0 {
@@ -317,6 +323,11 @@ it, and this exits zero whatever it finds -- a change to a goal's wording is
 frequently not a change to what the work should do, and a harness that failed
 over an edit would teach you not to edit. What to do about each of these is
 yours to decide, or the owning role's.
+
+A rewording of the goals the Lead Product Manager recorded as consistent with
+intent is listed as a rewording rather than as an amendment: your approval
+stands through it, and the work admitted under the old wording is still listed,
+because it may still read differently.
 
 An artifact stops being reported when its owner records a revision of it later
 than the change, which is the durable record that somebody looked. A work item

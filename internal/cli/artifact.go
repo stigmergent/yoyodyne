@@ -50,6 +50,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
 type artifactOutput struct {
@@ -430,10 +431,10 @@ func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) 
 		given := fmt.Sprintf("given by the %s %s, for revision %d",
 			latest.By, latest.At.UTC().Format(time.RFC3339), latest.Revision)
 		if recorded.ApprovalState() == artifact.ApprovalApproved {
-			return "approved as it stands, " + given
+			return "approved as it stands, " + given + rewordedSince(recorded)
 		}
-		return fmt.Sprintf("approved and amended since — %s, and %s recorded after it, so the document as it now reads is not what was approved",
-			given, laterRevisions(recorded.RevisionsSinceApproval()))
+		return fmt.Sprintf("approved and amended since — %s, and %s recorded after it, so the document as it now reads is not what was approved%s%s",
+			given, laterRevisions(recorded.RevisionsSinceApproval()), rewordedSince(recorded), undelegated(recorded, latest.Revision))
 	}
 	switch {
 	case policy.RequiresFor(recorded):
@@ -443,6 +444,38 @@ func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) 
 	default:
 		return fmt.Sprintf("none recorded; no approval setting governs a %s artifact", recorded.Kind)
 	}
+}
+
+// rewordedSince names the rewordings the approval stands through, so a document
+// read as approved that no longer reads word for word as it was approved says
+// so, and says whose decision that was.
+func rewordedSince(recorded artifact.Artifact) string {
+	rewordings := recorded.RewordingsSinceApproval()
+	if len(rewordings) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; the %s has since recorded %s as consistent with intent, which the approval stands through",
+		domain.RoleProductManager.Title(), plural(len(rewordings), "rewording", "rewordings"))
+}
+
+// undelegated says why an amendment labelled consistent with intent still
+// counts against the approval, so the label does not read as ignored: what the
+// record is missing is what whoever recorded it has to supply.
+func undelegated(recorded artifact.Artifact, approvedRevision int) string {
+	var missing []string
+	for index := approvedRevision + 1; index < len(recorded.Revisions); index++ {
+		revision := recorded.Revisions[index]
+		if revision.Intent != artifact.IntentConsistent {
+			continue
+		}
+		if delegated, why := recorded.Rewording(revision); !delegated {
+			missing = append(missing, fmt.Sprintf("revision %d is labelled consistent and still counts, because %s", index, why))
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return "; " + strings.Join(missing, "; ")
 }
 
 func laterRevisions(count int) string {
@@ -498,9 +531,15 @@ is append-only, and losing it would leave a document nobody could correct.
 
 Your approval of one of these documents is recorded in the same frontmatter,
 against the revision it was given for, so a document amended after you approved
-it reads as approved-and-amended-since rather than as approved. What needs your
-approval is your configuration's to say: approvals.brief and approvals.goals
-default to human, approvals.designs to automatic, and a decision record is the
+it reads as approved-and-amended-since rather than as approved. The exception is
+a rewording of the goals the Lead Product Manager records as consistent with
+intent -- intent: consistent on the amendment, with a reason opening with the
+work item that directed it -- because the goals then admit and refuse the same
+work they did, and that change is delegated rather than yours; an amendment
+recorded as fundamental, or one that does not say, is still put to you.
+
+What needs your approval is your configuration's to say: approvals.brief and
+approvals.goals default to human, approvals.designs to automatic, and a decision record is the
 architect's account of a decision rather than a statement of intent, so nothing
 asks you to approve one. A revision that only gives a goals document's goals
 identifiers -- the bracketed name an entry opens with -- changes no goal's words,
