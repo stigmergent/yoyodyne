@@ -24,11 +24,16 @@ version: 1
 product:
   id: yoyodyne
   repository: .
-  # The product manager reads product intent from the specifications under this
-  # directory and from nowhere else in the repository. Beside them, labeled as a
-  # description of what is built rather than as intent, it is given the README,
-  # the configuration guide, and the help the commands print -- not this file,
-  # not the source, not the design document. It must stay inside the repository.
+  # Every role reads the documents under this directory as authoritative product
+  # intent: every document filed here, not only the brief and the goals. The
+  # management conversations are briefed with all of them, and every developer
+  # and reviewer is handed them beside the work item it is given. A README here
+  # is read as the directory index it is, and what it says about ownership as a
+  # rule. Beside them, and labeled as a description of what is built rather than
+  # as intent, the Lead Product Manager is also given the README, a fixed set of
+  # operator-facing documents under docs/, and the help the commands print -- not
+  # this file, not the source, not the design document. It must stay inside the
+  # repository.
   specifications: docs/product
   # The architect's durable architectural invariants: one Markdown file per
   # constraint, named by its id. The harness delivers the ones relevant to a
