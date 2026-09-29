@@ -281,6 +281,28 @@ func TestScaffoldedRecurringExampleLoadsWhenUncommented(t *testing.T) {
 			t.Errorf("prompt = %q, want the rule that a decision the role can make is made and reported afterwards", prompt)
 		}
 	}
+	// The queue's own standing reader. A change proposed to a design reaches
+	// the architect only when somebody opens her conversation, and forty-four
+	// stood undecided before this pass existed to be configured.
+	amendments, err := resolved.Config.RecurringTaskNamed("architect-amendments")
+	if err != nil {
+		t.Fatalf("RecurringTaskNamed() error = %v", err)
+	}
+	if amendments.Role != domain.RoleArchitect || amendments.Every.Duration() != 6*time.Hour || !amendments.Enabled {
+		t.Errorf("task = %+v, want the architect woken every six hours for the queue", amendments)
+	}
+	// The instruction that makes the pass argue the queue rather than read it,
+	// and the line that keeps a recommendation from being read as a decision.
+	for _, want := range []string{`"recommendations"`, "You decide nothing"} {
+		if !strings.Contains(amendments.Prompt, want) {
+			t.Errorf("prompt = %q, want %q", amendments.Prompt, want)
+		}
+	}
+	// Its account is read by a person too. It is not told to decide and report,
+	// because every decision on a proposed change is the operator's to record.
+	if !namesWorkItemsByWhatTheyAre(amendments.Prompt) {
+		t.Errorf("prompt = %q, want the rule that a work item is named by what it is", amendments.Prompt)
+	}
 }
 
 func TestMinimumCadenceIsAboveTheAccident(t *testing.T) {

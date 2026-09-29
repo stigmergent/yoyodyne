@@ -14,7 +14,7 @@ package readmodel
 // Two of those surfaces working it out separately is the disagreement one read
 // model exists to prevent.
 //
-// Four things make a finding. Two are read from the report pile: a report
+// Five things make a finding. Two are read from the report pile: a report
 // filed at critical severity is one until somebody handles it — critical is the
 // severity that means action, in the reporting contract's own words — and a
 // handling that says the report needs the operator is one until a later
@@ -27,6 +27,12 @@ package readmodel
 // them while the harness is working it; once it is escalated to the operator it
 // is his, and it is read from the intake hold beside the switches and named on
 // the attention line there, as the held intake it is.
+//
+// The fifth is read from the amendment log and the recurring passes: an owning
+// role's batch of recommendations on the changes proposed to its documents, one
+// finding per pass, standing while any proposal in it is undecided. It is
+// derived in amendments.go and joins the others at the read model's reading and
+// at the channel's.
 
 import (
 	"fmt"

@@ -417,6 +417,7 @@
     { attention: "amendment", title: "A change proposed to a document" },
     { attention: "conversation-carried-item", title: "A work item carried by a conversation" },
     { attention: "report", title: "The pile of collected reports" },
+    { attention: "amendment-queue", title: "The queue of proposed changes" },
     { attention: "owed-step", title: "A run that still owes a step" },
     { attention: "publication", title: "A promotion the forge has not published" },
     { attention: "degraded-service", title: "A part of the product left down" },

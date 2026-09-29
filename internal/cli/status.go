@@ -579,6 +579,9 @@ func standingSources(configPath string) readmodel.Sources {
 		// because the two are different questions about different records: what
 		// the runs are doing, and what a person has recorded doing.
 		sources.Gates = store
+		// The recurring passes, from the same state root, for what an owning
+		// role recommended on the proposed changes put to it.
+		sources.Sweeps = store.Sweeps()
 	}
 	if store, err := runstate.NewConversationStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Conversations = store
