@@ -364,6 +364,14 @@ type RunningRun struct {
 	// a thirty-minute stage are the same phase and different facts, and the
 	// second is the one an operator watching a slow stage is reading for.
 	Checks string `json:"checks,omitempty"`
+	// AfterReply says the developer's session has written its final reply and
+	// is still running on work it started in the background, as the record
+	// words it — "reply written, waiting for background processes: 2m of 5m" —
+	// and is empty otherwise. The line says it in place of the bare phase,
+	// because a run "developing" whose turn is over and one whose provider is
+	// still working are the same phase and different facts, and only the second
+	// is the provider's.
+	AfterReply string `json:"after_reply,omitempty"`
 	// NoProcess says why no process can be found behind the run, and is empty
 	// where one can. A run's record says "running" until something writes its
 	// ending, and a process that dies writes nothing, so a run with no process is
@@ -887,6 +895,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			Stage:               StageOf(state.Phase),
 			ResumingIntegration: state.ResumingIntegration(),
 			Checks:              checksOf(state, now),
+			AfterReply:          afterReplyOf(state, now),
 			StartedAt:           state.StartedAt,
 			Elapsed:             now.Sub(state.StartedAt),
 			// A run nothing has priced yet is stated as unpriced rather than as free.
@@ -996,6 +1005,16 @@ func checksOf(state runstate.State, now time.Time) string {
 		return ""
 	}
 	return state.CheckStage.Describe(now)
+}
+
+// afterReplyOf is what a run in flight says while its developer's session is
+// waiting out background work after its final reply, and empty for any other
+// run: a finished wait is the attempt's history rather than where it stands.
+func afterReplyOf(state runstate.State, now time.Time) string {
+	if state.Phase != runstate.PhaseDeveloping || state.AfterReply == nil || !state.AfterReply.Waiting() {
+		return ""
+	}
+	return state.AfterReply.Describe(now)
 }
 
 // readWorking is the persona conversations with a turn in flight. A conversation

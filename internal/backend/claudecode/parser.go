@@ -204,6 +204,18 @@ func (p *streamParser) EmitProcessOutput(output execution.Output) error {
 	})
 }
 
+// RecordAfterReply writes into the invocation's log what became of a process
+// that went on running after its final reply: waiting on it, and then which
+// way it ended. It is its own line rather than a stderr one, so it is never
+// read as the provider's prose.
+func (p *streamParser) RecordAfterReply(account execution.AfterReply) error {
+	return p.emit(execution.EventProcessOutput, map[string]any{
+		"stream":      "harness",
+		"text":        account.Describe(p.clock.Now()),
+		"after_reply": account,
+	})
+}
+
 // plainLine is a stdout line that is not an envelope, and the decode error it
 // earned. Before any envelope it is held as plain stdout for ObservePlainOutput
 // and recorded, because a CLI that refuses before it writes anything

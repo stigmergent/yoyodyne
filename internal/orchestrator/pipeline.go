@@ -3908,20 +3908,39 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		Attribution: a.spendAttribution(domain.RoleDeveloper, a.developmentPhase()),
 		Clock:       p.Clock,
 	}
-	return provider.Run(ctx, backend.RunRequest{
-		RunID:            a.state.RunID,
-		Role:             domain.RoleDeveloper,
-		WorkingDirectory: a.worktree.Path,
-		Prompt:           prompt,
-		SessionID:        sessionID,
-		Model:            model,
-		Effort:           effort,
-		LastSequence:     a.state.LastSequence,
-		RedactValues:     p.RedactValues,
-		EventSink:        a.sink,
-		AccountAlias:     account.Alias,
-		AccountConfigDir: account.Directory,
+	result, err := provider.Run(ctx, backend.RunRequest{
+		RunID:             a.state.RunID,
+		Role:              domain.RoleDeveloper,
+		WorkingDirectory:  a.worktree.Path,
+		Prompt:            prompt,
+		SessionID:         sessionID,
+		Model:             model,
+		Effort:            effort,
+		LastSequence:      a.state.LastSequence,
+		RedactValues:      p.RedactValues,
+		EventSink:         a.sink,
+		AfterReplyWaiting: a.recordAfterReplyWaiting,
+		AccountAlias:      account.Alias,
+		AccountConfigDir:  account.Directory,
 	})
+	// What became of a session that outlived its reply is this attempt's, and
+	// replaces the waiting account the record carried while it lasted. An
+	// attempt whose session exited with its reply carries none, and clears the
+	// previous attempt's rather than leaving it to be read as this one's.
+	a.state.AfterReply = result.Process.AfterReply
+	return result, err
+}
+
+// recordAfterReplyWaiting records that the developer's session has written its
+// final reply and is still running on work it started in the background, so
+// every surface reading the run says it is waiting on that work rather than
+// that the provider is developing. A record that cannot be saved costs the
+// surfaces the sentence and nothing else: the wait goes on, and the attempt's
+// own ending is recorded as it returns.
+func (a *activeRun) recordAfterReplyWaiting(account execution.AfterReply) {
+	a.state.AfterReply = &account
+	a.state.UpdatedAt = a.pipeline.clock().Now()
+	_ = a.pipeline.Store.Save(a.state)
 }
 
 // recordDevelopment records what a served developer attempt reported.

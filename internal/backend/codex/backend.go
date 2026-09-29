@@ -36,9 +36,15 @@ import (
 // at all — so both are applied rather than either standing in for the other,
 // and they are the same bounds the other adapter uses because they are
 // properties of how the harness runs agents rather than of which agent it runs.
+//
+// defaultAfterReplyTimeout is how long a process that has written its terminal
+// is waited for when it does not exit: the terminal ends the turn, so what keeps
+// the process alive after it is work it started in the background, waited out
+// to this bound and then ended rather than read as a stall.
 const (
-	defaultTimeout     = 4 * time.Hour
-	defaultIdleTimeout = 5 * time.Minute
+	defaultTimeout           = 4 * time.Hour
+	defaultIdleTimeout       = 5 * time.Minute
+	defaultAfterReplyTimeout = 5 * time.Minute
 )
 
 // The Codex sandbox settings this adapter will ask for. `danger-full-access` is
@@ -332,6 +338,10 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if idleTimeout == 0 {
 		idleTimeout = defaultIdleTimeout
 	}
+	afterReplyTimeout := request.AfterReplyTimeout
+	if afterReplyTimeout == 0 {
+		afterReplyTimeout = defaultAfterReplyTimeout
+	}
 	clock := b.Clock
 	if clock == nil {
 		clock = execution.RealClock{}
@@ -367,6 +377,19 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		// exactly the gap between events.
 		Timeout:     timeout,
 		IdleTimeout: idleTimeout,
+		// The invocation's own terminal is the end of its turn, so the stall
+		// bound stops applying at it and a process still alive after it is
+		// waited out as background work instead.
+		Replied:           parser.SawTerminal,
+		AfterReplyTimeout: afterReplyTimeout,
+		AfterReplyWaiting: func(account execution.AfterReply) {
+			if recordErr := parser.RecordAfterReply(account); recordErr != nil {
+				parseErrors = append(parseErrors, recordErr)
+			}
+			if request.AfterReplyWaiting != nil {
+				request.AfterReplyWaiting(account)
+			}
+		},
 		// Every line of that stream is parsed into a normalized event below, so
 		// the run's event log is where an invocation too verbose to retain is
 		// held whole. What the runner keeps is a diagnostic beside it, and the
@@ -412,6 +435,14 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 			Text:   processResult.OutputTruncation,
 		}); truncationErr != nil {
 			return backend.RunResult{}, fmt.Errorf("record Codex output truncation: %w", truncationErr)
+		}
+	}
+	// Which way the wait after the terminal ended is said in the same stream as
+	// the wait itself, so the log reads as a turn that ended and then its
+	// background work, never as a silence.
+	if processResult.AfterReply != nil {
+		if recordErr := parser.RecordAfterReply(*processResult.AfterReply); recordErr != nil {
+			return backend.RunResult{}, fmt.Errorf("record what outlived Codex's terminal: %w", recordErr)
 		}
 	}
 	// A process that failed without writing a terminal has said whatever it had

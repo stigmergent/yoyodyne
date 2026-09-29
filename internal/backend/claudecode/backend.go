@@ -30,6 +30,13 @@ const defaultTimeout = 4 * time.Hour
 // than the total budget for exactly that reason.
 const defaultIdleTimeout = 5 * time.Minute
 
+// defaultAfterReplyTimeout bounds how long a session that has written its final
+// reply is waited for when it does not exit, which is a session kept alive by
+// work it started in the background. The reply is the end of the turn, so this
+// is not a stall and is not bounded as one: it is a wait for the background
+// work, and at the bound that work is ended rather than the turn.
+const defaultAfterReplyTimeout = 5 * time.Minute
+
 // developerSettings is what a developer run is given beyond its tools: the
 // OS-level sandbox that confines Bash, and the guard that stands in front of it.
 //
@@ -445,6 +452,10 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if idleTimeout == 0 {
 		idleTimeout = defaultIdleTimeout
 	}
+	afterReplyTimeout := request.AfterReplyTimeout
+	if afterReplyTimeout == 0 {
+		afterReplyTimeout = defaultAfterReplyTimeout
+	}
 
 	clock := b.Clock
 	if clock == nil {
@@ -485,6 +496,22 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		// exactly the gap between events.
 		Timeout:     timeout,
 		IdleTimeout: idleTimeout,
+		// The invocation's own result is the end of its turn. A session still
+		// alive after it is kept there by work it backgrounded, not by a provider
+		// gone silent, so the stall bound stops applying at it and that work is
+		// waited out instead: before this, run-008b0e25 was stopped as a stall on
+		// 2026-09-28 five minutes after writing its final reply, over the make
+		// test and make race it had left running.
+		Replied:           parser.SawResult,
+		AfterReplyTimeout: afterReplyTimeout,
+		AfterReplyWaiting: func(account execution.AfterReply) {
+			if recordErr := parser.RecordAfterReply(account); recordErr != nil {
+				parseErrors = append(parseErrors, recordErr)
+			}
+			if request.AfterReplyWaiting != nil {
+				request.AfterReplyWaiting(account)
+			}
+		},
 		// Every line of that stream is parsed into a normalized event below, so
 		// the run's event log is where an invocation too verbose to retain is
 		// held whole. What the runner keeps is a diagnostic beside it, and the
@@ -551,6 +578,14 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 			Text:   processResult.OutputTruncation,
 		}); truncationErr != nil {
 			return backend.RunResult{}, fmt.Errorf("record Claude Code output truncation: %w", truncationErr)
+		}
+	}
+	// Which way the wait after the reply ended is said in the same stream as
+	// the wait itself, so the log reads as a turn that ended and then its
+	// background work, never as a silence.
+	if processResult.AfterReply != nil {
+		if recordErr := parser.RecordAfterReply(*processResult.AfterReply); recordErr != nil {
+			return backend.RunResult{}, fmt.Errorf("record what outlived Claude Code's final reply: %w", recordErr)
 		}
 	}
 	// The normalized result and events are the durable provider output. Do not
