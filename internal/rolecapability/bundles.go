@@ -217,10 +217,6 @@ type Ahead struct {
 func declaredAhead() []Ahead {
 	return []Ahead{
 		{
-			Capability: capability.ReadModelRead,
-			Reason:     "the read-model block a pass opens with and the one named query a reply may ask for are their own child of yoyodyne-ifd.430.13; until it lands the program manager is handed no read-model query",
-		},
-		{
 			Capability: capability.ReportFile,
 			Reason:     "reports are read from every role's reply today whatever its bundle holds, so no site asks for this yet; the program manager holds it because its design says so, and making the other roles' reports ask for it is a change to their bundles nobody has ruled on",
 		},
