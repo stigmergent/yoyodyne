@@ -37,6 +37,7 @@ var artifactOwners = map[artifact.Kind]domain.AgentRole{
 	artifact.KindBrief:         domain.RoleProductManager,
 	artifact.KindGoals:         domain.RoleProductManager,
 	artifact.KindNonGoals:      domain.RoleProductManager,
+	artifact.KindRules:         domain.RoleProductManager,
 	artifact.KindDesign:        domain.RoleArchitect,
 	artifact.KindSpecification: domain.RoleArchitect,
 	artifact.KindDecision:      domain.RoleArchitect,

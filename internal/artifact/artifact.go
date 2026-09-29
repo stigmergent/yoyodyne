@@ -63,6 +63,7 @@ const (
 	KindBrief         Kind = "brief"
 	KindGoals         Kind = "goals"
 	KindNonGoals      Kind = "non-goals"
+	KindRules         Kind = "rules"
 	KindDesign        Kind = "design"
 	KindSpecification Kind = "specification"
 	KindDecision      Kind = "decision"
@@ -70,7 +71,7 @@ const (
 
 func (k Kind) Valid() bool {
 	switch k {
-	case KindBrief, KindGoals, KindNonGoals, KindDesign, KindSpecification, KindDecision:
+	case KindBrief, KindGoals, KindNonGoals, KindRules, KindDesign, KindSpecification, KindDecision:
 		return true
 	default:
 		return false
@@ -80,7 +81,7 @@ func (k Kind) Valid() bool {
 // Kinds lists every artifact kind, so a message that has to name them stays
 // equal to what is accepted.
 func Kinds() []Kind {
-	return []Kind{KindBrief, KindGoals, KindNonGoals, KindDesign, KindSpecification, KindDecision}
+	return []Kind{KindBrief, KindGoals, KindNonGoals, KindRules, KindDesign, KindSpecification, KindDecision}
 }
 
 // Status is where an artifact is in its lifecycle. It is explicit for the same

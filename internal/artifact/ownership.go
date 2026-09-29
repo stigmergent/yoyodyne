@@ -71,7 +71,7 @@ var ErrUnauthorized = errors.New("only the role that owns an artifact may create
 // here, which is the same demand the old table made in a less visible way.
 func authority(kind Kind) (capability.Capability, bool) {
 	switch kind {
-	case KindBrief, KindGoals, KindNonGoals:
+	case KindBrief, KindGoals, KindNonGoals, KindRules:
 		return capability.ArtifactProductMutate, true
 	case KindDesign, KindSpecification, KindDecision:
 		return capability.ArtifactDesignMutate, true

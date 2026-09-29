@@ -462,6 +462,7 @@ func TestDocumentStructureProblemChoosesTheShapeByKindThenName(t *testing.T) {
 
 	nonGoals := "# Bounds\n\nWhat this does not do.\n\n## Non-goals\n\n- Hosting.\n"
 	goals := "# Brief\n\nWhat this is.\n\n## Goals\n\n- An outcome.\n"
+	rules := "# Operating rules\n\nWhat every role applies.\n\n## Rules\n\n- A rule.\n"
 	cases := []struct {
 		name    string
 		path    string
@@ -475,6 +476,9 @@ func TestDocumentStructureProblemChoosesTheShapeByKindThenName(t *testing.T) {
 		{name: "a specification stating non-goals only", path: "docs/product/brief.md", content: nonGoals, problem: true},
 		{name: "frontmatter goals stating non-goals only", path: "docs/product/goals/v1-non-goals.md", content: "---\nid: v1-non-goals\nkind: goals\n---\n\n" + nonGoals, problem: true},
 		{name: "a non-goals document stating goals only", path: "docs/product/goals/v1-non-goals.md", content: goals, problem: true},
+		{name: "frontmatter rules stating rules", path: "docs/product/operating-rules.md", content: "---\nid: operating-rules\nkind: rules\n---\n\n" + rules},
+		{name: "frontmatter rules stating goals only", path: "docs/product/operating-rules.md", content: "---\nid: operating-rules\nkind: rules\n---\n\n" + goals, problem: true},
+		{name: "rules without frontmatter are a specification", path: "docs/product/operating-rules.md", content: rules, problem: true},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -92,6 +92,32 @@ func repositoryProduct(t *testing.T) (string, config.Product) {
 	return repository, resolved.Config.Product
 }
 
+// TestThisRepositoryOwnOperatingRulesLoadAsAnArtifact holds the operating rules
+// to what they were written as: a rules artifact filed in the specifications
+// home, which every role reads as product intent because of where it is filed.
+func TestThisRepositoryOwnOperatingRulesLoadAsAnArtifact(t *testing.T) {
+	t.Parallel()
+
+	repository, product := repositoryProduct(t)
+	set, err := artifactStore(repository, product).Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	for _, loaded := range set.Artifacts {
+		if loaded.ID != "operating-rules" {
+			continue
+		}
+		if loaded.Kind != artifact.KindRules {
+			t.Errorf("operating-rules loaded as kind %q, want %q", loaded.Kind, artifact.KindRules)
+		}
+		if want := product.Specifications + "/operating-rules.md"; loaded.Path != want {
+			t.Errorf("operating-rules loaded from %s, want %s", loaded.Path, want)
+		}
+		return
+	}
+	t.Fatalf("no artifact with id operating-rules was read from %v", set.Homes)
+}
+
 func setHoldsKind(set artifact.Set, kind artifact.Kind) bool {
 	for _, loaded := range set.Artifacts {
 		if loaded.Kind == kind {
