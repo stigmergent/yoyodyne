@@ -137,7 +137,7 @@ func openProduct(configPath string) (*product, error) {
 	if err != nil {
 		return nil, err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return nil, err
 	}

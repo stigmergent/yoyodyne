@@ -228,7 +228,7 @@ func ensureSlackSink(ctx context.Context, args []string, stdout, stderr io.Write
 		return 1
 	}
 
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		fmt.Fprintf(stderr, "slack ensure failed: %v\n", err)
 		return 1
@@ -335,7 +335,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 	if err != nil {
 		return nil, "", err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return nil, "", err
 	}

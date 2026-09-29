@@ -445,6 +445,50 @@ All three name the variables and never their values.
 [The environment a check runs in](configuration.md#the-environment-a-check-runs-in)
 is where the allowlist itself is stated.
 
+### Where the state is, and moving it
+
+Everything the harness records — runs, conversations, worktrees, reports, the
+pause below — lives under one directory outside the repository, the state root.
+It is `YOYODYNE_STATE_HOME` where a shell exports it, otherwise the
+`state_root` in this machine's `~/.config/yoyodyne/machine.yaml`, otherwise
+`$XDG_STATE_HOME/yoyodyne`, otherwise the platform default
+(`~/Library/Application Support/Yoyodyne/state` on macOS). Every part of the
+product resolves it the same way, and it is never set in the project's own
+configuration; [`state_root`](configuration.md#where-the-harness-keeps-its-state-state_root)
+is the whole of the setting. `yoyo doctor` says which directory it is and which
+of those four put it there, under `state`:
+
+```text
+ok       state                  the durable records live in /Users/you/Library/Application Support/Yoyodyne/state, from platform-default; the marker in /Users/you/src/example/.git/yoyodyne/state-root agrees
+```
+
+The first process that opens the root for a product records it in
+`.git/yoyodyne/state-root` of the product's checkout, and from then on a
+process that resolved a different root refuses to start rather than keeping a
+second, divergent copy of the product's state. The refusal names both roots,
+the layer the new one came from, and the marker. The usual cause is a shell
+or a launch job carrying a `YOYODYNE_STATE_HOME` the rest of the product does
+not have. Unset it, or correct the setting, and the refused command runs.
+`yoyo doctor` reports the same disagreement as a problem before anything
+refuses.
+
+Moving the state on purpose is four steps, in this order:
+
+```sh
+yoyo stop                                   # nothing may be writing while it moves
+mv "$HOME/Library/Application Support/Yoyodyne/state" /Volumes/work/yoyodyne-state
+printf 'state_root: /Volumes/work/yoyodyne-state\n' > ~/.config/yoyodyne/machine.yaml
+rm .git/yoyodyne/state-root                 # in the product's checkout
+yoyo start
+```
+
+Another product on this machine shares the root unless it is moved too. Each
+product keeps its records under `products/<product id>/`, each product's
+checkout has its own marker, and the pause is kept at the root, so on a shared
+root one pause stops every product on it. Moving one product's state gives it
+a pause of its own. Moving every product's state together keeps one pause, and
+that means following the steps above in each product's checkout.
+
 ## Pausing everything, and resuming it
 
 `yoyo pause` stops everything the harness would spend on a provider, and
@@ -461,7 +505,9 @@ reissue of one after a refusal, a reviewer invocation, a conversation turn — s
 a pause placed while a developer is working reaches that run at its next
 attempt rather than only reaching the runs that had not started. The flag lives
 at the state root rather than under a product, because what makes you pause is
-an account or an afternoon rather than any one project.
+an account or an afternoon rather than any one project — so it stops every
+product whose state is kept at that root, which is every product on the machine
+unless one of them was [moved](#where-the-state-is-and-moving-it).
 
 A run that meets the pause parks exactly as one waiting out a
 [usage limit](#waiting-out-a-provider-usage-limit) does, on the same machinery
@@ -4643,7 +4689,8 @@ A listing chooses from the directory and opens only the logs it prints — the
 newest twenty by default, one for `--follow --latest`'s look every few seconds —
 so a state directory holding hundreds of streams is not read through to print
 a screenful. It resolves the state directory the same way every other verb
-does, so it keeps working under `YOYODYNE_STATE_HOME` or `XDG_STATE_HOME`, and
+does, so it keeps working under `YOYODYNE_STATE_HOME`, a machine's
+`state_root`, or `XDG_STATE_HOME`, and
 an empty answer
 names the directory it read and the kinds it was asked about — a machine with
 fifty runs and no branch reviews is told no branch reviews are recorded, never

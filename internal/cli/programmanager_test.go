@@ -118,7 +118,7 @@ func TestStatusPrintsEachProgramManagerWithItsStatus(t *testing.T) {
     triggers:
       every: 2h
 `)
-	root, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	root, err := resolvedTestStateRoot()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestAProgramManagerNothingHasWokenIsStaleFromTwiceItsScheduleAfterItWasFirs
 			if err != nil {
 				t.Fatalf("loadConfiguration() error = %v", err)
 			}
-			root, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+			root, err := resolvedTestStateRoot()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -272,7 +272,7 @@ func TestTheStandingADashboardRequestReadsRecordsNoFirstSeenMoment(t *testing.T)
     triggers:
       every: 2h
 `)
-	root, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	root, err := resolvedTestStateRoot()
 	if err != nil {
 		t.Fatal(err)
 	}

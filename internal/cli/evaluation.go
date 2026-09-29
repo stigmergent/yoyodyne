@@ -13,7 +13,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -188,7 +187,7 @@ func (f *evaluationFlags) store(stderr io.Writer) (*runstate.EvaluationStore, in
 		fmt.Fprintln(stderr, err)
 		return nil, 1
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return nil, 1

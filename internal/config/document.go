@@ -309,6 +309,9 @@ func decodeDocument(reader io.Reader) (configDocument, error) {
 		if errors.Is(err, io.EOF) {
 			return configDocument{}, errors.New("decode config: configuration is empty")
 		}
+		if refusal := misplacedStateRoot(source); refusal != "" {
+			return configDocument{}, errors.New(refusal)
+		}
 		if migration := retiredSlackOperators(source); migration != "" {
 			return configDocument{}, errors.New(migration)
 		}
@@ -360,6 +363,38 @@ operators:
     grants:
       - %s
 `, GrantDirectWork, exampleSlackMemberID, GrantDirectWork)
+}
+
+// MachineFileName is the machine-local configuration file in the
+// configurations home. The state root is set there and nowhere else.
+const MachineFileName = "machine.yaml"
+
+// misplacedStateRoot reports the refusal for a project file that sets the state
+// root, and the empty string for a file that failed to decode for any other
+// reason. Where the harness keeps its state is a fact about one machine, and a
+// project file is committed and read on every machine that checks it out, so the
+// key is refused by name and the refusal says where it belongs.
+//
+// It runs only after the strict decode has already failed, and it is lenient
+// about everything else in the file, for the reason retiredSlackOperators is.
+func misplacedStateRoot(source []byte) string {
+	var lenient map[string]any
+	if err := yaml.Unmarshal(source, &lenient); err != nil {
+		return ""
+	}
+	key := ""
+	execution, _ := lenient["execution"].(map[string]any)
+	if _, set := lenient["state_root"]; set {
+		key = "state_root"
+	} else if _, set := execution["state_root"]; set {
+		key = "execution.state_root"
+	} else {
+		return ""
+	}
+	return fmt.Sprintf("decode config: %s is not a project setting: where the harness keeps its state describes one machine, "+
+		"and a project configuration is committed and read on every machine that checks it out. "+
+		"Delete it here and set state_root in %s in the configurations home (%s, or $XDG_CONFIG_HOME/yoyodyne, or ~/.config/yoyodyne), "+
+		"or export YOYODYNE_STATE_HOME for one shell", key, MachineFileName, HomeVariable)
 }
 
 // exampleSlackMemberID is the shape of a member id, for a refusal that shows the

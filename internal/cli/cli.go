@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -15,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func Run(args []string, stdout, stderr io.Writer, version string) int {
@@ -561,6 +563,13 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// The state root is not a project value — a project file that sets one is
+	// refused — but it is the one other thing an operator asking where this
+	// product's configuration comes from needs, so it is reported beside the
+	// layers under the origin it was resolved from. Reporting it records
+	// nothing: the marker is written by the processes that open the root.
+	stateRoot, stateRootErr := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
+
 	if *jsonOutput {
 		payload := map[string]any{
 			"config":  resolved.Path,
@@ -576,6 +585,11 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 		if *origins {
 			payload["origins"] = resolved.Origins
 		}
+		if stateRootErr != nil {
+			payload["state_root"] = map[string]string{"error": stateRootErr.Error()}
+		} else {
+			payload["state_root"] = map[string]string{"path": stateRoot.Path, "origin": stateRoot.Origin}
+		}
 		return writeJSON(stdout, stderr, payload)
 	}
 
@@ -584,6 +598,11 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "# layer: %s\n", source)
 	}
 	fmt.Fprintf(stdout, "# revision: %s\n", resolved.Config.Revision())
+	if stateRootErr != nil {
+		fmt.Fprintf(stdout, "# state root: could not be resolved: %v\n", stateRootErr)
+	} else {
+		fmt.Fprintf(stdout, "# state root: %s (from %s)\n", stateRoot.Path, stateRoot.Origin)
+	}
 	if showEffective {
 		encoded, err := yaml.Marshal(resolved.Config)
 		if err != nil {
@@ -596,6 +615,9 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "\n# value origins")
 		for _, key := range resolved.OriginKeys() {
 			fmt.Fprintf(stdout, "%s: %s\n", key, resolved.Origins[key])
+		}
+		if stateRootErr == nil {
+			fmt.Fprintf(stdout, "state_root: %s\n", stateRoot.Origin)
 		}
 	}
 	return 0

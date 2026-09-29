@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -116,9 +115,9 @@ func TestAProductWithNoEvaluationsSaysSo(t *testing.T) {
 func recordEvaluation(t *testing.T, recommendation evaluation.Recommendation, idea string) evaluation.Evaluation {
 	t.Helper()
 
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := resolvedTestStateRoot()
 	if err != nil {
-		t.Fatalf("SystemDefaultRoot() error = %v", err)
+		t.Fatalf("resolvedTestStateRoot() error = %v", err)
 	}
 	store, err := runstate.NewEvaluationStore(stateRoot, "yoyodyne")
 	if err != nil {

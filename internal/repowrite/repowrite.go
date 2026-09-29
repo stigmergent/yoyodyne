@@ -345,6 +345,52 @@ func (r Root) WriteFile(relative string, content []byte) (string, error) {
 	return target, nil
 }
 
+// CreateFile writes a document a root-relative path names only if nothing is
+// there yet, and reports whether this call was the one that wrote it.
+//
+// It is here for the record two processes may race to make first, where the
+// second must read the first one's rather than replace it: WriteFile's rename
+// would let the later writer win silently. The bytes go into a temporary file
+// beside the target exactly as they do there, and are then linked into place,
+// which the operating system refuses when the name already exists — so the
+// document is never seen half-written and exactly one of the racers creates it.
+// A target that already exists is not a failure: created is false, and the
+// caller reads what is there.
+func (r Root) CreateFile(relative string, content []byte) (target string, created bool, err error) {
+	clean, target, err := r.resolve(relative)
+	if err != nil {
+		return "", false, err
+	}
+	directory := filepath.Dir(target)
+	if err := os.MkdirAll(directory, directoryPermissions); err != nil {
+		return "", false, fmt.Errorf("create %s: %w", path.Dir(clean), err)
+	}
+	temporary, err := os.CreateTemp(directory, temporaryPattern)
+	if err != nil {
+		return "", false, fmt.Errorf("create a temporary file beside %s: %w", clean, err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(filePermissions); err != nil {
+		temporary.Close()
+		return "", false, fmt.Errorf("set the permissions of %s: %w", clean, err)
+	}
+	if _, err := temporary.Write(content); err != nil {
+		temporary.Close()
+		return "", false, fmt.Errorf("write %s: %w", clean, err)
+	}
+	if err := temporary.Close(); err != nil {
+		return "", false, fmt.Errorf("close %s: %w", clean, err)
+	}
+	if err := os.Link(temporaryPath, target); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return target, false, nil
+		}
+		return "", false, fmt.Errorf("create %s: %w", clean, err)
+	}
+	return target, true, nil
+}
+
 // MakeDirectory creates the directory a root-relative path names, and any
 // missing directory above it, and returns where it landed.
 //

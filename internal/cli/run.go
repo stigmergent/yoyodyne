@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -191,7 +192,7 @@ func resolveRoots(resolved config.Resolved) (roots, error) {
 		return roots{}, fmt.Errorf("resolve product repository: %w", err)
 	}
 
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return roots{}, err
 	}
@@ -218,6 +219,29 @@ func resolveRoots(resolved config.Resolved) (roots, error) {
 		return roots{}, err
 	}
 	return roots{repository: repository, worktreeRoot: worktreeRoot, stateRoot: stateRoot}, nil
+}
+
+// productStateRoot is the state root every command opens a product's records
+// under, and the only way a command in this package reaches one. It resolves the
+// root the one way runstate.ResolveRoot does, and then agrees it with the marker
+// in the configured repository's Git directory: the first process records the
+// root there, and a process that resolved a different one refuses to start
+// naming both, so one product's state is never split between two roots by two
+// layers of configuration. The watch, the sink, the dashboard, the supervisor,
+// conversations, and runs all open their stores through here.
+func productStateRoot(resolved config.Resolved) (string, error) {
+	root, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
+	if err != nil {
+		return "", err
+	}
+	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
+	if err != nil {
+		return "", fmt.Errorf("resolve product repository: %w", err)
+	}
+	if err := runstate.AgreeRoot(repository, root); err != nil {
+		return "", err
+	}
+	return root.Path, nil
 }
 
 // standingRemains is the repository a read-only surface asks whether a stopped

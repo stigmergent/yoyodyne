@@ -14,7 +14,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -137,7 +136,7 @@ func exchangeStore(configPath string) (*runstate.ExchangeStore, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return nil, "", err
 	}
