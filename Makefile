@@ -145,11 +145,10 @@ check: fmtcheck test race vet
 # in .github/workflows/ci.yml installs `bd` and calls this target, so the gate
 # is enforced rather than left to somebody remembering it.
 #
-# It stays out of `check` all the same. `check` is what a run applies to a
-# developer's worktree before review, and this needs a tool that worktree is not
-# given -- the walk fetches bd from the tracker's home where a machine has none,
-# which needs the network -- and a scratch clone it has no reason to cut; the
-# merge gate belongs in CI, where the tracker can be installed once.
+# It stays out of `check` all the same, because `check` is every change's gate
+# and most changes touch nothing this vouches for. The harness runs it as a
+# path check instead, for a change touching a path scripts/walk-adoption.paths
+# lists; docs/developing-yoyo.md says when.
 #
 #   make adoption                    every step that needs no provider
 #   WALK_PROVIDER=1 make adoption    also hand an item to a developer agent

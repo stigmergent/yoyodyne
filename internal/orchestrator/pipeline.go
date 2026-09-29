@@ -5279,11 +5279,19 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// reads it to decide anything, so a store that refuses it costs the status
 	// line a figure and costs the stage nothing — and the first event the checks
 	// persist is what says the store has gone, in the words it always said it in.
+	//
+	// What it touches also decides which path checks join the configured ones:
+	// a check that vouches for part of the repository — the adoption walk, for
+	// the README and the program it documents — runs for a change that touches
+	// that part and costs nothing for one that does not. Where it runs, its
+	// result is one more check result, so the review evidence carries it the
+	// way it carries every other.
 	narrowing := checks.NarrowGoPackages(a.worktree.Path, changed)
+	added := pathChecksFor(a.worktree.Path, p.Config.PathChecks, changed)
 	stage := &runstate.CheckStage{
 		StartedAt:    p.clock().Now(),
 		BoundSeconds: int64(p.checkStageTimeout() / time.Second),
-		Narrowed:     narrowing.Describe(),
+		Narrowed:     narrowing.Describe() + describePathChecks(added),
 	}
 	a.state.CheckStage = stage
 	a.state.UpdatedAt = p.clock().Now()
@@ -5291,7 +5299,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 	checkResults, lastSequence, err := p.Checks.Run(ctx, checks.Request{
 		RunID:        a.state.RunID,
 		Directory:    a.worktree.Path,
-		Commands:     p.Config.Checks,
+		Commands:     withPathChecks(p.Config.Checks, added),
 		LastSequence: a.state.LastSequence,
 		Env:          []string{narrowing.Env()},
 		// Which check the stage is on goes onto the record as each begins.

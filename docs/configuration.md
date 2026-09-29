@@ -214,6 +214,7 @@ services:           # the parts of the product, each on or off; see Services
 
 checks: []          # yours to write; a run with none is refused
 landing_checks: []  # what runs whole, once per landing; see "Where the whole suite runs"
+path_checks: []     # checks a change runs only when it touches what they vouch for
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -2714,6 +2715,45 @@ the landing checks leaves a run that is over with a landing the record says is
 running; `yoyo reconcile` settles that landing as unverified, saying the process
 died, and removes the checkout it was running in — a live process running them
 holds the run's lease and is left alone.
+
+### Checks a change runs only when it touches what they vouch for
+
+Some checks vouch for one part of the repository and cost something whatever
+they are given: a walkthrough of the documented install, say, which a change to
+the documentation or to the program it documents can break, and a change to a
+design note cannot. `path_checks` is a list of those, each a command and the
+file in the repository listing the paths it vouches for:
+
+```yaml
+path_checks:
+  - command: make adoption
+    paths: scripts/walk-adoption.paths
+```
+
+The per-run gate runs every entry in `checks` and then each path check whose
+list covers a path the change touches, in the order written, under the same
+stage bound, in the same environment, and to the same effect: a path check that
+fails is a failing check, handed to the developer to repair like any other, and
+one that passes is a check result the review is shown beside the rest. A change
+that touches nothing on a path check's list does not run it. The run's record
+and the item's notes say which path check the gate added and which changed
+path added it, where they say what the gate was narrowed to.
+
+The list is read from the worktree of the change under test, not from the
+target branch, so a change that widens what a check covers is judged by the
+widened list, and the list lives beside the thing it describes rather than in
+this file. It takes the part of a `.gitignore`'s syntax everybody already
+reads: one pattern a line, blank lines and `#` comments ignored; a pattern with
+no `/` matches any component of a path, so `*_test.go` is every Go test file; a
+`/` anchors a pattern at the repository root; a trailing `/` means a directory
+and everything under it; and a leading `!` takes back what an earlier line
+covered, the last matching line deciding. A list that cannot be read — missing,
+or carrying a line that is not a pattern — runs its check rather than passing it
+over, because the gate has no declaration to skip it on, and the record says so.
+
+Path checks are not landing checks and are not narrowed: a landing runs
+`landing_checks` alone. An entry with no command, or with a `paths` that is
+absolute or leaves the repository, is refused when the configuration loads.
 
 ## Scheduling ready work
 

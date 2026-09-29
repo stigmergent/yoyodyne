@@ -440,7 +440,9 @@ type CheckStage struct {
 	ElapsedSeconds int64      `json:"elapsed_seconds"`
 	// Narrowed is what the gate was told the change touches, in the words the
 	// checks were given it in, so a run over a change to one package can be
-	// read afterwards as having been narrowed to it.
+	// read afterwards as having been narrowed to it. Where the change touched
+	// what a configured path check vouches for, it also says which check the
+	// gate added and which path added it.
 	Narrowed string `json:"narrowed,omitempty"`
 	// StoppedAtBound reports a stage that ended because it reached its bound,
 	// with Command naming the check it stopped.
