@@ -142,3 +142,50 @@ func TestAnUnsupervisedProductPrintsNoServicesLine(t *testing.T) {
 		t.Errorf("rendered %q, want nothing for a product no supervisor has run for", rendered)
 	}
 }
+
+type fakeConfigReaders struct {
+	mismatches []runstate.ConfigMismatch
+	err        error
+}
+
+func (f fakeConfigReaders) Mismatches() ([]runstate.ConfigMismatch, error) {
+	return f.mismatches, f.err
+}
+
+// A running part whose build cannot read the configuration is on the attention
+// line naming the part, its build, and the key: under the operator's head for
+// the dashboard, which nothing restarts yet, and the harness's for the watch,
+// which restarts itself into a deployed build.
+func TestAPartWhoseBuildCannotReadTheConfigurationIsNamed(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	started := time.Date(2026, 9, 26, 23, 36, 0, 0, time.UTC)
+	sources.ConfigReaders = fakeConfigReaders{mismatches: []runstate.ConfigMismatch{
+		{Service: "dashboard", PID: 4242, Build: "0364141b2c3d4e5f", ConfigPath: "/work/.yoyodyne/config.yaml", StartedAt: started, Keys: []string{"agents.developer.effort"}},
+		{Service: "scheduler", PID: 4343, Build: "0364141b2c3d4e5f", ConfigPath: "/work/.yoyodyne/config.yaml", StartedAt: started, Keys: []string{"agents.developer.effort"}},
+	}}
+	standing := ReadStanding(context.Background(), sources)
+	movers := map[string]Mover{}
+	for _, entry := range standing.NeedsHuman {
+		if entry.Kind == AttentionConfigMismatch {
+			movers[entry.ID] = entry.Mover
+			if !strings.Contains(entry.What(), "build 0364141b2c3d") || !strings.Contains(entry.What(), "agents.developer.effort") {
+				t.Errorf("what = %q, want the build and the key", entry.What())
+			}
+		}
+	}
+	if movers["dashboard"] != MoverOperator || movers["scheduler"] != MoverHarness {
+		t.Fatalf("movers = %v, want the dashboard the operator's and the scheduler the harness's", movers)
+	}
+	rendered := standing.Render()
+	if !strings.Contains(rendered, "the dashboard service, running build 0364141b2c3d") {
+		t.Errorf("rendered:\n%s\nwant the dashboard named", rendered)
+	}
+
+	sources.ConfigReaders = fakeConfigReaders{err: errors.New("decode configuration reader record: unexpected EOF")}
+	unread := ReadStanding(context.Background(), sources)
+	if !strings.Contains(unread.NeedsHumanProblem, "unexpected EOF") {
+		t.Errorf("NeedsHumanProblem = %q, want the unreadable record said", unread.NeedsHumanProblem)
+	}
+}

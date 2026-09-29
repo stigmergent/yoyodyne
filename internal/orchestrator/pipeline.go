@@ -8009,6 +8009,8 @@ Your worktree is yours alone, and so is the scratch directory the harness cut fo
 
 Documentation that describes behavior you change is part of the assigned work, not a follow-up: leave no document asserting what your change has made false. Update the ones you may edit in this same change, and for a stale upstream artifact you may not edit, propose the correction it needs.
 
+A change that adds a configuration key — to the configuration's schema, and so to what the shipped template or a project's file may carry — says so in its summary, naming the key. Every part of the product still running a build from before the key refuses the whole file once it carries it, so whoever lands the change needs to know a restart follows; ` + "`yoyo config validate`" + ` and ` + "`yoyo doctor`" + ` name each running part that cannot read it.
+
 ` + terms.LiveCopy + `
 
 Any architectural invariant delivered with this work item is a constraint on your change rather than advice. Invariants exist because a change whose own work is correct can still break something the work item never mentioned, so each one holds even where nothing else you were given refers to it. They belong to the architect: do not create, amend, retire, or edit one. If your work cannot satisfy an invariant, or you believe one is wrong, leave it as it stands and put the amendment you would propose in your summary for the architect to decide.

@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
 )
 
@@ -114,6 +115,10 @@ func brokenInstallations() map[string]func(*world) {
 		},
 		"an artifact home's index has stopped answering": func(w *world) {
 			w.rewriteIndex("docs/decisions", "# docs/decisions\n\nWhatever anybody felt like writing.\n")
+		},
+		"a running dashboard's build cannot read a key in the configuration": func(w *world) {
+			w.configuration = effortConfig
+			w.runningPart("dashboard", 4242, staleBuild, schemaWithout("agents.*.effort"))
 		},
 		"the provider is not installed": func(w *world) {
 			w.absent("claude")
@@ -1239,6 +1244,9 @@ type world struct {
 	// which is how an environment that declares its own missing tools is
 	// arranged.
 	variables map[string]string
+	// alive is the processes this machine has, by pid, for the records the
+	// running parts of the product wrote about themselves.
+	alive map[int]bool
 }
 
 const currentVersion = "v1.2.3"
@@ -1264,6 +1272,7 @@ func newWorld(t *testing.T) *world {
 		project:       t.TempDir(),
 		goos:          "darwin",
 		variables:     map[string]string{},
+		alive:         map[int]bool{},
 	}
 	// A machine where everything answers. Each broken installation is this with
 	// exactly one thing changed, so what a test arranges is what it is about.
@@ -1417,8 +1426,43 @@ func (w *world) diagnose() Report {
 		Build:       w.build,
 		Load:        w.load,
 		Now:         time.Now,
+		ProcessRunning: func(pid int) (bool, error) {
+			return w.alive[pid], nil
+		},
 	})
 }
+
+// runningPart records a part of the product as running, as pid, on build,
+// reading this world's configuration with the keys given.
+func (w *world) runningPart(service string, pid int, build string, keys []string) {
+	w.t.Helper()
+	store, err := runstate.NewConfigReaderStore(w.stateRoot, "yoyodyne")
+	if err != nil {
+		w.t.Fatalf("NewConfigReaderStore() error = %v", err)
+	}
+	err = store.Record(runstate.ConfigReader{
+		Service:    service,
+		PID:        pid,
+		Build:      build,
+		ConfigPath: filepath.Join(w.project, config.DirectoryName, "config.yaml"),
+		StartedAt:  time.Date(2026, 9, 26, 23, 36, 0, 0, time.UTC),
+		Keys:       keys,
+	})
+	if err != nil {
+		w.t.Fatalf("Record() error = %v", err)
+	}
+	w.alive[pid] = true
+}
+
+// schemaWithout is this build's configuration keys less some, which is how a
+// build from before those keys existed is arranged.
+func schemaWithout(removed ...string) []string {
+	return slices.DeleteFunc(config.SchemaKeys(), func(key string) bool { return slices.Contains(removed, key) })
+}
+
+// effortConfig is the healthy configuration carrying the key that reached the
+// main checkout on 2026-09-28 ahead of the dashboard's build.
+var effortConfig = strings.Replace(healthyConfig, "    model: opus\n", "    model: opus\n    effort: medium\n", 1)
 
 // lookPath resolves only what this machine has. The set is enumerated rather
 // than inverted so that a configuration naming a program nobody installed --
@@ -1685,4 +1729,68 @@ agents:
 // Slack service is a declaration the configuration accepts.
 func servicesConfig(entry string) string {
 	return reportingConfig + "services:\n  " + entry
+}
+
+// The incident this finding exists for: the effort lines reached the main
+// checkout while the dashboard ran a build from two days before them, and
+// every read it made of the configuration failed. The doctor names the part,
+// its build, and the key, and says a scheduler in the same state stops work.
+func TestDoctorNamesTheRunningPartWhoseBuildCannotReadTheConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a dashboard on an older build", func(t *testing.T) {
+		t.Parallel()
+		world := newWorld(t)
+		world.configuration = effortConfig
+		world.runningPart("dashboard", 4242, staleBuild, schemaWithout("agents.*.effort"))
+		// The scheduler runs a build that reads the key, and a sink that is on the
+		// older build has exited, so neither is named.
+		world.runningPart("scheduler", 4343, currentBuild, config.SchemaKeys())
+		world.runningPart("slack", 4444, staleBuild, schemaWithout("agents.*.effort"))
+		world.alive[4444] = false
+
+		report := world.diagnose()
+		finding, found := findingFor(report, "config-readers:dashboard")
+		if !found {
+			t.Fatalf("no config-readers:dashboard finding: %s", render(report))
+		}
+		if finding.Status != StatusWarning {
+			t.Fatalf("config-readers:dashboard = %s, want a warning", finding.Status)
+		}
+		for _, want := range []string{"the dashboard service", "build " + staleBuild[:12], "pid 4242", "agents.developer.effort"} {
+			if !strings.Contains(finding.Summary, want) {
+				t.Errorf("summary %q does not name %q", finding.Summary, want)
+			}
+		}
+		if finding.Remedy != "kill 4242 && yoyo dashboard" {
+			t.Errorf("remedy = %q, want the dashboard restarted", finding.Remedy)
+		}
+		for _, check := range []string{"config-readers:scheduler", "config-readers:slack"} {
+			if other, named := findingFor(report, check); named {
+				t.Errorf("%s = %q, want nothing said of a part that reads the key or is not running", check, other.Summary)
+			}
+		}
+	})
+	t.Run("a scheduler on an older build stops work", func(t *testing.T) {
+		t.Parallel()
+		world := newWorld(t)
+		world.configuration = effortConfig
+		world.runningPart("scheduler", 4343, staleBuild, schemaWithout("agents.*.effort"))
+		report := world.diagnose()
+		finding, _ := findingFor(report, "config-readers:scheduler")
+		if finding.Status != StatusProblem || finding.Remedy != "yoyo stop && yoyo start" {
+			t.Fatalf("config-readers:scheduler = %s with remedy %q, want a problem restarting the product", finding.Status, finding.Remedy)
+		}
+	})
+	t.Run("every running part reads the file", func(t *testing.T) {
+		t.Parallel()
+		world := newWorld(t)
+		world.configuration = effortConfig
+		world.runningPart("dashboard", 4242, currentBuild, config.SchemaKeys())
+		report := world.diagnose()
+		finding, _ := findingFor(report, "config-readers")
+		if finding.Status != StatusOK || !strings.Contains(finding.Detail, "dashboard on build "+currentBuild[:12]) {
+			t.Fatalf("config-readers = %s %q (%q), want ok naming the dashboard's build", finding.Status, finding.Summary, finding.Detail)
+		}
+	})
 }

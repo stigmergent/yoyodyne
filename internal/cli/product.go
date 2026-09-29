@@ -330,6 +330,7 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 	if retired, problem := p.retireMaintenanceJob(ctx, "the supervisor"); retired != "" || problem != "" {
 		log("%s", firstNonEmptyString(retired, problem))
 	}
+	recordConfigReader(p.resolved, runstate.ConfigReaderSupervisor, stderr)
 	supervisor := &supervise.Supervisor{
 		Records:   p.store,
 		Product:   p.resolved.Config.Product.ID,

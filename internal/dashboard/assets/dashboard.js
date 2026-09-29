@@ -422,6 +422,7 @@
     { attention: "publication", title: "A promotion the forge has not published" },
     { attention: "degraded-service", title: "A part of the product left down" },
     { attention: "failing-task", title: "A recurring task failing before its first turn" },
+    { attention: "config-mismatch", title: "A running part that cannot read the configuration" },
     { attention: "hold", title: "A hold over the harness" },
     { attention: "directive", title: "An unresolved directive" },
     { attention: "outage", title: "The provider answering nobody" },
@@ -1762,6 +1763,18 @@
         add("Died", named(service.died_at) ? dayAndClock(service.died_at) : "");
         add("Failures", service.failures === undefined ? "" : String(service.failures));
         add("Log", service.log, "card-field-id");
+        break;
+      case "config-mismatch":
+        var mismatch = entry.config_mismatch;
+        add("Service", entry.id);
+        if (!mismatch) {
+          break;
+        }
+        add("Build", mismatch.build || "not recorded", "card-field-id");
+        add("Process", String(mismatch.pid));
+        add("Started", named(mismatch.started_at) ? dayAndClock(mismatch.started_at) : "");
+        add("Configuration", mismatch.config_path, "card-field-id");
+        add("Keys it cannot read", (mismatch.keys || []).join(", "), "card-field-id");
         break;
       case "failing-task":
         var failing = entry.failing_task;

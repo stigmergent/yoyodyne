@@ -82,6 +82,10 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// request: when each program manager instance was first seen, so a new one
 	// the scheduler never wakes still reads stale.
 	observeProgramManagers(resolved.Config, stateRoot, time.Now())
+	// And which configuration keys this build reads, so a later landing that
+	// adds one this build does not know is named against this process rather
+	// than shown as the decoder's error on every page.
+	recordConfigReader(resolved, string(config.ServiceDashboard), stderr)
 	// The token is read before anything is bound, so a store that does not hold
 	// it refuses at the terminal with the command that stores it rather than
 	// serving under a token nobody has.
