@@ -849,6 +849,46 @@ func (s *ConversationStore) InFlight(identity ConversationIdentity) (bool, error
 	return running, nil
 }
 
+// HeldBy names the agents whose conversations one process is holding right now,
+// in name order, read from the stamps each holder wrote and taking nothing. It
+// is what the supervisor asks before it restarts a part into a deployed build:
+// a Slack sink answering the product manager holds that conversation for the
+// turn, and a restart then would cut the turn off in the middle.
+//
+// A stamp that cannot be read is passed over rather than failing the answer: a
+// stamp is replaced by rename, so an unreadable one is a file nobody wrote as a
+// holder, and the question is only ever about the one process named.
+func (s *ConversationStore) HeldBy(pid int) ([]string, error) {
+	if pid <= 0 {
+		return nil, nil
+	}
+	paths, err := filepath.Glob(filepath.Join(s.root, "*.holder"))
+	if err != nil {
+		return nil, fmt.Errorf("list conversation holders: %w", err)
+	}
+	var agents []string
+	for _, path := range paths {
+		agent := strings.TrimSuffix(filepath.Base(path), ".holder")
+		holder, err := s.readHolder(path, ConversationIdentity{Agent: agent})
+		if err != nil || holder.PID != pid {
+			continue
+		}
+		agents = append(agents, agent)
+	}
+	if len(agents) == 0 {
+		return nil, nil
+	}
+	running, err := processIsRunning(pid)
+	if err != nil {
+		return nil, fmt.Errorf("ask whether pid %d is running: %w", pid, err)
+	}
+	if !running {
+		return nil, nil
+	}
+	sort.Strings(agents)
+	return agents, nil
+}
+
 // conversationHolder is what a process holding a conversation writes down beside
 // the lease so the hold can be observed without being taken.
 type conversationHolder struct {

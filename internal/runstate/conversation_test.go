@@ -1450,3 +1450,27 @@ func TestThePictureAnAgentLastReceivedIsKeptBesideItsRecord(t *testing.T) {
 		t.Fatalf("SaveDeliveredPictureText() oversized error = %v", err)
 	}
 }
+
+// HeldBy names the conversations one process is holding, and nothing once it
+// lets them go or for a process holding none.
+func TestHeldByNamesTheConversationsOneProcessHolds(t *testing.T) {
+	t.Parallel()
+
+	store := newConversationStore(t, t.TempDir())
+	held, err := store.Hold(ConversationIdentity{Agent: "product-manager", Role: domain.RoleProductManager})
+	if err != nil {
+		t.Fatalf("Hold() error = %v", err)
+	}
+	if agents, err := store.HeldBy(os.Getpid()); err != nil || strings.Join(agents, ",") != "product-manager" {
+		t.Fatalf("HeldBy(this process) = %v, %v, want the conversation it holds", agents, err)
+	}
+	if agents, err := store.HeldBy(os.Getpid() + 1); err != nil || len(agents) != 0 {
+		t.Fatalf("HeldBy(another process) = %v, %v, want nothing", agents, err)
+	}
+	if err := held.Release(); err != nil {
+		t.Fatalf("Release() error = %v", err)
+	}
+	if agents, err := store.HeldBy(os.Getpid()); err != nil || len(agents) != 0 {
+		t.Fatalf("HeldBy(this process) after release = %v, %v, want nothing", agents, err)
+	}
+}

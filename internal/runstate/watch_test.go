@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
@@ -98,6 +99,11 @@ func TestOneProductHasOneWatchingSession(t *testing.T) {
 	}
 	if holder.SessionID != testWatchSessionID || holder.PID != os.Getpid() || holder.HeldAt.IsZero() {
 		t.Fatalf("holder = %#v, want the session, the process and when it took the watch", holder)
+	}
+	// And which build it is, which is what the supervisor reads to know a session
+	// that restarted itself into a deployed build has moved.
+	if holder.Build != buildinfo.Commit() {
+		t.Fatalf("holder build = %q, want the holding process's own %q", holder.Build, buildinfo.Commit())
 	}
 
 	// The session ends, and the next one is admitted. What the first left behind

@@ -138,12 +138,23 @@ type Supervisor struct {
 	// PID and Build are what the record says the supervisor is.
 	PID   int
 	Build string
+	// Binary is the binary on disk the children are started from. Where it is
+	// set, each child that says which build it runs is compared with it and
+	// moved onto it when it is deployed over; nil moves nothing.
+	Binary *DeployedBinary
 
 	// states is the supervisor's own account of each child, kept between
 	// ticks and written to the record when it changes.
 	states    map[config.ServiceName]*runstate.SupervisedChild
 	startedAt time.Time
 	recorded  string
+	// deployed is the revision of the binary on disk as this tick read it, and
+	// deployLook whether this tick asks each child which build it is on, which
+	// it does every DeployEvery.
+	deployed       string
+	deployLook     bool
+	lastDeployLook time.Time
+	lastSaid       string
 }
 
 // ErrAlreadyRunning is a supervisor refused because another holds the lease.
@@ -193,6 +204,11 @@ func (s *Supervisor) Tick(ctx context.Context) {
 		s.startedAt = s.now()
 	}
 	now := s.now()
+	s.readDeployed()
+	s.deployLook = s.lastDeployLook.IsZero() || !now.Before(s.lastDeployLook.Add(DeployEvery))
+	if s.deployLook {
+		s.lastDeployLook = now
+	}
 	for _, child := range s.Children {
 		if ctx.Err() != nil {
 			return
@@ -224,7 +240,11 @@ func (s *Supervisor) look(ctx context.Context, child Child, state *runstate.Supe
 		return
 	}
 	if running {
+		// Back from re-executing itself into a deployed build: which build it
+		// came back as is asked now rather than at the next look at builds.
+		returned := state.State != runstate.ChildRunning && state.RestartingInto != ""
 		s.up(child, state, now)
+		s.deploy(ctx, child, state, now, returned)
 		return
 	}
 	switch state.State {
@@ -233,6 +253,25 @@ func (s *Supervisor) look(ctx context.Context, child Child, state *runstate.Supe
 		// started by hand is found running above and taken back.
 		return
 	case runstate.ChildRunning:
+		switch {
+		case s.selfRestarting(child, state):
+			// Re-executing itself into the deployed build, which lets its lease go
+			// for a moment. That is a restart and not a death: it is given the
+			// grace to come back, and started from the binary if it has not.
+			state.State = runstate.ChildDown
+			state.PID = 0
+			state.NextStartAt = now.Add(SelfRestartGrace)
+			state.Reason = fmt.Sprintf("restarting itself into the deployed build %s; started from it at %s if it has not taken its lease back by then",
+				short(state.RestartingInto), state.NextStartAt.UTC().Format(time.RFC3339))
+			s.log("the %s service let its lease go to restart itself into build %s, which is a restart rather than a death", child.Name(), short(state.RestartingInto))
+			return
+		case state.RestartingInto != "":
+			// Asked to stop to move it onto the deployed build, and now gone:
+			// started from that build, with nothing counted against it.
+			state.PID = 0
+			s.start(ctx, child, state, now)
+			return
+		}
 		s.died(child, state, now)
 		return
 	}
@@ -245,7 +284,7 @@ func (s *Supervisor) look(ctx context.Context, child Child, state *runstate.Supe
 // up is a child found holding its lease.
 func (s *Supervisor) up(child Child, state *runstate.SupervisedChild, now time.Time) {
 	if state.State != runstate.ChildRunning {
-		if state.StartedAt.IsZero() || state.State == runstate.ChildDegraded {
+		if (state.StartedAt.IsZero() && state.RestartingInto == "") || state.State == runstate.ChildDegraded {
 			// Running and not started by this supervisor since it last looked:
 			// a child that survived the supervisor, or one somebody started by
 			// hand. Either way it is taken back rather than started again.
@@ -321,6 +360,13 @@ func (s *Supervisor) start(ctx context.Context, child Child, state *runstate.Sup
 		state.StartedAt = now
 		state.Starts++
 		s.log("started the %s service as pid %d", child.Name(), ensured.PID)
+		// Started from the binary on disk, so on the build that binary is.
+		if state.RestartingInto != "" {
+			s.restarted(child, state, now, "was started from the deployed binary")
+		} else if s.deployed != "" {
+			state.Build = s.deployed
+			state.BuildSince = now
+		}
 		return
 	}
 	// Running by the time it was asked: somebody else's start, or the
@@ -393,6 +439,7 @@ func (s *Supervisor) Supervision(now time.Time) runstate.Supervision {
 		ProductID:     s.Product,
 		PID:           s.PID,
 		Build:         s.Build,
+		Deployed:      s.deployed,
 		StartedAt:     s.startedAt.UTC(),
 		ObservedAt:    now.UTC(),
 		Children:      children,
@@ -535,6 +582,10 @@ func DescribeChild(child runstate.SupervisedChild) string {
 		if child.Log != "" {
 			fmt.Fprintf(&said, ", logging to %s", child.Log)
 		}
+		said.WriteString(describeBuild(child))
+		if child.Redeploy != "" {
+			fmt.Fprintf(&said, "; %s", child.Redeploy)
+		}
 	case runstate.ChildDegraded:
 		fmt.Fprintf(&said, "degraded, %s", child.Reason)
 	case runstate.ChildDown:
@@ -547,4 +598,25 @@ func DescribeChild(child runstate.SupervisedChild) string {
 		fmt.Fprintf(&said, "%s", child.State)
 	}
 	return said.String()
+}
+
+// describeBuild is which build a running child is on and since when, in the
+// reader's own zone, and how many times a deploy has moved it. It says nothing
+// where the child has said nothing the supervisor could read.
+func describeBuild(child runstate.SupervisedChild) string {
+	if child.Build == "" {
+		return ""
+	}
+	said := fmt.Sprintf(", on build %s", short(child.Build))
+	if !child.BuildSince.IsZero() {
+		said += " since " + child.BuildSince.Local().Format("2006-01-02 15:04 MST")
+	}
+	switch child.Restarts {
+	case 0:
+	case 1:
+		said += " (restarted into a deployed build once)"
+	default:
+		said += fmt.Sprintf(" (restarted into a deployed build %d times)", child.Restarts)
+	}
+	return said
 }

@@ -13,8 +13,10 @@ package readmodel
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/supervise"
 )
 
 // Supervision is the product's supervisor as the read model asks about it:
@@ -75,4 +77,50 @@ func (s *Services) Attention() []Attention {
 		attention = append(attention, degradedServiceAttention(child))
 	}
 	return attention
+}
+
+// RenderServices is the product's parts under the four lines, one line each,
+// in the words `yoyo start` prints them in: how each stands, which build it is
+// on and since when, and where a deploy is moving it. It is not a fifth line —
+// a part left down is already on the attention line — and it is empty for a
+// product no supervisor has ever run for, which is a product that does not use
+// one rather than one whose parts are all off.
+func (s Standing) RenderServices() string {
+	services := s.Services
+	if services == nil || (!services.Recorded && !services.SupervisorRunning) {
+		if s.ServicesProblem == "" {
+			return ""
+		}
+		return "Services:\n" + partialRead + s.ServicesProblem + "\n"
+	}
+	var rendered strings.Builder
+	record := services.Record
+	switch {
+	case services.SupervisorRunning && services.Recorded:
+		fmt.Fprintf(&rendered, "Services (supervisor running as pid %d", record.PID)
+	case services.SupervisorRunning:
+		rendered.WriteString("Services (supervisor running, and it has not recorded the parts yet")
+	default:
+		fmt.Fprintf(&rendered, "Services (no supervisor is running; `yoyo start` starts one; as it last recorded them at %s", localMoment(record.ObservedAt))
+	}
+	if record.Deployed != "" {
+		fmt.Fprintf(&rendered, "; the binary on disk is build %s", shortRevision(record.Deployed))
+	}
+	rendered.WriteString("):\n")
+	if services.Recorded {
+		for _, child := range record.Children {
+			fmt.Fprintf(&rendered, "  %s\n", supervise.DescribeChild(child))
+		}
+	}
+	if s.ServicesProblem != "" {
+		rendered.WriteString(partialRead + s.ServicesProblem + "\n")
+	}
+	return rendered.String()
+}
+
+func shortRevision(revision string) string {
+	if len(revision) > 12 {
+		return revision[:12]
+	}
+	return revision
 }

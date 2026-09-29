@@ -12,8 +12,9 @@ package supervise
 // product still needs: the supervisor looks, on its own poll, at where the
 // checkout's branch stands and at the revision the binary was built from, and
 // builds when a landing touched what the binary is made of. What takes the
-// build up is what already did: the watch re-executes itself into a replaced
-// binary between runs (internal/redeploy).
+// build up is deploy.go: the supervisor moves every part it hosts onto the
+// binary, and the watch re-executes itself into it between runs
+// (internal/redeploy).
 //
 // The bounce-when-idle step the job also had is deliberately not carried. It
 // compared a process's start time with the binary's, which is wrong for a watch
@@ -22,7 +23,6 @@ package supervise
 
 import (
 	"context"
-	"debug/buildinfo"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -205,16 +205,7 @@ func (r *Rebuilder) builtFrom(path string) (string, error) {
 	if r.BuiltFrom != nil {
 		return r.BuiltFrom(path)
 	}
-	info, err := buildinfo.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	for _, setting := range info.Settings {
-		if setting.Key == "vcs.revision" {
-			return setting.Value, nil
-		}
-	}
-	return "", nil
+	return Revision(path)
 }
 
 // say logs a line, and the same line once: a rebuilder that cannot build says

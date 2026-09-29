@@ -117,6 +117,26 @@ type SupervisedChild struct {
 	// NextStartAt is when a child that is down is started again: the backoff
 	// its failures earned it.
 	NextStartAt time.Time `json:"next_start_at,omitempty"`
+	// Build is the revision the running child was built from, as the child
+	// itself last said, and BuildSince when the supervisor first found it on
+	// that build — when it last moved. Build is empty where the child has said
+	// nothing the supervisor can read, which is a comparison nobody can make
+	// rather than a child that is current.
+	Build      string    `json:"build,omitempty"`
+	BuildSince time.Time `json:"build_since,omitempty"`
+	// RestartingInto is the build a child is being moved onto because a binary
+	// was deployed over the one it runs, for as long as that restart is under
+	// way, and Redeploy says where it stands: what the child is in the middle of
+	// that the restart waits out, or that the child restarts itself.
+	RestartingInto string `json:"restarting_into,omitempty"`
+	Redeploy       string `json:"redeploy,omitempty"`
+	// Restarts is how many times the supervisor has moved the child onto a
+	// deployed build, and RestartedAt when it last did. They are counted apart
+	// from Failures on purpose: a restart into a deployed build is not a death,
+	// and spending the restart bound on one would leave a part degraded for
+	// having been deployed to five times in two minutes.
+	Restarts    int       `json:"restarts,omitempty"`
+	RestartedAt time.Time `json:"restarted_at,omitempty"`
 }
 
 // Supervision is the supervisor's record: which process it is, and what it
@@ -131,7 +151,12 @@ type Supervision struct {
 	// Build is the revision the supervisor was built from, for the same reason
 	// the sink records its own: a resident process runs what it was started
 	// with while the harness moves on.
-	Build     string    `json:"build,omitempty"`
+	Build string `json:"build,omitempty"`
+	// Deployed is the revision of the binary on disk the parts are started
+	// from, as the supervisor last read it: the build every part is moved onto.
+	// It is empty where the binary carries no revision, and then nothing is
+	// compared or restarted.
+	Deployed  string    `json:"deployed,omitempty"`
 	StartedAt time.Time `json:"started_at"`
 	// ObservedAt is when the supervisor last wrote the record.
 	ObservedAt time.Time `json:"observed_at"`
@@ -171,6 +196,9 @@ func (s Supervision) Validate() error {
 		}
 		if len(child.Reason) > MaxChildReasonBytes {
 			problems = append(problems, fmt.Errorf("child %s reason is %d bytes, which exceeds the %d byte bound", child.Service, len(child.Reason), MaxChildReasonBytes))
+		}
+		if len(child.Redeploy) > MaxChildReasonBytes {
+			problems = append(problems, fmt.Errorf("child %s redeploy account is %d bytes, which exceeds the %d byte bound", child.Service, len(child.Redeploy), MaxChildReasonBytes))
 		}
 	}
 	return errors.Join(problems...)

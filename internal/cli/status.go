@@ -331,6 +331,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	if standing != nil {
 		fmt.Fprint(stdout, standing.Render())
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
+		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
 	}
 	printWatch(stdout, watched)

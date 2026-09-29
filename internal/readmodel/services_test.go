@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -95,5 +96,49 @@ func TestAnUnreadableSupervisionRecordIsSaidRatherThanAssumedHealthy(t *testing.
 	standing := ReadStanding(context.Background(), sources)
 	if !strings.Contains(standing.ServicesProblem, "unexpected EOF") || !strings.Contains(standing.NeedsHumanProblem, "unexpected EOF") {
 		t.Errorf("problems = %q / %q, want the unreadable record named on both", standing.ServicesProblem, standing.NeedsHumanProblem)
+	}
+}
+
+// The services line says which build each part is on and when it last moved,
+// beside what the binary on disk is, and where a deploy is moving a part.
+func TestTheServicesLineSaysWhichBuildEachPartIsOnAndWhenItMoved(t *testing.T) {
+	t.Parallel()
+
+	moved := time.Date(2026, 9, 28, 16, 40, 0, 0, time.UTC)
+	sources := quietSources()
+	sources.Supervision = fakeSupervision{
+		running: true,
+		found:   true,
+		recorded: runstate.Supervision{
+			PID:      4242,
+			Deployed: "3d3d367a1b2c4d5e",
+			Children: []runstate.SupervisedChild{
+				{Service: config.ServiceSlack, State: runstate.ChildRunning, PID: 77, Build: "3d3d367a1b2c4d5e", BuildSince: moved, Restarts: 1},
+				{Service: config.ServiceScheduler, State: runstate.ChildRunning, PID: 78, Build: "1a2b3c4d5e6f7a8b", BuildSince: moved.Add(-time.Hour),
+					Redeploy: "on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs"},
+			},
+		},
+	}
+	rendered := ReadStanding(context.Background(), sources).RenderServices()
+	for _, want := range []string{
+		"Services (supervisor running as pid 4242; the binary on disk is build 3d3d367a1b2c):\n",
+		"  slack: running as pid 77, on build 3d3d367a1b2c since " + moved.Local().Format("2006-01-02 15:04 MST") + " (restarted into a deployed build once)\n",
+		"  scheduler: running as pid 78, on build 1a2b3c4d5e6f since ",
+		"; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs\n",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered:\n%s\nwant it to contain %q", rendered, want)
+		}
+	}
+}
+
+// A product no supervisor has run for prints no services line at all.
+func TestAnUnsupervisedProductPrintsNoServicesLine(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	sources.Supervision = fakeSupervision{}
+	if rendered := ReadStanding(context.Background(), sources).RenderServices(); rendered != "" {
+		t.Errorf("rendered %q, want nothing for a product no supervisor has run for", rendered)
 	}
 }

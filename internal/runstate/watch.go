@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
@@ -794,6 +795,12 @@ type WatchHolder struct {
 	SessionID string    `json:"session_id"`
 	PID       int       `json:"pid"`
 	HeldAt    time.Time `json:"held_at"`
+	// Build is the revision the holding process was built from. A session that
+	// re-executes itself into a deployed build takes the lease again as the new
+	// build and stamps it again, so this is what the supervisor reads to know the
+	// scheduler has moved. It is empty for a holder from a build older than the
+	// field, or one that carries no revision.
+	Build string `json:"build,omitempty"`
 }
 
 // Holder is the session that stamped itself as watching this product, reported
@@ -846,7 +853,7 @@ func (s *WatchStore) stampHolder(path, sessionID string) error {
 		temporary.Close()
 		return fmt.Errorf("secure temporary watch holder: %w", err)
 	}
-	holder := WatchHolder{SessionID: sessionID, PID: os.Getpid(), HeldAt: time.Now().UTC()}
+	holder := WatchHolder{SessionID: sessionID, PID: os.Getpid(), HeldAt: time.Now().UTC(), Build: buildinfo.Commit()}
 	if err := writeJSONFile(temporary, "watch holder", holder); err != nil {
 		temporary.Close()
 		return err
