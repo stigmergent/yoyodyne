@@ -283,11 +283,19 @@ func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {
 // cannot read something in it. A part whose file cannot be read is a problem
 // in the returned error rather than a part reported current.
 func (s *ConfigReaderStore) Mismatches() ([]ConfigMismatch, error) {
+	return s.MismatchesIn(os.ReadFile)
+}
+
+// MismatchesIn is Mismatches with the file each part reads read by read
+// rather than from the working tree: a landing reads it as the commit it
+// landed holds it, because the checkout the parts read may not have moved onto
+// that commit yet.
+func (s *ConfigReaderStore) MismatchesIn(read func(configPath string) ([]byte, error)) ([]ConfigMismatch, error) {
 	readers, err := s.Running()
 	problems := []error{err}
 	var mismatches []ConfigMismatch
 	for _, reader := range readers {
-		source, readErr := os.ReadFile(reader.ConfigPath)
+		source, readErr := read(reader.ConfigPath)
 		if readErr != nil {
 			problems = append(problems, fmt.Errorf("the configuration the %s service reads could not be read: %w", reader.Service, readErr))
 			continue

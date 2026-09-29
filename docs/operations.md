@@ -402,12 +402,18 @@ calling it current. `yoyo config validate` says the same on its standard error
 and under `unreadable_by_running` in `--json`, without moving its exit code,
 and `yoyo status` carries each one on its fourth line (below), as the
 harness's move. A run that lands makes the same comparison once it is over,
-against the configuration the landing left: each running part that cannot read
-it is named on the landed item, in a note that opens `Running parts that cannot
-read the configuration this landing left:`, and in the run's outcome under
-`config_mismatches` — so a landing that adds a key names the parts it leaves
-behind at the moment it lands, rather than when somebody next opens the
-dashboard.
+against the configuration as the integrated commit holds it, read from Git
+rather than from the primary checkout — on a target the forge protects the run
+moves nothing locally until the forge merges, so the checkout's file does not
+carry the landed key yet. Each running part that cannot read it is named on the
+landed item, in a note that opens `Running parts that cannot read the
+configuration this landing left:`, and in the run's outcome under
+`config_mismatches`, so a landing that adds a key names the parts it leaves
+behind at the moment it lands rather than when somebody next opens the
+dashboard. A part that reads a file outside the repository is compared against
+that file as it stands, since no landing changed it. The template `yoyo init`
+ships is not compared: no running part reads it, and a key that reaches a
+project's file is compared by the landing that puts it there.
 
 It changes nothing. Nothing here installs, authenticates, restarts, or edits a
 configuration, and no credential is ever read: whether a secret is stored is

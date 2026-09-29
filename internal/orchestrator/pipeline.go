@@ -5864,7 +5864,7 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 // configuration keys their builds read, compared against the file each reads.
 // It is satisfied by *runstate.ConfigReaderStore.
 type ConfigReaders interface {
-	Mismatches() ([]runstate.ConfigMismatch, error)
+	MismatchesIn(read func(configPath string) ([]byte, error)) ([]runstate.ConfigMismatch, error)
 }
 
 // nameUnreadingParts compares the configuration this landing left against
@@ -5875,12 +5875,30 @@ type ConfigReaders interface {
 // part moves onto a build that reads the key the way the attention line says.
 // A comparison that could not be made whole is said as that rather than as
 // every part reading the file.
+//
+// The file each part reads is read as the integrated commit holds it, not as
+// the primary checkout has it: on a target the forge protects the run moves
+// nothing locally, so the checkout does not carry the landed key until the
+// forge merges, and reading it would name nothing at exactly the landing that
+// adds a key. A part reading a file the commit does not carry — one outside
+// the repository — is compared against the file as it stands, which nothing
+// this landing did has changed.
+//
+// Only the project's own configuration is compared, and not the template `yoyo
+// init` ships: no running part reads the template, so a key that is only in it
+// breaks nothing until it reaches a project's file, and the landing that puts
+// it there is compared then.
 func (a *activeRun) nameUnreadingParts() {
 	p := a.pipeline
 	if a.outcome.Integration == nil || p.ConfigReaders == nil {
 		return
 	}
-	mismatches, err := p.ConfigReaders.Mismatches()
+	commit := a.outcome.Integration.TargetCommit
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelRead()
+	mismatches, err := p.ConfigReaders.MismatchesIn(func(configPath string) ([]byte, error) {
+		return p.configAtCommit(readCtx, commit, configPath)
+	})
 	a.outcome.ConfigMismatches = mismatches
 	if len(mismatches) == 0 && err == nil {
 		return
