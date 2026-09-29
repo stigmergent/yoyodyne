@@ -637,16 +637,31 @@ step "11. following a run or a conversation"
 # about runs, conversations, branch reviews, and exchanges is checked by the Go
 # tests in internal/cli and internal/runstate, which need no provider and no
 # repository to build all four.
-# Both are pointed at roots that hold nothing, so what is being checked is which
-# directory the verb resolved rather than what happens to be in this walk's own.
+status_listing="$("$yoyo" status --list 2>&1 || true)"
+contains "$status_listing" "recorded under $scratch/state/products/calc" \
+  "yoyo status --list reads the state root this walk's runs recorded under"
+# The runs above recorded this walk's root in the checkout's state-root marker,
+# so a second root is refused rather than listed: one product's state is never
+# split across two roots. Which root each spelling resolves is read from `yoyo
+# config show`, which records no marker, and the refusal is checked to name it.
+shown="$(YOYODYNE_STATE_HOME="$scratch/named" "$yoyo" config show 2>&1 || true)"
+contains "$shown" "# state root: $scratch/named (from environment:YOYODYNE_STATE_HOME)" \
+  "the state root honors YOYODYNE_STATE_HOME"
+shown="$(env -u YOYODYNE_STATE_HOME XDG_STATE_HOME="$scratch/xdg" \
+  "$yoyo" config show 2>&1 || true)"
+contains "$shown" "# state root: $scratch/xdg/yoyodyne (from environment:XDG_STATE_HOME)" \
+  "the state root honors XDG_STATE_HOME by appending yoyodyne"
 status_listing="$(YOYODYNE_STATE_HOME="$scratch/named" \
   "$yoyo" status --list 2>&1 || true)"
-contains "$status_listing" "recorded under $scratch/named/products/calc" \
-  "yoyo status --list honors YOYODYNE_STATE_HOME"
-status_listing="$(env -u YOYODYNE_STATE_HOME XDG_STATE_HOME="$scratch/xdg" \
-  "$yoyo" status --list 2>&1 || true)"
-contains "$status_listing" "recorded under $scratch/xdg/yoyodyne/products/calc" \
-  "yoyo status --list honors XDG_STATE_HOME by appending yoyodyne"
+contains "$status_listing" "one product's state is never split across two roots" \
+  "yoyo status --list refuses a root the checkout's marker disagrees with"
+contains "$status_listing" "resolved $scratch/named (from environment:YOYODYNE_STATE_HOME)" \
+  "the refusal names the root it resolved and the setting that chose it"
+if [ -e "$scratch/named" ]; then
+  fail "the refused process wrote nothing under the root it resolved -- got: $scratch/named"
+else
+  pass "the refused process wrote nothing under the root it resolved"
+fi
 # The spend report needs nothing installed beside the binary, which is half of
 # why it stopped being a shell script.
 spend="$("$yoyo" status --spend 2>&1 || true)"
