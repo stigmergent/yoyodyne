@@ -1537,7 +1537,10 @@ gates are that action's own: the forge's merge state, the request's head and
 checks where nothing had asked for the merge before, the pre-merge check on the
 remote target, and a decision standing that nothing has carried out; your pause
 and your intake hold stop it as they stop the other two, and a run of the item
-in flight holds it back. Every decision the item's record holds is read, whatever its place on the docket: the
+in flight holds it back. A re-arm about a publication whose run never promoted
+its change is attempted too. It is refused on the item, naming the re-run as the
+decision that applies, rather than passed over, and a refused re-arm's entry
+comes back onto her docket as a refused repair's or re-run's does. Every decision the item's record holds is read, whatever its place on the docket: the
 one about a stoppage docketed as a stopped run, and the item's latest decision
 where it names a run no such entry stands for. A re-run recorded again about a
 stoppage whose one re-run was already claimed is attempted as well, and refused

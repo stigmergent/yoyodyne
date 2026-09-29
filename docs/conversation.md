@@ -2288,7 +2288,11 @@ change back for a fresh run; once it is carried out the prior run's publication
 is marked handed back and nothing names it as waiting any more. A request the
 forge has closed unmerged is offered the re-run alone. A watching `yoyo work` session carries the re-arm
 out itself on its next pull, and a refusal is written onto the item naming the
-gate and asked again only once it has cooled; `yoyo triage rearm` makes it now
+gate, comes back to you on the docket, and is asked again only once it has
+cooled. A re-arm of a run that never promoted its change cannot be made, so it
+is refused naming the re-run as the decision to record instead; a re-arm never
+brings a head up to date, so a head behind or in conflict with its target is a
+re-run too. `yoyo triage rearm` makes it now
 rather than at the next pull. Before yoyodyne-ifd.429.31 nothing armed this
 state, and its only exit was a hand merge on the forge.
 
