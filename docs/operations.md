@@ -4922,6 +4922,33 @@ time as `pull_requests` on the record, by number, which is what the next pass
 reads to know what was already said. [Recurring
 tasks](configuration.md#recurring-tasks) says when the reading is taken.
 
+**A development manager's pass carries what waits on you, beside her docket.**
+Every firing of her task, scheduled or summoned by the brake, has two sections
+in the message that wakes her: the triage docket, and `Waiting on the operator`
+— every entry on [the "Needs a human" line](#where-the-harness-stands-the-four-lines)
+whose move is yours, read from the same standing `yoyo status` reads. Each entry
+gives its kind and the record it is about, what it says, since when in this
+machine's zone, and how long ago — `[owed-step run-…, item …] … — since
+2026-09-28 09:40 PDT, 3 hours ago`. Each is dated from its own record: a hold
+from when it was placed, a finding from when it was recorded, an owed step from
+when its run ended, a publication from the drop where the forge dropped its
+merge and otherwise from when its run ended, and so on. Two kinds carry no
+moment on this line, and say `since when is not recorded on it`: work marked
+for a conversation and work waiting on a step only a person can take, because
+what the line carries of each is the work item and its marker, which hold no
+time. The
+section lists at most twenty and counts the rest, and says so when the line
+could not be read whole. Until yoyodyne-ifd.430.31 her sweep was told to check
+what appears to wait on you without needing you, and was shown only her own
+docket: owed steps, other roles' escalations, unresolved directives, and
+publications named as yours were out of her sight. The section asks what her
+prompt asks: only a change to the fundamental goals is truly yours; each other
+entry she settles if it is hers or sends to the role that owns it, files a
+defect with the Lead Product Manager saying why it reached you, and records
+what she did on the record the entry is about — a note on the work item, her
+decision on the run's stoppage, or, where she can write to neither, a finding
+on her pass naming the entry.
+
 **A pass of a role that owns documents carries what it recommended on the
 changes proposed to them.** The harness puts the undecided proposals against
 the role's documents in front of it on every firing — oldest first, at most ten

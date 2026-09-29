@@ -698,6 +698,9 @@ func missedReportMessage(missed RecurringMiss, now time.Time) string {
 // with what the window could not show counted. A docket that could not be read
 // renders as saying so rather than as empty, because a pass told nothing has
 // stopped when nothing could be read would decide nothing on a false reading.
+// Beside it the window carries the needs-a-human entries the operator moves,
+// each with its age, so her check for what reached him without needing him has
+// his line to check against.
 type RecurringDocket interface {
 	Window() string
 }

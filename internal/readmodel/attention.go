@@ -420,6 +420,9 @@ func (a Attention) Named() bool {
 type OwedStep struct {
 	Status runstate.Status `json:"status"`
 	Phase  runstate.Phase  `json:"phase,omitempty"`
+	// EndedAt is when the run ended, which is when the step began to be owed.
+	// It is absent on a record that names no ending.
+	EndedAt time.Time `json:"ended_at,omitzero"`
 }
 
 // Publication is a promotion the forge has not published: where it was
@@ -438,6 +441,10 @@ type Publication struct {
 	// decide rather than a person's to merge by hand. One the forge has closed
 	// is offered only the re-run.
 	Unarmed bool `json:"unarmed,omitempty"`
+	// EndedAt is when the run that promoted it ended, which is when the
+	// publication was left outstanding: the run ends with it unsettled. It is
+	// absent on a record that names no ending.
+	EndedAt time.Time `json:"ended_at,omitzero"`
 }
 
 // HumanGateWait is one step an admitted item reserves for a person: the gate's
@@ -812,8 +819,17 @@ func owedStepAttention(state runstate.State) Attention {
 		ID:         state.RunID,
 		Mover:      MoverOperator,
 		WorkItemID: state.WorkItemID,
-		OwedStep:   &OwedStep{Status: state.Status, Phase: state.Phase},
+		OwedStep:   &OwedStep{Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state)},
 	}
+}
+
+// runEnded is when a finished run ended, and zero on a record that names no
+// ending.
+func runEnded(state runstate.State) time.Time {
+	if state.CompletedAt == nil {
+		return time.Time{}
+	}
+	return *state.CompletedAt
 }
 
 // outageAttention is the provider answering nobody, as the attention line
