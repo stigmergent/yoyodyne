@@ -1394,9 +1394,12 @@ func (f *HarnessFeed) releaseOf(heldAt string) (runstate.IntakeRelease, bool) {
 // A stopped run the development manager escalated to the operator is read from
 // the same reading of the runs the crossings were selected from, and from what
 // triage decided about them. This surface cannot cheaply ask the tracker which
-// items are still admitted, so it reads every standing escalation as a finding:
-// what that costs is a mark kept for an item that left the backlog, and what it
-// buys is a finding said once rather than never.
+// items are still admitted or parked, nor the repository whether the run's
+// change is still there, so it reads as ended only the escalations the
+// reconcile sweep has recorded as ended on the run, and every other one as
+// standing: what that costs is a mark kept until the next sweep for an item
+// that was parked or left the backlog, and what it buys is a finding said once
+// rather than never.
 //
 // The batch an owning role argued on a recurring pass is a finding too, one per
 // pass, read from the amendment log and the passes' own reports: it is the one
@@ -1409,7 +1412,7 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		return nil, fmt.Errorf("read what became of the collected reports: %w", err)
 	}
 	actions := readmodel.OperatorActions(filed, handlings)
-	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil)
+	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil, nil)
 	if problem != "" {
 		// A triage record that cannot be read costs that item's finding this
 		// pass and is said here; the pass carries on, and the finding is read

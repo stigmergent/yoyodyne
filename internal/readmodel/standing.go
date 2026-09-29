@@ -762,21 +762,23 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// apart could disagree about whether a report is handled.
 	reports, handlings, pileProblem := readPile(sources)
 	standing.Reports, standing.ReportsProblem = summarizePile(reports, handlings, pileProblem, now)
-	// An escalated stoppage is a finding while its item is still admitted: an
-	// item the operator retired, or closed after doing what was asked, is read
-	// from the same queue the not-startable line was read from.
-	// A queue that could not be read admits nothing this reading can see, and
-	// that must not read as every escalation having ended: the findings are read
-	// as standing instead, which says one once rather than never.
-	var admitted func(string) bool
+	// An escalated stoppage is a finding while its item is still admitted and not
+	// parked: an item the operator retired, or closed after doing what was asked,
+	// and an item the Lead Product Manager parked are read from the same queue the
+	// not-startable line was read from. A queue that could not be read admits
+	// nothing this reading can see, and that must not read as every escalation
+	// having ended: the findings are read as standing instead, which says one once
+	// rather than never. The run's change being gone is asked of the repository,
+	// by the same look the held work is read with.
+	var items EscalatedItems
 	if notStartableProblem == "" || len(queue.Entries) > 0 {
-		inQueue := make(map[string]bool, len(queue.Entries))
+		inQueue := make(map[string]EscalatedItem, len(queue.Entries))
 		for _, entry := range queue.Entries {
-			inQueue[entry.ID] = true
+			inQueue[entry.ID] = EscalatedItem{Admitted: true, Parked: entry.Parking.Reason()}
 		}
-		admitted = func(id string) bool { return inQueue[id] }
+		items = func(id string) EscalatedItem { return inQueue[id] }
 	}
-	actions, actionsProblem := readOperatorActions(reports, handlings, pileProblem, sources, admitted)
+	actions, actionsProblem := readOperatorActions(reports, handlings, pileProblem, sources, items, Looking(ctx, sources.Remains, nil))
 	// The proposed changes are read once and used three times, as the switches
 	// are: they are the queue's count and age, each undecided one is a thing
 	// waiting on a person, and the batches their owners argued on a recurring

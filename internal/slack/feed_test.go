@@ -330,7 +330,7 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 		"the target branch diverged from the forge; only the operator can say which history is right",
 		"the development manager, escalating the stopped run to the operator",
 		"escalation of run " + stopped.RunID,
-		"a later triage decision on the run, or the item being run again or retired, ends it",
+		"a later triage decision on the run, the item being run again, parked, retired, or closed, or the run's branch and worktree both being gone ends it",
 	} {
 		if !strings.Contains(message.Body, want) {
 			t.Fatalf("finding reads as %q, which does not say %q", message.Body, want)

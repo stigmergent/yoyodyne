@@ -53,6 +53,10 @@ type reconcileOutput struct {
 	// each is about is one the tracker holds as closed. A count, for the reason
 	// Docketed is one.
 	ClosedWithItem int `json:"closed_with_item"`
+	// EscalationsEnded is each escalation to the operator this sweep found had
+	// ended — its item parked, retired, or closed, or its run's branch and
+	// worktree both gone — with the item it told and what ended it.
+	EscalationsEnded []orchestrator.EscalationSettlement `json:"escalations_ended"`
 	// Supervision is the whole of what this sweep made of the exchanges the roles
 	// have put to each other. Most of it is what was recovered: a round a dead
 	// process asked and never answered, a thread that ran out of rounds. The rest
@@ -97,11 +101,13 @@ type reconcileSweep struct {
 	Docketed     int
 	// ClosedWithItem is how many docket entries the sweep closed with their item.
 	ClosedWithItem int
-	Supervision    []orchestrator.SupervisionResult
-	Stall          *watchdog.Reading
-	StallProblem   string
-	Continuations  []orchestrator.WaitContinuation
-	Updates        []orchestrator.UpdateContinuation
+	// EscalationsEnded is each escalation to the operator the sweep ended.
+	EscalationsEnded []orchestrator.EscalationSettlement
+	Supervision      []orchestrator.SupervisionResult
+	Stall            *watchdog.Reading
+	StallProblem     string
+	Continuations    []orchestrator.WaitContinuation
+	Updates          []orchestrator.UpdateContinuation
 }
 
 // reconcileRuns settles every run an interrupted process left outstanding and
@@ -199,6 +205,12 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// from before any of them did.
 	closedWithItem, closedErr := closeEntriesOfClosedItems(ctx, parts)
 	err = errors.Join(err, closedErr)
+	// An escalation to the operator whose item has since been parked, retired,
+	// or closed, or whose run's change is gone, is told to its item once and
+	// recorded on the run. The read model has already stopped naming it; this is
+	// what says why on the item, and what the channel reads it from.
+	escalationsEnded, escalationsErr := reconciler.EndEscalations(ctx)
+	err = errors.Join(err, escalationsErr)
 	// The exchanges the roles have put to each other are recovered here for the
 	// same reason the runs are: a process died holding something, and this is the
 	// sweep that finds out. It takes each exchange's own lease, so one a live
@@ -218,17 +230,18 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// sweep: nothing was recorded, and the next pass decides.
 	stall, stallProblem := checkForStall(ctx, parts, *stallAfter)
 	sweep := reconcileSweep{
-		Runs:           results,
-		Recoveries:     recoveries,
-		Publications:   publications,
-		Settlements:    settlements,
-		RedTargets:     redTargets,
-		Convergence:    convergence,
-		Docketed:       docketed.Added,
-		ClosedWithItem: closedWithItem,
-		Supervision:    supervision,
-		Stall:          stall,
-		StallProblem:   stallProblem,
+		Runs:             results,
+		Recoveries:       recoveries,
+		Publications:     publications,
+		Settlements:      settlements,
+		RedTargets:       redTargets,
+		Convergence:      convergence,
+		Docketed:         docketed.Added,
+		ClosedWithItem:   closedWithItem,
+		EscalationsEnded: escalationsEnded,
+		Supervision:      supervision,
+		Stall:            stall,
+		StallProblem:     stallProblem,
 	}
 	// The runs that exited on their in-process usage-limit bound and whose
 	// deadline has since passed are continued last, after everything the sweep
@@ -575,21 +588,29 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			failed = true
 		}
 	}
+	// An ended escalation the item could not be told of is one the next sweep
+	// tells it of; the read model has already stopped naming it either way.
+	for _, ended := range sweep.EscalationsEnded {
+		if ended.Failure != "" {
+			failed = true
+		}
+	}
 	if jsonOutput {
 		output := reconcileOutput{
-			Runs:           results,
-			Recoveries:     sweep.Recoveries,
-			Publications:   publications,
-			Settlements:    sweep.Settlements,
-			RedTargets:     sweep.RedTargets,
-			Convergence:    convergence,
-			Docketed:       docketed,
-			ClosedWithItem: sweep.ClosedWithItem,
-			Supervision:    sweep.Supervision,
-			Stall:          sweep.Stall,
-			StallProblem:   sweep.StallProblem,
-			Continuations:  sweep.Continuations,
-			Updates:        sweep.Updates,
+			Runs:             results,
+			Recoveries:       sweep.Recoveries,
+			Publications:     publications,
+			Settlements:      sweep.Settlements,
+			RedTargets:       sweep.RedTargets,
+			Convergence:      convergence,
+			Docketed:         docketed,
+			ClosedWithItem:   sweep.ClosedWithItem,
+			EscalationsEnded: sweep.EscalationsEnded,
+			Supervision:      sweep.Supervision,
+			Stall:            sweep.Stall,
+			StallProblem:     sweep.StallProblem,
+			Continuations:    sweep.Continuations,
+			Updates:          sweep.Updates,
 		}
 		if results == nil {
 			output.Runs = []orchestrator.Reconciliation{}
@@ -602,6 +623,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if output.Supervision == nil {
 			output.Supervision = []orchestrator.SupervisionResult{}
+		}
+		if output.EscalationsEnded == nil {
+			output.EscalationsEnded = []orchestrator.EscalationSettlement{}
 		}
 		if output.Recoveries == nil {
 			output.Recoveries = []orchestrator.PublicationRecovery{}
@@ -653,6 +677,13 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if sweep.ClosedWithItem > 0 {
 			fmt.Fprintf(stdout, "%d triage docket entry(s) closed because the tracker holds their item as closed\n", sweep.ClosedWithItem)
+		}
+		for _, ended := range sweep.EscalationsEnded {
+			if ended.Failure != "" {
+				fmt.Fprintf(stdout, "escalation of %s (%s) to the operator has ended, and was not recorded: %s\n", ended.RunID, ended.WorkItemID, ended.Failure)
+				continue
+			}
+			fmt.Fprintf(stdout, "escalation of %s (%s) to the operator ended, and the item was told: %s\n", ended.RunID, ended.WorkItemID, ended.Why)
 		}
 		for _, result := range results {
 			fmt.Fprintf(stdout, "%s (%s): %s\n", result.RunID, result.WorkItemID, result.Action)

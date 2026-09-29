@@ -314,10 +314,115 @@ func TestAnEscalatedStoppageIsAFindingForTheOperatorWhileItStands(t *testing.T) 
 	// The same derivation without a queue to read admits every item, which is
 	// the feed's reading: an item that left the backlog is still said once
 	// rather than never.
-	escalated, problem := EscalatedOperatorActions(sources.Stoppages.(fakeStoppages).runs, sources.Decisions, nil)
+	escalated, problem := EscalatedOperatorActions(sources.Stoppages.(fakeStoppages).runs, sources.Decisions, nil, nil)
 	if problem != "" || len(escalated) != 2 || escalated[0].Key != "run:run-272a" || escalated[1].Key != "run:run-300a" {
 		t.Fatalf("EscalatedOperatorActions() = %#v, %q, want the two standing escalations oldest first", escalated, problem)
 	}
+}
+
+// The yoyodyne-ifd.78 shape, 2026-09-28. The development manager escalated a
+// stopped run to the operator, the Lead Product Manager then parked the item,
+// and the run's branch and worktree were long gone — and the escalation stood on
+// the operator's line for two days, because nothing about either ended it. An
+// escalation ends when its item is parked, when the run's change is gone, and
+// when the reconcile sweep has recorded either on the run, and each ending says
+// what ended it.
+func TestAnEscalationEndsWhenItsItemIsParkedOrItsChangeIsGone(t *testing.T) {
+	t.Parallel()
+
+	stopped := moment.Add(-48 * time.Hour)
+	decided := moment.Add(-47 * time.Hour)
+	recorded := heldRun("run-320a", "yoyodyne-ifd.320", stopped)
+	recorded.EscalationEnded = &runstate.EscalationEnding{At: moment.Add(-time.Hour), Why: "yoyodyne-ifd.320 was parked, so nothing about it waits on the operator: superseded"}
+	runs := []runstate.State{
+		heldRun("run-272a", "yoyodyne-ifd.272", stopped),
+		heldRun("run-78a", "yoyodyne-ifd.78", stopped),
+		heldRun("run-310a", "yoyodyne-ifd.310", stopped),
+		recorded,
+	}
+	escalate := func(run string) runstate.TriageDecision {
+		return runstate.TriageDecision{
+			Decision: runstate.TriageDecisionEscalate, RunID: run,
+			Reason:    "only a person can say which history is right",
+			DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 12, DecidedAt: decided,
+		}
+	}
+	sources := quietSources()
+	sources.Tracker = statusTracker{fakeTracker{
+		byStatus: map[string][]beads.WorkItem{"blocked": {
+			{ID: "yoyodyne-ifd.272", Title: "Still escalated", Status: "blocked"},
+			{ID: "yoyodyne-ifd.78", Title: "Parked after the escalation", Status: "blocked", Parking: domain.WorkItemParking("waits on the machine-home design")},
+			{ID: "yoyodyne-ifd.310", Title: "Change gone", Status: "blocked"},
+			{ID: "yoyodyne-ifd.320", Title: "Ending already recorded", Status: "blocked"},
+		}},
+	}}
+	sources.Stoppages = fakeStoppages{runs: runs}
+	sources.Decisions = recordedDecisions{
+		"yoyodyne-ifd.272": {Decisions: []runstate.TriageDecision{escalate("run-272a")}},
+		"yoyodyne-ifd.78":  {Decisions: []runstate.TriageDecision{escalate("run-78a")}},
+		"yoyodyne-ifd.310": {Decisions: []runstate.TriageDecision{escalate("run-310a")}},
+		"yoyodyne-ifd.320": {Decisions: []runstate.TriageDecision{escalate("run-320a")}},
+	}
+	// The repository holds every run's change but run-310a's.
+	sources.Remains = survivingExcept{"run-310a": true}
+
+	standing := ReadStanding(context.Background(), sources)
+	var named []string
+	for _, waiting := range standing.NeedsHuman {
+		if waiting.Kind == AttentionOperatorAction {
+			named = append(named, waiting.OperatorAction.Key)
+		}
+	}
+	if len(named) != 1 || named[0] != "run:run-272a" {
+		t.Fatalf("operator findings = %v, want only the escalation nothing has ended", named)
+	}
+
+	standingActions, ended, problem := Escalations(runs, sources.Decisions,
+		func(id string) EscalatedItem {
+			if id == "yoyodyne-ifd.78" {
+				return EscalatedItem{Admitted: true, Parked: "waits on the machine-home design"}
+			}
+			return EscalatedItem{Admitted: true}
+		},
+		Looking(context.Background(), sources.Remains, func() time.Time { return moment }))
+	if problem != "" || len(standingActions) != 1 || len(ended) != 3 {
+		t.Fatalf("Escalations() = %#v, %#v, %q, want one standing and three ended", standingActions, ended, problem)
+	}
+	byRun := map[string]EndedEscalation{}
+	for _, one := range ended {
+		byRun[one.RunID] = one
+	}
+	for run, want := range map[string]string{
+		"run-78a":  "yoyodyne-ifd.78 was parked, so nothing about it waits on the operator: waits on the machine-home design",
+		"run-310a": "run run-310a's branch and worktree are both gone",
+		"run-320a": "yoyodyne-ifd.320 was parked",
+	} {
+		if !strings.Contains(byRun[run].Why, want) {
+			t.Fatalf("ending of %s = %#v, want it to say %q", run, byRun[run], want)
+		}
+	}
+	if !byRun["run-320a"].Recorded || byRun["run-78a"].Recorded {
+		t.Fatalf("endings = %#v, want only the one the sweep recorded marked as recorded", ended)
+	}
+
+	// A look that never reached the repository ends nothing: a record is not a
+	// look, and an escalation dropped on a removal flag is one the operator was
+	// handed and never told the end of.
+	_, ended, _ = Escalations(runs[:3], sources.Decisions, nil, Looking(context.Background(), nil, nil))
+	if len(ended) != 0 {
+		t.Fatalf("Escalations() with no repository = %#v, want nothing ended", ended)
+	}
+}
+
+// survivingExcept is a repository holding every run's branch and worktree but
+// the listed runs'.
+type survivingExcept map[string]bool
+
+func (s survivingExcept) Survives(_ context.Context, worktree gitworktree.Worktree) (gitworktree.Survival, error) {
+	if s[worktree.RunID] {
+		return gitworktree.Survival{}, nil
+	}
+	return gitworktree.Survival{BranchExists: true, WorktreePresent: true}, nil
 }
 
 // A finding only the operator can act on is named on the attention line, by

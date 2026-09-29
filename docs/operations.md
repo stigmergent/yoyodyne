@@ -640,11 +640,28 @@ brake's hold becomes a fifth once it is yours:
   asked the forge to merge is not one of these: it is hers to decide, by a
   re-arm the harness carries out or a re-run
   ([below](#recovering-interrupted-runs)). That decision is the finding, standing while it is
-  the decision on the item's latest stopped run and the item is still in the
-  backlog; a later decision on the run, a later run, or the item being retired
-  or closed ends it. (Her escalation already carries a warning-or-above report
-  into the pile; that report is what she may handle as yours, and the finding is
-  the decision rather than the report, so it is named once.)
+  the decision on the item's latest stopped run and nothing has settled what it
+  handed you. A later decision on the run or a later run ends it. So does the
+  item being **parked**, **retired**, or **closed** by a role, or the escalated
+  run's **branch and worktree both being gone**, since then there is nothing
+  left for a person to decide. `yoyo status` and the dashboard drop it as
+  soon as they read that. The branch and worktree are looked for in the
+  repository, never read off the run's removal flags. The next
+  [`yoyo reconcile`](#recovering-interrupted-runs) writes what ended it
+  on the item once — `The development manager's escalation of run … to the
+  operator has ended: <item> was parked, so nothing about it waits on the
+  operator: <the parking reason>` — and on the run's record as
+  `escalation_ended`. The channel reads that record, and the sweep says
+  what it ended under `escalations_ended` in `--json`. The development
+  manager's docket already counts her escalation as settled and lists no
+  escalated stoppage, so nothing about the ending returns one to her. Until
+  yoyodyne-ifd.428.54, parking the item and losing the change ended nothing:
+  on 2026-09-28 the escalation of run-95b34031 still named you over
+  yoyodyne-ifd.78 two days after the Lead Product Manager parked it, with
+  that run's branch and worktree long gone. (Her escalation already carries
+  a warning-or-above report into the pile; that report is what she may
+  handle as yours, and the finding is the decision rather than the report,
+  so it is named once.)
 - **An owning role's batch of recommendations on the changes proposed to its
   documents.** A [recurring pass](configuration.md#working-the-amendment-queue-on-a-cadence)
   of the architect, or of the Lead Product Manager, argues the undecided
@@ -689,7 +706,8 @@ Where each goes:
    recorded in …)`, `the architect's batch of 3 proposed changes needs your
    hand: decide amendment-… approve; …`, and for the brake `intake is held, since <trip time>: …;
    tripped by run … of …: …`. It stays until the finding ends — the change
-   recorded made, the report handled, the run decided again, the batch's
+   recorded made, the report handled, the run decided again or its escalation
+   ended, the batch's
    last proposal decided, the hold lifted.
    `--json` carries each finding as an entry of kind `operator-action`, with the
    finding whole under `operator_action`.
@@ -2113,6 +2131,11 @@ than to a run, so the same dead dispatch is one entry however many sessions meet
 it. **The sweep also closes the entries of closed items**: every entry still
 standing for an item the tracker holds as closed or retired is closed with it,
 with the reason, and the sweep says how many (`closed_with_item` in `--json`).
+It also tells the item of each escalation to you that has ended — the item
+parked, retired, or closed, or the escalated run's branch and worktree both
+gone — once, and records the ending on the run (`escalations_ended` in
+`--json`; see [where a finding that needs your hand
+goes](#where-a-finding-that-needs-your-hand-goes)).
 An unfinished publication's entry is the exception and stays, because an item
 closes on integration while its merge can still be dropped or stuck at the
 forge.

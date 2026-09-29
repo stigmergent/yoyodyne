@@ -1644,6 +1644,9 @@ func (s *State) recordedTexts() []recordedText {
 	}
 	own("check_stage_continuation_refused", &s.CheckStageContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	own("stall_continuation_refused", &s.StallContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
+	if s.EscalationEnded != nil {
+		nested("escalation_ended.why", "escalation_ended.why", &s.EscalationEnded.Why, MaxBlockerBytes)
+	}
 	if s.LandingChecks != nil {
 		for index := range s.LandingChecks.Checks {
 			nested("landing_checks.checks[].output", at("landing_checks.checks", index, "output"), &s.LandingChecks.Checks[index].Output, MaxCheckOutputBytes)
@@ -2468,6 +2471,17 @@ type State struct {
 	// nothing while its branch held the approved change. It is here so the
 	// correction is made once rather than on every sweep.
 	ReleaseCorrectedAt *time.Time `json:"release_corrected_at,omitempty"`
+	// EscalationEnded is when and why the development manager's escalation of this
+	// run's stoppage to the operator stopped being one, written by the reconcile
+	// sweep once it has told the run's work item. An escalation is a finding on the
+	// operator's line while it is the decision standing on the item's latest
+	// stopped run, and until yoyodyne-ifd.428.54 nothing about the item being
+	// parked or the run's change being gone ended it: run-95b34031's escalation
+	// stood on the line for two days after the Lead Product Manager parked its
+	// item and its branch and worktree were both gone. It is here so the item is
+	// told once, and so a surface that cannot ask the tracker or the repository —
+	// the channel — reads the escalation as over.
+	EscalationEnded *EscalationEnding `json:"escalation_ended,omitempty"`
 	// PreservedWorkRef names the ref carrying whatever this run left uncommitted
 	// in its checkout, written when the sweep retired that checkout and had
 	// something to move out of it first. It is deliberately not a branch: a branch
@@ -3465,6 +3479,11 @@ func (s State) Validate() error {
 	}
 	if len(s.StallContinuationRefused) > MaxBlockerBytes {
 		problems = append(problems, fmt.Errorf("stall_continuation_refused is %d bytes, which exceeds the %d byte bound", len(s.StallContinuationRefused), MaxBlockerBytes))
+	}
+	if s.EscalationEnded != nil {
+		if err := s.EscalationEnded.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("escalation_ended: %w", err))
+		}
 	}
 	if s.TargetBranch != "" && !validLocalBranch(s.TargetBranch) {
 		problems = append(problems, errors.New("target_branch must be a local branch name"))
