@@ -514,8 +514,17 @@ type WatchDrain struct {
 	// BoundReached marks the drain having run out: the session has stopped and
 	// preserved the runs it hosts, pulls nothing more into a free seat, and
 	// restarts as soon as it hosts nothing — which, for a run at its promotion,
-	// is when that promotion ends. Its recurring tasks go on firing meanwhile.
+	// is when that promotion ends, and for a run at its checks, when that check
+	// stage ends. Its recurring tasks go on firing meanwhile.
 	BoundReached bool `json:"bound_reached,omitempty"`
+	// Checking is how many of the hosted runs the session is waiting out at their
+	// checks past the bound rather than stopping, and ChecksUntil is the latest
+	// moment one of those check stages can run to: its start plus
+	// execution.check_stage_timeout. A check stage stopped part-way is run again
+	// whole by the session that comes back, so it is waited out as a promotion
+	// is, and the stage's own bound is what caps that wait.
+	Checking    int       `json:"checking,omitempty"`
+	ChecksUntil time.Time `json:"checks_until,omitzero"`
 	// PullSkipped marks a poll that declined to pull into a free seat because
 	// the bound was less than one poll away — a run started then would only be
 	// stopped. It is on the drain so a reader of the idle line it was said on
@@ -534,6 +543,10 @@ func (d WatchDrain) Says() string {
 	said := fmt.Sprintf("draining to restart into the build deployed over it since %s, bounded at %s (until %s)",
 		d.Since.UTC().Format(time.RFC3339), d.Bound(), d.Until.UTC().Format(time.RFC3339))
 	if d.BoundReached {
+		if d.Checking > 0 {
+			return fmt.Sprintf("%s; the bound has run out, so it is waiting out a check stage in %d run(s) it hosts until %s at the latest, the check-stage bound, and stopping and preserving every other run at a developer attempt or a review for the session that comes back; nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
+				said, d.Checking, d.ChecksUntil.UTC().Format(time.RFC3339))
+		}
 		return said + "; the bound has run out, so the runs it hosts are stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing"
 	}
 	if d.PullSkipped {
@@ -558,6 +571,12 @@ func (d WatchDrain) validate() error {
 	}
 	if d.Hosting < 0 {
 		problems = append(problems, fmt.Errorf("draining reports %d hosted runs, which is not a count", d.Hosting))
+	}
+	if d.Checking < 0 {
+		problems = append(problems, fmt.Errorf("draining reports %d runs waited out at their checks, which is not a count", d.Checking))
+	}
+	if d.Checking > 0 && d.ChecksUntil.IsZero() {
+		problems = append(problems, errors.New("draining waits out a check stage and names no moment that wait ends"))
 	}
 	return errors.Join(problems...)
 }

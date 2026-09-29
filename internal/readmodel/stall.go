@@ -427,8 +427,11 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 	// that has run out only for DrainOverrunGrace past the session's latest line.
 	// Past those the session either stopped — which its own later lines say — or
 	// died, and a dead session must not go on reading as one on its way back.
+	// A session waiting out a check stage past its bound names the latest moment
+	// that stage can run to, and is read as on its way back until then as well.
 	if len(live) > 0 && live[0].Draining != nil &&
 		((live[0].Draining.BoundReached && now.Before(live[0].At.Add(DrainOverrunGrace))) ||
+			(live[0].Draining.BoundReached && live[0].Draining.Checking > 0 && now.Before(live[0].Draining.ChecksUntil.Add(RestartGrace))) ||
 			(live[0].Draining.PullSkipped && now.Before(live[0].Draining.Until.Add(RestartGrace)))) {
 		return Stall{
 			Reason: ReasonRedeploying,
