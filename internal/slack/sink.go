@@ -537,7 +537,7 @@ func (s *Sink) deliver(ctx context.Context) error {
 	// decided to intervene.
 	for ctx.Err() == nil {
 		wait := s.poll
-		err := s.pass(ctx)
+		err := s.heldPass(ctx)
 		switch {
 		case ctx.Err() != nil:
 			return nil
@@ -562,6 +562,28 @@ func (s *Sink) deliver(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// heldPass is one pass under the pass lease, so the product's supervisor can
+// restart this sink between two passes rather than in the middle of one. A lease
+// held by somebody else is the supervisor about to stop this process, and the
+// pass is skipped rather than waited for. A lease that cannot be asked about at
+// all does not stop the pass: reporting is never a gate on its own bookkeeping.
+func (s *Sink) heldPass(ctx context.Context) error {
+	lease, held, err := s.store.PassLease()
+	if err != nil {
+		s.log("this pass is made without the pass lease, so a restart into a deployed build could land in the middle of it: %v", err)
+		return s.pass(ctx)
+	}
+	if !held {
+		return nil
+	}
+	defer func() {
+		if err := lease.Release(); err != nil {
+			s.log("the pass lease could not be released: %v", err)
+		}
+	}()
+	return s.pass(ctx)
 }
 
 // pass reads the records once and posts what is due. It is the whole of the

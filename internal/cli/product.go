@@ -341,6 +341,10 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		Residents: p.residents(log),
 		PID:       os.Getpid(),
 		Build:     buildinfo.Commit(),
+		// The children are started from the binary that started the supervisor,
+		// so that file is the build each of them is moved onto when it is
+		// deployed over.
+		Binary: &supervise.DeployedBinary{Path: p.program},
 	}
 	err = supervisor.Run(ctx)
 	switch {
@@ -524,9 +528,14 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 			if err != nil {
 				return nil, nil, nil, err
 			}
+			conversations, err := runstate.NewConversationStore(p.stateRoot, productID)
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			children = append(children, slackChild{
-				store: store,
-				goos:  p.goos,
+				store:         store,
+				conversations: conversations,
+				goos:          p.goos,
 				supervisor: slack.Supervisor{
 					Store:    store,
 					Secrets:  slack.Keychain{Runner: execution.OSProcessRunner{}},
@@ -556,6 +565,10 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 			// The dashboard's adoption as a child is yoyodyne-ifd.414; until it
 			// lands the command is started by hand, and the product says so
 			// rather than starting a part it does not know how to.
+			// The child that adoption adds has to be a supervise.Deployable —
+			// saying which build it runs and which request it is serving — or no
+			// deploy reaches it; TestEveryPartTheSupervisorStartsIsMovedOntoADeployedBuild
+			// fails for a child that is not.
 			notYet = append(notYet, supervise.NotYet{
 				Name:   name,
 				Reason: "its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`",
@@ -575,9 +588,12 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 // `yoyo slack ensure`: lease-checked, this product's own stored pair into the
 // sink's environment and nowhere else, and nothing done when one is running.
 type slackChild struct {
-	store      *slack.Store
-	supervisor slack.Supervisor
-	goos       string
+	store *slack.Store
+	// conversations is where the sink's product manager turns hold their
+	// conversation, which is what a restart into a deployed build waits out.
+	conversations *runstate.ConversationStore
+	supervisor    slack.Supervisor
+	goos          string
 }
 
 func (slackChild) Name() config.ServiceName { return config.ServiceSlack }
@@ -619,6 +635,46 @@ func (c slackChild) presencePID() int {
 		return 0
 	}
 	return presence.PID
+}
+
+// Build is the revision the running sink recorded itself as built from.
+func (c slackChild) Build(context.Context) (string, error) {
+	presence, found, err := c.store.LoadPresence()
+	if err != nil || !found {
+		return "", err
+	}
+	return presence.Build, nil
+}
+
+// Busy is a product manager turn the sink is answering in a thread, which a
+// restart would cut off in the middle. A pass over the records is the other
+// thing a restart waits out, and HoldBetweenPasses is how.
+func (c slackChild) Busy(context.Context) (string, error) {
+	pid := c.presencePID()
+	if pid <= 0 || c.conversations == nil {
+		return "", nil
+	}
+	held, err := c.conversations.HeldBy(pid)
+	if err != nil || len(held) == 0 {
+		return "", err
+	}
+	return fmt.Sprintf("the turn it is answering in the %s conversation", strings.Join(held, " and ")), nil
+}
+
+// HoldBetweenPasses takes the sink's pass lease, which the sink holds for each
+// pass over the records, so the sink starts no pass while the supervisor stops
+// it. A lease the sink is holding is a pass under way, which the restart waits
+// for: a sink stopped while a post is on its way can have the post land with its
+// cursor never written, and the sink started in its place posts it again.
+func (c slackChild) HoldBetweenPasses(context.Context) (func(), string, error) {
+	lease, held, err := c.store.PassLease()
+	if err != nil {
+		return nil, "", err
+	}
+	if !held {
+		return nil, "the pass over the records it is making", nil
+	}
+	return func() { _ = lease.Release() }, "", nil
 }
 
 func (c slackChild) Stop(ctx context.Context) (supervise.Stopped, error) {
@@ -682,6 +738,35 @@ func (c schedulerChild) holderPID() int {
 		return 0
 	}
 	return holder.PID
+}
+
+// Build is the revision the watching session stamped itself as built from,
+// and, for a session from a build older than that stamp, the revision its
+// latest transition carries.
+func (c schedulerChild) Build(context.Context) (string, error) {
+	holder, found, err := c.watch.Holder()
+	if err != nil || !found {
+		return "", err
+	}
+	if holder.Build != "" {
+		return holder.Build, nil
+	}
+	latest, found, err := c.watch.Latest()
+	if err != nil || !found || latest.SessionID != holder.SessionID {
+		return "", err
+	}
+	return latest.Build, nil
+}
+
+// Busy is never asked of the scheduler, which restarts itself; it is here so
+// the scheduler is a part whose build the supervisor reads.
+func (schedulerChild) Busy(context.Context) (string, error) { return "", nil }
+
+// RestartsItself is the watch's own redeploy: it notices the binary it was
+// started from replaced, stops pulling, waits out the runs it hosts, and
+// re-executes in place. Stopping it instead would cancel those runs.
+func (schedulerChild) RestartsItself() string {
+	return "the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit"
 }
 
 func (c schedulerChild) Stop(ctx context.Context) (supervise.Stopped, error) {

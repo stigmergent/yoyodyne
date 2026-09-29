@@ -135,6 +135,17 @@ func (s *Store) Lease() (*runstate.Lease, bool, error) {
 	return runstate.TryLeasePath(filepath.Join(s.root, ".sink.lock"), "slack sink")
 }
 
+// PassLease is held by a sink for the length of one pass over the records, and
+// by the product's supervisor while it restarts the sink into a deployed build.
+// It is what lets the restart land between two passes rather than inside one: a
+// sink stopped while a post is on its way can have the post land and its cursor
+// never written, and the sink started in its place then posts it a second time.
+// A sink that finds it held skips the pass rather than waiting on it, because
+// the only other holder is stopping it.
+func (s *Store) PassLease() (*runstate.Lease, bool, error) {
+	return runstate.TryLeasePath(filepath.Join(s.root, ".pass.lock"), "slack sink pass")
+}
+
 // Running reports whether a sink is holding this product's lease, by trying to
 // take it and letting it go again. Taking the lease is how the question is
 // asked — the lock is advisory and the operating system drops it when its

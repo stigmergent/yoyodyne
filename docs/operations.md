@@ -147,13 +147,72 @@ under `cmd`, `internal`, `go.mod`, or `go.sum` since, it runs `make build` into
 that binary and says so in its log. A landing of only documentation builds
 nothing, a checkout with uncommitted changes to those paths is not built over
 until they are gone, and a build that fails is tried again when the branch next
-moves. What takes the build up is what already did: the watch re-executes itself
-into a replaced binary between runs. The job's other steps are not carried: its
+moves. What takes the build up is the paragraph below: a deploy reaches every
+part the supervisor hosts. The job's other steps are not carried: its
 bounce-when-idle compared a process's start time with the binary's, which is
-wrong for a watch that re-executes itself in place, and restarting parts into a
-deployed build is `yoyodyne-ifd.434.3`'s. Until `yoyodyne-ifd.413` and
+wrong for a watch that re-executes itself in place. Until `yoyodyne-ifd.413` and
 `yoyodyne-ifd.414` land, what the job did for reconcile and the dashboard is
 the maintenance line's and the dashboard line's hand steps above.
+
+**A deploy reaches every part, with nobody restarting anything.** Every thirty
+seconds the supervisor reads which build the binary it starts the parts from is
+— the revision Go stamped into the file — and asks each part which build it is
+running: the sink from its presence record, the scheduler from the watch
+session's holder stamp. Where the binary has moved past a part, the supervisor
+moves the part onto it, one part at a time, and never in the middle of what
+the part is doing:
+
+- **The scheduler restarts itself**, as it always has: the watch session sees
+  the binary replaced, stops pulling, waits out the runs it hosts under
+  `execution.redeploy_drain_limit`, and re-executes in place
+  ([a session draining to restart into a deployed build](#a-session-draining-to-restart-into-a-deployed-build)).
+  The supervisor waits for it rather than stopping it, since stopping it would
+  cancel those runs. The moment the session lets its lease go to re-execute is
+  read as that restart rather than as a death, and a session that has not taken
+  its lease back thirty seconds later is started from the binary.
+- **The Slack sink is restarted by the supervisor**, between two passes over
+  the records and never while it is answering a product manager turn in a
+  thread. The sink makes each pass under a lease of its own; the supervisor
+  waits while a pass holds it, then takes it itself for the length of the stop,
+  so the sink starts no new pass while it is being stopped, and lets it go
+  before the sink is started again from the binary. A stop landing inside a
+  pass could post a message whose cursor was never written, and the sink in its
+  place would post it again; waiting the pass out is what rules that out.
+- **The dashboard** is moved the same way as soon as it is a child of the
+  supervisor, which is `yoyodyne-ifd.414`; until then it is started by hand and
+  restarted by hand. A part can only become a child by saying which build it
+  runs and what it is in the middle of — a test over the parts the supervisor
+  starts fails for one that does not — so the dashboard cannot be adopted
+  without a deploy reaching it.
+
+A part somebody started by hand, and the supervisor took back, is moved exactly
+as one the supervisor started. Every move is recorded as a restart and not as
+a death — the part's `restarts` and `restarted_at` in the record, apart from
+the `failures` the backoff and the five-in-two-minutes bound count — so a day
+of deploys never leaves a part degraded, and a part that dies on its own with
+no deploy behind it is still a death.
+
+`yoyo status` prints the parts under the four lines, one line each in the words
+`yoyo start` uses, saying which build each is on and since when, and where a
+deploy is moving one:
+
+```text
+Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1b2c):
+  slack: running as pid 48214, logging to …/products/yoyodyne/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
+  dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`
+  scheduler: running as pid 48215, logging to …/products/yoyodyne/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit
+  maintenance: enabled, and not yet a child of the supervisor: the periodic pass is yoyodyne-ifd.413; until that lands, `yoyo reconcile` is scheduled by hand
+```
+
+A product no supervisor has run for prints no such line. `--json` carries the
+same under `standing.services`: the binary's build as the record's `deployed`,
+and each part's `build`, `build_since`, `restarts`, `restarted_at`, and, while a
+move is under way, `restarting_into` and `redeploy`. A part the supervisor found
+already running is named on its build with no date, because it moved there
+before the supervisor looked; the date appears once the supervisor has seen it
+move. A part whose build cannot
+be read — one that recorded none, such as a binary built without Go's stamp —
+is compared with nothing and moved by nothing, and its line names no build.
 
 ## Setting up with `yoyo setup`
 
@@ -336,7 +395,8 @@ running. With the Slack service enabled in the
 [`yoyo start`](#starting-the-product-and-stopping-it)'s supervisor does for the
 sink — the same lease-checked start, made again whenever the sink dies, within
 the supervisor's bounds — so on a product that has been started the finding
-clears itself. The verb is still there for a product nobody has started, and
+clears itself. The drift above clears itself the same way there: the supervisor
+[moves the sink onto each build deployed over it](#starting-the-product-and-stopping-it). The verb is still there for a product nobody has started, and
 for a pass of your own. `yoyo doctor` only diagnoses — it changes nothing, and
 starting the sink is the other command's job.
 

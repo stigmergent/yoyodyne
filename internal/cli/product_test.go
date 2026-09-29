@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -502,5 +504,112 @@ func TestTheSupervisorInstalledOverTheMaintenanceJobRetiresItAndCarriesTheRebuil
 	// Installing again finds nothing to retire.
 	if said, problem := p.retireMaintenanceJob(context.Background(), "yoyo start"); said != "" || problem != "" {
 		t.Errorf("a second retirement = %q, %q, want nothing to do", said, problem)
+	}
+}
+
+// The real children say which build they run from their own records, and the
+// sink says it is busy while it holds a conversation for a turn, which is what
+// a restart into a deployed build waits out.
+func TestTheRealChildrenSayWhichBuildTheyRunAndWhatTheyAreDoing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := slack.NewStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatalf("slack.NewStore() error = %v", err)
+	}
+	conversations, err := runstate.NewConversationStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewConversationStore() error = %v", err)
+	}
+	if err := store.SavePresence(slack.Presence{PID: os.Getpid(), Build: "1111111111111111"}); err != nil {
+		t.Fatalf("SavePresence() error = %v", err)
+	}
+	sink := slackChild{store: store, conversations: conversations}
+	if build, err := sink.Build(context.Background()); err != nil || build != "1111111111111111" {
+		t.Fatalf("sink Build() = %q, %v, want the build its presence records", build, err)
+	}
+	if busy, err := sink.Busy(context.Background()); err != nil || busy != "" {
+		t.Fatalf("sink Busy() = %q, %v, want nothing while it holds no conversation", busy, err)
+	}
+	held, err := conversations.Hold(runstate.ConversationIdentity{Agent: "product-manager", Role: domain.RoleProductManager})
+	if err != nil {
+		t.Fatalf("Hold() error = %v", err)
+	}
+	defer held.Release()
+	if busy, err := sink.Busy(context.Background()); err != nil || !strings.Contains(busy, "product-manager conversation") {
+		t.Fatalf("sink Busy() = %q, %v, want the turn it is answering named", busy, err)
+	}
+
+	watch, err := runstate.NewWatchStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewWatchStore() error = %v", err)
+	}
+	lease, taken, err := watch.Lease("watch-0123456789abcdef0123456789abcdef")
+	if err != nil || !taken {
+		t.Fatalf("Lease() = %t, %v, want the watch taken", taken, err)
+	}
+	defer lease.Release()
+	scheduler := schedulerChild{watch: watch}
+	if build, err := scheduler.Build(context.Background()); err != nil || build != buildinfo.Commit() {
+		t.Fatalf("scheduler Build() = %q, %v, want the build the holder stamped, %q", build, err, buildinfo.Commit())
+	}
+	var restartsItself supervise.Child = scheduler
+	if _, ok := restartsItself.(supervise.RestartsItself); !ok {
+		t.Fatal("the scheduler does not say it restarts itself, so the supervisor would stop it and cancel its runs")
+	}
+	if _, ok := restartsItself.(supervise.Deployable); !ok {
+		t.Fatal("the scheduler is not a part whose build the supervisor reads")
+	}
+	var sinkChild supervise.Child = sink
+	if _, ok := sinkChild.(supervise.RestartsItself); ok {
+		t.Fatal("the sink says it restarts itself, so nothing would move it onto a deployed build")
+	}
+}
+
+// Every part the supervisor starts has to say which build it runs, or a deploy
+// never reaches it — which is how the dashboard served a day and a half from a
+// stale build. So a part adopted as a child (the dashboard's adoption,
+// yoyodyne-ifd.414, first among them) cannot land without it: this fails for any
+// child that does not.
+func TestEveryPartTheSupervisorStartsIsMovedOntoADeployedBuild(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := config.LoadResolved(writeConfig(t, validConfig+`slack:
+  enabled: true
+  channel: C0123456789
+services:
+  slack:
+    enabled: true
+  dashboard:
+    enabled: true
+  scheduler:
+    enabled: true
+  maintenance:
+    enabled: true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &product{resolved: resolved, stateRoot: t.TempDir(), program: "/opt/yoyo/bin/yoyo", launcher: slack.DetachedLauncher{}, goos: "darwin"}
+	children, _, _, err := p.realChildren()
+	if err != nil {
+		t.Fatalf("realChildren() error = %v", err)
+	}
+	if len(children) == 0 {
+		t.Fatal("realChildren() started nothing with every part enabled")
+	}
+	for _, child := range children {
+		if _, ok := child.(supervise.Deployable); !ok {
+			t.Errorf("the %s service is not a supervise.Deployable: it does not say which build it runs or what it is in the middle of, so no deploy would ever move it", child.Name())
+		}
+		_, self := child.(supervise.RestartsItself)
+		_, passes := child.(supervise.Passes)
+		if child.Name() == config.ServiceSlack && !passes {
+			t.Error("the slack service cannot be held between passes, so a restart into a deployed build could land in the middle of one")
+		}
+		if child.Name() == config.ServiceScheduler && !self {
+			t.Error("the scheduler does not say it restarts itself, so the supervisor would stop it and cancel its runs")
+		}
 	}
 }
