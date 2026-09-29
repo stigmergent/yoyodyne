@@ -87,6 +87,10 @@ const (
 	// as though somebody had would be the one claim this arrangement cannot make.
 	EventProposalAdmitted EventType = "proposal.admitted"
 	EventProposalCreated  EventType = "proposal.created"
+	// A proposal its proposer took back before anybody decided it. It is not a
+	// rejection: nobody turned it down, and a record reading as though the
+	// operator had would put words in his mouth.
+	EventProposalWithdrawn EventType = "proposal.withdrawn"
 	// A concern is work the product manager judged against the goals and put to
 	// the operator as a question instead of proposing. What it raised and what
 	// it was told are separate events for the same reason a proposal and its

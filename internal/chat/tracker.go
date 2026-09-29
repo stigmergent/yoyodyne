@@ -204,6 +204,13 @@ const (
 	// hold does not decide a run. It is the one write a conversation makes to
 	// that record; everything else on it is the watching session's.
 	actionBrake = "brake"
+	// actionWithdraw takes back a proposal this conversation made and nobody has
+	// decided, with the reason recorded. Its subject is a proposal rather than an
+	// item, and it exists because a proposal was the one thing the Lead Product
+	// Manager could make and not unmake: on 2026-09-28 the duplicate guard's
+	// fallback put proposal 959.1 in front of the operator for a decision her own
+	// authority covered, and nothing she held could take it off his list.
+	actionWithdraw = "withdraw"
 	// handleNeedsOperator is the one value "needs" takes on a handling: the
 	// report asks for a change only the operator can make, and the handling is
 	// a finding for him rather than a decision that closes the report.
@@ -217,7 +224,7 @@ const (
 var trackerActionArguments = map[string][]string{
 	actionRead:         {},
 	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "executor", "parked", "directive", "report", "labels"},
+	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "executor", "parked", "directive", "report", "labels", "distinct_from"},
 	actionAttribute:    {"goal"},
 	actionUpdate:       {"title", "description", "note", "executor"},
 	actionLabel:        {"add", "remove"},
@@ -234,6 +241,7 @@ var trackerActionArguments = map[string][]string{
 	actionInFlight:     {"decision", "superseded_by"},
 	actionHandle:       {"report", "requests", "needs"},
 	actionBrake:        {"decision"},
+	actionWithdraw:     {"proposal"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -280,6 +288,9 @@ var trackerCapabilities = map[string]capability.Capability{
 	// Deciding the brake's hold is deciding what becomes of work that stopped
 	// moving, one level up: the same authority, held by the same role.
 	actionBrake: capability.WorkTriage,
+	// Taking back a proposal of one's own is admission run backwards before
+	// anything was admitted, so it belongs with admitting.
+	actionWithdraw: capability.BacklogAdmit,
 }
 
 // laneCapabilities is the lane-scoped name of each operation that has one: the
@@ -310,7 +321,7 @@ var laneCapabilities = map[string]capability.Capability{
 var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
-	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake,
+	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -400,6 +411,15 @@ type TrackerAction struct {
 	// on the turn after, and an item admitted now and labelled then is one that
 	// whatever watches for the label does not see across the whole gap.
 	Labels []string `json:"labels,omitempty"`
+	// DistinctFrom names the one closed item the duplicate check would match a
+	// creation against and says in one sentence what is separate, and is taken by
+	// a creation and by nothing else. It is how the build of a closed design is
+	// admitted beside the design without a proposal: the item is set aside, the
+	// sentence goes onto the new item, and an open item named here is refused.
+	DistinctFrom *Distinction `json:"distinct_from,omitempty"`
+	// Proposal names the undecided proposal a withdrawal takes back, exactly as
+	// it was listed, and is taken by a withdrawal and by nothing else.
+	Proposal string `json:"proposal,omitempty"`
 	// Add and Remove name the one label a label action puts on an item or takes
 	// off it. Exactly one of them is given: an action that named both would be
 	// two decisions in one record, and one that named neither has nothing to do.
@@ -959,6 +979,12 @@ func (a TrackerAction) validateSubject() error {
 			return errors.New("brake does not take an id; it decides the brake's hold on intake, and it changes no work item")
 		}
 		return nil
+	case a.Action == actionWithdraw:
+		// A proposal is not a work item: nothing exists yet for an id to name.
+		if id != "" {
+			return errors.New("withdraw does not take an id; it names the proposal it takes back in \"proposal\", and a proposal is not yet a work item")
+		}
+		return nil
 	case id == "":
 		return fmt.Errorf("%s requires the id of the item to act on", a.Action)
 	default:
@@ -970,7 +996,7 @@ func (a TrackerAction) validateSubject() error {
 // is every operation but admitting new work and surveying the queue.
 func (a TrackerAction) actsOnExistingItem() bool {
 	switch a.Action {
-	case actionCreate, actionSurvey, actionHandle, actionBrake:
+	case actionCreate, actionSurvey, actionHandle, actionBrake, actionWithdraw:
 		return false
 	default:
 		return true
@@ -1034,6 +1060,14 @@ func (a TrackerAction) validateArguments() []error {
 				problems = append(problems, fmt.Errorf("labels: %w", err))
 			}
 		}
+		// A distinction with no sentence saying what is separate is refused here,
+		// where nothing has been created yet. Whether the item it names is closed
+		// needs the tracker, so that is asked as the creation is carried out.
+		if a.DistinctFrom != nil {
+			problems = append(problems, a.DistinctFrom.problems()...)
+		}
+	case actionWithdraw:
+		problems = append(problems, proposalReferenceProblems(a.Proposal)...)
 	case actionAttribute:
 		problems = append(problems, a.goalProblems()...)
 	case actionLabel:
@@ -1229,6 +1263,12 @@ func (a TrackerAction) arguments() []string {
 	}
 	if len(a.Labels) > 0 {
 		carried = append(carried, "labels")
+	}
+	if a.DistinctFrom != nil {
+		carried = append(carried, "distinct_from")
+	}
+	if strings.TrimSpace(a.Proposal) != "" {
+		carried = append(carried, "proposal")
 	}
 	if strings.TrimSpace(a.Add) != "" {
 		carried = append(carried, "add")
@@ -1679,13 +1719,21 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// retried under the recovery rule, so a tracker that still would not list
 		// the work is not one this creation should be written to on the strength of
 		// a guard that never ran.
-		matches, err := s.alreadyAdmitted(ctx, admission.Candidate{
+		matches, admitted, err := s.alreadyAdmitted(ctx, admission.Candidate{
 			Title:   strings.TrimSpace(action.Title),
 			Parent:  action.parent(),
 			Sources: admissionSources(prompting.ID, cited.ID),
 		})
 		if err != nil {
 			outcome.fail(err)
+			return
+		}
+		// A closed item the creation names as separate work is set aside, and the
+		// sentence saying what is separate goes onto the new item. An open one is
+		// refused: open work is acted on, or proposed beside so the operator decides.
+		matches, distinct, refusal := distinguished(matches, admitted, action.DistinctFrom)
+		if refusal != "" {
+			outcome.Failure = refusal
 			return
 		}
 		if len(matches) > 0 {
@@ -1734,7 +1782,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			// that wording leaves the attribution alone — which is the whole of what
 			// identity is for, and it has to be true of the moment the item is made
 			// or it is true of nothing.
-			Notes:  s.trackerProvenance(creation.note, action.Reason) + "\n\n" + s.options.Goals.NoteFor(action.Goal) + s.classNote(action.Class) + directiveNote(prompting) + reportNote(cited) + lane,
+			Notes:  s.trackerProvenance(creation.note, action.Reason) + "\n\n" + s.options.Goals.NoteFor(action.Goal) + s.classNote(action.Class) + directiveNote(prompting) + reportNote(cited) + distinctionNote(distinct, action.DistinctFrom) + lane,
 			Parent: action.parent(),
 			// The executor is set as the item is admitted rather than after it,
 			// because the harness may choose an item the moment it is in the queue: a
@@ -1784,7 +1832,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		if action.Parked.Parked() {
 			parked = ", parked so nothing selects it until it is released: " + singleLine(action.Parked.Reason(), maxTrackerFailureBytes)
 		}
-		from := citedClause(cited)
+		from := citedClause(cited) + distinctionClause(distinct)
 		// Labels applied at admission are said where the admission is reported, in
 		// the words the survey uses, because the label is what a seat watches for
 		// and the operator reads this line rather than the item.
@@ -1959,6 +2007,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.recordReportHandling(ctx, outcome)
 	case actionBrake:
 		s.decideBrake(outcome)
+	case actionWithdraw:
+		s.withdrawProposal(outcome)
 	default:
 		// Validation admits nothing else, so reaching this is a harness bug rather
 		// than a badly formed request; it is reported as a failure all the same.
