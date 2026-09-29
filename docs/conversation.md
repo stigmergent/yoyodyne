@@ -2073,7 +2073,10 @@ not while your pause or intake hold stands, which is written onto the item as
 what it waits on. Every refusal is written onto the item's own triage record and shown on the
 docket entry the development manager reads, naming which gate refused and what
 would clear it, so a decision that cannot be carried out says so where she is
-already looking — and a decision no pass has attempted a poll interval after it
+already looking. That includes a decision about a run the docket holds no
+stoppage of, which nothing can start from: its refusal is shown on the item's
+entries, labelled with the run, and names the decision that would apply instead.
+A decision no pass has attempted a poll interval after it
 was recorded is written there too, as unattempted with why, so none is ever
 silently passed over. Before that existed, thirty-three items stood decided and
 unfired, some for days, because the only executor was somebody typing one of these

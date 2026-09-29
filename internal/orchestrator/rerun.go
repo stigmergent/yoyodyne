@@ -691,7 +691,21 @@ func docketedStoppage(docket RerunDocket, priorRunID, act string) (triage.Entry,
 			return candidate, nil
 		}
 	}
-	return triage.Entry{}, fmt.Errorf("no stopped run of %s is on the triage docket, so there is no stoppage to %s", priorRunID, act)
+	return triage.Entry{}, NoDocketedStoppageError{RunID: priorRunID, Act: act}
+}
+
+// NoDocketedStoppageError is the refusal of an action asked to act on a run the
+// docket holds no stoppage of. It is typed because what the carry-out writes
+// onto the item about it is more than the refusal: a decision recorded against
+// such a run can never be carried out as it stands, so the finding has to name
+// the decision that would apply instead (yoyodyne-ifd.428.52).
+type NoDocketedStoppageError struct {
+	RunID string
+	Act   string
+}
+
+func (e NoDocketedStoppageError) Error() string {
+	return fmt.Sprintf("no stopped run of %s is on the triage docket, so there is no stoppage to %s", e.RunID, e.Act)
 }
 
 // stoppageIsOver reports the run's own record proving the stoppage is terminal

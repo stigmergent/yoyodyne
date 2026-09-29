@@ -864,6 +864,9 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 		return c.stopped(ctx, task, carried, gate, waiting,
 			fmt.Sprintf("the fresh run met %s where it would have started", pauseMet(*result.PausedBeforeStarting)), clears), Outcome{}, nil
 	case !result.Started:
+		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
+			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
+		}
 		gate, clears := carryOutGate(runErr)
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
 	}
@@ -895,6 +898,9 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 			fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit),
 			"a developer slot freeing, which needs nobody; nothing was spent, so the item keeps its grant"), Outcome{}, nil
 	case !result.Continued:
+		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
+			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
+		}
 		gate, clears := carryOutGate(runErr)
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
 	}
@@ -1055,7 +1061,7 @@ func carryOutGate(err error) (gate, clears string) {
 			"`yoyo triage override` crossing the budget that refused, which is the operator's and nobody else's"
 	case errors.Is(err, runstate.ErrRerunTaken):
 		return runstate.TriageGateBudget,
-			"the decision being recorded against the stoppage of the item's latest run instead: triage re-runs one docketed stoppage once, so this one's re-run is spent, and a further attempt at it is an escalation rather than a larger budget"
+			"the decision being recorded against the stoppage of the item's latest run the docket holds a stoppage of instead: triage re-runs one docketed stoppage once, so this one's re-run is spent, and a further attempt at it is an escalation rather than a larger budget. A run the docket holds no stoppage of — a re-run cancelled on its way out, say — has nothing for a re-run to start from, so where no docketed stoppage of the item is left to take one, the decision that applies is an escalation"
 	default:
 		return runstate.TriageGateHarness, "what the refusal itself names"
 	}
@@ -1069,6 +1075,102 @@ func refusalText(err error) string {
 		return "the carry-out started nothing and gave no reason, which is a state the harness should not be able to reach"
 	}
 	return err.Error()
+}
+
+// undocketed is the finding for a decision recorded against a run the docket
+// holds no stoppage of, and whether err is that refusal at all.
+//
+// Both actions act on a docketed stoppage — the entry is what makes a re-run
+// once per stoppage and what a repair re-enters — so a decision about a run that
+// was never docketed cannot be carried out however often it is attempted, and
+// nothing about the harness will change that. What it needs is a different
+// decision, and the finding says which. yoyodyne-ifd.187's re-run of
+// run-04e578ce, a re-run the harness had cancelled on its way out and never
+// docketed, was refused thirty-nine times over two days with "what the refusal
+// itself names" as the only thing said about what would clear it
+// (docs/diagnoses/yoyodyne-ifd-428-52-decision-on-an-undocketed-run.md).
+func (c CarryOut) undocketed(task CarryOutTask, err error) (refusal, clears string, undocketed bool) {
+	var missing NoDocketedStoppageError
+	if !errors.As(err, &missing) {
+		return "", "", false
+	}
+	refusal = fmt.Sprintf("run %s %s, and the triage docket holds no stoppage of it, so a %s recorded against it has nothing to start from: a %s acts on a docketed stoppage, and recording a decision about a run does not docket it",
+		task.RunID, c.howRunEnded(task.RunID), task.Decision, task.Decision)
+	return refusal, c.applicableDecision(task), true
+}
+
+// howRunEnded says what the run's own record says became of it, which is what
+// tells a reader why the docket never held it: a run cancelled or refused before
+// it reached a stoppage is not one.
+func (c CarryOut) howRunEnded(runID string) string {
+	recorded, err := c.Runs.Recorded()
+	if err != nil {
+		return fmt.Sprintf("has a record this pass could not read (%v)", err)
+	}
+	for _, state := range recorded {
+		if state.RunID != runID {
+			continue
+		}
+		if state.CompletedAt != nil {
+			return fmt.Sprintf("ended %s at %s", state.Status, state.CompletedAt.UTC().Format(time.RFC3339))
+		}
+		return fmt.Sprintf("stands %s", state.Status)
+	}
+	return "is not a run the harness holds a record of"
+}
+
+// applicableDecision names the decision that would carry the item forward
+// where the one recorded names a run the docket holds no stoppage of: the same
+// decision against a stoppage the docket does hold for the item and that can
+// still take it, or — where none can — an escalation, because then nothing the
+// harness holds can start the item again and a fresh run is a person's to name.
+func (c CarryOut) applicableDecision(task CarryOutTask) string {
+	escalate := fmt.Sprintf("an escalation, since nothing the harness holds can then start %s again and a fresh run of it is the operator's to name with `yoyo run %s`",
+		task.WorkItemID, task.WorkItemID)
+	entries, err := c.Docket.List()
+	if err != nil {
+		return fmt.Sprintf("the decision recorded against a stoppage the docket holds for %s, which this pass could not read (%v); where none can take it, %s", task.WorkItemID, err, escalate)
+	}
+	claimed, err := c.Reruns.Claimed(task.WorkItemID)
+	if err != nil {
+		return fmt.Sprintf("the decision recorded against a stoppage the docket holds for %s, whose re-runs this pass could not read (%v); where none can take it, %s", task.WorkItemID, err, escalate)
+	}
+	claimOf := make(map[string]runstate.Rerun, len(claimed))
+	for _, claim := range claimed {
+		claimOf[claim.DocketKey] = claim
+	}
+	var open, spent []string
+	for _, entry := range entries {
+		if entry.WorkItemID != task.WorkItemID || entry.RunID == task.RunID {
+			continue
+		}
+		stoppage := entry.Class == triage.ClassStoppedRun
+		if task.Decision == runstate.TriageDecisionRerun {
+			stoppage = stoppage || entry.Class == triage.ClassEscalation
+		}
+		if !stoppage {
+			continue
+		}
+		described := fmt.Sprintf("run %s, docketed at %s", entry.RunID, entry.RecordedAt.UTC().Format(time.RFC3339))
+		if claim, taken := claimOf[entry.Key]; taken && task.Decision == runstate.TriageDecisionRerun {
+			started := ""
+			if claim.RunID != "" {
+				started = " and started " + claim.RunID
+			}
+			spent = append(spent, fmt.Sprintf("%s, whose one re-run was claimed at %s%s", described, claim.ClaimedAt.UTC().Format(time.RFC3339), started))
+			continue
+		}
+		open = append(open, described)
+	}
+	if len(open) > 0 {
+		return fmt.Sprintf("the %s recorded instead against a stoppage the docket holds for %s: %s. Recording it spends the item's budget as any decision does, and past a cap that is `yoyo triage override`'s to permit",
+			task.Decision, task.WorkItemID, strings.Join(open, "; "))
+	}
+	if len(spent) > 0 {
+		return fmt.Sprintf("no stoppage the docket holds for %s can take a %s — %s — so the decision that applies is %s",
+			task.WorkItemID, task.Decision, strings.Join(spent, "; "), escalate)
+	}
+	return fmt.Sprintf("the docket holds no other stoppage of %s, so the decision that applies is %s", task.WorkItemID, escalate)
 }
 
 // stopped writes the finding for one attempt a gate stopped, and returns the

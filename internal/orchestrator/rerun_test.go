@@ -173,6 +173,19 @@ func (h *rerunHarness) rerunner() Rerunner {
 // else as a fresh product: no hold, no re-run claimed, nothing in flight.
 func newRerunHarness(t *testing.T, state runstate.State) *rerunHarness {
 	t.Helper()
+	harness := newDocketedHarness(t, state)
+	// The decision itself: the development manager recorded a re-run of this
+	// item's stopped run, which spent the item's re-run budget in the same write.
+	// That record is what the action reads to know somebody decided this, and
+	// what the reasoning it records is read from.
+	recordRerunDecision(t, harness.runs, state.WorkItemID, state.RunID)
+	return harness
+}
+
+// newDocketedHarness records one stopped run and dockets it, with nothing yet
+// decided about it.
+func newDocketedHarness(t *testing.T, state runstate.State) *rerunHarness {
+	t.Helper()
 	root := t.TempDir()
 	runs, err := runstate.NewStore(root, "yoyodyne")
 	if err != nil {
@@ -193,11 +206,6 @@ func newRerunHarness(t *testing.T, state runstate.State) *rerunHarness {
 	if _, err := docketerOver(nil, docket).RecordStoppedRun(state); err != nil {
 		t.Fatalf("RecordStoppedRun() error = %v", err)
 	}
-	// The decision itself: the development manager recorded a re-run of this
-	// item's stopped run, which spent the item's re-run budget in the same write.
-	// That record is what the action reads to know somebody decided this, and
-	// what the reasoning it records is read from.
-	recordRerunDecision(t, runs, state.WorkItemID, state.RunID)
 	return &rerunHarness{
 		docket: docket,
 		runs:   runs,

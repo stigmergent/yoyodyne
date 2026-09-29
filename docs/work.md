@@ -1587,6 +1587,26 @@ out: 1 refused, 1 unattempted* — because the two are fixed in different places
 The re-runs recorded for yoyodyne-ifd.192 and .187 on 2026-09-19 sat in that
 third ending for a week with nothing anywhere saying so;
 [the diagnosis](diagnoses/yoyodyne-ifd-428-39-unattempted-carry-outs.md) is how.
+
+This holds whatever became of the docket entry for the decision's run. A
+decision about a run whose entry an earlier decision closed — a re-run recorded
+after a repair settled the same stoppage — is attempted at the next pull like
+any other, because the entry is still there to act on. A decision about a run
+the docket holds **no** stoppage of — a re-run the harness cancelled on its way
+out, say, which is never docketed — is attempted too, and refused. Both the
+re-run and the repair act on a docketed stoppage, so the refusal says so. It
+also says how the run ended, and it names the decision that would apply: the
+same decision recorded against a docketed stoppage of the item that can still
+take it, or, where every such stoppage's re-run is spent, an escalation. That
+refusal, and an unattempted record about such a run, is shown on every docket
+entry of the item for as long as it is her latest decision, labelled with the
+run it is about. Otherwise no entry would carry it, because each entry shows
+only the findings about its own run. The re-run recorded for yoyodyne-ifd.187
+against run-04e578ce on 2026-09-26 was refused thirty-nine times this way while
+every entry she read was silent;
+[its diagnosis](diagnoses/yoyodyne-ifd-428-52-decision-on-an-undocketed-run.md)
+is how.
+
 [Deciding what becomes of stopped
 work](conversation.md#deciding-what-becomes-of-stopped-work) is the decision
 side of it.

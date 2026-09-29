@@ -520,6 +520,10 @@ func (s standingDocket) dockets(key string, stoppedAt time.Time) bool {
 func (d Docketer) joinDecisions(entries []triage.Entry, published map[string]publicationRearms) []error {
 	var problems []error
 	read := make(map[string]itemDecisions, len(entries))
+	docketedRuns := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		docketedRuns[entry.RunID] = true
+	}
 	for index := range entries {
 		entry := &entries[index]
 		decisions, seen := read[entry.WorkItemID]
@@ -561,8 +565,46 @@ func (d Docketer) joinDecisions(entries []triage.Entry, published map[string]pub
 		// harness is about to act on, which is precisely what a refused carry-out
 		// is not.
 		entry.CarryOut = docketedCarryOut(*entry, decisions.counters)
+		// A finding about the item's latest decision is shown on the item's entries
+		// where that decision names a run this docket holds no entry for, because
+		// otherwise nothing she reads would carry it: yoyodyne-ifd.187's re-run of
+		// an undocketed run was refused thirty-nine times onto the item's record
+		// while every entry she was shown said nothing (yoyodyne-ifd.428.52).
+		if latest := undocketedCarryOut(*entry, decisions.counters, docketedRuns); latest != nil &&
+			(entry.CarryOut == nil || entry.CarryOut.RefusedAt.Before(latest.RefusedAt)) {
+			entry.CarryOut = latest
+		}
 	}
 	return problems
+}
+
+// undocketedCarryOut is the carry-out finding about the item's latest decision
+// where that decision names a run the docket holds no entry for, in the shape an
+// entry of the same item carries it. It is taken only while the decision is the
+// item's latest and only where the finding was written since the decision, so a
+// finding about a decision she has since decided past is never shown as though
+// it stood, and it names its run so it is not read as a finding about the
+// entry's own.
+func undocketedCarryOut(entry triage.Entry, counters runstate.TriageCounters, docketedRuns map[string]bool) *triage.CarryOut {
+	latest, found := counters.LatestDecision()
+	if !found || docketedRuns[latest.RunID] {
+		return nil
+	}
+	recorded, found := counters.CarryOutOf(latest.RunID)
+	if !found || recorded.RefusedAt.Before(latest.DecidedAt) || recorded.RefusedAt.Before(entry.RecordedAt) {
+		return nil
+	}
+	return &triage.CarryOut{
+		RunID:       latest.RunID,
+		Decision:    recorded.Decision,
+		Gate:        recorded.Gate,
+		Refusal:     recorded.Refusal,
+		Clears:      recorded.Clears,
+		Waiting:     recorded.Waiting,
+		Attempts:    recorded.Attempts,
+		RefusedAt:   recorded.RefusedAt,
+		Unattempted: recorded.Unattempted,
+	}
 }
 
 // docketedCarryOut is the carry-out finding standing about one entry's own
