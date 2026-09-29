@@ -637,9 +637,17 @@ step "11. following a run or a conversation"
 # about runs, conversations, branch reviews, and exchanges is checked by the Go
 # tests in internal/cli and internal/runstate, which need no provider and no
 # repository to build all four.
+# What is asserted is the root and the product, not the layout between them:
+# where one product's directory sits inside the state root is the harness's to
+# arrange, and a walk that spelled it out went red on the change that moved it
+# (yoyodyne-8sy) rather than on anything the README says.
 status_listing="$("$yoyo" status --list 2>&1 || true)"
-contains "$status_listing" "recorded under $scratch/state/products/calc" \
-  "yoyo status --list reads the state root this walk's runs recorded under"
+case "$status_listing" in
+  (*"recorded under $scratch/state/"*calc*)
+    pass "yoyo status --list reads the state root this walk's runs recorded under" ;;
+  (*)
+    fail "yoyo status --list reads the state root this walk's runs recorded under -- got: $status_listing" ;;
+esac
 # The runs above recorded this walk's root in the checkout's state-root marker,
 # so a second root is refused rather than listed: one product's state is never
 # split across two roots. Which root each spelling resolves is read from `yoyo
