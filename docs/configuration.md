@@ -2858,6 +2858,18 @@ configured, and the default of `1` is deliberate: raising it is a decision about
 your machine, and [how long a check may take](#how-long-a-check-may-take) is the
 setting that has to move with it.
 
+The tracker does not refuse concurrent runs. Several runs invoking `bd` at once
+against one embedded database was an open question until it was exercised live:
+the store takes concurrent invocations one at a time, so none is refused, and
+overlapping writes to one item all survive. What concurrency did show is that
+now and then one `bd` invocation stalls for minutes — 170 seconds to 40 minutes,
+in 3 of 9 six-way batches — and the adapter gives an invocation 30 seconds, so a
+run that meets one sees a tracker that did not answer. It was seen under an
+exclusive lock too, so it is not two invocations colliding, and its cause is not
+yet known. [The exercise and its numbers](experiments/yoyodyne-ifd-271-concurrent-tracker-access.md)
+record what was measured against which `bd`, and the conformance checks it left
+behind fail if a later `bd` stops taking concurrent invocations one at a time.
+
 ### A developer slot that prefers a label
 
 Each unit of `max_concurrent_developers` is a **developer slot**: the capacity
