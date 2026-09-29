@@ -48,7 +48,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
-	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
 )
 
@@ -182,7 +181,7 @@ func (d *diagnosis) checkSlackEnvFile(file string, productID domain.ProductID) F
 // checkSlackSink asks what is actually reporting for this product. The lease
 // answers whether anything is; the record the sink left answers what it is.
 func (d *diagnosis) checkSlackSink(resolved config.Resolved, productID domain.ProductID, installed string) []Finding {
-	root, err := runstate.DefaultRoot(d.getenv, d.homeDir, d.env.GOOS)
+	root, err := d.stateRootPath()
 	if err != nil {
 		return []Finding{{
 			Check:   "slack-sink",

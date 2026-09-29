@@ -463,11 +463,13 @@ func (d *diagnosis) checkTracker(ctx context.Context, repository string) Finding
 
 // checkStateRoot asks whether the harness can keep its durable records, where
 // they are, which layer put them there, and whether the checkout's state-root
-// marker agrees. It is the one check that writes: the root is created if it is
-// missing, which is what every other command does with it and what makes
-// "missing" not a failure. The marker it only reads — recording one is for the
-// processes that open the root — so a diagnosis never settles which root a
-// product uses.
+// marker agrees. The marker is read first and only read — recording one is for
+// the processes that open the root — so a diagnosis never settles which root a
+// product uses. Where the marker agrees, or there is none yet, the root is
+// created if it is missing, which is what every other command does with it and
+// what makes "missing" not a failure. Where it disagrees nothing is created: the
+// directory this shell resolved is not where the product's state is, and an
+// empty one left there would be a second root nobody meant.
 func (d *diagnosis) checkStateRoot(repository string) Finding {
 	resolved, err := runstate.ResolveRoot(d.getenv, d.homeDir, d.env.GOOS)
 	if err != nil {
@@ -480,6 +482,18 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 		}
 	}
 	root := resolved.Path
+	marker, markerErr := runstate.ReadRootMarker(repository)
+	if markerErr == nil && !marker.Agrees(root) {
+		return Finding{
+			Check:  "state",
+			Status: StatusProblem,
+			Summary: fmt.Sprintf("this shell resolves the state root %s, from %s, and this checkout's state is kept at %s, so every command from here refuses to start",
+				root, resolved.Origin, marker.Recorded),
+			Detail: fmt.Sprintf("recorded in %s; one product's state is never split across two roots", marker.Path),
+			Remedy: fmt.Sprintf("unset %s, or correct state_root in the machine configuration, so the root resolves to %s; to move the state instead: yoyo stop, move the directory, change the setting, then rm %s",
+				runstate.StateHomeVariable, shellQuote(marker.Recorded), shellQuote(marker.Path)),
+		}
+	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return Finding{
 			Check:   "state",
@@ -490,32 +504,29 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 		}
 	}
 	summary := fmt.Sprintf("the durable records live in %s, from %s", root, resolved.Origin)
-	marker, err := runstate.ReadRootMarker(repository)
 	switch {
-	case err != nil:
+	case markerErr != nil:
 		return Finding{
 			Check:   "state",
 			Status:  StatusWarning,
 			Summary: summary + ", and whether this checkout's state-root marker agrees could not be read",
-			Detail:  err.Error(),
+			Detail:  markerErr.Error(),
 		}
 	case marker.Path == "":
 		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the repository is not a Git checkout, so no marker is kept"}
 	case marker.Recorded == "":
 		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; no process has recorded a root in " + marker.Path + " yet"}
-	case !marker.Agrees(root):
-		return Finding{
-			Check:  "state",
-			Status: StatusProblem,
-			Summary: fmt.Sprintf("this shell resolves the state root %s, from %s, and this checkout's state is kept at %s, so every command from here refuses to start",
-				root, resolved.Origin, marker.Recorded),
-			Detail: fmt.Sprintf("recorded in %s; one product's state is never split across two roots", marker.Path),
-			Remedy: fmt.Sprintf("unset %s, or correct state_root in the machine configuration, so the root resolves to %s; to move the state instead: yoyo stop, move the directory, change the setting, then rm %s",
-				runstate.StateHomeVariable, shellQuote(marker.Recorded), shellQuote(marker.Path)),
-		}
 	default:
 		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the marker in " + marker.Path + " agrees"}
 	}
+}
+
+// stateRootPath is the root the other checks look for what they need under,
+// resolved the one way every process resolves it. Those checks only read, so
+// they take the path without the marker, which the state check reports on.
+func (d *diagnosis) stateRootPath() (string, error) {
+	resolved, err := runstate.ResolveRoot(d.getenv, d.homeDir, d.env.GOOS)
+	return resolved.Path, err
 }
 
 // checkChecks asks whether the project has deterministic checks and whether this
@@ -735,7 +746,7 @@ func (d *diagnosis) checkAccounts(ctx context.Context, resolved config.Resolved,
 	if !resolved.Config.Pooled() {
 		return nil
 	}
-	root, err := runstate.DefaultRoot(d.getenv, d.homeDir, d.env.GOOS)
+	root, err := d.stateRootPath()
 	if err != nil {
 		// The state root has already been reported as unresolvable by its own
 		// check, and every account's home is under it, so there is nothing further

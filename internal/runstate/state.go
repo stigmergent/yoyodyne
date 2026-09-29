@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -4182,8 +4181,4 @@ func (s Status) InFlight() bool {
 // each says is free is one fact.
 func (s State) HoldsDeveloperSlot() bool {
 	return s.Status.InFlight() && s.DependencyPause == nil
-}
-
-func SystemDefaultRoot(getenv func(string) string, userHomeDir func() (string, error)) (string, error) {
-	return DefaultRoot(getenv, userHomeDir, runtime.GOOS)
 }

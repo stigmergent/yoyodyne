@@ -25,7 +25,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
-	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // checkServices reports each declared service: off, on with what it needs in
@@ -146,7 +145,7 @@ func (d *diagnosis) checkDashboardKeychainToken(ctx context.Context, resolved co
 
 func (d *diagnosis) checkDashboardFileToken(productID domain.ProductID, address string) Finding {
 	const check = "service:dashboard"
-	root, err := runstate.DefaultRoot(d.getenv, d.homeDir, d.env.GOOS)
+	root, err := d.stateRootPath()
 	if err != nil {
 		return Finding{
 			Check:   check,

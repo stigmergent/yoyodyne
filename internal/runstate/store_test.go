@@ -1651,7 +1651,7 @@ func TestIncompleteRejectsCorruptStateRatherThanDuplicatingIt(t *testing.T) {
 	}
 }
 
-func TestDefaultRoot(t *testing.T) {
+func TestResolveRootReadsXDGStateHome(t *testing.T) {
 	t.Parallel()
 
 	getenv := func(key string) string {
@@ -1660,15 +1660,15 @@ func TestDefaultRoot(t *testing.T) {
 		}
 		return ""
 	}
-	root, err := DefaultRoot(getenv, func() (string, error) { return "/home/test", nil }, "linux")
+	root, err := ResolveRoot(getenv, func() (string, error) { return "/home/test", nil }, "linux")
 	if err != nil {
-		t.Fatalf("DefaultRoot() error = %v", err)
+		t.Fatalf("ResolveRoot() error = %v", err)
 	}
-	if root != filepath.Join("/state", "yoyodyne") {
-		t.Fatalf("DefaultRoot() = %q", root)
+	if root.Path != filepath.Join("/state", "yoyodyne") {
+		t.Fatalf("ResolveRoot() = %q", root.Path)
 	}
-	if _, err := DefaultRoot(func(string) string { return "relative" }, func() (string, error) { return "/home/test", nil }, "linux"); err == nil {
-		t.Fatal("DefaultRoot() relative override error = nil")
+	if _, err := ResolveRoot(func(string) string { return "relative" }, func() (string, error) { return "/home/test", nil }, "linux"); err == nil {
+		t.Fatal("ResolveRoot() relative override error = nil")
 	}
 }
 

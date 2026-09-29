@@ -117,9 +117,9 @@ func TestNothingTellsTheOperatorAnOwningRoleWillDecide(t *testing.T) {
 	if _, stderr, code = runCLI(t, "amendment", "approve", "--config", configPath, "--reason", "yes", proposal.ID); code != 0 {
 		t.Fatalf("approve code = %d, stderr = %q", code, stderr)
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := resolvedTestStateRoot()
 	if err != nil {
-		t.Fatalf("SystemDefaultRoot() error = %v", err)
+		t.Fatalf("resolvedTestStateRoot() error = %v", err)
 	}
 	store, err := runstate.NewAmendmentStore(stateRoot, "yoyodyne")
 	if err != nil {
@@ -270,9 +270,9 @@ The ordering is unspecified.
 // rather than something they were handed.
 func recordProposal(t *testing.T, id string, adjust ...func(*amendment.Proposal)) amendment.Proposal {
 	t.Helper()
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := resolvedTestStateRoot()
 	if err != nil {
-		t.Fatalf("SystemDefaultRoot() error = %v", err)
+		t.Fatalf("resolvedTestStateRoot() error = %v", err)
 	}
 	store, err := runstate.NewAmendmentStore(stateRoot, "yoyodyne")
 	if err != nil {

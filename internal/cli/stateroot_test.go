@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -125,5 +127,69 @@ func TestTheMachineKeySetsTheRootAndConfigShowNamesIt(t *testing.T) {
 	}
 	if content, _ := os.ReadFile(filepath.Join(project, ".git", "yoyodyne", "state-root")); strings.TrimSpace(string(content)) != root {
 		t.Fatalf("marker = %q, want the machine key's root %q", content, root)
+	}
+}
+
+// resolvedTestStateRoot is the root this test process resolves, for a test that
+// writes records a command then reads. It takes no marker, because the test is
+// arranging the records rather than being a process that opens them.
+func resolvedTestStateRoot() (string, error) {
+	resolved, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
+	return resolved.Path, err
+}
+
+// Every process that opens a product's records resolves the root and agrees it
+// with the checkout's marker, and the one place that does both is
+// productStateRoot. ResolveRoot alone is the unguarded half, so it is allowed
+// only there and in the two surfaces that report the root without opening
+// anything under it. A new caller anywhere else is a process that could diverge
+// onto a second root instead of refusing, so this reads the source and fails on
+// one, and on anything reading the variables that choose the root directly.
+func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
+	t.Parallel()
+
+	allowed := map[string]bool{
+		"internal/cli/run.go":       true, // productStateRoot, the guarded path
+		"internal/cli/cli.go":       true, // config show: reports, records nothing
+		"internal/doctor/doctor.go": true, // doctor: reports, reads the marker only
+	}
+	variables := regexp.MustCompile(`Getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)|getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)`)
+	repository := filepath.Join("..", "..")
+	err := filepath.WalkDir(repository, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name := entry.Name(); name == ".git" || name == "node_modules" || name == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(repository, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if strings.HasPrefix(relative, "internal/runstate/") {
+			return nil
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(source)
+		if strings.Contains(text, "runstate.ResolveRoot(") && !allowed[relative] {
+			t.Errorf("%s resolves the state root with runstate.ResolveRoot and never agrees it with the checkout's marker; open it through productStateRoot", relative)
+		}
+		if variables.MatchString(text) {
+			t.Errorf("%s reads a variable that chooses the state root directly; resolve the root through runstate.ResolveRoot and the marker instead", relative)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

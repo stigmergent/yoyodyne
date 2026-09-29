@@ -41,11 +41,14 @@ func TestTheStateFindingReportsTheRootItsOriginAndTheMarker(t *testing.T) {
 		t.Fatalf("state = %s %q, want ok and the marker agreeing", finding.Status, finding.Summary)
 	}
 
-	elsewhere := t.TempDir()
+	elsewhere := filepath.Join(t.TempDir(), "second-root")
 	world.stateRoot = elsewhere
 	finding, _ = findingFor(world.diagnose(), "state")
 	if finding.Status != StatusProblem {
 		t.Fatalf("state = %s %q, want a problem for a marker naming another root", finding.Status, finding.Summary)
+	}
+	if _, err := os.Stat(elsewhere); !os.IsNotExist(err) {
+		t.Fatalf("doctor created %s (%v); a root the marker disagrees with must not be made", elsewhere, err)
 	}
 	marker := filepath.Join(world.project, ".git", "yoyodyne", "state-root")
 	for _, want := range []string{elsewhere, "refuses to start"} {

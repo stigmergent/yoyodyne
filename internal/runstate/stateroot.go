@@ -101,6 +101,13 @@ func machineStateRoot(getenv func(string) string, userHomeDir func() (string, er
 // variable wins because it is an explicit instruction for this shell; the
 // machine key is the operator's standing answer for the machine; the last two
 // are what a machine nobody configured gets.
+//
+// It resolves and never guards. A process that opens a product's records under
+// the root agrees it with the checkout's marker first, through AgreeRoot, which
+// is what the command package's productStateRoot does; only the two surfaces that
+// report the root without opening anything under it — `yoyo config show` and
+// `yoyo doctor` — call this without that. TestNothingOpensTheStateRootUnguarded
+// in the command package holds every caller to that list.
 func ResolveRoot(getenv func(string) string, userHomeDir func() (string, error), goos string) (ResolvedRoot, error) {
 	if value := strings.TrimSpace(getenv(StateHomeVariable)); value != "" {
 		if !filepath.IsAbs(value) {
@@ -143,13 +150,6 @@ func ResolveRoot(getenv func(string) string, userHomeDir func() (string, error),
 		path = filepath.Join(home, ".local", "state", "yoyodyne")
 	}
 	return ResolvedRoot{Path: path, Origin: RootOriginPlatformDefault}, nil
-}
-
-// DefaultRoot is the path ResolveRoot resolves, for the callers that need no
-// origin.
-func DefaultRoot(getenv func(string) string, userHomeDir func() (string, error), goos string) (string, error) {
-	resolved, err := ResolveRoot(getenv, userHomeDir, goos)
-	return resolved.Path, err
 }
 
 // RootMarkerName is the marker's path inside the primary checkout's Git
