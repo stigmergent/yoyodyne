@@ -1398,9 +1398,9 @@ still going into the run's event log, and then ends it. The run's record
 its own, or it was still running at the bound and was ended. While the wait
 lasts, `yoyo status` and the dashboard show the run as `reply written, waiting
 for background processes: 2m of 5m` instead of `developing`. The run then goes
-on to its checks with the reply it wrote. Nothing is recorded as a stall, and
-neither the harness's stall continuation nor a development manager decision is
-used on it. Until yoyodyne-ifd.435.6 that state was read as silence: on
+on to its checks with the reply it wrote. Nothing is recorded as a stall, so
+the harness does not spend its one resumption of a stalled run on it, and no
+decision is asked of the development manager. Until yoyodyne-ifd.435.6 that state was read as silence: on
 2026-09-28 run-008b0e25 wrote its final reply at 11:58:33 PDT and was stopped as
 a stall five minutes later, over the `make test` and `make race` it had
 backgrounded.
