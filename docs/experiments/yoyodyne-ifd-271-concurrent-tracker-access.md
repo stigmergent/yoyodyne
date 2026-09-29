@@ -101,7 +101,9 @@ counts that as a stop caused by something outside the work rather than a
 verdict on the change, and a watching session retries a tracker read that fails
 before it gives up. What nothing does is retry a write. Retrying a write after
 it was ended is not safe in general either: an append ended after it landed
-would be written twice. That is the case a follow-up has to decide.
+would be written twice. Deciding what the adapter should do about a stalled
+write is follow-up work that this document does not settle. It is named in the
+run's summary for the Lead Product Manager to admit.
 
 ## What was not exercised
 
@@ -132,17 +134,41 @@ is the silent case caught loudly.
 
 They run in `make test` like everything else, and skip where bd is not
 installed, so a green suite alone does not say they ran. On 2026-09-29 they were
-run by name against bd 1.1.2 and both ran rather than skipped:
+run by name against bd 1.1.2, as they now stand, and both ran rather than
+skipped. No invocation stalled in that run:
 
 ```
-=== RUN   TestConcurrentRunConformance
-=== RUN   TestConcurrentWriteConformance
---- PASS: TestConcurrentWriteConformance (71.97s)
---- PASS: TestConcurrentRunConformance (89.64s)
-ok  	github.com/mason-bryant/yoyodyne/internal/beads	92.999s
+--- PASS: TestInvocationsTellAStallFromARefusal (0.00s)
+--- PASS: TestConcurrentWriteConformance (10.09s)
+--- PASS: TestConcurrentRunConformance (12.60s)
+ok  	github.com/mason-bryant/yoyodyne/internal/beads	12.788s
 ```
 
-They give each invocation the package's ten-minute conformance bound rather than
-the adapter's 30 seconds, because they run beside the whole suite on a loaded
-machine. So they fail if bd refuses or loses a concurrent write, and not on the
-stall above.
+**What they fail on, and what they do not.** They give each invocation the
+package's ten-minute conformance bound rather than the adapter's 30 seconds,
+because they run beside the whole suite on a loaded machine. Two of the three
+stalls above ran past ten minutes, so a stall can end an invocation in these
+checks too. The checks tell the two outcomes apart by how the invocation ended:
+
+- **bd answered with an error.** That is what contention looks like to the
+  adapter, and the checks fail on it, naming every invocation that was refused.
+- **The bound ended bd before it answered.** That is the stall. The checks log
+  it by name as the stall this document records, not as contention, and leave
+  the stalled caller's item or note out of the read-back. What that item holds
+  depends on where the stall cut the sequence off, so it proves nothing either
+  way. The checks still read back every caller that finished. If every caller
+  stalled, nothing was left to read, and the check is reported skipped with that
+  reason rather than passed.
+
+So they fail if bd refuses a concurrent invocation or loses a concurrent write,
+and not on the stall. Neither failure message prescribes a lock or a retry for
+the stall, because the locked batch above shows neither would remove it.
+`TestInvocationsTellAStallFromARefusal` holds that split in place without a bd:
+it fails if an invocation ended by the bound is counted as a refusal, or the
+other way round.
+
+One limit remains. The test binary has 20 minutes in all (`TEST_TIMEOUT` in the
+Makefile). A check that met two ten-minute stalls one after another would
+therefore be stopped by the test binary rather than finish. No batch above met
+more than one stall. Should it happen, the failure is the test
+binary's own timeout, which names the check it stopped.
