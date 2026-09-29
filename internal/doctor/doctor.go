@@ -483,15 +483,29 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 	}
 	root := resolved.Path
 	marker, markerErr := runstate.ReadRootMarker(repository)
+	if markerErr == nil && !marker.Agrees(root) && marker.RootGone() {
+		// A marker naming a root that is gone splits nothing, so what it costs
+		// is a refusal of every command over a record nobody needs: the remedy
+		// is the one command that replaces it.
+		return Finding{
+			Check:  "state",
+			Status: StatusProblem,
+			Summary: fmt.Sprintf("this checkout's state-root marker names %s, which no longer exists, so every command from here refuses to start",
+				marker.Recorded),
+			Detail: fmt.Sprintf("recorded in %s %s; this shell resolves %s, from %s, and nothing is split because there is no state at the recorded root",
+				marker.Path, marker.WrittenBy(), root, resolved.Origin),
+			Remedy: runstate.RebindCommand,
+		}
+	}
 	if markerErr == nil && !marker.Agrees(root) {
 		return Finding{
 			Check:  "state",
 			Status: StatusProblem,
 			Summary: fmt.Sprintf("this shell resolves the state root %s, from %s, and this checkout's state is kept at %s, so every command from here refuses to start",
 				root, resolved.Origin, marker.Recorded),
-			Detail: fmt.Sprintf("recorded in %s; one product's state is never split across two roots", marker.Path),
-			Remedy: fmt.Sprintf("unset %s, or correct state_root in the machine configuration, so the root resolves to %s; to move the state instead: yoyo stop, move the directory, change the setting, then rm %s",
-				runstate.StateHomeVariable, shellQuote(marker.Recorded), shellQuote(marker.Path)),
+			Detail: fmt.Sprintf("recorded in %s %s; one product's state is never split across two roots", marker.Path, marker.WrittenBy()),
+			Remedy: fmt.Sprintf("unset %s, or correct state_root in the machine configuration, so the root resolves to %s; to move the state instead: yoyo stop, move the directory, change the setting, then %s",
+				runstate.StateHomeVariable, shellQuote(marker.Recorded), runstate.RebindCommand),
 		}
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {

@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,47 @@ func TestTheStateFindingReportsTheRootItsOriginAndTheMarker(t *testing.T) {
 			t.Errorf("state summary %q does not say %q", finding.Summary, want)
 		}
 	}
-	if !strings.Contains(finding.Remedy, marker) || !strings.Contains(finding.Remedy, "yoyo stop") {
+	if !strings.Contains(finding.Remedy, runstate.RebindCommand) || !strings.Contains(finding.Remedy, "yoyo stop") {
 		t.Errorf("state remedy %q does not say how to move the state", finding.Remedy)
+	}
+	if !strings.Contains(finding.Detail, marker) || !strings.Contains(finding.Detail, "recorded no account of itself") && !strings.Contains(finding.Detail, "process ") {
+		t.Errorf("state detail %q does not say where the marker is and who recorded it", finding.Detail)
+	}
+}
+
+// A marker naming a root that is gone from disk is the stale record a test or a
+// moved directory leaves behind. Every command refuses on it, and the finding's
+// remedy is the one command that replaces it, with who recorded it and when.
+func TestTheStateFindingNamesTheRebindForAMarkerWhoseRootIsGone(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	if err := os.MkdirAll(filepath.Join(world.project, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gone := filepath.Join(t.TempDir(), "deleted-root")
+	if err := os.MkdirAll(gone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runstate.AgreeRoot(world.project, runstate.ResolvedRoot{Path: gone}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	finding, _ := findingFor(world.diagnose(), "state")
+	if finding.Status != StatusProblem || finding.Remedy != runstate.RebindCommand {
+		t.Fatalf("state = %s %q, remedy %q; want a problem whose remedy is %q", finding.Status, finding.Summary, finding.Remedy, runstate.RebindCommand)
+	}
+	for _, want := range []string{gone, "no longer exists", "refuses to start"} {
+		if !strings.Contains(finding.Summary, want) {
+			t.Errorf("state summary %q does not say %q", finding.Summary, want)
+		}
+	}
+	for _, want := range []string{filepath.Join(world.project, ".git", "yoyodyne", "state-root"), fmt.Sprintf("process %d", os.Getpid()), world.stateRoot} {
+		if !strings.Contains(finding.Detail, want) {
+			t.Errorf("state detail %q does not say %q", finding.Detail, want)
+		}
 	}
 }

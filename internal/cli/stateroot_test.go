@@ -79,6 +79,54 @@ func TestAProcessOnASecondStateRootRefusesToStart(t *testing.T) {
 	}
 }
 
+// A marker left naming a root that has since been deleted — a temporary state
+// home a test or a shell used and removed — refuses every command, and the
+// refusal names the writer, the moment, and the one command that clears it;
+// that command clears it and the next command starts.
+func TestAMarkerNamingADeletedRootIsClearedByTheRebindItNames(t *testing.T) {
+	// Not parallel: the state root every command resolves is set for this process.
+	t.Setenv("YOYODYNE_CONFIG_HOME", t.TempDir())
+	gone := filepath.Join(t.TempDir(), "deleted-root")
+	t.Setenv("YOYODYNE_STATE_HOME", gone)
+	project, configPath := stateRootProject(t)
+	if _, stderr, code := runCLI(t, "reports", "--config", configPath); code != 0 {
+		t.Fatalf("reports code = %d, stderr = %q", code, stderr)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	current := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", current)
+	_, stderr, code := runCLI(t, "reports", "--config", configPath)
+	if code == 0 {
+		t.Fatal("reports over a marker naming a deleted root succeeded; want the refusal")
+	}
+	for _, want := range []string{gone, "no longer exists", "yoyo state-root rebind", "process ", current} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("refusal %q does not say %q", stderr, want)
+		}
+	}
+
+	stdout, stderr, code := runCLI(t, "state-root", "rebind", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "rebound") || !strings.Contains(stdout, current) {
+		t.Fatalf("state-root rebind code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	marker := filepath.Join(project, ".git", "yoyodyne", "state-root")
+	if content, _ := os.ReadFile(marker); strings.TrimSpace(string(content)) != current {
+		t.Fatalf("marker after the rebind = %q, want %q", content, current)
+	}
+	if _, stderr, code := runCLI(t, "reports", "--config", configPath); code != 0 {
+		t.Fatalf("reports after the rebind code = %d, stderr = %q", code, stderr)
+	}
+
+	// A root still on disk is a second root, and rebind refuses to move off it.
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	if _, stderr, code := runCLI(t, "state-root", "rebind", "--config", configPath); code == 0 || !strings.Contains(stderr, current) {
+		t.Fatalf("state-root rebind over a root still there code = %d, stderr = %q; want a refusal naming it", code, stderr)
+	}
+}
+
 // The machine key sets the root when no variable does, and config show says so
 // by the file that set it.
 func TestTheMachineKeySetsTheRootAndConfigShowNamesIt(t *testing.T) {
@@ -152,6 +200,7 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 		"internal/cli/run.go":       true, // productStateRoot, the guarded path
 		"internal/cli/cli.go":       true, // config show: reports, records nothing
 		"internal/doctor/doctor.go": true, // doctor: reports, reads the marker only
+		"internal/cli/stateroot.go": true, // state-root rebind: replaces only a marker whose root is gone
 	}
 	variables := regexp.MustCompile(`Getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)|getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)`)
 	repository := filepath.Join("..", "..")

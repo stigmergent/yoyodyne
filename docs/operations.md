@@ -470,7 +470,37 @@ the layer the new one came from, and the marker. The usual cause is a shell
 or a launch job carrying a `YOYODYNE_STATE_HOME` the rest of the product does
 not have. Unset it, or correct the setting, and the refused command runs.
 `yoyo doctor` reports the same disagreement as a problem before anything
-refuses.
+refuses. The refusal and the finding both say which process recorded the
+marker and when — its process id, its command line, and the moment, kept
+beside the marker in `.git/yoyodyne/state-root.writer` — so a marker you did
+not expect can be traced to what wrote it. A marker recorded before that was
+kept says it names no writer, and gives the marker file's own time.
+
+**A marker naming a root that no longer exists is stale, and one command
+clears it.** It happens when whatever recorded the marker was working on a
+temporary state root that has since been deleted, or when the state was moved
+and the marker left behind. There is no state at the root it names, so nothing
+is split, but every command from the checkout still refuses to start until the
+marker is replaced. The refusal says the root is gone and names the command,
+and `yoyo doctor` gives it as the remedy under `state`:
+
+```text
+problem  state                  this checkout's state-root marker names /private/var/folders/…/deleted-root, which no longer exists, so every command from here refuses to start
+                                fix: yoyo state-root rebind
+```
+
+`yoyo state-root rebind`, run from the product's checkout, records the root
+this shell resolves in the marker's place, and says what it replaced and who
+had recorded it. It replaces only a marker whose root is gone: a marker naming
+a root that is still on disk is the product's state, and rebind refuses it with
+the same refusal as every other command, because moving off state that is there
+is the deliberate move below. A marker that already agrees is left as it is.
+
+No test writes a marker into a real checkout. Inside a test binary the harness
+refuses to record one anywhere outside the temporary directory, so a test that
+ran a command against this repository's own configuration fails instead of
+leaving the primary checkout's `.git`, which every worktree of it shares,
+holding a marker that names a deleted temporary directory.
 
 Moving the state on purpose is four steps, in this order:
 
@@ -478,7 +508,7 @@ Moving the state on purpose is four steps, in this order:
 yoyo stop                                   # nothing may be writing while it moves
 mv "$HOME/Library/Application Support/Yoyodyne/state" /Volumes/work/yoyodyne-state
 printf 'state_root: /Volumes/work/yoyodyne-state\n' > ~/.config/yoyodyne/machine.yaml
-rm .git/yoyodyne/state-root                 # in the product's checkout
+yoyo state-root rebind                      # in the product's checkout: the old root is gone now
 yoyo start
 ```
 
