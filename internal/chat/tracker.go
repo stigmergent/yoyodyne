@@ -211,6 +211,14 @@ const (
 	// fallback put proposal 959.1 in front of the operator for a decision her own
 	// authority covered, and nothing she held could take it off his list.
 	actionWithdraw = "withdraw"
+	// actionDirective ends a durable directive from the Lead Product Manager's
+	// conversation: "resolve" names what now carries it, and "withdraw" takes back
+	// one that directs nothing. Its subject is a directive rather than an item, and
+	// it exists because both acts were typed verbs at a terminal only: on
+	// 2026-09-28 the operator asked for four questions and a remark recorded as
+	// directives to be withdrawn and nine standing ones resolved into the
+	// operating rules, and only a person's hands could do it (yoyodyne-ifd.430.32).
+	actionDirective = "directive"
 	// handleNeedsOperator is the one value "needs" takes on a handling: the
 	// report asks for a change only the operator can make, and the handling is
 	// a finding for him rather than a decision that closes the report.
@@ -242,6 +250,7 @@ var trackerActionArguments = map[string][]string{
 	actionHandle:       {"report", "requests", "needs"},
 	actionBrake:        {"decision"},
 	actionWithdraw:     {"proposal"},
+	actionDirective:    {"directive", "decision", "became"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -291,6 +300,10 @@ var trackerCapabilities = map[string]capability.Capability{
 	// Taking back a proposal of one's own is admission run backwards before
 	// anything was admitted, so it belongs with admitting.
 	actionWithdraw: capability.BacklogAdmit,
+	// Ending a directive is deciding what still directs the queue, which is the
+	// Lead Product Manager's alone, so it is held under the capability only she
+	// holds. It has no lane-scoped name: a directive belongs to the product.
+	actionDirective: capability.BacklogAdmit,
 }
 
 // laneCapabilities is the lane-scoped name of each operation that has one: the
@@ -322,6 +335,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
+	actionDirective,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -420,6 +434,10 @@ type TrackerAction struct {
 	// Proposal names the undecided proposal a withdrawal takes back, exactly as
 	// it was listed, and is taken by a withdrawal and by nothing else.
 	Proposal string `json:"proposal,omitempty"`
+	// Became is what a directive resolved from the conversation now lives on as:
+	// the document it was written into, or the work item that answers it. It is
+	// required on a "directive" action's "resolve" and taken by nothing else.
+	Became string `json:"became,omitempty"`
 	// Add and Remove name the one label a label action puts on an item or takes
 	// off it. Exactly one of them is given: an action that named both would be
 	// two decisions in one record, and one that named neither has nothing to do.
@@ -985,6 +1003,12 @@ func (a TrackerAction) validateSubject() error {
 			return errors.New("withdraw does not take an id; it names the proposal it takes back in \"proposal\", and a proposal is not yet a work item")
 		}
 		return nil
+	case a.Action == actionDirective:
+		// A directive belongs to the product rather than to any work item.
+		if id != "" {
+			return errors.New("directive does not take an id; it names the directive it ends in \"directive\", and a directive is not a work item")
+		}
+		return nil
 	case id == "":
 		return fmt.Errorf("%s requires the id of the item to act on", a.Action)
 	default:
@@ -996,7 +1020,7 @@ func (a TrackerAction) validateSubject() error {
 // is every operation but admitting new work and surveying the queue.
 func (a TrackerAction) actsOnExistingItem() bool {
 	switch a.Action {
-	case actionCreate, actionSurvey, actionHandle, actionBrake, actionWithdraw:
+	case actionCreate, actionSurvey, actionHandle, actionBrake, actionWithdraw, actionDirective:
 		return false
 	default:
 		return true
@@ -1068,6 +1092,8 @@ func (a TrackerAction) validateArguments() []error {
 		}
 	case actionWithdraw:
 		problems = append(problems, proposalReferenceProblems(a.Proposal)...)
+	case actionDirective:
+		problems = append(problems, a.directiveActionProblems()...)
 	case actionAttribute:
 		problems = append(problems, a.goalProblems()...)
 	case actionLabel:
@@ -1269,6 +1295,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Proposal) != "" {
 		carried = append(carried, "proposal")
+	}
+	if strings.TrimSpace(a.Became) != "" {
+		carried = append(carried, "became")
 	}
 	if strings.TrimSpace(a.Add) != "" {
 		carried = append(carried, "add")
@@ -2009,6 +2038,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		s.decideBrake(outcome)
 	case actionWithdraw:
 		s.withdrawProposal(outcome)
+	case actionDirective:
+		s.endDirective(ctx, outcome)
 	default:
 		// Validation admits nothing else, so reaching this is a harness bug rather
 		// than a badly formed request; it is reported as a failure all the same.

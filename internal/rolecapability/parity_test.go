@@ -213,8 +213,16 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // 2026-09-28 for an admission her own authority covered, with nothing she held
 // able to take it back (yoyodyne-ifd.433.18). It admits nothing and is held
 // under the same capability as admitting.
+//
+// The product manager's `directive` resolves a recorded directive into the
+// document or item that now carries it, or withdraws one that directs nothing.
+// It is the same 2026-09-26 rule applied to the operator's direction of
+// 2026-09-28 that four questions and a remark be withdrawn and nine standing
+// directives resolved into the operating rules, which only a person's hands could
+// do (yoyodyne-ifd.430.32). Deciding what still directs the queue is hers alone,
+// so it is held under the capability only she holds.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw"},
+	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive"},
 	domain.RoleDevelopmentManager: {"brake", "label"},
 }
 

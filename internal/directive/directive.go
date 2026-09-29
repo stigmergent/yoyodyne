@@ -188,6 +188,22 @@ type Directive struct {
 	// thread the directive came from can answer in the voice of whoever took it
 	// back rather than in nobody's.
 	WithdrawnRole domain.AgentRole `json:"withdrawn_role,omitempty"`
+	// Became is what the directive was resolved into — the document or the work
+	// item that now carries it — and BecameReason, BecameBy, BecameRole, and
+	// BecameAt say why, who, under which role, and when. They are written together
+	// and only once, and they end the directive: what it asked for is carried by
+	// what it became from then on, so the record stops being live direction.
+	//
+	// It is neither a settlement nor a withdrawal. A settlement on a standing
+	// instruction says what came of it while it still stands, and a withdrawal says
+	// nobody means it any more; a directive written into the operating rules is
+	// still meant, and it is the document that carries it now. So it is a group of
+	// its own, and a directive carried out earlier keeps that outcome beside it.
+	Became       string           `json:"became,omitempty"`
+	BecameReason string           `json:"became_reason,omitempty"`
+	BecameBy     string           `json:"became_by,omitempty"`
+	BecameRole   domain.AgentRole `json:"became_role,omitempty"`
+	BecameAt     *time.Time       `json:"became_at,omitempty"`
 }
 
 var (
@@ -289,6 +305,21 @@ func (d Directive) Validate() error {
 	case strings.TrimSpace(d.Withdrawal) != "" || strings.TrimSpace(d.WithdrawnBy) != "" || d.WithdrawnRole != "":
 		problems = append(problems, errors.New("a withdrawal requires who withdrew it and the time they did"))
 	}
+	// What a directive became, why, who resolved it into that, and when are one
+	// fact for the same reason again.
+	switch {
+	case d.BecameAt != nil && d.BecameAt.IsZero():
+		problems = append(problems, errors.New("became_at cannot be the zero time"))
+	case d.BecameAt != nil:
+		problems = append(problems, boundedLine("became", d.Became, true))
+		problems = append(problems, boundedText("became reason", d.BecameReason, MaxResolutionBytes, true))
+		problems = append(problems, boundedLine("became by", d.BecameBy, true))
+		if d.BecameRole != "" && !d.BecameRole.Valid() {
+			problems = append(problems, fmt.Errorf("became role %q is not one of the harness's roles", d.BecameRole))
+		}
+	case strings.TrimSpace(d.Became) != "" || strings.TrimSpace(d.BecameReason) != "" || strings.TrimSpace(d.BecameBy) != "" || d.BecameRole != "":
+		problems = append(problems, errors.New("what a directive became requires who resolved it into that and the time they did"))
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid directive: %w", err)
 	}
@@ -330,6 +361,13 @@ func (d Directive) Withdrawn() bool {
 	return d.WithdrawnAt != nil
 }
 
+// ResolvedInto reports a directive resolved into the document or work item that
+// now carries it. Like a withdrawal it ends the directive, and unlike one it says
+// the directive is still meant: it lives on in what it became.
+func (d Directive) ResolvedInto() bool {
+	return d.BecameAt != nil
+}
+
 // InForce reports a directive that still constrains work, which is the question
 // enforcement and every listing of live direction asks.
 //
@@ -348,8 +386,13 @@ func (d Directive) Withdrawn() bool {
 // could only ever grow the set of things it said were in force. A directive
 // recorded in error stayed in force forever, and every listing of live direction
 // was that much less believable for it.
+//
+// Resolving a directive into what now carries it ends one of any kind too: a
+// standing instruction written into the operating rules is read from there, and
+// leaving the record live beside it would be the same rule stated twice, in two
+// places that could come to disagree.
 func (d Directive) InForce() bool {
-	if d.Withdrawn() {
+	if d.Withdrawn() || d.ResolvedInto() {
 		return false
 	}
 	if d.Kind.Pauses() {
@@ -401,6 +444,9 @@ func (d Directive) Resolve(resolution string, at time.Time) (Directive, error) {
 	if d.Withdrawn() {
 		return Directive{}, d.alreadyWithdrawn()
 	}
+	if d.ResolvedInto() {
+		return Directive{}, d.alreadyResolvedInto()
+	}
 	if d.Resolved() {
 		return Directive{}, d.alreadySettled()
 	}
@@ -429,6 +475,9 @@ func (d Directive) Resolve(resolution string, at time.Time) (Directive, error) {
 func (d Directive) CarryOut(outcome string, at time.Time) (Directive, error) {
 	if d.Withdrawn() {
 		return Directive{}, d.alreadyWithdrawn()
+	}
+	if d.ResolvedInto() {
+		return Directive{}, d.alreadyResolvedInto()
 	}
 	if d.Resolved() {
 		return Directive{}, d.alreadySettled()
@@ -467,6 +516,9 @@ func (d Directive) Withdraw(by string, role domain.AgentRole, reason string, at 
 	if d.Withdrawn() {
 		return Directive{}, d.alreadyWithdrawn()
 	}
+	if d.ResolvedInto() {
+		return Directive{}, d.alreadyResolvedInto()
+	}
 	if !d.InForce() {
 		// A pausing directive somebody resolved is already out of force, and
 		// withdrawing it would be taking back something that has already ended —
@@ -490,6 +542,56 @@ func (d Directive) Withdraw(by string, role domain.AgentRole, reason string, at 
 		return Directive{}, err
 	}
 	return withdrawn, nil
+}
+
+// ResolveInto ends a directive by naming what now carries it — a document it was
+// written into, or a work item that is its answer — returning the ended copy. It
+// is the Lead Product Manager's act on a directive she carried somewhere, and it
+// is refused on one that has already ended, however it ended: a second account
+// of how a directive stopped applying would overwrite the first.
+//
+// On a directive that pauses work it also resolves the directive, with the reason
+// as the resolution, so every reader that asks whether the pause was answered
+// reads the same thing the ending says. A standing instruction keeps whatever
+// outcome it had already collected: what came of it while it stood is still true.
+//
+// by is who resolved it, in words the record answers for; role is the persona it
+// was resolved under.
+func (d Directive) ResolveInto(became, by string, role domain.AgentRole, reason string, at time.Time) (Directive, error) {
+	if d.Withdrawn() {
+		return Directive{}, d.alreadyWithdrawn()
+	}
+	if d.ResolvedInto() {
+		return Directive{}, d.alreadyResolvedInto()
+	}
+	if !d.InForce() {
+		return Directive{}, fmt.Errorf("%s was already %s at %s and no longer applies; there is nothing left to resolve",
+			d.ID, d.Settlement(), d.ResolvedAt.UTC().Format(time.RFC3339))
+	}
+	if strings.TrimSpace(became) == "" {
+		return Directive{}, errors.New("say what the directive became: the document it was written into, or the work item that answers it")
+	}
+	if strings.TrimSpace(by) == "" {
+		return Directive{}, errors.New("say who resolved the directive; a directive that stopped applying because of nobody is one nobody can be asked about")
+	}
+	if strings.TrimSpace(reason) == "" {
+		return Directive{}, errors.New("say why the directive is resolved into what it became; the record keeps what was said, and without this it cannot say why it stopped applying")
+	}
+	endedAt := at.UTC()
+	ended := d
+	if d.Kind.Pauses() {
+		ended.Resolution = strings.TrimSpace(reason)
+		ended.ResolvedAt = &endedAt
+	}
+	ended.Became = strings.TrimSpace(became)
+	ended.BecameReason = strings.TrimSpace(reason)
+	ended.BecameBy = strings.TrimSpace(by)
+	ended.BecameRole = domain.AgentRole(strings.TrimSpace(string(role)))
+	ended.BecameAt = &endedAt
+	if err := ended.Validate(); err != nil {
+		return Directive{}, err
+	}
+	return ended, nil
 }
 
 // settle writes the one disposition a directive ever takes. Both acts reach it,
@@ -520,6 +622,13 @@ func (d Directive) alreadySettled() error {
 func (d Directive) alreadyWithdrawn() error {
 	return fmt.Errorf("%s was withdrawn at %s by %s and no longer applies",
 		d.ID, d.WithdrawnAt.UTC().Format(time.RFC3339), d.WithdrawnBy)
+}
+
+// alreadyResolvedInto refuses anything written onto a directive already resolved
+// into what carries it, for the reason alreadyWithdrawn does.
+func (d Directive) alreadyResolvedInto() error {
+	return fmt.Errorf("%s was resolved into %s at %s by %s and no longer applies",
+		d.ID, d.Became, d.BecameAt.UTC().Format(time.RFC3339), d.BecameBy)
 }
 
 // Pausing selects the in-force directives that pause one work item. It is the
@@ -580,8 +689,18 @@ func (d Directive) Render() string {
 	if d.InForce() && d.ReadsAsQuestion() {
 		rendered.WriteString("  reads as a question rather than an instruction: it directs nothing, and withdrawing it is what ends it\n")
 	}
-	if d.Resolved() {
+	// A pausing directive resolved into what carries it is resolved with the same
+	// reason the line below prints, so it is said once, on that line.
+	if d.Resolved() && !(d.ResolvedInto() && d.Kind.Pauses()) {
 		fmt.Fprintf(&rendered, "  %s %s: %s\n", d.Settlement(), d.ResolvedAt.UTC().Format(time.RFC3339), indented(d.Resolution))
+	}
+	if d.ResolvedInto() {
+		by := d.BecameBy
+		if d.BecameRole != "" {
+			by += " (as the " + d.BecameRole.Title() + ")"
+		}
+		fmt.Fprintf(&rendered, "  resolved into %s %s by %s, and no longer applies: %s\n",
+			d.Became, d.BecameAt.UTC().Format(time.RFC3339), by, indented(d.BecameReason))
 	}
 	// A withdrawal is printed last because it is the last thing that happened to
 	// the record and the thing that ends it. Everything above it stays on the

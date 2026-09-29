@@ -647,6 +647,12 @@ func (f *fakeDirectives) Withdraw(_ context.Context, reference, by string, role 
 	})
 }
 
+func (f *fakeDirectives) ResolveInto(_ context.Context, reference, became, by string, role domain.AgentRole, reason string) (directive.Directive, error) {
+	return f.settle(reference, func(candidate directive.Directive) (directive.Directive, error) {
+		return candidate.ResolveInto(became, by, role, reason, settledAt)
+	})
+}
+
 func (f *fakeDirectives) settle(reference string, apply func(directive.Directive) (directive.Directive, error)) (directive.Directive, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -3183,7 +3183,10 @@ has the rule.
   per group, each saying how many, what they wait on, the next step, and whose
   move that is: the development manager's decision about a stopped run (hers);
   the harness carrying out a decision already recorded (the harness's); an
-  unresolved directive (the operator's, by `yoyo directive resolve`); a step
+  unresolved directive (the operator's, by `yoyo directive resolve` — or the
+  Lead Product Manager's, where she has carried it into a document or an item
+  and [resolves it into that](conversation.md#directives-and-the-work-they-pause)
+  from her conversation, which ends it and lifts the pause); a step
   only a person can take (the operator's, by `yoyo gate record`); ready work
   a switch or a missing session stops (whoever the reason names — the operator
   for his hold or a session that is not running, the development manager or the
