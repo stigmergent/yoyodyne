@@ -132,6 +132,19 @@ func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T
 	if stall := WhyNothingStarts(Conditions{Sessions: held(drained), Now: drained.At.Add(DrainOverrunGrace + time.Second)}); stall.Reason != ReasonSessionIdle {
 		t.Fatalf("stall = %+v, want a bound-reached line past the grace read as an idle session", stall)
 	}
+	// A session waiting out a check stage past its bound names when that stage
+	// can run to, and is read as restarting until then even past the grace, and
+	// says so with the moment named.
+	checksUntil := drained.At.Add(DrainOverrunGrace + 10*time.Minute)
+	checking := drained
+	checking.Draining = &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 1, BoundReached: true, Checking: 1, ChecksUntil: checksUntil}
+	if stall := WhyNothingStarts(Conditions{Sessions: held(checking), Now: checksUntil.Add(-time.Minute)}); stall.Reason != ReasonRedeploying ||
+		!strings.Contains(stall.Says, "waiting out a check stage") || !strings.Contains(stall.Says, checksUntil.UTC().Format(time.RFC3339)) {
+		t.Fatalf("stall = %+v, want a check stage waited out read as the session restarting, with its end named", stall)
+	}
+	if stall := WhyNothingStarts(Conditions{Sessions: held(checking), Now: checksUntil.Add(RestartGrace + time.Second)}); stall.Reason != ReasonSessionIdle {
+		t.Fatalf("stall = %+v, want a check wait past the stage's end read as what the line otherwise says", stall)
+	}
 
 	// A poll that declined to pull into a free seat because the bound was under
 	// a poll away is the session's own decision, not a queue nobody is pulling.

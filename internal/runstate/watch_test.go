@@ -371,6 +371,19 @@ func TestASessionSaysWhenItIsDrainingAndUnderWhatBound(t *testing.T) {
 	if !strings.Contains(recorded[1].Draining.Says(), "the bound has run out") {
 		t.Fatalf("Says() = %q, want the bound running out said", recorded[1].Draining.Says())
 	}
+	// A drain waiting out a check stage past its bound says so and until when,
+	// and one claiming to wait on a stage with no end named is refused.
+	checking := WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 2, BoundReached: true, Checking: 1, ChecksUntil: since.Add(30 * time.Minute)}
+	for _, said := range []string{"waiting out a check stage in 1 run(s)", "until 2026-09-19T08:05:00Z at the latest", "developer attempt or a review"} {
+		if !strings.Contains(checking.Says(), said) {
+			t.Fatalf("Says() = %q, want %q in it", checking.Says(), said)
+		}
+	}
+	endless := testWatchTransition(testWatchSessionID, WatchIdle, "draining")
+	endless.Draining = &WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), BoundReached: true, Checking: 1}
+	if err := store.Record(endless); err == nil {
+		t.Fatal("Record() error = nil, want a check wait with no end refused")
+	}
 	// A drain with no bound is the wait this field exists to bound, so it is
 	// refused rather than recorded as a wait on nothing.
 	unbounded := testWatchTransition(testWatchSessionID, WatchIdle, "draining")

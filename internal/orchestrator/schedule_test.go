@@ -2633,14 +2633,14 @@ func TestTheDrainBoundStopsTheHostedRunsAndRestartsAnyway(t *testing.T) {
 	harness.poll = 5 * time.Millisecond
 	deployment := &deployedOver{}
 	sessions := &recordedSessions{}
-	// Both runs are checking under load: they end only when the session stops
+	// Both runs are at a review that outlasts the bound: they end only when the session stops
 	// them, and each records the cause it was stopped with as its pipeline would.
 	var stopped sync.Map
 	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
 		deployment.deploy()
 		h.mu.Lock()
 		state := h.inFlight[id]
-		state.Phase = runstate.PhaseChecking
+		state.Phase = runstate.PhaseReviewing
 		h.inFlight[id] = state
 		h.mu.Unlock()
 		<-ctx.Done()
@@ -2649,7 +2649,7 @@ func TestTheDrainBoundStopsTheHostedRunsAndRestartsAnyway(t *testing.T) {
 			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
 		}
 		stopped.Store(id, drained)
-		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseChecking, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
+		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseReviewing, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
 	}
 
 	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment}
@@ -2701,6 +2701,162 @@ func TestTheDrainBoundStopsTheHostedRunsAndRestartsAnyway(t *testing.T) {
 	}
 	if !reached {
 		t.Fatalf("no transition said the bound had run out: %#v", sessions.recorded())
+	}
+}
+
+// A run at its checks is waited out past the bound, as a promotion is, because
+// what a stop there loses is the whole stage: the session that comes back runs
+// it again from the start. On 2026-09-28 three stops on two runs in ten hours
+// were each a check stage the fifteen-minute bound cut short. The stage's own
+// bound caps the wait, the session says it is waiting out a check stage and
+// until when, and a run at its developer attempt beside it is stopped at the
+// bound as before. Once the checks end the run moves on to its review, which
+// resumes where it was, and that is where the next look stops it.
+func TestTheDrainBoundWaitsOutACheckStageInFlight(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-checking", "yoyodyne-developing")...)
+	harness.capacity = 2
+	harness.developersMeet(2)
+	harness.drainLimit = 20 * time.Millisecond
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	stageStarted := time.Now().UTC().Truncate(time.Second)
+	const stageBound = 10 * time.Minute
+	// The checks end once the session has gone on pulling for several polls
+	// past the stop of the run beside them, which is well past the bound.
+	var developerStopped, checksFinished atomic.Bool
+	var pullsAfterStop atomic.Int32
+	finishChecks := make(chan struct{})
+	var finishing sync.Once
+	harness.onPull = func(*scheduleHarness, int) {
+		if developerStopped.Load() && pullsAfterStop.Add(1) >= 5 {
+			finishing.Do(func() { close(finishChecks) })
+		}
+	}
+	var checkingCause atomic.Value
+	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		deployment.deploy()
+		h.mu.Lock()
+		state := h.inFlight[id]
+		if id == "yoyodyne-checking" {
+			state.Phase = runstate.PhaseChecking
+			state.CheckStage = &runstate.CheckStage{StartedAt: stageStarted, BoundSeconds: int64(stageBound / time.Second), Command: "make race"}
+		} else {
+			state.Phase = runstate.PhaseDeveloping
+		}
+		h.inFlight[id] = state
+		h.mu.Unlock()
+		if id == "yoyodyne-developing" {
+			<-ctx.Done()
+			var drained RedeployDrain
+			if !errors.As(context.Cause(ctx), &drained) {
+				return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+			}
+			defer developerStopped.Store(true)
+			return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseDeveloping, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
+		}
+		select {
+		case <-finishChecks:
+		case <-ctx.Done():
+			t.Errorf("the run at its checks was stopped inside its stage: %v", context.Cause(ctx))
+			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+		}
+		// The stage ends and the run moves on to its review, as the pipeline
+		// records it.
+		finished := time.Now().UTC()
+		h.mu.Lock()
+		state = h.inFlight[id]
+		state.CheckStage.FinishedAt = &finished
+		state.Phase = runstate.PhaseReviewing
+		h.inFlight[id] = state
+		h.mu.Unlock()
+		checksFinished.Store(true)
+		<-ctx.Done()
+		checkingCause.Store(context.Cause(ctx))
+		var drained RedeployDrain
+		if !errors.As(context.Cause(ctx), &drained) {
+			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+		}
+		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseReviewing, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
+	}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleRedeployed {
+		t.Fatalf("stopped = %q, want the session restarted once the checks had ended: %s", schedule.Stopped, schedule.Render())
+	}
+	if !checksFinished.Load() {
+		t.Fatal("the session restarted before the check stage it was waiting out had ended")
+	}
+	var drained RedeployDrain
+	if cause, _ := checkingCause.Load().(error); !errors.As(cause, &drained) {
+		t.Fatalf("the run past its checks ended with %v, want it stopped at its review with the drain as the cause", checkingCause.Load())
+	}
+	if pullsAfterStop.Load() < 5 {
+		t.Fatalf("the session made %d pull(s) past the bound, want it to have gone on pulling while the checks were waited out", pullsAfterStop.Load())
+	}
+	if got := schedule.Drain.ChecksWaited; len(got) != 1 || got[0] != "yoyodyne-checking" {
+		t.Fatalf("drain checks waited = %v, want the run at its checks named", got)
+	}
+	if got := schedule.Drain.Stopped; len(got) != 2 || got[0] != "yoyodyne-checking" || got[1] != "yoyodyne-developing" {
+		t.Fatalf("drain stopped = %v, want the developer attempt stopped at the bound and the checked run stopped at its review", got)
+	}
+	// The session said it was waiting out a check stage, and until when: the
+	// stage's start plus its bound.
+	until := stageStarted.Add(stageBound)
+	said := false
+	for _, transition := range sessions.recorded() {
+		if transition.draining != nil && transition.draining.BoundReached && transition.draining.Checking == 1 {
+			if !transition.draining.ChecksUntil.Equal(until) {
+				t.Fatalf("draining checks until = %s, want %s", transition.draining.ChecksUntil, until)
+			}
+			if strings.Contains(transition.reason, "waiting out a check stage") && strings.Contains(transition.reason, until.Format(time.RFC3339)) {
+				said = true
+			}
+		}
+	}
+	if !said {
+		t.Fatalf("no transition said a check stage was being waited out: %#v", sessions.recorded())
+	}
+	if reason := sessions.said(runstate.WatchStopped); !strings.Contains(reason, "check stage of 1 run(s) was waited out") {
+		t.Fatalf("stopped reason = %q, want the waited-out check stage named", reason)
+	}
+}
+
+// A check stage already past its own bound is not waited on: the stage's bound
+// is what caps the wait, so a run still reading as at its checks past it is
+// stopped like any other.
+func TestCheckStageWaitedOutIsBoundedByTheStage(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 9, 28, 21, 0, 0, 0, time.UTC)
+	stage := func(started time.Time, finished *time.Time) runstate.State {
+		return runstate.State{Phase: runstate.PhaseChecking, CheckStage: &runstate.CheckStage{StartedAt: started, BoundSeconds: 1800, FinishedAt: finished}}
+	}
+	justFinished := now.Add(-10 * time.Second)
+	longFinished := now.Add(-10 * time.Minute)
+	cases := []struct {
+		name  string
+		state runstate.State
+		want  checkStageWait
+		until time.Time
+	}{
+		{"inside its bound", stage(now.Add(-20*time.Minute), nil), checkStageRunning, now.Add(10 * time.Minute)},
+		{"past its bound", stage(now.Add(-40*time.Minute), nil), checkStageStop, time.Time{}},
+		{"just ended", stage(now.Add(-20*time.Minute), &justFinished), checkStageEnding, time.Time{}},
+		{"ended long ago", stage(now.Add(-20*time.Minute), &longFinished), checkStageStop, time.Time{}},
+		{"no stage recorded", runstate.State{Phase: runstate.PhaseChecking}, checkStageStop, time.Time{}},
+	}
+	for _, tc := range cases {
+		until, got := checkStageWaitedOut(tc.state, now)
+		if got != tc.want || !until.Equal(tc.until) {
+			t.Errorf("%s: checkStageWaitedOut = %s, %d; want %s, %d", tc.name, until, got, tc.until, tc.want)
+		}
 	}
 }
 
@@ -2756,17 +2912,17 @@ func TestTheDrainBoundStopsAHostedRunsLandingChecks(t *testing.T) {
 }
 
 // A draining session re-adopts nothing, and least of all a run it stopped
-// itself. Past the bound a run at its checks is stopped while one at its
+// itself. Past the bound a run at its review is stopped while one at its
 // promotion is waited out, so the session goes on pulling with the stopped run
 // in flight carrying its stop. Picking that run up again would resume it only
 // for the next look to stop it — once a poll for as long as the promotion
-// lasts, each round re-running its checks and noting another redeploy stop on
+// lasts, each round re-running its gate and noting another redeploy stop on
 // its item under a selection reason that says a session before this one
 // stopped it. The stopped run is the session that comes back's to re-adopt.
 func TestADrainingSessionDoesNotReadoptARunItStoppedItself(t *testing.T) {
 	t.Parallel()
 
-	harness := newScheduleHarness(readyItems("yoyodyne-checking", "yoyodyne-promoting")...)
+	harness := newScheduleHarness(readyItems("yoyodyne-reviewing", "yoyodyne-promoting")...)
 	harness.capacity = 2
 	harness.developersMeet(2)
 	harness.drainLimit = 20 * time.Millisecond
@@ -2784,10 +2940,10 @@ func TestADrainingSessionDoesNotReadoptARunItStoppedItself(t *testing.T) {
 			releasing.Do(func() { close(release) })
 		}
 	}
-	var checkingStarts atomic.Int32
+	var reviewingStarts atomic.Int32
 	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
 		deployment.deploy()
-		phase := runstate.PhaseChecking
+		phase := runstate.PhaseReviewing
 		if id == "yoyodyne-promoting" {
 			phase = runstate.PhaseIntegrating
 		}
@@ -2804,14 +2960,14 @@ func TestADrainingSessionDoesNotReadoptARunItStoppedItself(t *testing.T) {
 			}
 			return h.complete(id), nil
 		}
-		checkingStarts.Add(1)
+		reviewingStarts.Add(1)
 		<-ctx.Done()
 		var drained RedeployDrain
 		if !errors.As(context.Cause(ctx), &drained) {
 			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
 		}
 		defer stopped.Store(true)
-		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseChecking, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
+		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseReviewing, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
 	}
 
 	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment}
@@ -2822,13 +2978,13 @@ func TestADrainingSessionDoesNotReadoptARunItStoppedItself(t *testing.T) {
 	if schedule.Stopped != ScheduleRedeployed {
 		t.Fatalf("stopped = %q, want the session restarted once the promotion ended: %s", schedule.Stopped, schedule.Render())
 	}
-	if got := schedule.Drain.Stopped; len(got) != 1 || got[0] != "yoyodyne-checking" {
-		t.Fatalf("drain stopped = %v, want only the run at its checks stopped", got)
+	if got := schedule.Drain.Stopped; len(got) != 1 || got[0] != "yoyodyne-reviewing" {
+		t.Fatalf("drain stopped = %v, want only the run at its review stopped", got)
 	}
 	if pullsAfterStop.Load() < 5 {
 		t.Fatalf("the session made %d pull(s) past the stop, want it to have gone on pulling while the promotion was waited out", pullsAfterStop.Load())
 	}
-	if starts := checkingStarts.Load(); starts != 1 {
+	if starts := reviewingStarts.Load(); starts != 1 {
 		t.Fatalf("the stopped run was started %d times, want once: the draining session re-adopted a run it had stopped itself", starts)
 	}
 	for _, started := range schedule.Started {
@@ -2838,7 +2994,7 @@ func TestADrainingSessionDoesNotReadoptARunItStoppedItself(t *testing.T) {
 	}
 	// And the stop is still on the run's record, for the session that comes back.
 	harness.mu.Lock()
-	record := harness.inFlight["yoyodyne-checking"]
+	record := harness.inFlight["yoyodyne-reviewing"]
 	harness.mu.Unlock()
 	if record.RedeployStop == nil || record.RedeployStop.SessionID != "watch-drain" {
 		t.Fatalf("record = %#v, want the stop left for the session that comes back", record)
@@ -3143,7 +3299,7 @@ func TestTheDrainBoundLeavesARunAtItsPromotionToFinishAndKeepsFiring(t *testing.
 	declined := false
 	for _, transition := range sessions.recorded() {
 		if transition.state == runstate.WatchIdle && transition.draining != nil && transition.draining.PullSkipped &&
-			strings.Contains(transition.reason, "still going at its promotion, or still being stopped") && strings.Contains(transition.reason, "1 free seat(s)") {
+			strings.Contains(transition.reason, "still going at its promotion or its checks, or still being stopped") && strings.Contains(transition.reason, "1 free seat(s)") {
 			declined = true
 		}
 	}
