@@ -83,7 +83,7 @@ is for.
 ## Install
 
 `yoyo` is one binary. The repository lives at
-[github.com/stigmergent/yoyodyne](https://github.com/stigmergent/yoyodyne); its
+[github.com/swarmgraph/yoyodyne](https://github.com/swarmgraph/yoyodyne); its
 Go module path is still `github.com/mason-bryant/yoyodyne`, which installs
 through GitHub's redirect.
 
@@ -105,13 +105,13 @@ yoyo version   # prints the release tag it was installed at
 Replace `@latest` with a tag such as `@v1.2.3` to pin a release.
 
 **From a release download**, with no Go needed. Each tag on [the releases
-page](https://github.com/stigmergent/yoyodyne/releases) carries a binary per
+page](https://github.com/swarmgraph/yoyodyne/releases) carries a binary per
 platform and a `checksums.txt`:
 
 ```sh
 tag=<the tag from the releases page>
 platform=darwin_arm64   # or darwin_amd64, or linux_amd64
-base="https://github.com/stigmergent/yoyodyne/releases/download/$tag"
+base="https://github.com/swarmgraph/yoyodyne/releases/download/$tag"
 curl -fsSLO "$base/yoyo_${tag}_${platform}.tar.gz"
 curl -fsSL "$base/checksums.txt" | shasum -a 256 -c --ignore-missing
 tar -xzf "yoyo_${tag}_${platform}.tar.gz"
@@ -122,7 +122,7 @@ yoyo version   # the tag you downloaded
 **From source**, which is also how you work on yoyo itself:
 
 ```sh
-git clone https://github.com/stigmergent/yoyodyne
+git clone https://github.com/swarmgraph/yoyodyne
 cd yoyodyne
 make build     # writes ./bin/yoyo, stamped with the commit it came from
 ```
