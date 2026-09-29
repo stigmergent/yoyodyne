@@ -147,7 +147,8 @@ Everything under `.yoyodyne/` is machine-independent and belongs in version
 control. Run state, provider event streams, locks, worktrees, and the reports
 agents file while their work carries on live outside the repository under an
 operating-system state directory, so nothing there depends on where the project
-is checked out.
+is checked out. Where that directory is can be set for the machine and never in
+this file; see [`state_root`](#where-the-harness-keeps-its-state-state_root).
 
 Committing it is the default rather than a requirement, and a contributor to a
 repository they do not own has two supported ways not to, both under
@@ -504,6 +505,75 @@ Four things are worth knowing about it:
 Either way, the project stops describing itself, which in this scenario is the
 intent: another clone, another machine, and anybody else working on it get no
 configuration at all, and `yoyo` there reports that it found none.
+
+## Where the harness keeps its state: `state_root`
+
+Run state, provider event streams, locks, worktrees, the operator's pause, and
+every durable record the harness keeps live under one directory outside the
+repository, the **state root**. Where it is can be set for the machine, in a
+file that describes the machine rather than any project:
+
+```yaml
+# ~/.config/yoyodyne/machine.yaml
+state_root: /Volumes/work/yoyodyne-state
+```
+
+`machine.yaml` sits in the configurations home, beside the
+[external configurations](#keeping-the-configuration-outside-the-repository):
+`~/.config/yoyodyne`, or `$XDG_CONFIG_HOME/yoyodyne` when that variable is set,
+or `YOYODYNE_CONFIG_HOME` over both. `state_root` is its only key; it must be
+an absolute path, and a key it does not have is refused rather than ignored. A
+missing file, an empty one, and an empty `state_root` all leave the root where
+the layers below put it.
+
+**The root is resolved in this order**, the first that says anything winning:
+
+1. `YOYODYNE_STATE_HOME`, the explicit instruction for one shell;
+2. `state_root` in `machine.yaml`;
+3. `$XDG_STATE_HOME/yoyodyne`;
+4. the platform default: `~/Library/Application Support/Yoyodyne/state` on
+   macOS, `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and
+   `~/.local/state/yoyodyne` elsewhere.
+
+Every process the harness starts — the watch, the Slack sink, the dashboard,
+the supervisor, conversations, and runs — resolves the root through that one
+order.
+
+**It is never a project setting.** A project configuration is committed and
+read on every machine that checks it out, and where state lives is true of one
+machine, so a project file carrying `state_root` — at the top level or under
+`execution` — is refused when it loads, naming the key and where it belongs.
+
+**One product's state is never split across two roots.** The first process that
+opens the root for a product records it in `.git/yoyodyne/state-root` of the
+product's checkout, and a later process that resolved a different root — a
+shell exporting another `YOYODYNE_STATE_HOME`, a launch job carrying an old
+environment, an edited `machine.yaml` — refuses to start, naming both roots,
+the layer that set its own, and the marker. It records nothing and writes
+nothing under the root it resolved. A root reached through a symlink agrees
+with the directory it links to. A worktree Git added from the checkout shares
+the checkout's marker, and a repository that is not a Git checkout keeps none.
+
+**Moving the state is four steps**, in this order: stop the product
+(`yoyo stop`), move the directory, change the setting, and remove
+`.git/yoyodyne/state-root`. The next process records the new root.
+
+**Two products on one machine share the root unless one of them is moved.** Each
+product keeps its records under `products/<product id>/` inside it, and each
+product's checkout carries its own marker, so two products that resolve the same
+root agree with each other as well as with themselves. The
+[operator's pause](operations.md#pausing-everything-and-resuming-it) lives at the
+root rather than under a product, so on a shared root one `yoyo pause` stops
+both. A product moved to a root of its own is also out of reach of the pause
+placed at the other one.
+
+`yoyo config show` prints the resolved root and the layer it came from on its
+`# state root:` line, `--origins` lists it as `state_root` with the same origin,
+and `--json` carries both under `state_root`. The origin is
+`environment:YOYODYNE_STATE_HOME`, `machine:<path of machine.yaml>`,
+`environment:XDG_STATE_HOME`, or `platform-default`. [`yoyo
+doctor`](operations.md#checking-the-installation) reports the same two, and
+whether the checkout's marker agrees. Neither of them records a marker.
 
 ## Precedence
 
@@ -5579,6 +5649,9 @@ These are all errors, reported before any work is claimed:
 
 - a missing `version`, or a `version` this executable does not implement;
 - an unknown key anywhere in the file, including a misspelled agent field;
+- a `state_root`, at the top level or under `execution`, which is refused by
+  name because it belongs in the machine's own
+  [`machine.yaml`](#where-the-harness-keeps-its-state-state_root);
 - an unknown bundle in `extends`;
 - a `disabled: true` entry that also configures fields, or that names an agent no
   layer defined;

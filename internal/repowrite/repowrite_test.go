@@ -645,3 +645,43 @@ func TestRemoveFileRemovesAFileAndRefusesWhatIsNotOne(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateFileWritesOnlyWhereNothingIsYet(t *testing.T) {
+	t.Parallel()
+
+	root, _ := repository(t)
+	target, created, err := root.CreateFile("yoyodyne/state-root", []byte("first\n"))
+	if err != nil || !created {
+		t.Fatalf("CreateFile() = %q, %v, %v; want the first write to create it", target, created, err)
+	}
+	again, created, err := root.CreateFile("yoyodyne/state-root", []byte("second\n"))
+	if err != nil {
+		t.Fatalf("CreateFile() second error = %v", err)
+	}
+	if created || again != target {
+		t.Fatalf("CreateFile() second = %q, %v; want the existing file left and reported as not created", again, created)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "first\n" {
+		t.Fatalf("content = %q, want the first writer's", content)
+	}
+	entries, err := os.ReadDir(filepath.Dir(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("directory holds %d entries, want the temporary file gone", len(entries))
+	}
+}
+
+func TestCreateFileRefusesAPathOutOfTheRoot(t *testing.T) {
+	t.Parallel()
+
+	root, _ := repository(t)
+	if _, _, err := root.CreateFile("../elsewhere", []byte("x")); err == nil {
+		t.Fatal("CreateFile() accepted a path out of the root")
+	}
+}

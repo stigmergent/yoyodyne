@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
@@ -4183,40 +4182,6 @@ func (s Status) InFlight() bool {
 // each says is free is one fact.
 func (s State) HoldsDeveloperSlot() bool {
 	return s.Status.InFlight() && s.DependencyPause == nil
-}
-
-func DefaultRoot(getenv func(string) string, userHomeDir func() (string, error), goos string) (string, error) {
-	if value := strings.TrimSpace(getenv("YOYODYNE_STATE_HOME")); value != "" {
-		if !filepath.IsAbs(value) {
-			return "", errors.New("YOYODYNE_STATE_HOME must be an absolute path")
-		}
-		return filepath.Clean(value), nil
-	}
-	if value := strings.TrimSpace(getenv("XDG_STATE_HOME")); value != "" {
-		if !filepath.IsAbs(value) {
-			return "", errors.New("XDG_STATE_HOME must be an absolute path")
-		}
-		return filepath.Join(filepath.Clean(value), "yoyodyne"), nil
-	}
-
-	home, err := userHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user home directory: %w", err)
-	}
-	switch goos {
-	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "Yoyodyne", "state"), nil
-	case "windows":
-		if localAppData := strings.TrimSpace(getenv("LOCALAPPDATA")); localAppData != "" {
-			if !filepath.IsAbs(localAppData) {
-				return "", errors.New("LOCALAPPDATA must be an absolute path")
-			}
-			return filepath.Join(localAppData, "Yoyodyne", "state"), nil
-		}
-		return filepath.Join(home, "AppData", "Local", "Yoyodyne", "state"), nil
-	default:
-		return filepath.Join(home, ".local", "state", "yoyodyne"), nil
-	}
 }
 
 func SystemDefaultRoot(getenv func(string) string, userHomeDir func() (string, error)) (string, error) {

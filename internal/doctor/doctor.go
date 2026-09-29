@@ -240,7 +240,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	repository := RepositoryPath(project, resolved.Config.Product.Repository)
 	report.Findings = append(report.Findings, diagnosis.checkRepository(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkTracker(ctx, repository))
-	report.Findings = append(report.Findings, diagnosis.checkStateRoot())
+	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkNode(repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkArtifactHomes(project, repository, resolved))
@@ -461,11 +461,15 @@ func (d *diagnosis) checkTracker(ctx context.Context, repository string) Finding
 	return Finding{Check: "tracker", Status: StatusOK, Summary: "bd answers in this project"}
 }
 
-// checkStateRoot asks whether the harness can keep its durable records. It is
-// the one check that writes: the root is created if it is missing, which is what
-// every other command does with it and what makes "missing" not a failure.
-func (d *diagnosis) checkStateRoot() Finding {
-	root, err := runstate.DefaultRoot(d.getenv, d.homeDir, d.env.GOOS)
+// checkStateRoot asks whether the harness can keep its durable records, where
+// they are, which layer put them there, and whether the checkout's state-root
+// marker agrees. It is the one check that writes: the root is created if it is
+// missing, which is what every other command does with it and what makes
+// "missing" not a failure. The marker it only reads — recording one is for the
+// processes that open the root — so a diagnosis never settles which root a
+// product uses.
+func (d *diagnosis) checkStateRoot(repository string) Finding {
+	resolved, err := runstate.ResolveRoot(d.getenv, d.homeDir, d.env.GOOS)
 	if err != nil {
 		return Finding{
 			Check:   "state",
@@ -475,6 +479,7 @@ func (d *diagnosis) checkStateRoot() Finding {
 			Remedy:  "export YOYODYNE_STATE_HOME=$HOME/.local/state/yoyodyne",
 		}
 	}
+	root := resolved.Path
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return Finding{
 			Check:   "state",
@@ -484,7 +489,33 @@ func (d *diagnosis) checkStateRoot() Finding {
 			Remedy:  fmt.Sprintf("mkdir -p %s && chmod 700 %s", shellQuote(root), shellQuote(root)),
 		}
 	}
-	return Finding{Check: "state", Status: StatusOK, Summary: "the durable records live in " + root}
+	summary := fmt.Sprintf("the durable records live in %s, from %s", root, resolved.Origin)
+	marker, err := runstate.ReadRootMarker(repository)
+	switch {
+	case err != nil:
+		return Finding{
+			Check:   "state",
+			Status:  StatusWarning,
+			Summary: summary + ", and whether this checkout's state-root marker agrees could not be read",
+			Detail:  err.Error(),
+		}
+	case marker.Path == "":
+		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the repository is not a Git checkout, so no marker is kept"}
+	case marker.Recorded == "":
+		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; no process has recorded a root in " + marker.Path + " yet"}
+	case !marker.Agrees(root):
+		return Finding{
+			Check:  "state",
+			Status: StatusProblem,
+			Summary: fmt.Sprintf("this shell resolves the state root %s, from %s, and this checkout's state is kept at %s, so every command from here refuses to start",
+				root, resolved.Origin, marker.Recorded),
+			Detail: fmt.Sprintf("recorded in %s; one product's state is never split across two roots", marker.Path),
+			Remedy: fmt.Sprintf("unset %s, or correct state_root in the machine configuration, so the root resolves to %s; to move the state instead: yoyo stop, move the directory, change the setting, then rm %s",
+				runstate.StateHomeVariable, shellQuote(marker.Recorded), shellQuote(marker.Path)),
+		}
+	default:
+		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the marker in " + marker.Path + " agrees"}
+	}
 }
 
 // checkChecks asks whether the project has deterministic checks and whether this

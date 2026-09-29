@@ -209,8 +209,8 @@ func reportTitles(configPath string) *readmodel.WorkItemTitles {
 // harness-managed worktree, for one.
 //
 // What that shortcut must not do is address a different pile. The state root is
-// runstate.SystemDefaultRoot for every command that has one, and configuration
-// has no say in it, so the product id below is the whole of what decides which
+// productStateRoot for every command that has one, and the project
+// configuration has no say in it, so the product id below is the whole of what decides which
 // store this is — and a test pins this path to the one buildComponents builds,
 // because a reports verb reading the wrong root would answer "nothing has been
 // reported" against a pile that is not empty.
@@ -219,7 +219,7 @@ func reportStore(configPath string) (*runstate.ReportStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return nil, err
 	}

@@ -44,7 +44,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -290,7 +289,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		// instance was first seen, so a scheduler that never woke a new one is
 		// still caught; the reading below then measures from that record.
 		if resolved, err := loadConfiguration(*configPath); err == nil {
-			if stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir); err == nil {
+			if stateRoot, err := productStateRoot(resolved); err == nil {
 				observeProgramManagers(resolved.Config, stateRoot, time.Now())
 			}
 		}
@@ -362,7 +361,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 // wrong must not refuse to answer because of where their checkout happens to sit
 // — inside a harness-managed worktree, for one.
 //
-// The state root is runstate.SystemDefaultRoot for every command that has one,
+// The state root is productStateRoot for every command that has one,
 // so the product id is the whole of what decides which records these are, and a
 // test pins this path to the one buildComponents builds.
 func recordedRunStore(configPath string) (*runstate.Store, runstate.TriageCaps, error) {
@@ -370,7 +369,7 @@ func recordedRunStore(configPath string) (*runstate.Store, runstate.TriageCaps, 
 	if err != nil {
 		return nil, runstate.TriageCaps{}, err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return nil, runstate.TriageCaps{}, err
 	}
@@ -423,7 +422,7 @@ func statusStateRoots(configPath string) (statusRoots, error) {
 	if err != nil {
 		return statusRoots{}, err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return statusRoots{}, err
 	}
@@ -559,7 +558,7 @@ func standingSources(configPath string) readmodel.Sources {
 	// provider is holding every role at once.
 	sources.Agents = agentEndpoints(cfg)
 	sources.UnknownResetPause = cfg.Execution.UsageLimitUnknownResetPause.Duration()
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		sources.Tracker = unreadableTracker{err}
 		return sources
@@ -801,7 +800,7 @@ func latestWatch(configPath string) (*runstate.WatchTransition, string) {
 	if err != nil {
 		return nil, fmt.Sprintf("what the harness is watching could not be read: %v", err)
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return nil, fmt.Sprintf("what the harness is watching could not be read: %v", err)
 	}
@@ -852,7 +851,7 @@ func recordedStalls(configPath string) ([]runstate.StallEvent, string) {
 	if err != nil {
 		return nil, fmt.Sprintf("what this product recorded about going quiet could not be read: %v", err)
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return nil, fmt.Sprintf("what this product recorded about going quiet could not be read: %v", err)
 	}

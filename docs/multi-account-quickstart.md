@@ -55,9 +55,12 @@ mkdir -p "$home" && chmod 700 "$home"
 CLAUDE_CONFIG_DIR="$home" claude auth login
 ```
 
-The state directory is `$YOYODYNE_STATE_HOME`, `$XDG_STATE_HOME/yoyodyne`,
+The state directory is `$YOYODYNE_STATE_HOME`, the `state_root` in the
+machine's own `machine.yaml`, `$XDG_STATE_HOME/yoyodyne`,
 `~/Library/Application Support/Yoyodyne/state` on macOS, or
-`~/.local/state/yoyodyne` on Linux — the same one `yoyo status` reads.
+`~/.local/state/yoyodyne` on Linux, the first of those that is set — the same
+one `yoyo status` reads, and the one `yoyo config show` prints on its
+`# state root:` line.
 
 ## 3. That's it
 

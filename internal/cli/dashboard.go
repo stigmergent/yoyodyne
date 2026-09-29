@@ -30,7 +30,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"runtime"
 	"time"
 
@@ -74,7 +73,7 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -178,7 +177,7 @@ func (r dashboardReader) ready() error {
 	if err != nil {
 		return err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return err
 	}
@@ -260,7 +259,7 @@ func workItemSources(configPath string) (readmodel.WorkItemSources, error) {
 		Tracker:        beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository},
 		TrackerTimeout: chatTrackerTimeout,
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		sources.RunsProblem = fmt.Sprintf("the state root could not be resolved: %v", err)
 		return sources, nil
@@ -319,7 +318,7 @@ func (r dashboardReader) stateRoot() (string, domain.ProductID, error) {
 	if err != nil {
 		return "", "", err
 	}
-	stateRoot, err := runstate.SystemDefaultRoot(os.Getenv, os.UserHomeDir)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return "", "", err
 	}
