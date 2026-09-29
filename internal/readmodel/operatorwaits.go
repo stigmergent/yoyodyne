@@ -7,8 +7,9 @@ import (
 )
 
 // Since is when the thing an entry is about began waiting, read off the record
-// the entry carries, and zero where that record holds no moment: an owed step,
-// a carried item, a gate, and the count of held work say nothing of when. It
+// the entry carries, and zero where that record holds no moment: a carried
+// item and a gate are admitted work items whose record here carries no time,
+// and the count of held work is a count rather than one record. It
 // is derived like What and Whose rather than stored, so an entry and its age
 // cannot disagree.
 func (a Attention) Since() time.Time {
@@ -30,9 +31,19 @@ func (a Attention) Since() time.Time {
 		if a.Amendment != nil {
 			return a.Amendment.RaisedAt
 		}
+	case AttentionOwedStep:
+		if a.OwedStep != nil {
+			return a.OwedStep.EndedAt
+		}
 	case AttentionPublication:
-		if a.Publication != nil && a.Publication.MergeDrop != nil {
-			return a.Publication.MergeDrop.At
+		// A dropped merge dates from the drop, since that is when it stopped
+		// waiting on the forge; every other publication from the run's ending,
+		// which is when it was left outstanding.
+		if a.Publication != nil {
+			if a.Publication.MergeDrop != nil && !a.Publication.MergeDrop.At.IsZero() {
+				return a.Publication.MergeDrop.At
+			}
+			return a.Publication.EndedAt
 		}
 	case AttentionOutage:
 		if a.Outage != nil {

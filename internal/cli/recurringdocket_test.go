@@ -226,7 +226,8 @@ func TestASweepsDocketIsTheLiveWindowAndAdvancesTheSharedWalk(t *testing.T) {
 }
 
 // A scheduled pass of the development manager's carries, beside the docket,
-// every needs-a-human entry whose move is the operator's, each with its kind,
+// every needs-a-human entry whose move is the operator's — among them an owed
+// step and a publication named as his — each with its kind,
 // what it says, since when in this machine's zone, and how long ago — and
 // nothing another mover moves. On 2026-09-28 her sweep was asked to check what
 // appears to wait on him and does not really need him, and was shown only her
@@ -238,6 +239,8 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 	escalated := now.Add(-3 * time.Hour)
 	died := now.Add(-50 * time.Hour)
 	failing := now.Add(-20 * time.Minute)
+	owedEnded := now.Add(-5 * time.Hour)
+	publishedEnded := now.Add(-26 * time.Hour)
 	standing := readmodel.Standing{NeedsHuman: []readmodel.Attention{
 		{
 			Kind: readmodel.AttentionOperatorAction, ID: "run:run-escalated", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.272",
@@ -256,6 +259,17 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 			FailingTask: &readmodel.FailingTask{
 				Task: "report-triage", Role: domain.RoleProductManager, Cause: runstate.PreTurnConversationUnopened,
 				Problem: "no agent fills the role", Failures: 2, FirstAt: failing, RaisedAt: failing, LatestAt: failing,
+			},
+		},
+		{
+			Kind: readmodel.AttentionOwedStep, ID: "run-owed", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.400",
+			OwedStep: &readmodel.OwedStep{Status: runstate.StatusSucceeded, EndedAt: owedEnded},
+		},
+		{
+			Kind: readmodel.AttentionPublication, ID: "run-published", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.401",
+			Publication: &readmodel.Publication{
+				TargetBranch: "main", Branch: "yoyodyne/yoyodyne-ifd-401/abc", EndedAt: publishedEnded,
+				PullRequest: &runstate.PullRequest{Number: 42, URL: "https://example.test/pull/42"},
 			},
 		},
 		{
@@ -299,12 +313,15 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 	for _, want := range []string{
 		"## Triage docket",
 		"## Waiting on the operator",
-		"3 entries on the needs-a-human line are the operator's",
+		"5 entries on the needs-a-human line are the operator's",
 		"- [operator-action run:run-escalated, item yoyodyne-ifd.272] yoyodyne-ifd.272 needs your hand: the target branch diverged from the forge",
 		"since " + local(escalated) + ", 3 hours ago",
 		"- [degraded-service dashboard] the dashboard service is degraded: died 6 times within 2m0s of being started — since " + local(died) + ", 2 days ago",
 		"- [failing-task report-triage] the recurring task report-triage has failed before its first turn 2 times in a row",
 		"since " + local(failing) + ", 20 minutes ago",
+		"- [owed-step run-owed, item yoyodyne-ifd.400] run run-owed of yoyodyne-ifd.400 ended still owing a step — since " + local(owedEnded) + ", 5 hours ago",
+		"- [publication run-published, item yoyodyne-ifd.401] run run-published promoted yoyodyne-ifd.401 into main and the forge has not published it",
+		"since " + local(publishedEnded) + ", 26 hours ago",
 		"file a defect with the Lead Product Manager saying why it reached him",
 		"Record what you did on the record the entry is about",
 	} {

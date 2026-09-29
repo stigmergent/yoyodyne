@@ -4929,7 +4929,14 @@ in the message that wakes her: the triage docket, and `Waiting on the operator`
 whose move is yours, read from the same standing `yoyo status` reads. Each entry
 gives its kind and the record it is about, what it says, since when in this
 machine's zone, and how long ago — `[owed-step run-…, item …] … — since
-2026-09-28 09:40 PDT, 3 hours ago` — or that its record holds no moment. The
+2026-09-28 09:40 PDT, 3 hours ago`. Each is dated from its own record: a hold
+from when it was placed, a finding from when it was recorded, an owed step from
+when its run ended, a publication from the drop where the forge dropped its
+merge and otherwise from when its run ended, and so on. Two kinds carry no
+moment on this line, and say `since when is not recorded on it`: work marked
+for a conversation and work waiting on a step only a person can take, because
+what the line carries of each is the work item and its marker, which hold no
+time. The
 section lists at most twenty and counts the rest, and says so when the line
 could not be read whole. Until yoyodyne-ifd.430.31 her sweep was told to check
 what appears to wait on you without needing you, and was shown only her own
