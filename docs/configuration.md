@@ -555,8 +555,13 @@ with the directory it links to. A worktree Git added from the checkout shares
 the checkout's marker, and a repository that is not a Git checkout keeps none.
 
 **Moving the state is four steps**, in this order: stop the product
-(`yoyo stop`), move the directory, change the setting, and remove
-`.git/yoyodyne/state-root`. The next process records the new root.
+(`yoyo stop`), move the directory, change the setting, and run
+`yoyo state-root rebind` in the product's checkout, which records the new root
+in the marker's place. It does so only because the old root is gone by then: a
+marker naming a root still on disk is refused by rebind as by every other
+command. The same command clears a marker left naming a root somebody deleted,
+which is what the refusal and `yoyo doctor` name as the remedy
+([operations](operations.md#where-the-state-is-and-moving-it)).
 
 **Two products on one machine share the root unless one of them is moved.** Each
 product keeps its records under `products/<product id>/` inside it, and each
