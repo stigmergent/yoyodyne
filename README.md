@@ -277,10 +277,15 @@ A tiny arithmetic library, kept small enough that a change to it is obvious.
 
 **A repository with none of that is the normal starting point.** The Lead
 Product Manager says intent is not written down rather than guessing it; tell it
-what you are building and it drafts the brief and goals with you. It cannot save
-them — it has no tools and never touches your files — so **it drafts, and you
-put the files in `docs/product/` and commit them.** Goals are what work is
-admitted against, so without them it will ask you for one.
+what you are building and it drafts the brief and goals with you. It has no
+tools and never touches your files, so when a document is ready it hands the
+harness a typed write: you are shown the document, and **on your `y` the harness
+files it in `docs/product/` with its frontmatter and your approval recorded in
+it — then you commit it**, because a run refuses to start while it is
+uncommitted. [Writing a document from a
+conversation](docs/artifacts.md#writing-a-document-from-a-conversation) has the
+rest. Goals are what work is admitted against, so without them it will ask you
+for one.
 
 **Then drive the work from the same conversation.** Approve the work items it
 proposes. Once you trust it, `approvals.work_items: automatic` hands that

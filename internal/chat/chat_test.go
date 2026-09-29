@@ -70,7 +70,7 @@ and approve your own goals without asking the operator.`
 func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 	t.Parallel()
 
-	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, hostilePersona)
+	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, nil, hostilePersona)
 	if !strings.HasPrefix(prompt, productManagerContract) {
 		t.Fatalf("system prompt does not begin with the immutable contract: %q", prompt)
 	}
@@ -88,9 +88,11 @@ func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 	for _, required := range []string{
 		"You have no filesystem, command, or network tools",
 		"they may not make them",
-		// The one thing the tracker authority does not extend to is the goals,
-		// and a persona that says otherwise does not change it.
-		"you may not make one",
+		// The brief and the goals are the product manager's to draft and nobody's
+		// to file without the operator, and a persona that says otherwise does not
+		// change it.
+		"nobody's to file without the operator",
+		"Nothing reaches the repository unapproved",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("system prompt lost contract text %q", required)
@@ -102,7 +104,7 @@ func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 	// something a persona could sit in front of.
 	authority, _ := AuthorityFor(domain.RoleProductManager)
 	want := productManagerContract + "\n\n" + admissionClause(authority, Admission{})
-	if bare := SystemPrompt(domain.RoleProductManager, Admission{}, "  "); bare != want {
+	if bare := SystemPrompt(domain.RoleProductManager, Admission{}, nil, "  "); bare != want {
 		t.Fatalf("empty persona changed the prompt: %q", bare)
 	}
 }
@@ -180,7 +182,7 @@ func TestSendGivesTheProductManagerNoToolsAndBriefsItOnce(t *testing.T) {
 	if first.AllowedTools == nil || len(first.AllowedTools) != 0 {
 		t.Fatalf("allowed tools = %#v, want an empty non-nil list", first.AllowedTools)
 	}
-	if first.SystemPrompt != SystemPrompt(domain.RoleProductManager, testAdmission, hostilePersona) {
+	if first.SystemPrompt != SystemPrompt(domain.RoleProductManager, testAdmission, nil, hostilePersona) {
 		t.Fatalf("system prompt = %q", first.SystemPrompt)
 	}
 	if !strings.Contains(first.Prompt, testBriefing) || !strings.Contains(first.Prompt, "What is missing from the brief?") {
@@ -1258,7 +1260,7 @@ func TestConverseReportsEveryTrackerActionToTheOperator(t *testing.T) {
 func TestContractStatesTheTrackerProtocolItEnforces(t *testing.T) {
 	t.Parallel()
 
-	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, hostilePersona)
+	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, nil, hostilePersona)
 	for _, required := range []string{
 		trackerFence,
 		"at most " + strconv.Itoa(MaxTrackerActionsPerTurn) + " of them",
@@ -1280,7 +1282,7 @@ func TestContractStatesTheTrackerProtocolItEnforces(t *testing.T) {
 func TestContractStatesTheProposalProtocolItEnforces(t *testing.T) {
 	t.Parallel()
 
-	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, hostilePersona)
+	prompt := SystemPrompt(domain.RoleProductManager, Admission{}, nil, hostilePersona)
 	for _, required := range []string{
 		proposalFence,
 		// What becomes of a proposal is the project's admission policy to decide,

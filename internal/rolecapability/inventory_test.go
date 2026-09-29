@@ -271,6 +271,15 @@ var expresses = map[string]expression{
 		question: "does the amending role hold the capability the kind belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
 	},
+	"artifact.write-authorize": {
+		question: "does the role writing a document from its conversation hold the capability the document's kind belongs to?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+	},
+	"artifact.check-write": {
+		question: "does the role hold the capability the kind belongs to, for a document filed in that kind's home?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+		gap:      "which home a kind is filed in is the project's configuration rather than a capability, so the home half of this check is not expressed here",
+	},
 	"artifact.identify": {
 		question: "does the role recording goal identities hold the capability a goals document belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate},
