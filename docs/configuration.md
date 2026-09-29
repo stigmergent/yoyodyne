@@ -1613,11 +1613,17 @@ Manager's conversation, and proposals against the designs, the specifications,
 and the decision records are carried into the architect's, each told in so many
 words that it cannot decide one and cannot edit anything. Both owners can now be
 asked directly: `yoyo agent chat architect` is where the argument about a design
-happens. But no agent records a decision, `yoyo amendment` is the only thing that
-does, and the record says you exercised the owner's authority rather than that
-the owner answered — the same override path `yoyo invariant` documents. A decline
-keeps the reason it was turned down with, because a proposal refused silently is
-one the same argument arrives to make again.
+happens. And the argument is made on a cadence rather than only when you open
+the conversation: a [recurring task](#working-the-amendment-queue-on-a-cadence)
+wakes the owner with the undecided proposals, oldest first and bounded, and
+records what it recommended on each — approve, decline, or merge with another,
+with the reason — as one batch on the firing's report, which is sent to you
+once as one decision list and named on `yoyo status` until you have decided it. But no agent records a decision, `yoyo
+amendment` is the only thing that does, and the record says you exercised the
+owner's authority rather than that the owner answered — the same override path
+`yoyo invariant` documents. A decline keeps the reason it was turned down with,
+because a proposal refused silently is one the same argument arrives to make
+again.
 
 An owning role recording its own decision is vocabulary the record already has
 and nothing produces: what would make it real is a decision the harness carries
@@ -6650,6 +6656,24 @@ the only value that pushes a branch or opens a pull request. Under `human`, the
 other value, the harness opens no requests and reads no forge, so a request
 somebody opened by hand in such a project is not noticed here.
 
+**A pass of a role that owns documents is put the changes proposed to them.**
+On every firing of a task whose role owns artifacts — the architect the designs,
+specifications, and decision records; the Lead Product Manager the brief and
+the goals — the harness reads the [proposed
+amendments](#proposing-a-change-to-a-document-you-do-not-own) nobody has
+decided against that role's documents and puts them in the message that wakes
+it, ahead of the task's own prompt: oldest first, at most ten a pass, and never
+one the role already argued on an earlier pass while the operator has not
+decided it, so the pass moves on to what has not been argued rather than
+re-arguing the same ten every cadence. The wake says how many wait behind the
+batch and how many already carry a recommendation. The role's account then
+carries a `recommendations` entry for each — `approve`, `decline`, or `merge`
+with another, with the reason — and that batch is on the durable report. A role
+that owns no documents, or has nothing undecided against them, is told nothing
+about any of this. See [working the amendment queue on a
+cadence](#working-the-amendment-queue-on-a-cadence) for the task that exists for
+it.
+
 Every firing ends in a durable report, read with
 [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found). The reports
 outlive the session that produced them and are written once and never revised.
@@ -6714,6 +6738,86 @@ unhandled; and they name a program manager's warnings and notes left unhandled
 through two passes as overdue. What each of those does is in
 [the reporting guide](reporting.md#who-reads-them-and-what-became-of-each-one).
 A project with no such task has none of the three.
+
+### Working the amendment queue on a cadence
+
+The third standing loop is the one that argues the [proposed
+amendments](#proposing-a-change-to-a-document-you-do-not-own). A developer that
+finds a design wrong proposes the change and carries on; the proposal waits on
+the architect's argument and your decision; and until something woke her for
+it, the argument happened only when somebody opened her conversation. This
+project stood at forty-four undecided proposals against the designs, the oldest
+weeks old, before the pass existed.
+
+`yoyo init` writes this entry into the generated configuration, commented out
+and beside the two above, so a new project has it to uncomment rather than to
+compose. **A project that has not uncommented it has no cadence over the
+queue**, and no part of the harness supplies one on its behalf:
+
+```yaml
+recurring_tasks:
+  architect-amendments:
+    role: architect
+    every: 6h
+    enabled: true
+    max_turns: 4
+    prompt: |
+      Work the changes other roles have proposed to your documents. The
+      undecided ones are carried into this turn already, oldest first and at
+      most ten a pass, and nothing else wakes you to argue them, so a queue
+      nobody wakes you for is a queue nothing drains.
+      Argue every one you are shown: read the document it names, and
+      recommend approve, decline, or merge with another, with the reason, in
+      the "recommendations" of your block. You decide nothing and edit
+      nothing here -- the operator records each decision under your
+      authority, and an approved change is then yours to make as a revision.
+      Say in your summary how many you argued and how many wait behind them.
+      When nothing is undecided, that is the report.
+      Name every work item by what it is, with its identifier after it:
+      "retiring the maintenance job (434.9)", never "434.9" on its own. An
+      identifier alone is a defect -- nobody reading later knows the item.
+```
+
+What the pass produces is a batch of recommendations and never a decision.
+The harness puts the undecided proposals in the wake, oldest first and at most
+ten a pass — a proposal the architect already argued on an earlier pass is not
+put again while it waits on you, and the batch closes at the first proposal
+that would take the wake past its size bound, so what she is put is always the
+oldest she has not argued. She argues each back in her account, and the
+firing's report in `yoyo sweeps` lists them in one batch.
+
+**The batch reaches you once, as one decision list.** Each pass that argued
+something still undecided is a [finding that needs your
+hand](operations.md#where-a-finding-that-needs-your-hand-goes): it is sent to
+you directly, tagged by member id, through the same operator-action message
+every such finding uses, naming each proposal with what she recommends and why,
+and it is not sent again. `yoyo status` names it on the needs-a-human line —
+never folded into the count of things not named — until every proposal in it is
+decided. **Deciding is yours**, from the same two verbs as before:
+
+```sh
+yoyo status                                     # each pass's batch waiting on you, and each undecided proposal
+yoyo sweeps --task architect-amendments         # her reasons, pass by pass
+yoyo amendment approve <id> --reason ...        # record the change as authorized
+yoyo amendment decline <id> --reason ...        # turn it down, keeping why
+```
+
+A `merge` recommendation names the proposal it folds into; the record has no
+merge of its own, so it is carried out as one approval and one decline whose
+reason names the other. A proposal you decide between her pass and your reading
+is dropped from the batch wherever the batch is read — `yoyo status` derives it
+from the sweep records and the amendment log together — so the batch is always
+what you still have to decide rather than what she once said, and a batch whose
+every proposal is decided stops being named. The same cadence works for the
+Lead Product Manager over the brief and the goals; nothing
+about the mechanism is the architect's except that her documents are where
+proposals accumulate.
+
+Whether the queue is draining is answered the way the pile's is: `yoyo status`
+carries the undecided count and the oldest undecided proposal's age on every
+reading, and names the queue on the needs-a-human line once that age passes a
+week, as the operator's — a queue this old says the task is not keeping up, or
+is not enabled.
 
 ### A program manager instance's passes
 

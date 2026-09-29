@@ -219,6 +219,11 @@ type Proposal struct {
 
 var idPattern = regexp.MustCompile(`^amendment-[a-f0-9]{32}$`)
 
+// ValidID reports whether an id has the shape NewID mints, so a package that
+// reads proposal ids from elsewhere checks them against this one shape rather
+// than a copy of it.
+func ValidID(id string) bool { return idPattern.MatchString(id) }
+
 func NewID() (string, error) {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {

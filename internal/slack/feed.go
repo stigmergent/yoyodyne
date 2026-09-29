@@ -518,7 +518,13 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	// It is read here rather than as the reports are because a finding is not a
 	// report: a report is said where it is filed, and a finding stands from the
 	// moment a handling makes one until a later handling ends it.
-	findings, err := f.operatorActionDeliveries(cursors.Streams[operatorActionStream], filed, states, cursors.Since, batch.Streams)
+	// The amendment log is read ahead of the findings because the batches the
+	// owners argued are findings too, and are read from it.
+	records, tornRecords, err := f.Proposals.Scan()
+	if err != nil {
+		return Batch{}, fmt.Errorf("read the proposed changes: %w", err)
+	}
+	findings, err := f.operatorActionDeliveries(cursors.Streams[operatorActionStream], filed, states, records, cursors.Since, batch.Streams)
 	if err != nil {
 		return Batch{}, err
 	}
@@ -529,10 +535,6 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	// proposal or a decision — holds a position the proposals behind it are
 	// counted past. A decision is read past in silence, exactly as a conversation
 	// event that is not a milestone is.
-	records, tornRecords, err := f.Proposals.Scan()
-	if err != nil {
-		return Batch{}, fmt.Errorf("read the proposed changes: %w", err)
-	}
 	raised, err := f.logDeliveries(amendmentStream, "proposals", f.amendmentCursor(cursors, records, tornRecords), len(records), tornRecords, since,
 		func(index int) (time.Time, notify.Notification, error) {
 			proposal := records[index].Proposal
@@ -1395,7 +1397,12 @@ func (f *HarnessFeed) releaseOf(heldAt string) (runstate.IntakeRelease, bool) {
 // items are still admitted, so it reads every standing escalation as a finding:
 // what that costs is a mark kept for an item that left the backlog, and what it
 // buys is a finding said once rather than never.
-func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Report, states []runstate.State, since time.Time, streams map[string]struct{}) ([]Delivery, error) {
+//
+// The batch an owning role argued on a recurring pass is a finding too, one per
+// pass, read from the amendment log and the passes' own reports: it is the one
+// decision list the operator answers with `yoyo amendment`, so it reaches him
+// here, once, rather than only on the status line.
+func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Report, states []runstate.State, proposals []amendment.Record, since time.Time, streams map[string]struct{}) ([]Delivery, error) {
 	streams[operatorActionStream] = struct{}{}
 	handlings, err := f.Reports.Handlings()
 	if err != nil {
@@ -1410,6 +1417,8 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		f.say("an escalated stoppage could not be read and was not said this pass: %s", problem)
 	}
 	actions = append(actions, escalated...)
+	batches, batchesRead := f.amendmentBatches(proposals)
+	actions = append(actions, batches...)
 	standing := make(map[string]struct{}, len(actions))
 	advanced := cursor
 	var deliveries []Delivery
@@ -1459,6 +1468,11 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 	var ended []string
 	for _, mark := range advanced.Delivered {
 		if _, still := standing[mark]; !still && strings.HasPrefix(mark, findingMark) {
+			// A batch whose pass could not be read this time is not known to have
+			// ended, so its mark is kept rather than dropped and said again later.
+			if !batchesRead && strings.HasPrefix(mark, findingMark+readmodel.AmendmentBatchKeyPrefix) {
+				continue
+			}
 			ended = append(ended, mark)
 		}
 	}
@@ -1469,6 +1483,21 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
 	}
 	return deliveries, nil
+}
+
+// amendmentBatches is the owners' argued batches as findings, and whether the
+// passes were read whole. A sweep log that could not be read to the end yields
+// what it did read, and is said here rather than failing the poll: a finding a
+// pass could not be read for is said on a later poll.
+func (f *HarnessFeed) amendmentBatches(proposals []amendment.Record) ([]readmodel.OperatorAction, bool) {
+	if f.Runs == nil {
+		return nil, true
+	}
+	sweeps, _, err := f.Runs.Sweeps().List()
+	if err != nil {
+		f.say("the recurring passes could not be read to the end, so an owner's batch of recommendations may not be said this pass: %v", err)
+	}
+	return readmodel.AmendmentBatchActions(readmodel.RecommendedAmendments(sweeps, proposals)), err == nil
 }
 
 func (f *HarnessFeed) say(format string, args ...any) {
