@@ -969,6 +969,11 @@ func (c Closure) Describe() string {
 // something changes — and saying which thing is the difference between this and
 // the thirty-three decided items that sat unfired with nothing anywhere saying so.
 type CarryOut struct {
+	// RunID names the run the decision is about where that is not the entry's own
+	// run: the item's latest decision named a run the docket holds no entry for,
+	// and the finding about it is shown on the item's entries so it is seen at
+	// all. Empty on a finding about the entry's own stoppage.
+	RunID string `json:"run_id,omitempty"`
 	// Decision is the word from the triage vocabulary that was being carried out.
 	Decision string `json:"decision"`
 	// Gate is which gate stopped it, in the closed vocabulary the durable record
@@ -2273,6 +2278,10 @@ func (e Entry) renderCarryOut() string {
 		return ""
 	}
 	var rendered strings.Builder
+	if stopped.RunID != "" && stopped.RunID != e.RunID {
+		fmt.Fprintf(&rendered, "      Your latest decision on %s is about run %s, which this docket holds no entry for, so it is said here:\n",
+			e.WorkItemID, stopped.RunID)
+	}
 	if stopped.Unattempted {
 		fmt.Fprintf(&rendered, "      No pass has attempted the %q you decided, as of %s; %s kept it back: %s\n",
 			stopped.Decision, stopped.RefusedAt.UTC().Format(time.RFC3339), stopped.Gate, strings.TrimSpace(stopped.Refusal))

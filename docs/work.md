@@ -1587,6 +1587,31 @@ out: 1 refused, 1 unattempted* — because the two are fixed in different places
 The re-runs recorded for yoyodyne-ifd.192 and .187 on 2026-09-19 sat in that
 third ending for a week with nothing anywhere saying so;
 [the diagnosis](diagnoses/yoyodyne-ifd-428-39-unattempted-carry-outs.md) is how.
+
+This holds whatever became of the docket entry for the decision's run. A
+decision about a run whose entry an earlier decision closed — a re-run recorded
+after a repair settled the same stoppage — is attempted at the next pull like
+any other, because the entry is still there to act on. A re-run of a run the
+docket holds **no** stoppage of — a re-run the harness cancelled on its way out,
+say, which is never docketed — is carried out too. The item is started again
+from the target branch, claimed under the key the docket would have given the
+run, so that run is re-run once like any stoppage. Every gate a re-run asks
+still applies, and the run only has to have ended. What such a run cannot take
+is a repair, because a repair re-enters a docketed stoppage's worktree. A repair
+of it, or a re-run of a run the harness holds no record of, is attempted and
+refused. The refusal says how the run ended and names the decision the harness
+would carry out instead: the re-run of that same run for a repair, or else the
+same decision against a docketed stoppage of the item that can still take it,
+or a re-run of the item's latest recorded run. That refusal, and an
+unattempted record about such a run, is shown on every docket entry of the item
+for as long as it is her latest decision, labelled with the run it is about.
+Otherwise no entry would carry it, because each entry shows only the findings
+about its own run. The re-run recorded for yoyodyne-ifd.187 against run-04e578ce
+on 2026-09-26 was refused thirty-nine times this way while every entry she read
+was silent;
+[its diagnosis](diagnoses/yoyodyne-ifd-428-52-decision-on-an-undocketed-run.md)
+is how.
+
 [Deciding what becomes of stopped
 work](conversation.md#deciding-what-becomes-of-stopped-work) is the decision
 side of it.
