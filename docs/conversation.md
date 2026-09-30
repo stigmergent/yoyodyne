@@ -1678,8 +1678,9 @@ The development manager is given one more thing: the **triage docket**, the work
 that has stopped moving. It reaches that conversation the way the backlog
 reaches the Lead Product Manager's — carried in the context rather than by you
 noticing something went quiet. What she is shown is a window onto it, described
-below: the live entries, one per stopped run, oldest stoppage first with
-anything critical ahead, and a count of what did not fit.
+below: the live entries, one per stopped run, every stoppage nobody has decided
+before any she has, oldest first with anything critical ahead, and a count of
+what did not fit.
 
 **A scheduled sweep carries it too.** The context is built when her conversation
 opens, and a [recurring task](configuration.md#recurring-tasks)'s pass resumes
@@ -1701,11 +1702,18 @@ whose decision the harness was stopped carrying out. Whether an item is closed
 is read from the tracker as the window is built. If the tracker cannot be read,
 nothing is left out, and the window says so. A stopped run is listed once, with
 its other docketings beneath it, and says how long it has waited since it was
-first docketed. Critical entries come first: an item a role raised as
-unmeetable, and a decision of hers the harness was stopped carrying out by a
-gate that will not clear on its own. After them come the oldest stoppages. The
-window says how many live entries it did not list, how long the oldest of those
-has waited, and how many entries it left out because their work is closed. It
+first docketed. Every stoppage nobody has decided comes before any entry whose
+decision is recorded, however the harness was stopped carrying that decision
+out. Among the undecided, critical entries come first: an item a role raised as
+unmeetable, and a Lead Product Manager's decision about a run still in flight.
+After them come the oldest stoppages. The decided entries come last, where
+there is room: first those stopped by a gate that will not clear on its own,
+then those waiting on a gate that will. The fixed size is shared among the
+entries listed, so the window lists 25 whenever the docket holds more than 25.
+An entry longer than its share is cut, and says where. The window says how many
+live entries it did not list, how many of those are already decided, how long
+the oldest of those has waited, and how many entries it left out because their
+work is closed. It
 walks the docket the way
 [the report pile](reporting.md#who-reads-them-and-what-became-of-each-one) is
 walked. Where the last window stopped is recorded per product, beside the
@@ -1715,7 +1723,10 @@ an entry one window had no room for is the first thing the next one lists,
 whether it comes from a pass, a refresh, or a new conversation. On 2026-09-25
 the window listed the newest entries on the log instead: eleven of them, mostly
 on closed items. Twelve stopped runs waited behind them for between seven and
-thirty-six days.
+thirty-six days. On 2026-09-26 the window held four entries, all already decided
+and waiting on a gate, while 29 stoppages waited on her decision:
+[the diagnosis](diagnoses/yoyodyne-ifd-428-38-decided-entries-filled-the-docket-window.md)
+has the details.
 
 Four things put an item on it. A run stops with
 its change still there, an approved publication does not finish, dispatch

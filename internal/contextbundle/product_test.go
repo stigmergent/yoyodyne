@@ -1786,6 +1786,139 @@ func TestTheDocketWindowIsTheLiveDeduplicatedDocketOldestFirstAndResumes(t *test
 	}
 }
 
+// gatedDocketEntry is a stoppage the development manager already decided, whose
+// re-run the harness was refused carrying out by a gate that will not clear on
+// its own, carrying a failing check as long as the ones that filled the window on
+// 2026-09-26 and a second docketing of the same run folded beneath it.
+func gatedDocketEntry(index int, recorded time.Time) triage.Entry {
+	run := fmt.Sprintf("run-gated-%023x", index)
+	entry := docketEntry(run, fmt.Sprintf("yoyodyne-decided-%d", index))
+	entry.RecordedAt = recorded
+	entry.Check = &triage.Check{Command: "make check", ExitCode: 2, Output: strings.Repeat("--- FAIL: a test that failed at length\n", 300)}
+	entry.Closed = &triage.Closure{Decision: "rerun", ClosedAt: recorded.Add(time.Hour)}
+	entry.CarryOut = &triage.CarryOut{Decision: "rerun", Gate: "dependency", Refusal: "the item waits on unfinished work",
+		Clears: "the work it waits on closing", Attempts: 140, RefusedAt: recorded.Add(2 * time.Hour)}
+	earlier := entry
+	earlier.Key = triage.Key(triage.ClassPublication, run)
+	earlier.Class = triage.ClassPublication
+	earlier.RecordedAt = recorded.Add(-time.Hour)
+	earlier.Earlier = nil
+	entry.Earlier = []triage.Entry{earlier}
+	return entry
+}
+
+// The docket of 2026-09-26: four decided entries, each waiting on a gate and
+// each long enough to take a quarter of the docket's bytes, and 29 stoppages
+// nobody had decided. The window lists undecided work first and fills its
+// bound with it, says how many entries remain and how many of those are already
+// decided, and the next window carries on with the undecided ones it left out.
+func TestTheDocketWindowListsEveryUndecidedStoppageBeforeAnyDecidedOne(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	var entries []triage.Entry
+	// The decided entries stopped first, so neither age nor criticality may put
+	// them ahead.
+	for index := range 4 {
+		entries = append(entries, gatedDocketEntry(index, now.AddDate(0, 0, -60+index)))
+	}
+	for index := range 29 {
+		entry := docketEntry(fmt.Sprintf("run-%032x", index), fmt.Sprintf("yoyodyne-undecided-%d", index))
+		entry.RecordedAt = now.AddDate(0, 0, -30+index)
+		entries = append(entries, entry)
+	}
+	request := ProductRequest{TriageDocket: entries, TriageDocketAt: now, TriageDocketItems: []beads.WorkItem{}}
+
+	rendered, position := TriageDocket(request)
+	listed := listedDocketItems(rendered)
+	if len(listed) != maxDocketEntries {
+		t.Fatalf("listed %d entries, want the window filled to %d: %v", len(listed), maxDocketEntries, listed)
+	}
+	for index, item := range listed {
+		if want := fmt.Sprintf("yoyodyne-undecided-%d", index); item != want {
+			t.Fatalf("entry %d is on %s, want %s: every undecided stoppage comes first, oldest first; listed %v", index, item, want, listed)
+		}
+	}
+	if len(rendered) > MaxTriageDocketBytes {
+		t.Fatalf("the docket is %d bytes, past its bound of %d", len(rendered), MaxTriageDocketBytes)
+	}
+	if want := "8 further live docket entry(s) are not listed here, the oldest of them stopped 60d ago. 4 of them nobody has decided, and 4 are decisions of yours already recorded and waiting on the harness carrying them out."; !strings.Contains(rendered, want) {
+		t.Fatalf("the docket did not say what remains, want %q:\n%s", want, rendered)
+	}
+	if position == nil {
+		t.Fatal("a window that walked past entries handed back no position")
+	}
+
+	request.TriageDocketPosition = *position
+	next, _ := TriageDocket(request)
+	resumed := listedDocketItems(next)
+	if got, want := resumed[:4], []string{"yoyodyne-undecided-25", "yoyodyne-undecided-26", "yoyodyne-undecided-27", "yoyodyne-undecided-28"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("the next window opened with %v, want %v", got, want)
+	}
+	if strings.Contains(next, "yoyodyne-decided-") {
+		t.Fatalf("a decided entry was listed while undecided ones were left out:\n%v", resumed)
+	}
+}
+
+// Where the undecided entries leave room, the decided ones follow them — the
+// ones a gate refused ahead of the ones waiting — and an entry longer than its
+// share of the docket's bytes is cut and says so rather than crowding out the
+// entries after it.
+func TestTheDocketWindowSharesItsBytesSoEveryEntryIsListed(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	var entries []triage.Entry
+	for index := range 6 {
+		entry := gatedDocketEntry(index, now.AddDate(0, 0, -60+index))
+		if index == 0 {
+			entry.CarryOut.Waiting = true
+		}
+		entries = append(entries, entry)
+	}
+	for index := range 3 {
+		entry := docketEntry(fmt.Sprintf("run-%032x", index), fmt.Sprintf("yoyodyne-undecided-%d", index))
+		entry.RecordedAt = now.AddDate(0, 0, -30+index)
+		entries = append(entries, entry)
+	}
+
+	rendered, _ := TriageDocket(ProductRequest{TriageDocket: entries, TriageDocketAt: now, TriageDocketItems: []beads.WorkItem{}})
+	want := []string{"yoyodyne-undecided-0", "yoyodyne-undecided-1", "yoyodyne-undecided-2",
+		"yoyodyne-decided-1", "yoyodyne-decided-2", "yoyodyne-decided-3", "yoyodyne-decided-4", "yoyodyne-decided-5", "yoyodyne-decided-0"}
+	if got := listedDocketItems(rendered); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("listed %v, want %v", got, want)
+	}
+	if len(rendered) > MaxTriageDocketBytes {
+		t.Fatalf("the docket is %d bytes, past its bound of %d", len(rendered), MaxTriageDocketBytes)
+	}
+	if !strings.Contains(rendered, "…[cut here so that every listed entry fits the docket: this entry runs to ") {
+		t.Fatalf("a long entry was not cut with the cut declared:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "further live docket entry(s)") {
+		t.Fatalf("a docket that listed everything said entries were left out:\n%s", rendered)
+	}
+	// The short undecided entries are within their share and listed whole.
+	if strings.Count(rendered, "Finding [blocker] (feature.txt:1)") < 3 {
+		t.Fatalf("an undecided entry within its share was cut:\n%s", rendered)
+	}
+}
+
+func TestCutDocketEntryKeepsWholeLinesAndItsHeading(t *testing.T) {
+	t.Parallel()
+
+	section := "  [stopped run] heading\n" + strings.Repeat("      evidence line\n", 200)
+	if got := cutDocketEntry(section, 0); got != section {
+		t.Fatal("an entry with no share was cut")
+	}
+	cut := cutDocketEntry(section, 600)
+	if len(cut) > 600 || !strings.HasPrefix(cut, "  [stopped run] heading\n") || !strings.HasSuffix(cut, "shows more of it]\n") {
+		t.Fatalf("cut entry is %d bytes:\n%s", len(cut), cut)
+	}
+	if share := docketEntryShare([]string{"aa", "bbbbbbbbbb", "cccccccccc"}, 12); share != 5 {
+		t.Fatalf("share = %d, want the short entry whole and the rest split evenly", share)
+	}
+}
+
 // listedDocketItems is the work item each listed docket entry is on, in the
 // order the window lists them.
 func listedDocketItems(text string) []string {

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifacthome"
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
@@ -1687,10 +1688,15 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 // section may cost — because a docket grows with everything that ever stopped
 // and a conversation's budget does not. What the bound is spent on is the
 // window triage.Live and triage.Walk choose: live entries only, one per stopped
-// run, anything critical first and then the oldest stoppage the last window did
-// not reach. It used to be the newest entries on the log, which on 2026-09-25
-// was eleven entries mostly on closed items while stoppages up to thirty-six
-// days old sat unlisted behind them.
+// run, every stoppage nobody has decided before any whose decision is recorded,
+// and among the undecided anything critical first and then the oldest stoppage
+// the last window did not reach. It used to be the newest entries on the log,
+// which on 2026-09-25 was eleven entries mostly on closed items while stoppages
+// up to thirty-six days old sat unlisted behind them.
+//
+// The byte bound is shared among the entries listed (docketEntryShare), so the
+// count bound is the one that fills the window whenever the docket holds more
+// than it can list.
 //
 // What it could not show is stated — how many live entries, and how long the
 // oldest of them has waited — because a docket read as complete when it is not
@@ -1732,55 +1738,68 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 		return rendered.String(), nil
 	}
 	window := triage.Walk(live.Stoppages, request.TriageDocketPosition)
-	listed := 0
-	shown := make(map[string]bool, maxDocketEntries)
-	var position *triage.WindowPosition
-	spent := rendered.Len()
-	fits := func(standing triage.Stoppage) bool {
-		if listed >= maxDocketEntries {
-			return false
+	// Every stoppage nobody has decided comes before any whose decision is
+	// recorded, and the window takes the first maxDocketEntries of that order.
+	ordered := make([]triage.Stoppage, 0, len(live.Stoppages))
+	ordered = append(ordered, window.Urgent...)
+	ordered = append(ordered, window.Next...)
+	ordered = append(ordered, window.Decided...)
+	sections := make([]string, 0, maxDocketEntries)
+	for _, standing := range ordered {
+		if len(sections) >= maxDocketEntries {
+			break
 		}
 		section := standing.Entry.Render()
 		if standing.Since.Before(standing.Entry.RecordedAt) {
 			section += fmt.Sprintf("      This run has waited since %s, when it was first docketed.\n",
 				standing.Since.UTC().Format(time.RFC3339))
 		}
-		if spent+len(section) > MaxTriageDocketBytes-maxDocketTrailerBytes {
-			return false
-		}
-		rendered.WriteString(section)
-		spent += len(section)
-		listed++
+		sections = append(sections, section)
+	}
+	// The byte bound is shared among the entries listed rather than spent on
+	// whichever come first. An entry carries its evidence whole, and a run
+	// docketed twice carries both accounts, so one entry can run past 10 KiB: spent
+	// first-come, four of them filled the window on 2026-09-26 and the rest of the
+	// docket was never listed at all. An entry past its share is cut, and says so.
+	budget := MaxTriageDocketBytes - maxDocketTrailerBytes - rendered.Len()
+	for len(sections) > 0 && budget/len(sections) < minDocketEntryBytes {
+		sections = sections[:len(sections)-1]
+	}
+	share := docketEntryShare(sections, budget)
+	shown := make(map[string]bool, len(sections))
+	var position *triage.WindowPosition
+	for index, section := range sections {
+		standing := ordered[index]
+		rendered.WriteString(cutDocketEntry(section, share))
 		shown[standing.Entry.Key] = true
-		return true
-	}
-	for _, standing := range window.Urgent {
-		if !fits(standing) {
-			break
+		// The position advances only over what the walk itself listed. A critical
+		// jumped the walk to be here, and a decided entry is outside it; advancing to
+		// where either sits would skip everything between.
+		if !standing.Decided && !standing.Critical() {
+			at := standing.At()
+			position = &at
 		}
 	}
-	// The position advances only over what the walk itself listed. A critical
-	// jumped the walk to be here, and advancing to where it sits would skip
-	// everything between.
-	for _, standing := range window.Next {
-		if !fits(standing) {
-			break
-		}
-		at := standing.At()
-		position = &at
-	}
-	if remaining := len(live.Stoppages) - listed; remaining > 0 {
+	if remaining := len(live.Stoppages) - len(sections); remaining > 0 {
 		var oldest time.Time
+		decided := 0
 		for _, standing := range live.Stoppages {
 			if shown[standing.Entry.Key] {
 				continue
+			}
+			if standing.Decided {
+				decided++
 			}
 			if oldest.IsZero() || standing.Since.Before(oldest) {
 				oldest = standing.Since
 			}
 		}
-		fmt.Fprintf(&rendered, "\n%d further live docket entry(s) are not listed here, the oldest of them stopped %s ago. The next docket you are given resumes past the last one listed here, so they come first then. Treat what you cannot see as unread rather than as absent.\n",
+		fmt.Fprintf(&rendered, "\n%d further live docket entry(s) are not listed here, the oldest of them stopped %s ago.",
 			remaining, docketAge(now.Sub(oldest.UTC())))
+		if undecided := remaining - decided; decided > 0 {
+			fmt.Fprintf(&rendered, " %d of them nobody has decided, and %d are decisions of yours already recorded and waiting on the harness carrying them out.", undecided, decided)
+		}
+		rendered.WriteString(" The next docket you are given resumes past the last one listed here, so what nobody has decided comes first then. Treat what you cannot see as unread rather than as absent.\n")
 	}
 	rendered.WriteString(renderDocketLeftOut(live, itemsUnknown))
 	return rendered.String(), position
@@ -1790,6 +1809,70 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 // lines saying what it did not list and what it left out, so those lines always
 // fit.
 const maxDocketTrailerBytes = 1 << 10
+
+// minDocketEntryBytes is the least share of the docket's bytes an entry is
+// listed with. Below it an entry would be its heading and little else, so the
+// window lists fewer entries rather than more of them saying nothing. The
+// docket's own bounds leave every one of maxDocketEntries entries well above it.
+const minDocketEntryBytes = 1 << 9
+
+// docketEntryShare is the most bytes any one listed entry may take so that all
+// of them fit the budget. Entries within it are listed whole, and the bytes they
+// leave go to the larger ones, so a window of short entries cuts none of them
+// and one long entry among short ones is cut only as far as it must be. Zero is
+// no limit: everything fits as it stands.
+func docketEntryShare(sections []string, budget int) int {
+	sizes := make([]int, len(sections))
+	total := 0
+	for index, section := range sections {
+		sizes[index] = len(section)
+		total += len(section)
+	}
+	if total <= budget {
+		return 0
+	}
+	sort.Ints(sizes)
+	for index, size := range sizes {
+		left := len(sizes) - index
+		if size*left > budget {
+			return budget / left
+		}
+		budget -= size
+	}
+	return 0
+}
+
+// cutDocketEntry holds one entry to its share of the docket, cutting at a line
+// and saying where it cut and how much it left out. The heading line is always
+// kept, since it names the run and the item the rest is about.
+func cutDocketEntry(section string, share int) string {
+	if share <= 0 || len(section) <= share {
+		return section
+	}
+	note := fmt.Sprintf("      …[cut here so that every listed entry fits the docket: this entry runs to %d bytes, and a docket listing fewer entries shows more of it]\n", len(section))
+	room := max(share-len(note), 0)
+	kept := 0
+	for kept < len(section) {
+		next := strings.IndexByte(section[kept:], '\n')
+		end := len(section)
+		if next >= 0 {
+			end = kept + next + 1
+		}
+		if end > room {
+			break
+		}
+		kept = end
+	}
+	if kept == 0 {
+		// A heading longer than the share is cut inside itself, at a character.
+		kept = room
+		for kept > 0 && !utf8.RuneStart(section[kept]) {
+			kept--
+		}
+		return section[:kept] + "\n" + note
+	}
+	return section[:kept] + note
+}
 
 // renderDocketLeftOut says what the window left out of the docket on purpose,
 // and why. Entries on closed work and repeats of one run are not listed at all
@@ -1848,11 +1931,14 @@ const triageDocketHeader = `
 
 The work that has stopped moving and is still yours to decide: entries on work
 that is still open and that nobody has decided about, one per stopped run. What
-is critical comes first — an item a role raised as unmeetable, a decision the
-Lead Product Manager made about an item whose run is still in flight, and a
-decision of yours the harness was stopped carrying out by a gate that will not
-clear on its own — and then the oldest stoppage this docket has not yet shown you,
-resuming past where the last docket you were given stopped. A run that ended on
+nobody has decided comes before anything you have already decided. Of that, what
+is critical comes first — an item a role raised as unmeetable, and a decision the
+Lead Product Manager made about an item whose run is still in flight — and then
+the oldest stoppage this docket has not yet shown you, resuming past where the
+last docket you were given stopped. Last, where there is room, come decisions of
+yours the harness was stopped carrying out, the ones stopped by a gate that will
+not clear on its own ahead of the ones waiting on a gate that will. An entry too
+long for its share of the docket is cut, and says so. A run that ended on
 a durable blocker is here, and so is an approved publication the forge has not
 merged.
 So is an item dispatch would not start, because the tree does not meet a
