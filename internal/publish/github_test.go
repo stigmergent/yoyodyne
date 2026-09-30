@@ -1578,3 +1578,36 @@ func TestGitHubCloseRequiresAComment(t *testing.T) {
 		t.Fatalf("a refused close still ran commands: %v", runner.commands)
 	}
 }
+
+// A branch's own checks are read on the commit it points at, each by name and
+// standing, which is what confirms a check red on a level head is the branch's.
+func TestGitHubBranchChecksReadsEachCheckOnTheBranchesHead(t *testing.T) {
+	t.Parallel()
+
+	head := "2222222222222222222222222222222222222222"
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("commits/main/check-runs?per_page", execution.ProcessResult{Status: execution.ProcessSucceeded,
+		Stdout: `{"check_runs":[{"name":"build","head_sha":"` + head + `","status":"completed","conclusion":"success"},{"name":"adoption","head_sha":"` + head + `","status":"completed","conclusion":"failure"},{"name":"race","head_sha":"` + head + `","status":"queued","conclusion":null}]}`})
+
+	reading, err := (GitHub{Runner: runner}).BranchChecks(context.Background(), "main")
+	if err != nil {
+		t.Fatalf("BranchChecks() error = %v", err)
+	}
+	if reading.HeadCommit != head {
+		t.Errorf("head = %q, want the commit main points at", reading.HeadCommit)
+	}
+	if len(reading.Passing) != 1 || reading.Passing[0] != "build" || len(reading.Failing) != 1 || reading.Failing[0] != "adoption" || len(reading.Pending) != 1 || reading.Pending[0] != "race" {
+		t.Errorf("reading = %#v, want build passing, adoption failing, race pending", reading)
+	}
+
+	refused := &scriptedRunner{}
+	refused.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	refused.reply("commits/main/check-runs?per_page", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 502"})
+	if _, err := (GitHub{Runner: refused}).BranchChecks(context.Background(), "main"); err == nil {
+		t.Error("BranchChecks() over a refused read returned no error")
+	}
+	if _, err := (GitHub{Runner: runner}).BranchChecks(context.Background(), "--main"); err == nil {
+		t.Error("BranchChecks() of a branch starting with a dash returned no error")
+	}
+}

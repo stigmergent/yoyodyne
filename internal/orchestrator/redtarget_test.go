@@ -111,8 +111,15 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUntouchedFileWaitsOnTheTargetsFil
 			t.Errorf("the filed item's notes do not carry %q:\n%s", want, filed.Notes)
 		}
 	}
-	if len(logs.asked) != 1 || logs.asked[0] != 4215 {
+	// The log is read to decide whose failure it is, and again for the account
+	// the item carries; nothing else is read.
+	if len(logs.asked) == 0 {
 		t.Errorf("job logs asked = %v, want the failing job's log read", logs.asked)
+	}
+	for _, asked := range logs.asked {
+		if asked != 4215 {
+			t.Errorf("job logs asked = %v, want only the failing job's log read", logs.asked)
+		}
 	}
 
 	// The merge waits on the filed item, and nothing is handed to a person.
@@ -409,5 +416,214 @@ func TestAClosedWaitWhoseHeadTheForgeEndedIsRunAgainThenHandedBack(t *testing.T)
 	}
 	if !tracker.Record().Blocked || !strings.Contains(tracker.Record().BlockReason, "ended by the forge before any step failed") {
 		t.Errorf("blocked = %t, reason = %q; want it handed back saying the forge ended the job", tracker.Record().Blocked, tracker.Record().BlockReason)
+	}
+}
+
+// These drive yoyodyne-c02: a check red on a level head is filed as the
+// target's only once it is confirmed the target's, so a failing test the change
+// itself adds goes back to the change rather than being filed against main.
+
+// targetChecks is the forge's reading of the target branch's own head, or its
+// refusal to give one.
+type targetChecks struct {
+	reading publish.BranchCheckReading
+	refuse  error
+	asked   []string
+}
+
+func (c *targetChecks) BranchChecks(_ context.Context, branch string) (publish.BranchCheckReading, error) {
+	c.asked = append(c.asked, branch)
+	return c.reading, c.refuse
+}
+
+// pullRequest907Reading is pull request 907's shape on 2026-09-29, for the
+// machine home (yoyodyne-ifd.434.12): the head level with main, and the build
+// check failing on a test in a package the change adds, reported per package,
+// with no annotation but the forge's own on .github.
+func pullRequest907Reading() publish.CheckReading {
+	return publish.CheckReading{
+		Files: []string{"docs/operations.md", "internal/machinehome/home.go", "internal/machinehome/home_test.go"},
+		Failing: []publish.FailedCheck{{
+			Name: "build", Paths: []string{".github"}, ID: 9070, Conclusion: "failure",
+			Annotations: []publish.Annotation{{Path: ".github", Level: "failure", Message: "Process completed with exit code 2."}},
+		}},
+		Passing: 3,
+	}
+}
+
+// pullRequest907Log is the tail of the build job's log: the failing package is
+// named by its import path, and the failing test's file by its base name only.
+const pullRequest907Log = "--- FAIL: TestTheMachineHomeIsResolvedOnce (0.00s)\n" +
+	"    home_test.go:31: home = \"\", want the resolved directory\n" +
+	"FAIL\n" +
+	"FAIL\tgithub.com/mason-bryant/yoyodyne/internal/machinehome\t0.012s\n" +
+	"ok  \tgithub.com/mason-bryant/yoyodyne/internal/orchestrator\t41.2s\n" +
+	"FAIL\n" +
+	"make: *** [test] Error 1\n" +
+	"##[error]Process completed with exit code 2."
+
+// assertHandedBackToTheChange asserts the case of pull request 907 settled as
+// the change's own failure: the merge withdrawn and handed back to be repaired,
+// nothing filed, and no wait on the target recorded.
+func assertHandedBackToTheChange(t *testing.T, fixture queuedFixture, forge *checkedForge, tracker *orchestratortest.Tracker, filer *recordingFiler, results []Reconciliation, wants ...string) {
+	t.Helper()
+	if len(results) != 1 || results[0].Action != ActionBlocked {
+		t.Fatalf("reconciliation = %#v, want the red merge handed back to its change", results)
+	}
+	if len(filer.filed) != 0 {
+		t.Fatalf("filed = %#v, want nothing filed against main", filer.filed)
+	}
+	if len(forge.withdrawn) != 1 || forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.withdrawn, forge.HoldsQueuedMerge())
+	}
+	if len(tracker.Blockers) != 0 {
+		t.Errorf("the item waits on %v, want it waiting on nothing filed for main", tracker.Blockers)
+	}
+	record := tracker.Record()
+	if !record.Blocked {
+		t.Fatal("the change's own failure was not handed back")
+	}
+	for _, want := range append([]string{"fail on this change", "the failure is this change's own rather than main's", "nothing was filed against main", "needs its change repaired"}, wants...) {
+		if !strings.Contains(record.BlockReason, want) {
+			t.Errorf("blocker does not say %q:\n%s", want, record.BlockReason)
+		}
+	}
+	settled := loadRun(t, fixture.store, pipelineRunID)
+	if settled.PullRequest.TargetRed != nil || settled.WaitingOnRedTarget() || settled.MergeDrop == nil {
+		t.Fatalf("record = target red %#v, drop %#v; want a dropped merge and no wait on main", settled.PullRequest.TargetRed, settled.MergeDrop)
+	}
+	if settled.PullRequest.Checks == nil || len(settled.PullRequest.Checks.Failing) != 1 {
+		t.Errorf("checks = %#v, want the reading that decided it kept on the publication", settled.PullRequest.Checks)
+	}
+}
+
+// Pull request 907, where the forge cannot say how main's own head fared: the
+// build check's log names the package the change adds, so the failure is the
+// change's, handed back to it, and nothing is filed against main.
+func TestAFailingTestInAPackageTheChangeAddsIsHandedBackToTheChangeAndNothingIsFiled(t *testing.T) {
+	t.Parallel()
+
+	filer := &recordingFiler{}
+	fixture, forge, tracker, reconciler, logs := redTargetSweep(t, filer)
+	forge.reading = pullRequest907Reading()
+	logs.tail = pullRequest907Log
+
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	assertHandedBackToTheChange(t, fixture, forge, tracker, filer, results,
+		"nothing is wired to this harness to read the target's own checks",
+		"the forge's account of build names internal/machinehome, which this change adds or modifies")
+	if len(logs.asked) == 0 || logs.asked[0] != 9070 {
+		t.Errorf("job logs asked = %v, want the build job's log read", logs.asked)
+	}
+
+	// A forge that refuses the target's reading is the same case.
+	filer = &recordingFiler{}
+	fixture, forge, tracker, reconciler, logs = redTargetSweep(t, filer)
+	forge.reading = pullRequest907Reading()
+	logs.tail = pullRequest907Log
+	reconciler.TargetChecks = &targetChecks{refuse: errors.New("gh: HTTP 502")}
+	results, err = reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	assertHandedBackToTheChange(t, fixture, forge, tracker, filer, results, "could not say how the checks ended on main's own head")
+}
+
+// Pull request 907, where the forge can say: the build check passes on main's
+// own head, so it is the change's however little its log names.
+func TestACheckThatPassesOnTheTargetsOwnHeadIsTheChangesAndNothingIsFiled(t *testing.T) {
+	t.Parallel()
+
+	filer := &recordingFiler{}
+	fixture, forge, tracker, reconciler, logs := redTargetSweep(t, filer)
+	forge.reading = pullRequest907Reading()
+	logs.tail = "##[error]Process completed with exit code 2."
+	main := &targetChecks{reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Passing: []string{"build", "vet"}}}
+	reconciler.TargetChecks = main
+
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	assertHandedBackToTheChange(t, fixture, forge, tracker, filer, results, "build passes on main's own head, 90cac74d0000")
+	if len(main.asked) != 1 || main.asked[0] != "main" {
+		t.Errorf("target checks asked of %v, want main's", main.asked)
+	}
+}
+
+// A check the forge reports red on main's own head as well is main's, and is
+// filed as main's saying so — even where the change touches the directory its
+// log names, because the target's own head is the better witness.
+func TestACheckRedOnTheTargetsOwnHeadIsFiledAsTheTargetsSayingSo(t *testing.T) {
+	t.Parallel()
+
+	filer := &recordingFiler{}
+	_, forge, tracker, reconciler, logs := redTargetSweep(t, filer)
+	forge.reading = pullRequest907Reading()
+	logs.tail = pullRequest907Log
+	reconciler.TargetChecks = &targetChecks{reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Failing: []string{"build"}, Passing: []string{"vet"}}}
+
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Action != ActionWaitingOnTarget {
+		t.Fatalf("reconciliation = %#v, want the merge waiting on main's red check", results)
+	}
+	if len(filer.filed) != 1 || !strings.Contains(filer.filed[0].Notes, "The forge reports build red on main's own head, 90cac74d0000, as well.") {
+		t.Fatalf("filed = %#v, want one item for main saying the forge confirmed it on main's head", filer.filed)
+	}
+	if tracker.Record().Blocked {
+		t.Error("main's failure was handed back to the change")
+	}
+}
+
+// Where main's own head cannot be read and the log names nothing of the change,
+// the check is filed as main's as it was before, and the item says the harness
+// could not confirm it on main's head.
+func TestAnUnconfirmedCheckWhoseLogNamesNothingOfTheChangeIsFiledSayingSo(t *testing.T) {
+	t.Parallel()
+
+	filer := &recordingFiler{}
+	_, _, tracker, reconciler, _ := redTargetSweep(t, filer)
+	reconciler.TargetChecks = &targetChecks{reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Pending: []string{"adoption"}}}
+
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Action != ActionWaitingOnTarget || tracker.Record().Blocked {
+		t.Fatalf("reconciliation = %#v, want the merge waiting on main's red check", results)
+	}
+	if len(filer.filed) != 1 || !strings.Contains(filer.filed[0].Notes, "Whether adoption is red on main's own head was not confirmed, because adoption has not finished on main's own head") {
+		t.Fatalf("filed = %#v, want the item to say the check was not confirmed on main's head", filer.filed)
+	}
+}
+
+// A path is named whole: not inside a longer name, and a directory at the top of
+// the repository only as part of a path, so an ordinary word is not read as it.
+func TestMentionsPathNamesAPathWhole(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		text, name string
+		asPath     bool
+		want       bool
+	}{
+		{"FAIL\tgithub.com/acme/thing/internal/machinehome\t0.01s", "internal/machinehome", false, true},
+		{"FAIL\tgithub.com/acme/thing/internal/machinehome\t0.01s", "internal/machine", false, false},
+		{"see internal/machinehome/home_test.go:31", "internal/machinehome", false, true},
+		{"broken in internal/machinehome.", "internal/machinehome", false, true},
+		{"the docs are fine", "docs", true, false},
+		{"FAIL\tgithub.com/acme/thing/cmd [build failed]", "cmd", true, true},
+		{"make: *** [Makefile:12: test] Error 1", "Makefile", false, true},
+		{"xfeature.txt", "feature.txt", false, false},
+	} {
+		if got := mentionsPath(tc.text, tc.name, tc.asPath); got != tc.want {
+			t.Errorf("mentionsPath(%q, %q, %t) = %t, want %t", tc.text, tc.name, tc.asPath, got, tc.want)
+		}
 	}
 }
