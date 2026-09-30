@@ -55,9 +55,61 @@ func TestTheReasonLeadsWithTheClassThatStoppedTheRun(t *testing.T) {
 			summary: RunSummary{},
 			want:    "",
 		},
+		{
+			// A stoppage settled onto a record a killed process had already left
+			// terminal carries the blocker and no failure.
+			name:    "a blocker and no failure, under its class",
+			summary: RunSummary{Status: StatusCancelled, Outcome: OutcomeStopped, StopClass: StopOutside, Blocker: "no attempt of the harness can finish it"},
+			want:    "outside: no attempt of the harness can finish it",
+		},
+		{
+			name:    "a blocker and no failure, before the class existed",
+			summary: RunSummary{Status: StatusCancelled, Outcome: OutcomeStopped, Blocker: "no attempt of the harness can finish it"},
+			want:    "no attempt of the harness can finish it",
+		},
+		{
+			name:    "a run that ended badly and gives nothing",
+			summary: RunSummary{Status: StatusFailed, Outcome: OutcomeFailed},
+			want:    NoReasonSays,
+		},
+		{
+			// An outstanding publication is said under its own label, not as the
+			// reason the work ended.
+			name:    "a run that ended badly with only a publication to account for",
+			summary: RunSummary{Status: StatusFailed, Outcome: OutcomeFailed, PublishFailure: "push refused"},
+			want:    "",
+		},
+		{
+			name:    "a run still going",
+			summary: RunSummary{Status: StatusRunning},
+			want:    "",
+		},
 	} {
 		if got := test.summary.Reason(); got != test.want {
 			t.Errorf("%s: Reason() = %q, want %q", test.name, got, test.want)
+		}
+	}
+}
+
+// The record and its summary give one reason, which is what keeps the channel
+// line, read off the record, and `yoyo status`, read off the summary, from
+// saying two things about one run.
+func TestTheRecordAndItsSummaryGiveOneReason(t *testing.T) {
+	t.Parallel()
+
+	for _, state := range []State{
+		{Status: StatusCancelled, StopClass: StopOutside, Blocker: "no attempt of the harness can finish it"},
+		{Status: StatusFailed, Failure: "developer backend failed: signal: killed", Blocker: "handed back"},
+		{Status: StatusFailed},
+		{Status: StatusSucceeded, StopClass: StopCleanup, CleanupFailure: "remove worktree: directory is busy"},
+	} {
+		summary := RunSummary{
+			Status: state.Status, Outcome: state.Outcome(), StopClass: state.StopClass,
+			Failure: state.Failure, Blocker: state.Blocker, PublishFailure: state.PublishFailure,
+			CleanupFailure: state.CleanupFailure, CompletionRecordingFailure: state.CompletionRecordingFailure,
+		}
+		if got, want := state.Reason(), summary.Reason(); got != want {
+			t.Errorf("State.Reason() = %q, RunSummary.Reason() = %q, want one reason", got, want)
 		}
 	}
 }

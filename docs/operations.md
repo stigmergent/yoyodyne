@@ -4105,6 +4105,15 @@ there on a run the provider then killed. A run recorded before the class
 existed, or settled by `yoyo reconcile` rather than by its own pipeline, prints
 its reason without one, as the second run above does.
 
+The words after the class are the run's own failure where it recorded one, and
+otherwise the blocker its item was handed back in: a stoppage `yoyo reconcile`
+settles onto a run some killed process had already ended can carry the blocker
+and no failure, and the line says the blocker rather than nothing. A run that
+ended without succeeding and whose record gives neither says `the record names
+no reason`, in the same words the channel's line uses for it. The reason is one
+derivation in the run's record, so this line and the channel's give one reason
+for one run.
+
 Each of the other reasons is printed under the run it belongs to and named for
 what it is, because the records keep them apart deliberately. Only `reason` is the
 run's own account of why it ended. An `outstanding publication`, an `outstanding
