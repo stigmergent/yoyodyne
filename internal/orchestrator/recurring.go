@@ -959,6 +959,27 @@ func (t Trigger) refuse(ctx context.Context, name string, task config.RecurringT
 // firing is one firing as run takes it: what it is recorded under, what the
 // role is told, and — for a program manager's pass — the instance it wakes, the
 // events it carries, and what is done once its turns are over.
+// passStartingKey carries, on a firing's context, who is told as each pass
+// begins.
+type passStartingKey struct{}
+
+// withPassStarting is a firing's context carrying who is told as each pass
+// begins. It travels on the context for the reason a dispatch's waits do: the
+// watch session fires the schedule, and the trigger that runs the pass is
+// built by whoever wired it.
+func withPassStarting(ctx context.Context, starting func(runstate.WatchPass)) context.Context {
+	return context.WithValue(ctx, passStartingKey{}, starting)
+}
+
+// announcePass tells whoever asked that a pass has begun, and nobody where
+// nobody asked. It is called on the firing's own goroutine, before the pass's
+// first turn.
+func announcePass(ctx context.Context, pass runstate.WatchPass) {
+	if starting, wired := ctx.Value(passStartingKey{}).(func(runstate.WatchPass)); wired && starting != nil {
+		starting(pass)
+	}
+}
+
 type firing struct {
 	name     string
 	pass     string
@@ -1000,6 +1021,10 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		Events:    f.events,
 		Criticals: f.criticals,
 	}
+	// Whoever fired this pass is told it has begun, before its first turn, so a
+	// watch session that fires passes inside its poll can say which pass it is in
+	// for as long as the pass runs.
+	announcePass(ctx, runstate.WatchPass{Task: name, Role: task.Role, Trigger: f.trigger, At: recorded.StartedAt})
 	// shown is every critical report the pass has been put in front of: the ones
 	// its firing was made for, and the ones its conversation carried into a turn.
 	// The pass is not accepted as complete while any of them stands unhandled.

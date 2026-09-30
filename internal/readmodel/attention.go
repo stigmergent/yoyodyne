@@ -736,7 +736,7 @@ func (a Attention) Whose() string {
 	case AttentionFactoryStall:
 		return a.Mover.Possessive() + " — every pass it attempts is failing, so no role is looking at anything; the critical report filed when it began names the failures, and the first pull or successful pass clears this and files the recovery"
 	case AttentionTrackerUnanswered:
-		return a.Mover.Possessive() + " — each listing is asked again within its bound before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this"
+		return a.Mover.Possessive() + " — each listing its thirty-second bound killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this"
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }

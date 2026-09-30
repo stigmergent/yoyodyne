@@ -125,13 +125,29 @@ the export's size, which grows with every item; and the stall was none of them.
 - Her docket, when it cannot read whether each entry's item is still open, says
   that is the harness's to retry and that she decides the entries as they
   stand.
+- The watching session writes a line to `watch.jsonl` as each recurring pass
+  it fires begins — which pass, what fired it, and since when — so a pass that
+  holds the poll is said as that pass rather than left as silence. It is a note,
+  as a dispatch's wait is, so the session's own state as every surface reads it
+  is unchanged. With a listing that times out on every attempt, the session
+  still fires its passes at every poll (they come before the queue is read),
+  and says at each poll that the store is being read again and what the
+  listing said.
+
+The watch is made to say what it is doing rather than made to keep pulling
+through a pass, deliberately. A wall-time bound on a pass does nothing for the
+case that happened: a machine asleep runs nothing, the bound included, and on
+waking the provider had already ended the turn itself. What would keep the watch
+pulling is running a pass beside the poll rather than inside it, which changes
+how the session hosts its one conversation turn per poll against its runs and
+its drain, and is left below.
 
 ## What is left
 
-- **A recurring pass holds the watch's poll for as long as it runs.** That is
-  what turned one pass spanning a sleep into hours of nothing pulled. A pass
-  with no bound on its wall time, or one run beside the poll rather than inside
-  it, is a design change to the watch and is not made here.
+- **A recurring pass still holds the watch's poll for as long as it runs.** The
+  log now says so, but nothing is pulled meanwhile. Running a pass beside the
+  poll rather than inside it is a design change to the watch and is not made
+  here.
 - **The missed-pass record names the previous pass's whole problem as its
   cause.** Read alone, it says the missed task failed on that problem, which is
   how the stall came to be read as the tracker.

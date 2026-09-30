@@ -1575,7 +1575,7 @@ failing, the fourth line carries it under `Waiting on the harness`:
 
 ```text
 Waiting on the harness (1):
-  the tracker has not answered a listing since 2026-09-30T18:13:00Z: 2 listing(s) failed after their retries, the latest at 2026-09-30T18:23:00Z: bd list did not answer within its 30s bound on any of 3 attempts over 1m40s: … — the harness's — each listing is asked again within its bound before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this
+  the tracker has not answered a listing since 2026-09-30T18:13:00Z: 2 listing(s) failed after their retries, the latest at 2026-09-30T18:23:00Z: bd list did not answer within its 30s bound on any of 3 attempts over 1m40s: … — the harness's — each listing its thirty-second bound killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this
 ```
 
 `--json` carries it as an entry of kind `tracker-unanswered`, with the record
@@ -1594,6 +1594,27 @@ machine took overnight. A machine that runs the product unattended has to be
 kept awake — on power, with system sleep disabled; on a Mac laptop whose lid is
 closed that takes `sudo pmset -a disablesleep 1`, which `caffeinate` does not
 do — and nothing the harness does replaces that.
+
+**The watch log says which pass the session is in.** A watching session fires
+its recurring passes inside its poll, one at a time, so while a pass runs the
+session pulls nothing. Until yoyodyne-ifd.433.20 it also wrote nothing: the log
+went from its last line before that pass to 09:48 PDT the next morning with not
+a word. Now each pass the session begins is a line in `watch.jsonl` as it starts:
+
+```text
+taking the recurring pass of development-manager-sweep since 2026-09-30T04:52:08Z, fired by its schedule; the session fires its passes inside its poll, so it pulls nothing more until this pass ends
+```
+
+carried as `recurring_pass` — the task or instance, its role, what fired it,
+and when it began. It is a note about what the session is doing inside its
+poll rather than a change of the session's state, like a dispatch's wait: the
+session line on `yoyo status` and the stall reading still name the session's
+own last word, so a session idle over an empty queue that begins a pass is not
+read as one choosing work. The session's next line after the pass is the
+account of the poll that pass was part of. A pass that holds the poll for hours
+is therefore said as the pass, with its start, rather than left as silence; the
+pass still holds the poll, and running passes beside the poll rather than
+inside it is not done here.
 
 ## When a provider stalls or runs out of budget
 
@@ -3912,7 +3933,7 @@ recorded on them.
 
 A tracker that will not answer costs the audit and nothing else. It is the one
 reading in the pass that is reported rather than retried by the session — the
-listing itself is asked again within its own bound, as
+listing itself is asked again, twice, when its bound kills it, as
 [every listing is](#a-tracker-that-does-not-answer-a-listing) — because the pass has
 answers that need no tracker at all — a held intake is read from a switch — and
 an operator running `yoyo work` on a machine whose tracker is down should still

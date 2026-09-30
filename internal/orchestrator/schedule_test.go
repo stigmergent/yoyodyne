@@ -4147,6 +4147,8 @@ type recordedTransition struct {
 	// draining is the session's wait to restart into a deployed build, with its
 	// bound, on every line written while it lasts.
 	draining *runstate.WatchDrain
+	// pass is the recurring pass a note says the session has begun.
+	pass *runstate.WatchPass
 }
 
 func (r *recordedSessions) Record(transition SessionState) error {
@@ -4168,6 +4170,7 @@ func (r *recordedSessions) Record(transition SessionState) error {
 		windowResetsAt: transition.ProviderWindowResetsAt,
 		passedOver:     transition.PassedOver,
 		draining:       transition.Draining,
+		pass:           transition.RecurringPass,
 	})
 	return nil
 }
