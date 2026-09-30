@@ -74,6 +74,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/directive.go:(*DirectiveStore).load":           {strictDoor, "Find and Pausing are strict for settling and gating; List, which the read model and the sink read, is tolerant"},
 	"internal/runstate/firstseen.go:(*FirstSeenStore).read":           {strictDoor, "Observe is strict under its lock before it rewrites the record; FirstSeen, which the read model reads, is tolerant"},
 	"internal/runstate/capacityserved.go:(*CapacityServedStore).read": {strictDoor, "Record is strict because it rewrites what it read; List, which the read model, the sink, and the watch read, is tolerant"},
+	"internal/runstate/trackerlisting.go:(*TrackerListingStore).read": {strictDoor, "Failed and Answered are strict because they rewrite what they read; Read, which the read model reads, is tolerant"},
 
 	// Reads that precede a write.
 	"internal/runstate/workflowinstance.go:(*Store).LoadWorkflowInstance": {strictWriter, "an instance is only ever read to be advanced and saved back"},

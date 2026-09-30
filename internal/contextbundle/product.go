@@ -1887,8 +1887,11 @@ func renderDocketLeftOut(live triage.LiveDocket, itemsUnknown string) string {
 		fmt.Fprintf(&rendered, "%d docket entry(s) are not listed because a decision still standing settled them.\n", live.Settled)
 	}
 	if itemsUnknown != "" {
+		// Said as whose move it is and what to do meanwhile, because a docket that
+		// only said this left the development manager deciding nothing until the
+		// tracker answered: on 2026-09-29 that was every sweep for hours.
 		rendered.WriteString("Whether each entry's work item is still open could not be read, so entries on closed work may be listed here: " +
-			singleLine(itemsUnknown, 256) + "\n")
+			singleLine(itemsUnknown, 256) + ". That is the harness's to retry, not yours to wait on: decide the entries as they stand, and an entry whose item turns out to be closed is closed with it by the next `yoyo reconcile`.\n")
 	}
 	if rendered.Len() == 0 {
 		return ""

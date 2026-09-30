@@ -3,10 +3,14 @@ package readmodel
 // The factory as a whole having stopped: no work pulled and no recurring pass
 // succeeding, for longer than the configured limit.
 //
-// From 21:51 PDT on 2026-09-29 to 09:48 PDT on 2026-09-30 every recurring pass
-// failed on a tracker listing that timed out, the watch pulled nothing, and no
-// developer run succeeded. The roles that would have noticed were the ones
-// failing, and the one trace was a line in the operator's maintenance log. The
+// From 21:51 PDT on 2026-09-29 to 09:48 PDT on 2026-09-30 no recurring pass
+// completed, the watch pulled nothing, and no developer run succeeded. It was
+// read at the time as every pass failing on a tracker listing that timed out;
+// the machine was in fact asleep with its lid closed, and one pass spanning the
+// sleep held the watch's poll
+// (docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md). The roles
+// that would have noticed were the ones not running, and the one trace was a
+// line in the operator's maintenance log. The
 // stall below is read from the run records and the sweep log alone — nothing a
 // role writes, and nothing that asks the tracker — so it is still readable when
 // the tracker is what stopped everything.

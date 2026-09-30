@@ -1533,6 +1533,89 @@ work being recorded as failed — but above one it converts a long outage into
 stopped runs on the branch rather than one slow one, and the fix while it lasts
 is `yoyo pause` rather than waiting for the windows to run out.
 
+### A tracker that does not answer a listing
+
+A listing — `bd list`, which the development manager's docket, the forge
+reading on her pass, the claim audit, the admission guard, and `yoyo status`
+all make — is bounded at thirty seconds like every tracker call. bd takes an
+exclusive lock on its store for every command, reads included, and a write
+holds it while it rewrites the whole export beside the store, so a listing that
+arrives behind a write or two can be killed at its bound seconds before it would
+have answered.
+[The diagnosis](diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md) has
+the evidence.
+
+**A listing its bound killed is asked again, twice**, two seconds and then
+eight seconds later. Only a timeout is asked again: bd refusing, or answering
+something that does not decode, would say the same thing the next time. A
+listing that still fails is refused with how many attempts it made and over how
+long — `bd list did not answer within its 30s bound on any of 3 attempts over
+1m40s: …` — so what reads it says the tracker did not answer rather than that
+one listing timed out.
+
+**A pass carries on with what it could read and names what it could not.** The
+development manager's docket still lists every stoppage; it says that whether
+each entry's item is still open could not be read, that this is the harness's
+to retry rather than hers to wait on, and that an entry on closed work is closed
+by the next `yoyo reconcile`. The forge reading on her pass still compares every
+open pull request with its target and reports the ones whose branches are
+carried, and its problem on the pass says that none was judged on its item being
+closed and that the tracker is read again on the next pass. Nothing about a
+listing that did not answer fails a pass. The watching session's own reads of
+the queue keep the retry they already had — read again for up to five minutes,
+[with the session line saying so](#where-the-harness-stands-the-four-lines) —
+and a conversation's calls keep
+[theirs](#the-read-a-dispatch-makes-before-there-is-a-run).
+
+**`yoyo status` says since when.** Every listing the harness's own tracker
+client makes writes how it ended to `tracker-listings.json` under the product's
+state: the moment the first listing failed after the last one that answered,
+how many have failed since, and what the latest said. While listings are
+failing, the fourth line carries it under `Waiting on the harness`:
+
+```text
+Waiting on the harness (1):
+  the tracker has not answered a listing since 2026-09-30T18:13:00Z: 2 listing(s) failed after their retries, the latest at 2026-09-30T18:23:00Z: bd list did not answer within its 30s bound on any of 3 attempts over 1m40s: … — the harness's — each listing its thirty-second bound killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this
+```
+
+`--json` carries it as an entry of kind `tracker-unanswered`, with the record
+under `tracker_listings`. The first listing that answers clears it and records
+when, as `answered_at`. It is not the operator's: nothing about a contended
+store is a person's to settle while it lasts. A store that goes on refusing for
+hours is a different thing, and the item-level remedies above are still where it
+shows first.
+
+**What this does not cover** is a machine that sleeps. The twelve-hour stall
+from 21:53 PDT on 2026-09-29 was the laptop's lid being closed on battery, not
+the tracker: a recurring pass that was in flight when the machine went to sleep
+held the watching session's poll until it ended three and a half hours later,
+and the passes behind it ran only in the minute-long maintenance wakes the
+machine took overnight. A machine that runs the product unattended has to be
+kept awake — on power, with system sleep disabled; on a Mac laptop whose lid is
+closed that takes `sudo pmset -a disablesleep 1`, which `caffeinate` does not
+do — and nothing the harness does replaces that.
+
+**The watch log says which pass the session is in.** A watching session fires
+its recurring passes inside its poll, one at a time, so while a pass runs the
+session pulls nothing. Until yoyodyne-ifd.433.20 it also wrote nothing: the log
+went from its last line before that pass to 09:48 PDT the next morning with not
+a word. Now each pass the session begins is a line in `watch.jsonl` as it starts:
+
+```text
+taking the recurring pass of development-manager-sweep since 2026-09-30T04:52:08Z, fired by its schedule; the session fires its passes inside its poll, so it pulls nothing more until this pass ends
+```
+
+carried as `recurring_pass` — the task or instance, its role, what fired it,
+and when it began. It is a note about what the session is doing inside its
+poll rather than a change of the session's state, like a dispatch's wait: the
+session line on `yoyo status` and the stall reading still name the session's
+own last word, so a session idle over an empty queue that begins a pass is not
+read as one choosing work. The session's next line after the pass is the
+account of the poll that pass was part of. A pass that holds the poll for hours
+is therefore said as the pass, with its start, rather than left as silence; the
+pass still holds the poll, and running passes beside the poll rather than
+inside it is not done here.
+
 ## When a provider stalls or runs out of budget
 
 A provider invocation is bounded by two separate questions, because one deadline
@@ -3617,19 +3700,24 @@ where the queue could not be read.
 
 Each entry under `standing.needs_human` is the thing waiting rather than a
 sentence about it: its `kind`, from a closed set — `amendment`,
-`conversation-carried-item`, `report`, `owed-step`, `publication`,
-`degraded-service`, `failing-task`, `hold`, `directive`, `outage`, `stall`,
-`held-work`, `human-gate`, `untraced-pass` — the `id` of the record it is about (an amendment's, a
+`conversation-carried-item`, `report`, `amendment-queue`, `owed-step`,
+`publication`, `degraded-service`, `failing-task`, `hold`, `directive`,
+`outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
+`human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered` — the `id`
+of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
-name, a human gate's name, or which switch a hold is: `operator`, `intake`, or
-`capacity`), the
+name, a human gate's name, which switch a hold is: `operator`, `intake`, or
+`capacity`, and for a `factory-stall` the moment the factory last did anything
+and for a `tracker-unanswered` the moment listings began failing), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
 `unnamed-role`), and
 the record itself, whole, under a field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`,
-`owed_step`, `publication`, `held_work`, `human_gate`, `untraced_pass`, and for a hold `operator_hold`, `intake_hold`, or
+`owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
+`product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
+`tracker_listings`, and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work
@@ -3849,7 +3937,9 @@ and touches only runs that have gone quiet past the threshold with no wait
 recorded on them.
 
 A tracker that will not answer costs the audit and nothing else. It is the one
-reading in the pass that is reported rather than retried, because the pass has
+reading in the pass that is reported rather than retried by the session — the
+listing itself is asked again, twice, when its bound kills it, as
+[every listing is](#a-tracker-that-does-not-answer-a-listing) — because the pass has
 answers that need no tracker at all — a held intake is read from a switch — and
 an operator running `yoyo work` on a machine whose tracker is down should still
 be told what is holding it.

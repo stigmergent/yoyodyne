@@ -95,7 +95,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	if parts.docket != nil {
 		trigger.Docket = sweepDocket{
 			docketer: docketerFrom(parts),
-			items:    chatTracker(parts.runner, parts.repository),
+			items:    withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
 			window:   parts.docket,
 			// The standing `yoyo status` reads, so what she is shown as waiting on
 			// the operator is his needs-a-human line and not a second reading of it.

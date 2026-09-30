@@ -326,6 +326,9 @@ type Sources struct {
 	// how long no pull and no successful recurring pass may go before the
 	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
 	FactoryStallAfter time.Duration
+	// TrackerListings is how the tracker's listings stand, as every listing the
+	// harness's tracker client makes records it. Nil says nothing about them.
+	TrackerListings TrackerListingRecord
 	// TrackerTimeout bounds one tracker command, so an unresponsive tracker costs
 	// this answer a line rather than hanging the surface that asked.
 	TrackerTimeout time.Duration
@@ -882,6 +885,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		needs = append(needs, factoryStallAttention(*factoryStall))
 	}
 	needsProblem = joinProblems(needsProblem, factoryStallProblem)
+	// The tracker not answering listings is said here with since when, from the
+	// record every listing writes, rather than learned from whichever pass or
+	// docket last failed on one.
+	unanswered, unansweredProblem := ReadTrackerUnanswered(sources)
+	if unanswered != nil {
+		needs = append(needs, trackerUnansweredAttention(*unanswered))
+	}
+	needsProblem = joinProblems(needsProblem, unansweredProblem)
 	// Held work is on both lines for the reason handed-off work below is, and says
 	// a different thing on each: the queue's line says why nothing pulls each
 	// item, and this says who has to move and how many items are waiting on them.

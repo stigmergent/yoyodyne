@@ -657,12 +657,19 @@ func standingSources(configPath string) readmodel.Sources {
 	// The program manager instances, and everything their status is derived
 	// from.
 	programManagerSources(&sources, cfg, stateRoot)
+	// How the tracker's listings stand, so a tracker that is not answering them
+	// is said with since when. The status's own listings write to it too: a
+	// reading that could not list the tracker is evidence of the same thing.
+	listings, err := runstate.NewTrackerListingStore(stateRoot, cfg.Product.ID)
+	if err == nil {
+		sources.TrackerListings = listings
+	}
 	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), cfg.Product.Repository)
 	if err != nil {
 		sources.Tracker = unreadableTracker{fmt.Errorf("resolve product repository: %w", err)}
 		return sources
 	}
-	sources.Tracker = beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}
+	sources.Tracker = withListingRecord(beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}, listings)
 	return sources
 }
 

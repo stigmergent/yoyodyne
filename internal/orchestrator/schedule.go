@@ -440,6 +440,10 @@ type SessionState struct {
 	// about that dispatch in the same way a dispatch wait is; see
 	// runstate.WatchTransition.WorktreeCrossing.
 	WorktreeCrossing *runstate.WorktreeCrossing
+	// RecurringPass is a recurring pass the session has begun inside its poll,
+	// written as the pass starts. It is a note in the same way a dispatch wait
+	// is; see runstate.WatchTransition.RecurringPass.
+	RecurringPass *runstate.WatchPass
 	// Draining marks every transition the session makes while it waits out the
 	// runs it hosts to restart into a build deployed over it, with the bound on
 	// that wait. It is beside the state rather than a state because draining is
@@ -2024,7 +2028,7 @@ pulling:
 		// A task that went a whole interval unfired is recorded as missed first,
 		// with what kept it, before the firing that resumes it; see missed.
 		s.missed(ctx, &schedule, pull, &cadence)
-		cadence.hold(s.fire(ctx, &schedule, pull))
+		cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
 		// And a role whose tracker block the harness refused is woken here, last of
 		// the three. It is placed after the other two because it is the cheapest to
 		// be late with: the refusal is already in that conversation's next turn
@@ -5465,6 +5469,28 @@ func (w *watchSession) dispatching(ctx context.Context, workItemID string) conte
 			At:           wait.At,
 			Reason:       readmodel.DispatchWait{DispatchWait: wait}.Says(),
 			DispatchWait: &wait,
+		})
+	})
+}
+
+// passing hands a firing the means to say, as each recurring pass begins,
+// which pass the session is inside and since when. The session fires its passes
+// inside its poll, so for as long as one runs the session pulls nothing and,
+// until this, wrote nothing either: a pass that spanned the machine's sleep on
+// 2026-09-29 left the log silent for twelve hours
+// (docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md). The line is
+// written from the firing's own call, on the poll's goroutine, as a note rather
+// than a transition, so every fold of the log into the session's state reads
+// past it.
+func (w *watchSession) passing(ctx context.Context) context.Context {
+	if w.to == nil {
+		return ctx
+	}
+	return withPassStarting(ctx, func(pass runstate.WatchPass) {
+		w.record(SessionState{
+			State:         runstate.WatchWatching,
+			Reason:        pass.Says(),
+			RecurringPass: &pass,
 		})
 	})
 }

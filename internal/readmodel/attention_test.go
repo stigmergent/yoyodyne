@@ -139,6 +139,11 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			"no work has been pulled and no recurring pass has succeeded for 6h0m0s, past the 2h0m0s limit: work was last pulled at " + localMoment(moment.Add(-6*time.Hour)) +
 				", and no recurring pass has ever succeeded; each pass's latest failure: development-manager-sweep failed 6 times since, latest at " + localMoment(moment.Add(-time.Hour)) +
 				": list work items: timed out"},
+		AttentionTrackerUnanswered: {trackerUnansweredAttention(runstate.TrackerListings{
+			FailingSince: moment.Add(-time.Hour), Failures: 3, LatestAt: moment,
+			Latest: "bd list did not answer within its 30s bound on any of 3 attempts over 1m40s",
+		}),
+			"the tracker has not answered a listing since 2026-08-30T11:00:00Z: 3 listing(s) failed after their retries, the latest at 2026-08-30T12:00:00Z: bd list did not answer within its 30s bound on any of 3 attempts over 1m40s"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -196,23 +201,24 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 	// The identifiers, one kind at a time: each names the record a surface would
 	// open or act on.
 	for kind, want := range map[AttentionKind]string{
-		AttentionAmendment:       "amendment-0123456789abcdef0123456789abcdef",
-		AttentionCarriedItem:     "yoyodyne-ifd.212",
-		AttentionOwedStep:        "run-owed",
-		AttentionPublication:     "run-queued",
-		AttentionDegradedService: "scheduler",
-		AttentionFailingTask:     "development-manager-sweep",
-		AttentionHold:            HoldIntake,
-		AttentionDirective:       "directive-4f2c",
-		AttentionOutage:          string(domain.ProviderUnauthenticated),
-		AttentionStall:           string(ReasonSessionIdle),
-		AttentionReports:         "",
-		AttentionAmendmentQueue:  "",
-		AttentionHeldWork:        "",
-		AttentionProductDecision: "run-superseded",
-		AttentionHumanGate:       "soak-reviewed",
-		AttentionUntracedPass:    "factory-watch",
-		AttentionFactoryStall:    "2026-08-30T06:00:00Z",
+		AttentionAmendment:         "amendment-0123456789abcdef0123456789abcdef",
+		AttentionCarriedItem:       "yoyodyne-ifd.212",
+		AttentionOwedStep:          "run-owed",
+		AttentionPublication:       "run-queued",
+		AttentionDegradedService:   "scheduler",
+		AttentionFailingTask:       "development-manager-sweep",
+		AttentionHold:              HoldIntake,
+		AttentionDirective:         "directive-4f2c",
+		AttentionOutage:            string(domain.ProviderUnauthenticated),
+		AttentionStall:             string(ReasonSessionIdle),
+		AttentionReports:           "",
+		AttentionAmendmentQueue:    "",
+		AttentionHeldWork:          "",
+		AttentionProductDecision:   "run-superseded",
+		AttentionHumanGate:         "soak-reviewed",
+		AttentionUntracedPass:      "factory-watch",
+		AttentionFactoryStall:      "2026-08-30T06:00:00Z",
+		AttentionTrackerUnanswered: "2026-08-30T11:00:00Z",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)

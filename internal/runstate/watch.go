@@ -382,6 +382,20 @@ type WatchTransition struct {
 	// the day one takes more attempts than it is given and a run fails over a
 	// neighbour's cleanup (yoyodyne-ifd.429.33).
 	WorktreeCrossing *WorktreeCrossing `json:"worktree_crossing,omitempty"`
+	// RecurringPass is a recurring pass this session has begun, recorded as the
+	// pass starts. The session fires its passes inside its poll, one at a time, so
+	// from here until its next line it pulls nothing: on 2026-09-29 one pass that
+	// spanned the machine's sleep held the poll for three and a half hours, and
+	// the log said nothing at all from its last line before the pass until the
+	// morning (docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md).
+	// This is the line that says which pass the session is in, and since when.
+	//
+	// It is a note rather than a transition, for the reason a dispatch wait is:
+	// the session's state has not changed — it is doing what its last line said,
+	// and a surface that took the pass for the session's latest word would read a
+	// session idle over an empty queue as one choosing work. It is written as a
+	// watching entry for the same reason too.
+	RecurringPass *WatchPass `json:"recurring_pass,omitempty"`
 
 	// Draining marks a session that has found a build deployed over it and is
 	// waiting out the runs it hosts before it restarts — bounded, so that the wait
@@ -415,7 +429,39 @@ func (t WatchTransition) RetryingRead() bool {
 // dispatch's own goroutine while the session goes on polling, so taking one as
 // the session's latest word would report a session idle over an empty queue as
 // one still choosing, for as long as nothing else it did was news.
-func (t WatchTransition) Note() bool { return t.DispatchWait != nil || t.WorktreeCrossing != nil }
+func (t WatchTransition) Note() bool {
+	return t.DispatchWait != nil || t.WorktreeCrossing != nil || t.RecurringPass != nil
+}
+
+// WatchPass is one recurring pass a watch session has begun: which task or
+// program manager instance, the role it wakes, what triggered it, and when it
+// began.
+type WatchPass struct {
+	Task    string           `json:"task"`
+	Role    domain.AgentRole `json:"role,omitempty"`
+	Trigger PassTrigger      `json:"trigger,omitempty"`
+	At      time.Time        `json:"at"`
+}
+
+// Says is the pass in the words the watch log's reason carries.
+func (p WatchPass) Says() string {
+	said := fmt.Sprintf("taking the recurring pass of %s since %s", p.Task, p.At.UTC().Format(time.RFC3339))
+	if p.Trigger != "" {
+		said += fmt.Sprintf(", fired by its %s", p.Trigger)
+	}
+	return said + "; the session fires its passes inside its poll, so it pulls nothing more until this pass ends"
+}
+
+func (p WatchPass) validate() error {
+	var problems []error
+	if strings.TrimSpace(p.Task) == "" {
+		problems = append(problems, errors.New("a recurring pass note names the task or instance it is a pass of"))
+	}
+	if p.At.IsZero() {
+		problems = append(problems, errors.New("a recurring pass note records when the pass began"))
+	}
+	return errors.Join(problems...)
+}
 
 // WorktreeCrossing is one Git command a dispatch ran again over another
 // worktree's creation or removal: which item the dispatch was for, which command,
@@ -703,6 +749,19 @@ func (t WatchTransition) Validate() error {
 			problems = append(problems, errors.New("an entry carries a dispatch wait and a worktree crossing, and a note is one or the other"))
 		}
 		if err := t.WorktreeCrossing.validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	// A pass note is written only as a watching entry, and is one note on its own,
+	// for the reasons the two above are.
+	if t.RecurringPass != nil {
+		if t.State != WatchWatching {
+			problems = append(problems, fmt.Errorf("a %s entry cannot carry a recurring pass, which is written only as a watching one", t.State))
+		}
+		if t.DispatchWait != nil || t.WorktreeCrossing != nil {
+			problems = append(problems, errors.New("an entry carries a recurring pass beside another note, and a note is one thing"))
+		}
+		if err := t.RecurringPass.validate(); err != nil {
 			problems = append(problems, err)
 		}
 	}
