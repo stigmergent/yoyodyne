@@ -367,3 +367,51 @@ func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
 		t.Fatalf("the next pull attempted %+v (checks read %d times); want the refusal left to cool", again, checks.asked)
 	}
 }
+
+// Handing the change back leaves the old request open only until the fresh run
+// lands. Once it has, that request carries work that reached the target branch
+// by another vehicle, so the re-run closes it in that vehicle's name and records
+// the supersession beside the hand-back — the case whose request nothing closed
+// before yoyodyne-ifd.69.
+func TestARerunClosesTheHandedBackPublicationOnceTheFreshRunLands(t *testing.T) {
+	t.Parallel()
+
+	armed, _, _ := newUnarmedHarness(t)
+	intake, err := runstate.NewIntakeHoldStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewIntakeHoldStore() error = %v", err)
+	}
+	recordRerunDecision(t, armed.runs, armed.state.WorkItemID, armed.state.RunID)
+	rerun := &rerunHarness{
+		docket:   armed.docket,
+		runs:     armed.runs,
+		intake:   intake,
+		reruns:   armed.runs.Reruns(),
+		item:     beads.WorkItem{ID: armed.state.WorkItemID, Title: armed.state.WorkItemTitle, Status: "open"},
+		capacity: 2,
+		outcome:  Outcome{RunID: "run-fedcba9876543210fedcba9876543210", WorkItemID: armed.state.WorkItemID, Status: runstate.StatusSucceeded},
+	}
+	rerun.integrated()
+	rerun.merged(445)
+
+	result, err := rerun.rerunner().Rerun(context.Background(), RerunRequest{Run: armed.state.RunID})
+	if err != nil {
+		t.Fatalf("Rerun() error = %v", err)
+	}
+	if len(rerun.closed) != 1 || rerun.closed[0].Number != armed.state.PullRequest.Number {
+		t.Fatalf("closed = %#v, want the handed-back request %d closed once", rerun.closed, armed.state.PullRequest.Number)
+	}
+	if !strings.Contains(rerun.closed[0].Comment, "#445") || !strings.Contains(rerun.closed[0].Comment, "handed back for a fresh run") {
+		t.Errorf("close comment = %q, want the fresh run's pull request named and the hand-back said", rerun.closed[0].Comment)
+	}
+	if result.Publication == nil || !result.Publication.Closed {
+		t.Errorf("publication = %#v, want the close reported", result.Publication)
+	}
+	retired := armed.reload(t)
+	if retired.PullRequest.HandedBack == nil || !strings.Contains(retired.PullRequest.Superseded, "#445") {
+		t.Fatalf("recorded publication = %+v, want it handed back and superseded by pull request 445", retired.PullRequest)
+	}
+	if retirablePublication(retired) {
+		t.Error("the retired publication still reads as one a sweep should close")
+	}
+}
