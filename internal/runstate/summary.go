@@ -128,6 +128,54 @@ func Ending(status Status, handedToAPerson bool) RunOutcome {
 	}
 }
 
+// NoReasonSays is what every surface says as the reason of a run that ended
+// without succeeding and whose record gives none. It is one phrase here rather
+// than one per surface for the reason ResumingIntegrationSays is: the channel
+// line and `yoyo status` must not say different words about one run. It states
+// the absence as itself, because a run can honestly end with no reason — a
+// cancellation owes nobody a sentence — and a surface that printed nothing
+// instead reads as a run whose reason the operator had already seen.
+const NoReasonSays = "the record names no reason"
+
+// Reason is why the run stopped, with the class that stopped it as the first
+// word, exactly as RunSummary.Reason says it: the channel line and `yoyo status`
+// must not give two answers about one run.
+func (s State) Reason() string {
+	return stopReason(s.Status, s.Outcome(), s.StopClass, s.Failure, s.Blocker,
+		s.PublishFailure, s.CleanupFailure, s.CompletionRecordingFailure)
+}
+
+// stopReason is the one derivation behind State.Reason and RunSummary.Reason.
+//
+// The words are the run's own failure first, then the account of whatever its
+// class names that a succeeded run stopped short of, and then the blocker: a
+// stoppage settled onto a record some killed process had already left terminal
+// can carry the words the item was blocked in and no failure, and saying the
+// record names no reason over it would be false. Only where the record gives
+// none of those, names no class, and carries no outstanding publication — which
+// each surface says under its own label — is the absence said, and only of a
+// run that ended without succeeding.
+func stopReason(status Status, outcome RunOutcome, class StopClass, failure, blocker, publish, cleanup, recording string) string {
+	words := strings.TrimSpace(failure)
+	if words == "" {
+		switch class {
+		case StopPublish:
+			words = strings.TrimSpace(publish)
+		case StopCleanup:
+			words = strings.TrimSpace(cleanup)
+		case StopRecording:
+			words = strings.TrimSpace(recording)
+		}
+	}
+	if words == "" {
+		words = strings.TrimSpace(blocker)
+	}
+	if words == "" && class == "" && endedBadly(status, outcome) && strings.TrimSpace(publish) == "" {
+		words = NoReasonSays
+	}
+	return StopReason(class, words)
+}
+
 // Artifacts is what a run's record says survives of its change: the branch and
 // the worktree it made, and the harness's own record of which of them it
 // removed. It is a type rather than four fields read in place because the
@@ -264,6 +312,11 @@ type RunSummary struct {
 	// StopClass is which gate stopped the run, exactly as State.StopClass records
 	// it. Reason is how a surface prints it, as the first word of the reason.
 	StopClass StopClass `json:"stop_class,omitempty"`
+	// Blocker is the words the run's work item was handed back in, where it was.
+	// It is carried so the reason a surface prints can fall back to it on a run
+	// that recorded a blocker and no failure, which is what Reason reads.
+	// What became of the run is still Outcome's to say.
+	Blocker string `json:"blocker,omitempty"`
 	// FailingCheck is the deterministic check that was still failing when the
 	// record was last written. It is what a repair attempt was handed, so on a
 	// failed run it is usually the thing behind the reason rather than a second
@@ -367,24 +420,16 @@ type RunSummary struct {
 func (r RunSummary) Failed() bool { return endedBadly(r.Status, r.Outcome) }
 
 // Reason is why the run stopped, with the class that stopped it as the first
-// word. The words are the run's own failure where it recorded one, and otherwise
-// the account of whatever its class names that a succeeded run stopped short of —
+// word. The words are the run's own failure where it recorded one; otherwise the
+// account of whatever its class names that a succeeded run stopped short of —
 // the publication, the cleanup, or the completion record — so a run whose only
-// account is one of those still says why it stopped. It is empty for a run that
-// recorded neither a class nor a failure.
+// account is one of those still says why it stopped; and otherwise the blocker
+// its item was handed back in. A run that ended without succeeding and gives
+// none of those says NoReasonSays; a run still going, or one that succeeded
+// with nothing outstanding, gives nothing.
 func (r RunSummary) Reason() string {
-	reason := r.Failure
-	if strings.TrimSpace(reason) == "" {
-		switch r.StopClass {
-		case StopPublish:
-			reason = r.PublishFailure
-		case StopCleanup:
-			reason = r.CleanupFailure
-		case StopRecording:
-			reason = r.CompletionRecordingFailure
-		}
-	}
-	return StopReason(r.StopClass, reason)
+	return stopReason(r.Status, r.Outcome, r.StopClass, r.Failure, r.Blocker,
+		r.PublishFailure, r.CleanupFailure, r.CompletionRecordingFailure)
 }
 
 // Artifacts is what this summary says survives of the run's change.
@@ -530,6 +575,7 @@ func (s *Store) summarize(state State) RunSummary {
 		Build:               state.Build,
 		Failure:             state.Failure,
 		StopClass:           state.StopClass,
+		Blocker:             state.Blocker,
 		ReportProblem:       state.ReportProblem,
 		AmendmentProblem:    state.AmendmentProblem,
 		Amendments:          slices.Clone(state.Amendments),
