@@ -95,7 +95,7 @@ func TestAQueueNothingIsDrainingIsNamedByItsAge(t *testing.T) {
 	rendered := standing.Render()
 	for _, want := range []string{
 		"2 of 2 proposed change(s) are undecided, the oldest raised 23d ago, against the architect's documents",
-		"the operator's — proposals are decided with `yoyo amendment`",
+		"the Lead Product Manager's — proposals are decided with `yoyo amendment`",
 		"not keeping up, or none is enabled",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -174,8 +174,8 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 	}
 	rendered := standing.Render()
 	for _, want := range []string{
-		"the architect's batch of 2 proposed changes needs your hand: decide " + first.ID + " approve;",
-		"only a person can act on this; " + amendmentBatchEnds,
+		"the architect's batch of 2 proposed changes was raised for the operator's hand: decide " + first.ID + " approve;",
+		"— the architect's — the owning role has argued them, and `yoyo amendment` records each decision, which needs the operator's hand until owning roles decide amendments themselves (yoyodyne-ifd.437.14); " + amendmentBatchEnds,
 		"a change to v1-design is proposed and undecided (" + first.ID + ") — the architect's",
 		"a change to v1-design is proposed and undecided (" + unargued.ID + ") — the architect's",
 	} {
@@ -186,8 +186,8 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 	if strings.Contains(rendered, decided.ID) {
 		t.Fatalf("a decided proposal is still on the line:\n%s", rendered)
 	}
-	// The batch leads the proposals it covers: it is the entry whose next move
-	// is the operator's alone.
+	// The batch leads the proposals it covers: it is the entry that decides
+	// them.
 	if strings.Index(rendered, "batch of 2") > strings.Index(rendered, "undecided ("+first.ID) {
 		t.Fatalf("the batch comes after the proposals it covers:\n%s", rendered)
 	}

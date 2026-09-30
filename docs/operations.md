@@ -52,13 +52,13 @@ leaves nothing to clean up and the next `yoyo start` simply starts one.
 part every few seconds. A part that dies is started again after a backoff that
 doubles from a second and is capped at thirty; a part that dies within two
 minutes of a start five times in a row is, on the sixth, left down and shown as
-**degraded** — on `yoyo status`'s "Needs a human" line, with the reason the
-supervisor recorded and who it is waiting on, and in the channel's hourly lines,
-which read the same model:
+**degraded** — on `yoyo status`'s fourth line under `Waiting on the harness`,
+with the reason the supervisor recorded and who it is waiting on, and in the
+channel's hourly lines, which read the same model:
 
 ```text
-Needs a human (1):
-  the scheduler service is degraded: died 6 times within 2m0s of being started, most recently at 2026-09-19T12:03:00Z, so it is left down — the operator's — the supervisor has stopped restarting it; fix the cause, then `yoyo stop` and `yoyo start` bring it back, or start the part by hand and the supervisor takes it back
+Waiting on the harness (1):
+  the scheduler service is degraded: died 6 times within 2m0s of being started, most recently at 2026-09-19T12:03:00Z, so it is left down — the harness's — the supervisor has stopped restarting it; fix the cause, then `yoyo stop` and `yoyo start` bring it back, or start the part by hand and the supervisor takes it back
 ```
 
 A part that cannot be started at all — the Slack service with this product's
@@ -615,9 +615,21 @@ class sat in the pile from 2026-08-17 until the sweep of 2026-09-14 reached
 them, and the finding it produced reached you a month after the first of them
 was filed, because you asked why.
 
-**A finding that needs your hand is a class the harness reads, and it goes to
-three places the moment it is recorded.** Four things make one, and the
-brake's hold becomes a fifth once it is yours:
+**A finding raised for your hand is a class the harness reads, and whose it
+is comes from the ownership registry, not from whoever raised it.** The
+registry (`internal/ownership`, see
+[who owns what](designs/ownership-and-the-operator.md)) makes a finding yours
+only for a reason on its closed list — `fundamental-intent`, `credential`,
+`forge-setting`, `beyond-grant`, `human-gate`, `own-hold`, or
+`diverged-history` — and a handling or an escalation names its reason by
+opening its account with it and a colon: `beyond-grant: add the PreToolUse
+hook to .claude/settings.json`. One that names no reason is the Lead Product
+Manager's: a handling is hers to settle, route to the role that owns it, or
+handle again naming the reason, and an escalation is hers as the role above
+the development manager. A critical report nobody has handled is hers. An
+owning role's batch of recommendations is that role's, and still needs your
+hand to type `yoyo amendment` until owning roles decide amendments themselves
+(yoyodyne-ifd.437.14). Four things raise one:
 
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
   `"needs": "operator"` for a report whose answer is a change only you can make,
@@ -671,15 +683,15 @@ brake's hold becomes a fifth once it is yours:
   message is the pass's decision list — each proposal with what its owner
   recommends, then the reasons. A proposal you decide drops out of it, and the
   finding ends when the last one in it is decided.
-- **The failure-storm brake's hold, once it is yours.** The hold names the runs
-  it counted — each with its item and what stopped it. The trip is sent to you
-  directly once, tagged, the moment it is recorded, naming those runs and
-  `yoyo release`. While the development manager and the harness are working it,
-  it is theirs to move and the message says so; once she escalates it to you,
-  or the harness does at the bound on its loop, that is said to you directly
-  once more and its line on `yoyo status` names you as the one to move.
-  [The configuration guide](configuration.md#watching-instead-of-draining) says
-  what the brake counts, what it does not, and how it is worked.
+The failure-storm brake's hold is not one of them. It names the runs it
+counted — each with its item and what stopped it — and the trip is said to the
+channel once, the moment it is recorded, naming those runs and `yoyo release`.
+While the development manager decides it, it is hers; while the harness acts on
+her decision or runs a probe, it is the harness's; once she escalates it, or
+the harness does at the bound on its loop, it is the Lead Product Manager's, as
+the role above the development manager. None of those is yours, so none is sent to you directly or
+tagged. [The configuration guide](configuration.md#watching-instead-of-draining)
+says what the brake counts, what it does not, and how it is worked.
 
 Two stops a run makes on its own are named to you elsewhere and are not
 findings of this class: a run parked on provider capacity the harness cannot
@@ -689,23 +701,23 @@ with whose move it is.
 
 Where each goes:
 
-1. **One Slack direct message, tagged to you by member id, the moment it is
-   recorded** — saying what is needed, who found it, and where it is recorded,
-   so you can go and read the whole of it. It is said once and never again
-   while it stands: a second pass sends nothing more, and a message repeated
-   about something you have been told is the nagging that gets a channel muted.
-   The brake's message names the runs it counted; the release of any intake
-   hold is said once, naming who lifted it. See
+1. **One Slack message the moment it is recorded** — saying what is needed, who
+   found it, where it is recorded, and whose it is — sent to you directly and
+   tagged by member id only where the registry makes it yours, and said in the
+   item's thread otherwise. It is said once and never again while it stands: a
+   second pass sends nothing more, and a message repeated about something you
+   have been told is the nagging that gets a channel muted. The release of any
+   intake hold is said once, naming who lifted it. See
    [reporting](reporting.md#a-finding-that-needs-your-hand).
-2. **A named line under `Needs a human` on `yoyo status`**, printed wherever it
-   falls among the operator's entries and never folded into `and N things not
-   named here`:
-   `report-… needs your hand: <what> (found by …; recorded in …)`,
-   `yoyodyne-ifd.272 (<its title>) needs your hand: <the development manager's reason> (found
+2. **A named line on `yoyo status`** — under `Needs a human` where it is yours,
+   and under the head of the role it belongs to otherwise — printed wherever it
+   falls and never folded into `and N things not named here`:
+   `report-… was raised for the operator's hand: <what> (found by …; recorded in …)`,
+   `yoyodyne-ifd.272 (<its title>) was raised for the operator's hand: <the development manager's reason> (found
    by the development manager, escalating the stopped run to the operator;
-   recorded in …)`, `the architect's batch of 3 proposed changes needs your
-   hand: decide amendment-… approve; …`, and for the brake `intake is held, since <trip time>: …;
-   tripped by run … of …: …`. It stays until the finding ends — the change
+   recorded in …)`, `the architect's batch of 3 proposed changes was raised
+   for the operator's hand: decide amendment-… approve; …`, each followed by
+   whose it is and, where it is yours, why. It stays until the finding ends — the change
    recorded made, the report handled, the run decided again or its escalation
    ended, the batch's
    last proposal decided, the hold lifted.
@@ -814,8 +826,10 @@ waiting on, under the head of whoever that is — `Waiting on the development
 manager` while she decides, with when the probe
 starts if she has not; the harness's while a probe runs, naming the probe;
 either of those with which summons-and-probe cycle it is and at what cycle the
-harness stops asking; and yours only once it is escalated, saying whether she
-did or the harness did, and only then under `Needs a human` — the watch log and the channel say the same,
+harness stops asking; and, once it is escalated — saying whether she did or
+the harness did — the Lead Product Manager's, under `Waiting on the Lead
+Product Manager`, since the ownership registry gives an escalation to the role
+above rather than to you — the watch log and the channel say the same,
 `yoyo sweeps` shows the summoned pass as summoned, and the run the probe made
 records the brake as what chose it. `yoyo release` still lifts a brake
 hold sooner, and says what the harness was in the middle of when it did.
@@ -1331,8 +1345,12 @@ The provider is not authenticated; the operator must log in: every role is waiti
 Running: nothing
 ...
 Needs a human (1):
-  The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider, or wait for the network; the harness resumes on its own once it answers, and nothing is released or restarted
+  The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider; the harness resumes on its own once it answers, and nothing is released or restarted (his because it is a credential only a person holds)
 ```
+
+An outage whose cause is an unreachable network is nobody's move: the harness
+resumes once the provider answers, and it is listed under `Waiting on nobody's
+move`.
 
 The channel says it once the moment it is seen, tagged to the operators by
 member id, and once more when the provider answers again: see
@@ -3169,8 +3187,9 @@ Not startable (4 of 7 admitted items; 1 awaits the development manager's decisio
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
   yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
   yoyodyne-ifd.150 (The release gate commits the tracker's derived exports instead of refusing on them) — held since 2026-09-15 07:05 PDT, 5 hours ago; run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
-Needs a human (1):
-  directive directive-4f2c… is unresolved: which branch does this land on? — the operator's — the work it affects waits until `yoyo directive resolve` settles it
+Needs a human: nothing
+Waiting on the Lead Product Manager (1):
+  directive directive-4f2c… is unresolved: which branch does this land on? — the Lead Product Manager's — she ends it or carries it into a document or an item, and the work it affects waits until `yoyo directive resolve` settles it
 Waiting on the development manager (1):
   1 admitted item awaits the development manager's decision — the development manager's — nothing pulls a stopped item until she decides what happens to it
 Waiting on the harness (1):
@@ -3369,7 +3388,15 @@ has the rule.
   thirty-three items read as a decision backlog for days while the development
   manager had decided every one of them and the gap was the carry-out.
 - **Needs a human** is always present, and says either `nothing` or the list of
-  what waits on the operator, the one human the line is named for. Everything
+  what waits on the operator, the one human the line is named for. Who each
+  entry waits on is the ownership registry's answer (`internal/ownership`, see
+  [who owns what](designs/ownership-and-the-operator.md)), which every surface
+  prints rather than working out: an entry is the operator's only for a reason
+  on its closed list, and says which after its remedy — `(his because it is a
+  step the item reserves for a person)` — and an entry the registry cannot
+  classify is the Lead Product Manager's, with the remedy `classify this
+  entry`. `--json` carries each entry's `mover`, `owner_reason`, `remedy`, and
+  `capability`. Everything
   else that is waiting is printed under it, one line per mover — `Waiting on the
   development manager (2):`, `Waiting on the harness (1):`, `Waiting on the
   forge (1):` — in the order the Lead Product Manager, the architect, the
@@ -3466,8 +3493,8 @@ holding every role at once**.
 Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 134 turns refused since 2026-09-08T07:38:40Z
 Running: nothing
 ...
-Needs a human (1):
-  every role is held by the provider's usage window, since 2026-09-08T07:38:40Z, until 2026-09-13T03:00:00Z — the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does
+Waiting on the harness (1):
+  every role is held by the provider's usage window, since 2026-09-08T07:38:40Z, until 2026-09-13T03:00:00Z — the harness's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does
 ```
 
 It is read from the [refusals the harness records outside a run](#a-provider-refusal-outside-a-run)
@@ -5190,9 +5217,8 @@ line per firing here, and it was found by somebody reading the log. So from the
 second such firing in a row — counted back to the last firing that took a turn,
 with firings the provider refused neither counting nor resetting the count —
 the task is an entry on `yoyo status`'s fourth line naming the task,
-the cause, the latest refusal, and how many in a row — under `Needs a human`
-where the operator's move ends it, and under `Waiting on the harness` where the
-harness's does:
+the cause, the latest refusal, and how many in a row — under `Waiting on the
+harness`:
 
 ```text
 Needs a human: nothing
@@ -5200,11 +5226,12 @@ Waiting on the harness (1):
   the recurring task development-manager-sweep has failed before its first turn 2 times in a row since 2026-09-26T06:39:00Z: the harness refused the message it composed for the pass; latest: scheduled pass's message is 47768 bytes, limit is 32768; … — the harness's — the harness refuses what it composed for the pass, which is a defect in the harness rather than anything waiting it out will end; every firing meets the same refusal until the harness is fixed, and the first firing that takes a turn clears this
 ```
 
-Whose move it is follows the cause. A message the harness refused, or a turn it
-could not assemble, is **the harness's**: it composed what it then refused. A
-conversation that would not open is **the operator's**: what stops it is a role
-no agent fills, a conversation record that will not load, or a session somebody
-else is holding. `--json` carries the entry with kind `failing-task`, the task
+Whose move it is is the harness's whatever the cause, as the ownership
+registry gives it. A message the harness refused, or a turn it could not
+assemble, is a defect in what it composed. A conversation that would not open —
+a role no agent fills, a conversation record that will not load, or a session
+somebody else is holding — is the harness's to report with the failure, and
+none of those is an act only a person can perform. `--json` carries the entry with kind `failing-task`, the task
 as its `id`, and the record under `failing_task`: the task, role, cause, latest
 problem, the count as `failures`, and `first_at`, `raised_at` (the second
 failure), and `latest_at`. The dashboard's list of what is waiting, and on whom, opens

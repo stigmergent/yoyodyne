@@ -42,8 +42,10 @@ func AwaitingForge(states []runstate.State) []runstate.State {
 // harness's: the next reconcile looks the request up by the run's branch and
 // arms its merge. Until yoyodyne-ifd.429.31 the request nothing asked the forge
 // to merge was the operator's, whose only move was a hand merge on the forge;
-// what is left as the operator's is an unmerged request whose record carries
-// some other account and no drop. All are settled by the same sweep once the
+// an unmerged request whose record carries some other account and no drop is
+// the development manager's too, handed back to her like a drop, since the
+// ownership registry names the operator only where the forge refuses the
+// harness's token, which no record here says. All are settled by the same sweep once the
 // forge records the merge, and the sentence Attention.Whose derives from the
 // record says so. A merge the sweep withdrew because its checks failed on the
 // target itself is the harness's too: it waits on the items filed for that
@@ -63,34 +65,16 @@ func awaitingForgeAttention(state runstate.State) Attention {
 		dropped := *state.MergeDrop
 		publication.MergeDrop = &dropped
 	}
-	// The mover is read off the same fields, in the same order, that Whose
-	// reads them in: a queued merge is the forge's whatever was dropped before
-	// it was re-armed.
-	mover := MoverHarness
+	// Whose move it is is the ownership registry's, read off these fields.
 	if state.PullRequest != nil {
 		published := *state.PullRequest
 		publication.PullRequest = &published
-		switch {
-		case published.MergeQueued:
-			mover = MoverForge
-		case state.WaitingOnRedTarget():
-			// Withdrawn for the target's red check, and waiting on the items filed
-			// for it: the harness takes it up once they close, and nobody decides.
-			mover = MoverHarness
-		case publication.MergeDrop != nil:
-			mover = MoverDevelopmentManager
-		case state.PublicationUnasked():
-			publication.Unarmed = true
-			mover = MoverDevelopmentManager
-		default:
-			mover = MoverOperator
-		}
+		publication.Unarmed = !published.MergeQueued && !state.WaitingOnRedTarget() && publication.MergeDrop == nil && state.PublicationUnasked()
 	}
-	return Attention{
+	return resolved(Attention{
 		Kind:        AttentionPublication,
 		ID:          state.RunID,
-		Mover:       mover,
 		WorkItemID:  state.WorkItemID,
 		Publication: &publication,
-	}
+	})
 }

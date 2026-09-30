@@ -1,6 +1,7 @@
 package readmodel
 
 import (
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 	t.Parallel()
 
 	wants := map[Mover]string{
-		MoverOperator:           "Needs a human (1):\n",
+		ownership.Operator:      "Needs a human (1):\n",
 		MoverProductManager:     "Waiting on the Lead Product Manager (1):\n",
 		MoverArchitect:          "Waiting on the architect (1):\n",
 		MoverDevelopmentManager: "Waiting on the development manager (1):\n",

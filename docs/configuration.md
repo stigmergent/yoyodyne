@@ -3204,14 +3204,13 @@ harness escalated is still hers to release if the line turns out to be fine; a
 probe decision on it is refused, because the bound ended the loop. Zero never
 escalates on its own, which is the loop as it stood before the bound existed.
 
-So a brake hold waits on a person only once it is escalated, by her or by the
-harness at that bound, and either escalation is sent to you once, directly and
-tagged by member id, the moment it is recorded — it is
-[a finding for you](operations.md#where-a-finding-that-needs-your-hand-goes).
-The trip itself is sent to you directly too, once and tagged, the moment it is
-recorded, naming the runs it counted and `yoyo release`: it is not yours to
-move while the harness is working it, and the message says whose it is, but it
-is the one hold you did not place. `yoyo release` and the conversation's
+Whose a brake hold is comes from the ownership registry: the development
+manager's while she decides it, the harness's while it acts on her decision or
+runs a probe, and the Lead Product Manager's — the role above her — once it is
+escalated, by her or by the harness at that bound. None of those is yours, so
+the trip and either escalation are said to the channel once, the moment each is
+recorded, naming the runs it counted, whose it is, and `yoyo release`, and none
+is sent to you directly or tagged. `yoyo release` and the conversation's
 `/release` still lift any of them sooner.
 
 The hold records which of you placed it, and everything that reports one says

@@ -1912,7 +1912,7 @@ func Gated(queue backlog.Queue) []Attention {
 // act is his; an unreadable declaration is his to see and its author's to
 // correct, and the sentence says so.
 func humanGateAttention(workItemID string, wait HumanGateWait) Attention {
-	return Attention{Kind: AttentionHumanGate, ID: wait.Gate, Mover: MoverOperator, WorkItemID: workItemID, HumanGate: &wait}
+	return resolved(Attention{Kind: AttentionHumanGate, ID: wait.Gate, WorkItemID: workItemID, HumanGate: &wait})
 }
 
 // pausedBy is the unresolved directive that stops one item, or nothing.

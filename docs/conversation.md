@@ -2021,9 +2021,13 @@ waiting on a person, and the report reaches [the pile you
 read](reporting.md#what-agents-report-and-where-it-reaches-you). Prose alone is not an escalation, and the
 harness refuses one carrying no such report rather than blocking an item you
 were never told about. The decision itself is
-[a finding that needs your hand](operations.md#where-a-finding-that-needs-your-hand-goes):
-it is said to you directly once, and named under `Needs a human` on
-`yoyo status` while it stands as the decision on the item's latest stopped run. **A `retire-raise` lifts the raise's own parking and the blocked status it
+[a finding raised for your hand](operations.md#where-a-finding-that-needs-your-hand-goes),
+and whose it is is the ownership registry's answer: yours only where her
+reason opens with a reason on its closed list and a colon —
+`diverged-history: …`, `credential: …` — and otherwise the Lead Product
+Manager's, as the role above her. It is said once, to you directly only where
+it is yours, and named on `yoyo status` while it stands as the decision on the
+item's latest stopped run. **A `retire-raise` lifts the raise's own parking and the blocked status it
 left, and closes the raise's entry**, as it is recorded, as the paragraph on
 raises above says. `rescope` and `wait` are the two that are a note and
 nothing else — a re-scope's real work is the child item it creates beside the

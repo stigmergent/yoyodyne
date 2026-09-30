@@ -666,7 +666,7 @@ type Pull struct {
 	BrakeCooldown time.Duration
 	// BrakeEscalationCycles is execution.brake_escalation_cycles as this pull
 	// read it: how many summons-and-probe cycles the brake goes round before it
-	// escalates the hold to the operator itself. Zero never escalates on its own.
+	// escalates the hold past her itself. Zero never escalates on its own.
 	BrakeEscalationCycles int
 	// Brake places that hold and works it. It is optional, and a session wired
 	// without one counts the storm and reports it without stopping the line,
@@ -3305,7 +3305,7 @@ type brakeAction int
 
 const (
 	// brakeWaiting is the hold standing: the development manager deciding, a
-	// probe in flight, or the hold escalated to the operator. The session waits
+	// probe in flight, or the hold escalated past her. The session waits
 	// as it always did under a held intake.
 	brakeWaiting brakeAction = iota
 	// brakeReleased is the hold lifted by this poll, on her decision to release
@@ -4766,7 +4766,7 @@ func brakedMover(hold runstate.IntakeHold) string {
 	if !hold.Braked() {
 		return ""
 	}
-	return hold.Whose()
+	return readmodel.IntakeHoldWhose(hold)
 }
 
 // opening says what the session was started to do, which is the first thing its
@@ -5983,7 +5983,7 @@ func (s Schedule) Render() string {
 		fmt.Fprintf(&rendered, "the brake's hold was released at %s: %s\n", released.At.UTC().Format(time.RFC3339), released.Reason)
 	}
 	if escalated := s.BrakeEscalated; escalated != nil {
-		fmt.Fprintf(&rendered, "the brake's hold was escalated to the operator at %s, after %d summons-and-probe cycle(s) with the development manager not escalating it; the last probe run, of %s, blocked: %s\n",
+		fmt.Fprintf(&rendered, "the brake's hold was escalated past the development manager at %s, after %d summons-and-probe cycle(s) with the development manager not escalating it; the last probe run, of %s, blocked: %s\n",
 			escalated.At.UTC().Format(time.RFC3339), escalated.Cycles, escalated.Probe, singleLine(escalated.Reason, maxScheduleReasonBytes))
 	}
 	if s.BrakeProblem != "" {
