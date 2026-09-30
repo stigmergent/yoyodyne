@@ -35,6 +35,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 const (
@@ -744,7 +745,7 @@ func NewWatchStore(root string, productID domain.ProductID) (*WatchStore, error)
 		return nil, err
 	}
 	return &WatchStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

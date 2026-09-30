@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -198,7 +199,7 @@ func resolveRoots(resolved config.Resolved) (roots, error) {
 	}
 	worktreeRoot := cfg.Execution.WorktreeRoot
 	if worktreeRoot == "auto" {
-		worktreeRoot = filepath.Join(stateRoot, "worktrees", string(cfg.Product.ID), string(cfg.Product.RepositoryID))
+		worktreeRoot = home.WorktreeDirectory(stateRoot, string(cfg.Product.ID), string(cfg.Product.RepositoryID))
 	} else {
 		worktreeRoot, err = resolvePath(projectDirectory, worktreeRoot)
 		if err != nil {
@@ -223,12 +224,20 @@ func resolveRoots(resolved config.Resolved) (roots, error) {
 
 // productStateRoot is the state root every command opens a product's records
 // under, and the only way a command in this package reaches one. It resolves the
-// root the one way runstate.ResolveRoot does, and then agrees it with the marker
-// in the configured repository's Git directory: the first process records the
-// root there, and a process that resolved a different one refuses to start
-// naming both, so one product's state is never split between two roots by two
-// layers of configuration. The watch, the sink, the dashboard, the supervisor,
-// conversations, and runs all open their stores through here.
+// root the one way runstate.ResolveRoot does, and then holds the start to two
+// records before anything is opened under it.
+//
+// The first is the marker in the configured repository's Git directory: the
+// first process records the root there, and a process that resolved a different
+// one refuses to start naming both, so one product's state is never split
+// between two roots by two layers of configuration.
+//
+// The second is the project's binding in the home: the product id is bound to
+// one repository, by its Git common directory, and a start from a second clone,
+// from another product using the same id, or against a bound repository that is
+// gone refuses, naming the one command that settles it. A first start writes
+// the binding and says so on stderr. The watch, the sink, the dashboard, the
+// supervisor, conversations, and runs all open their stores through here.
 func productStateRoot(resolved config.Resolved) (string, error) {
 	root, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
 	if err != nil {
@@ -240,6 +249,18 @@ func productStateRoot(resolved config.Resolved) (string, error) {
 	}
 	if err := runstate.AgreeRoot(repository, root); err != nil {
 		return "", err
+	}
+	agreement, err := home.Agree(home.AgreeOptions{
+		Root:      root.Path,
+		ProductID: string(resolved.Config.Product.ID),
+		Checkout:  repository,
+		Remote:    resolved.Config.Execution.Remote,
+	})
+	if err != nil {
+		return "", err
+	}
+	if agreement.Bound {
+		fmt.Fprintln(os.Stderr, agreement.Says(string(resolved.Config.Product.ID)))
 	}
 	return root.Path, nil
 }

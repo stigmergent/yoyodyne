@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -95,7 +96,12 @@ func TestTheSweepHonoursAStopOnAPausedRunWhoseProcessWasKilled(t *testing.T) {
 	tracker.Item.Status = "in_progress"
 
 	// A process takes the paused run up, as a `yoyo run` continuing it would.
-	stateRoot := filepath.Dir(filepath.Dir(filepath.Dir(store.Root())))
+	// The run store is <product directory>/runs, and the product directory is
+	// wherever the home's layout puts it, so the root is found by asking.
+	stateRoot := filepath.Dir(store.Root())
+	for stateRoot != filepath.Dir(stateRoot) && home.ProductDirectory(stateRoot, "yoyodyne") != filepath.Dir(store.Root()) {
+		stateRoot = filepath.Dir(stateRoot)
+	}
 	child := exec.Command(os.Args[0], "-test.run=^TestRunLeaseHolderProcess$")
 	child.Env = append(os.Environ(), runHolderRootEnv+"="+stateRoot, runHolderRunEnv+"="+paused.RunID)
 	output, err := child.StdoutPipe()

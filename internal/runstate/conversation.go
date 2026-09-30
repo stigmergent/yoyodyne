@@ -17,6 +17,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -804,7 +805,7 @@ func NewConversationStore(root string, productID domain.ProductID) (*Conversatio
 		return nil, err
 	}
 	return &ConversationStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "conversations"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "conversations"),
 		productID: productID,
 	}, nil
 }
