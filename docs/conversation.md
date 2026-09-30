@@ -24,9 +24,10 @@ to a goal; none of them reorders it or admits work to it. The order is written
 down as Beads priority — 0 first, 4 last — so there is one place it lives rather
 than a second copy that could disagree with the tracker, and items left at the
 same priority are in no order anybody decided: the harness takes them
-oldest-admitted first, so an item already waiting is never passed over for one
-admitted after it, and the Lead Product Manager says which comes first by giving
-it a higher one. Admitting work says where it goes as part
+oldest-admitted first, so an item already waiting is not passed over for one
+admitted after it while it can start — one that is held, unready, or waiting for
+a slot that prefers another label still is — and the Lead Product Manager says
+which comes first by giving it a higher one. Admitting work says where it goes as part
 of admitting it, because a new item has no identifier until the tracker answers
 and an ordering left for a later step is an item sitting at the tracker's
 default in the meantime — including for an item you approved from a proposal,

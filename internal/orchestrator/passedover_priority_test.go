@@ -144,3 +144,59 @@ func TestADecisionOutrankedOnlyByWorkThatCannotStartTakesTheSlot(t *testing.T) {
 		t.Fatalf("started = %v, want %v: the re-run in the slot the paused priority-0 work left, ahead of the priority-4 item", order, want)
 	}
 }
+
+// A priority-0 item passed over for lower-priority work on a sentence it states
+// about itself is passed over naming that sentence and the field it was read
+// out of: on the schedule's own record, and on the entry the development
+// manager's docket holds. The factory-flow program manager's first suspect for
+// the red-check misfiling fix (yoyodyne-c02) was this reading, and the only way
+// to confirm or rule it out was a reason that quoted what it read.
+func TestAPriorityZeroItemPassedOverOnItsProseNamesTheSentenceItRead(t *testing.T) {
+	t.Parallel()
+
+	const sentence = "It does not start before the red-check rule (yoyodyne-m5p) lands"
+	items := []beads.WorkItem{
+		{
+			ID: "yoyodyne-c02", Title: "A red check is filed against main only when main fails it", Status: "open", Priority: 0,
+			Description: "The harness filed pull request 907's red check as main's failure. " + sentence + ".",
+		},
+		{ID: "yoyodyne-ifd.271", Title: "Concurrent tracker access is exercised live", Status: "open", Priority: 3},
+	}
+	harness := newScheduleHarness(items...)
+	harness.tree = citingTree{}
+	docket, _ := unreadyDocketFor(t, harness)
+
+	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if len(schedule.Started) != 1 || schedule.Started[0].WorkItemID != "yoyodyne-ifd.271" {
+		t.Fatalf("started = %#v, want the priority-3 item started and the priority-0 one held on its sentence", schedule.Started)
+	}
+	var reason string
+	for _, deferred := range schedule.Deferred {
+		if deferred.WorkItemID == "yoyodyne-c02" {
+			reason = deferred.Reason
+		}
+	}
+	for _, want := range []string{sentence, "its description says of it"} {
+		if !strings.Contains(reason, want) {
+			t.Fatalf("passed-over reason = %q, want it to contain %q", reason, want)
+		}
+	}
+
+	entries, err := docket.List()
+	if err != nil {
+		t.Fatalf("read the docket: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Unready == nil || len(entries[0].Unready.Prerequisites) == 0 {
+		t.Fatalf("docket = %+v, want the one unready entry for the priority-0 item", entries)
+	}
+	read := entries[0].Unready.Prerequisites[0]
+	if !strings.Contains(read.Missing, sentence) || !strings.Contains(read.Missing, "its description") {
+		t.Fatalf("docket prerequisite = %+v, want the sentence quoted and its field named where the development manager reads it", read)
+	}
+	if !strings.Contains(entries[0].Render(), sentence) {
+		t.Fatalf("rendered docket entry does not quote the sentence:\n%s", entries[0].Render())
+	}
+}
