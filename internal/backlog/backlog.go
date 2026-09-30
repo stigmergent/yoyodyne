@@ -366,10 +366,11 @@ type Queue struct {
 // pulled, and a closed one has left — and puts them in priority order, highest
 // priority first.
 //
-// Items at the same priority keep the order the tracker listed them in, and
-// that is deliberately not presented as a decision: the product manager says
-// which of two items comes first by giving one a higher priority, and until it
-// does, nothing here invents an order it did not choose.
+// Items at the same priority are taken oldest-admitted first, and that is
+// deliberately not presented as a decision: the product manager says which of
+// two items comes first by giving one a higher priority, and until it does, the
+// only thing the tie-break has to be is fair — an item already waiting is not
+// passed over for one admitted after it. See Sort.
 //
 // ready names the items the tracker itself reports as pullable, and an open item
 // missing from it is unready however clean its listing looks. For open work
@@ -517,14 +518,32 @@ func startable(item beads.WorkItem, reportedReady bool, waiting []string, held H
 }
 
 // Sort puts work items in the backlog's order in place, highest priority first,
-// leaving items of equal priority in the order they arrived. It is exported
-// because more than one place shows the same work — the queue an operator reads
-// and the tracker state the product manager reasons over — and a listing that
-// disagreed with the order would be a listing that misinforms whoever is setting
-// it.
+// and items of equal priority oldest-admitted first. It is exported because more
+// than one place shows the same work — the queue an operator reads and the
+// tracker state the product manager reasons over — and a listing that disagreed
+// with the order would be a listing that misinforms whoever is setting it.
+//
+// The tie-break is the harness's and not a decision about the work, but it has
+// to be one that cannot starve an item. It used to be the order the tracker
+// listed them in, which is newest first, so every item admitted at a priority
+// went ahead of every item already waiting at it. On 2026-09-29 and 30 the
+// red-check misfiling fix (yoyodyne-c02) sat at priority 0 through two pulls
+// that each took a priority-0 item admitted hours after it, and would have gone
+// on sitting there for as long as priority-0 work kept arriving. An item whose
+// admission time the tracker did not give goes after the ones it did, in the
+// order it arrived, rather than being read as the oldest of all.
 func Sort(items []beads.WorkItem) {
 	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].Priority < items[j].Priority
+		if items[i].Priority != items[j].Priority {
+			return items[i].Priority < items[j].Priority
+		}
+		left, right := items[i].CreatedAt, items[j].CreatedAt
+		switch {
+		case left.IsZero() || right.IsZero():
+			return !left.IsZero() && right.IsZero()
+		default:
+			return left.Before(right)
+		}
 	})
 }
 

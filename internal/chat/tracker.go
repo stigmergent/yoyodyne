@@ -2475,7 +2475,7 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 	ordered := append([]beads.WorkItem(nil), items...)
 	backlog.Sort(ordered)
 	var rendered strings.Builder
-	fmt.Fprintf(&rendered, "%d open work item(s), in backlog order: highest priority first, which is the order work is pulled in. Items at the same priority are in the tracker's own order, and nothing has decided which of those comes first.\n", len(items))
+	fmt.Fprintf(&rendered, "%d open work item(s), in backlog order: highest priority first, which is the order work is pulled in. Items at the same priority are oldest-admitted first, which is the harness's tie-break: nothing has decided which of those comes first.\n", len(items))
 	// What the queue is for goes above the listing rather than after it, because
 	// a survey of a long queue is cut at its end: an account of the queue's
 	// traceability that the cut removed would be reported as a queue with nothing

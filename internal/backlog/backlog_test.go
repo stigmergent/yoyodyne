@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -14,8 +15,8 @@ func TestOrderIsPriorityFirstAndHoldsWhatTheProductManagerDidNotDecide(t *testin
 	t.Parallel()
 
 	// The tracker's own order is deliberately not the backlog's: two items at the
-	// same priority arrive in the order bd listed them and stay in it, because
-	// nothing has decided between them.
+	// same priority with no admission time arrive in the order bd listed them and
+	// stay in it, because nothing has decided between them.
 	queue := Order([]beads.WorkItem{
 		{ID: "yoyodyne-ifd.26", Title: "See and stop what is pulled", Status: statusOpen, Priority: 2},
 		{ID: "yoyodyne-ifd.3", Title: "The scheduler that runs it", Status: statusOpen, Priority: 0},
@@ -40,6 +41,46 @@ func TestOrderIsPriorityFirstAndHoldsWhatTheProductManagerDidNotDecide(t *testin
 	next, ok := queue.Next()
 	if !ok || next.ID != "yoyodyne-ifd.3" {
 		t.Fatalf("Next() = %#v, %v", next, ok)
+	}
+}
+
+func TestEqualPriorityIsTakenOldestAdmittedFirst(t *testing.T) {
+	t.Parallel()
+
+	// bd lists newest first. Taken as the order, that put every priority-0 item
+	// admitted after the red-check misfiling fix (yoyodyne-c02) ahead of it, on
+	// 2026-09-29 and 30, for as long as priority-0 work kept arriving. An item
+	// the tracker gave no admission time goes after the ones it did.
+	at := func(clock string) time.Time {
+		parsed, err := time.Parse(time.RFC3339, clock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed
+	}
+	listed := []beads.WorkItem{
+		{ID: "yoyodyne-ifd.432.25.1", Status: statusOpen, Priority: 0, CreatedAt: at("2026-09-30T15:52:02Z")},
+		{ID: "yoyodyne-ifd.271", Status: statusOpen, Priority: 3, CreatedAt: at("2026-09-03T21:18:06Z")},
+		{ID: "yoyodyne-unknown", Status: statusOpen, Priority: 0},
+		{ID: "yoyodyne-ifd.428.58", Status: statusOpen, Priority: 0, CreatedAt: at("2026-09-30T01:57:08Z")},
+		{ID: "yoyodyne-c02", Status: statusOpen, Priority: 0, CreatedAt: at("2026-09-29T15:04:46Z")},
+	}
+	var ready []string
+	for _, item := range listed {
+		ready = append(ready, item.ID)
+	}
+	queue := Order(listed, ready, ReadHolds(nil), nil)
+
+	var order []string
+	for _, entry := range queue.Entries {
+		order = append(order, entry.ID)
+	}
+	want := []string{"yoyodyne-c02", "yoyodyne-ifd.428.58", "yoyodyne-ifd.432.25.1", "yoyodyne-unknown", "yoyodyne-ifd.271"}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	if next, ok := queue.Next(); !ok || next.ID != "yoyodyne-c02" {
+		t.Fatalf("Next() = %#v, %v, want the oldest priority-0 item", next, ok)
 	}
 }
 

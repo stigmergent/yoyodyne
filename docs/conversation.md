@@ -23,8 +23,10 @@ with the ordering proposes a change to it exactly as it would propose a change
 to a goal; none of them reorders it or admits work to it. The order is written
 down as Beads priority — 0 first, 4 last — so there is one place it lives rather
 than a second copy that could disagree with the tracker, and items left at the
-same priority are in no order anybody decided: the Lead Product Manager says which
-comes first by giving it a higher one. Admitting work says where it goes as part
+same priority are in no order anybody decided: the harness takes them
+oldest-admitted first, so an item already waiting is never passed over for one
+admitted after it, and the Lead Product Manager says which comes first by giving
+it a higher one. Admitting work says where it goes as part
 of admitting it, because a new item has no identifier until the tracker answers
 and an ordering left for a later step is an item sitting at the tracker's
 default in the meantime — including for an item you approved from a proposal,
@@ -2062,8 +2064,9 @@ says why there is none to carry out.
 
 Neither of the first two waits on being typed. A watching `yoyo work` session
 fires a recorded repair or re-run itself, oldest stoppage first and as many per
-pull as there are developer slots for them, through these same two actions and
-under every condition each of them asks — so
+pull as there are developer slots for them and behind any ready work of a higher
+priority than its item, through these same two actions and under every condition
+each of them asks — so
 recording the decision is what causes it, and the verbs are what fires one *now*
 rather than at the next pull. A re-arm is not typed either, whether of a merge
 the forge dropped or of a request nothing ever asked the forge to merge — the
