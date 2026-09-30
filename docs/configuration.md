@@ -3206,7 +3206,7 @@ escalates on its own, which is the loop as it stood before the bound existed.
 
 Whose a brake hold is comes from the ownership registry: the development
 manager's while she decides it, the harness's while it acts on her decision or
-runs a probe, and the Lead Product Manager's — the rung above her — once it is
+runs a probe, and the Lead Product Manager's — the role above her — once it is
 escalated, by her or by the harness at that bound. None of those is yours, so
 the trip and either escalation are said to the channel once, the moment each is
 recorded, naming the runs it counted, whose it is, and `yoyo release`, and none

@@ -521,7 +521,7 @@ func TestABrakeTripIsSaidOnceAndItsEscalationOnceMore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render the escalation: %v", err)
 	}
-	if !strings.Contains(message.Body, "the development manager escalated it to the operator") {
+	if !strings.Contains(message.Body, "the development manager escalated it, so it stays held") {
 		t.Fatalf("escalation reads as %q, which does not say she escalated it", message.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindIntakeHeld)

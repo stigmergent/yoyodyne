@@ -625,7 +625,7 @@ only for a reason on its closed list — `fundamental-intent`, `credential`,
 opening its account with it and a colon: `beyond-grant: add the PreToolUse
 hook to .claude/settings.json`. One that names no reason is the Lead Product
 Manager's: a handling is hers to settle, route to the role that owns it, or
-handle again naming the reason, and an escalation is hers as the rung above
+handle again naming the reason, and an escalation is hers as the role above
 the development manager. A critical report nobody has handled is hers. An
 owning role's batch of recommendations is that role's, and still needs your
 hand to type `yoyo amendment` until owning roles decide amendments themselves
@@ -689,7 +689,7 @@ channel once, the moment it is recorded, naming those runs and `yoyo release`.
 While the development manager decides it, it is hers; while the harness acts on
 her decision or runs a probe, it is the harness's; once she escalates it, or
 the harness does at the bound on its loop, it is the Lead Product Manager's, as
-the next rung. None of those is yours, so none is sent to you directly or
+the role above the development manager. None of those is yours, so none is sent to you directly or
 tagged. [The configuration guide](configuration.md#watching-instead-of-draining)
 says what the brake counts, what it does not, and how it is worked.
 
@@ -828,7 +828,7 @@ starts if she has not; the harness's while a probe runs, naming the probe;
 either of those with which summons-and-probe cycle it is and at what cycle the
 harness stops asking; and, once it is escalated — saying whether she did or
 the harness did — the Lead Product Manager's, under `Waiting on the Lead
-Product Manager`, since the ownership registry gives an escalation to the rung
+Product Manager`, since the ownership registry gives an escalation to the role
 above rather than to you — the watch log and the channel say the same,
 `yoyo sweeps` shows the summoned pass as summoned, and the run the probe made
 records the brake as what chose it. `yoyo release` still lifts a brake

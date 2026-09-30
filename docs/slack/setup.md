@@ -665,7 +665,7 @@ yours for one you placed, the development manager's or the harness's for one
 the brake is working — naming which summons-and-probe cycle it is on and at
 what cycle the harness stops asking — and the Lead Product Manager's once it is
 escalated, by her or by the harness at that bound, since the ownership registry
-gives an escalation to the next rung rather than to you. A brake hold the
+gives an escalation to the Lead Product Manager, the role above the development manager, rather than to you. A brake hold the
 registry made yours would be tagged to you by member id every hour, a
 `warning` while it is young and `critical` and sent to you directly once it had
 stood two hours; today it makes none yours. It stops the

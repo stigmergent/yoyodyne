@@ -283,7 +283,7 @@ func TestTheIntakeHoldsMoverMatchesTheHoldsOwnWording(t *testing.T) {
 		entry := intakeHoldAttention(hold)
 		// The registry decides whose it is; what settles it is the hold's own
 		// wording.
-		if _, settles, _ := strings.Cut(hold.Whose(), " — "); !strings.Contains(entry.Whose(), " — "+settles) {
+		if settles := hold.Settles(); !strings.Contains(entry.Whose(), " — "+settles) {
 			t.Errorf("%s: whose = %q, want the hold's own %q", name, entry.Whose(), settles)
 		}
 		if !strings.HasPrefix(entry.Whose(), entry.Mover.Possessive()+" — ") {

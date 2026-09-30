@@ -185,15 +185,6 @@ func operators(reason Reason, remedy, capability string) (Resolution, bool) {
 	return Resolution{Owner: Operator, Reason: reason, Remedy: remedy, Capability: capability}, true
 }
 
-// tail is a sentence's words after its possessive: what a record says settles
-// it, without whose it says it is, which the registry decides.
-func tail(whose string) string {
-	if _, after, found := strings.Cut(whose, " — "); found {
-		return after
-	}
-	return whose
-}
-
 // amendmentRule: the role that owns the target document, and the operator
 // only for a change to the goals, which today never records whether it changes
 // what they admit and is therefore read as though it does.
@@ -300,7 +291,7 @@ func holdRule(e Entry) (Resolution, bool) {
 			return Resolution{}, false
 		}
 		hold := *e.IntakeHold
-		remedy := tail(hold.Whose())
+		remedy := hold.Settles()
 		switch {
 		case hold.HeldBy == runstate.IntakeHolderOperator:
 			return operators(ReasonOwnHold, remedy, "yoyo release")
@@ -435,9 +426,9 @@ func operatorActionRule(e Entry) (Resolution, bool) {
 			return operators(reason, "only a person can act on this"+ends, string(reason))
 		}
 		if e.Finding == FindingEscalation {
-			return owned(ProductManager, "the development manager escalated the stopped run and named no reason it is the operator's, so it is the next rung's: she settles it, sends it to the role that owns it, or names the reason on the closed list"+ends, "report handling")
+			return owned(ProductManager, "the development manager escalated the stopped run and named no reason it is the operator's, so it is the Lead Product Manager's, the role above her: she settles it, sends it to the role that owns it, or, where it is one only a person can act on, has it escalated again to "+NamingForm+ends, "report handling")
 		}
-		return owned(ProductManager, "the handling named the operator without a reason on the closed list: she settles it, sends it to the role that owns it, or handles it again naming the reason"+ends, "report handling")
+		return owned(ProductManager, "the handling named the operator without a reason on the closed list: she settles it, sends it to the role that owns it, or, where only a person can act on it, handles it again with \"needs\": \"operator\" and a reason that does "+NamingForm+" — only such a handling reaches him"+ends, "report handling")
 	case FindingCriticalReport:
 		return owned(ProductManager, "she handles the critical report: settles it, or sends it to the role whose remedy it is"+ends, "report handling")
 	case FindingAmendmentBatch:

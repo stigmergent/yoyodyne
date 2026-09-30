@@ -296,3 +296,20 @@ func TestEveryStallReasonAnswers(t *testing.T) {
 		}
 	}
 }
+
+// The form a role's contract prints names every reason on the closed list, and
+// an account written in it is read back as that reason.
+func TestTheNamingFormNamesEveryReason(t *testing.T) {
+	for _, reason := range Reasons() {
+		if !strings.Contains(NamingForm, string(reason)) {
+			t.Errorf("NamingForm does not name %q", reason)
+		}
+		if got := NamedIn(string(reason) + ": what the operator has to do"); got != reason {
+			t.Errorf("an account opening %q is read as %q", reason, got)
+		}
+	}
+	// The remedy an unnamed handling carries tells her the form.
+	if remedy := Resolve(Entry{Kind: KindOperatorAction, Finding: FindingHandling, Account: "look at this"}).Remedy; !strings.Contains(remedy, NamingForm) {
+		t.Errorf("the remedy for a handling naming no reason is %q; want it to show the form", remedy)
+	}
+}

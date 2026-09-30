@@ -439,7 +439,7 @@ var developmentManagerVoice = voice{
 		KindQuestionHeard:            "That was a question rather than direction, so nothing about this item moved; the Lead Product Manager answers it here.",
 		KindIntakeHeld:               "Intake is held, so I pull nothing new until it lifts: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}; I'm pulling from the top of the backlog again.",
-		KindIntakeEscalated:          "The harness escalated the brake's hold over my head — I was asked every cycle and did not — so no further probe starts and the queue waits on the next rung: {why}",
+		KindIntakeEscalated:          "The harness escalated the brake's hold over my head — I was asked every cycle and did not — so no further probe starts and the queue waits on the Lead Product Manager: {why}",
 		KindOperatorAction:           "This is on you rather than on my docket: {needs} Found by {foundby}; recorded in {recordedin}. I won't raise it again, and {ends}.",
 		KindHoldPlaced:               "Everything is held. Nothing new starts, and nothing in flight is lost.",
 		KindHoldLifted:               "The hold is lifted; the work in flight carries on.",

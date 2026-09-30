@@ -112,14 +112,15 @@ func StallReasons() []StallReason {
 // unattributed, which is the hole the taxonomy exists to close, so the zero
 // answer belongs to no reason and a test holds the set to it.
 func (r StallReason) Whose() string {
-	if r == StallIntakeHold {
-		// The vocabulary cannot see the hold, so it says what holds for both
-		// holders: the operator's own hold is theirs, and the brake's is the
-		// development manager's or the harness's until she escalates it. The
-		// attention line reads the hold itself and says which.
-		return "the operator's for a hold they placed, and the development manager's or the harness's for one the brake placed — nothing new is chosen until it is released, and `yoyo release` lifts either"
-	}
+	// The intake hold's owner is read off the hold's own record, which the
+	// vocabulary cannot see, so without it the hold rule cannot classify the
+	// reason and it is said as the registry says any entry it cannot classify.
+	// Every surface that has the hold asks the rule with it instead
+	// (readmodel.IntakeHoldWhose).
 	resolved, classified := stallRule(Entry{Kind: KindStall, StallReason: r})
+	if !classified && r == StallIntakeHold {
+		return Unclassified().Whose()
+	}
 	if !classified {
 		return ""
 	}

@@ -230,7 +230,7 @@ func TestTheHourlyLineNamesTheLoopWhileTheHarnessWorksTheHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(said.Body, "summons-and-probe cycle 2 of at most 4") || !strings.Contains(said.Body, "escalates it to the operator itself after 4 probes blocked") {
+	if !strings.Contains(said.Body, "summons-and-probe cycle 2 of at most 4") || !strings.Contains(said.Body, "escalates it past the development manager itself after 4 probes blocked") {
 		t.Fatalf("body %q does not name the loop and its bound", said.Body)
 	}
 }

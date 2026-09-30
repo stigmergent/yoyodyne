@@ -1265,7 +1265,7 @@ says how much longer the loop goes on. Whose it is comes from the ownership
 registry, as the read model carries it: the development manager's while she
 decides it (a hold written before the brake kept its own record included), the
 harness's while it acts on her decision or runs a probe, and the Lead Product
-Manager's — the next rung — once she or the harness escalates it. None of those
+Manager's — the role above her — once she or the harness escalates it. None of those
 is the operator's, so the hourly line tags nobody for a brake hold; it would
 be **tagged to the operators every time it is said, a `warning` while it is
 young, and `critical` and sent to them directly once it has stood two hours**
@@ -1281,22 +1281,22 @@ summons her again and restarts the cooldown. After
 of those cycles with no escalation of hers, the harness escalates the hold
 itself and says so **once, the moment the record shows it**, at `warning`
 severity. The ownership registry makes the escalated hold the Lead Product
-Manager's, as the rung above the development manager, so it is said to the
+Manager's, as the role above the development manager, so it is said to the
 channel rather than sent to the operators directly:
 
 > :warning: Warning — The brake's hold on intake is escalated by the harness,
 > past the development manager: the harness's own brake placed it after 3
 > run(s) blocked in a row with nothing landing between them, which is the
-> configured brake at 3, and the harness escalated it to the operator after 4
-> summons-and-probe cycles with the development manager not escalating it (the
+> configured brake at 3, and the harness escalated it past the development
+> manager after 4 summons-and-probe cycles with the development manager not escalating it (the
 > last probe run, of yoyodyne-ifd.405 (Every yoyo verb runs from inside a
 > harness-managed worktree), blocked: the checks failed on main), so it stays
 > held until somebody releases it. Next: the Lead Product Manager's — the
 > harness escalated it after 4 summons-and-probe cycles …, and nothing new is
 > chosen until `yoyo release` lifts it.
 
-The hold's own record still says it was escalated "to the operator"; whose it
-is now is the registry's answer, which the `Next:` clause carries. It is never
+The hold's own record says only that it was escalated and by whom; whose it is
+now is the registry's answer, which the `Next:` clause carries. It is never
 said again on a later pass: the hourly line above carries the hold from there,
 and the release says the hold lifted. `yoyo status` reads the same record and
 names the hold under `Waiting on the Lead Product Manager`.

@@ -2022,7 +2022,7 @@ were never told about. The decision itself is
 and whose it is is the ownership registry's answer: yours only where her
 reason opens with a reason on its closed list and a colon —
 `diverged-history: …`, `credential: …` — and otherwise the Lead Product
-Manager's, as the rung above her. It is said once, to you directly only where
+Manager's, as the role above her. It is said once, to you directly only where
 it is yours, and named on `yoyo status` while it stands as the decision on the
 item's latest stopped run. **A `retire-raise` lifts the raise's own parking and the blocked status it
 left, and closes the raise's entry**, as it is recorded, as the paragraph on

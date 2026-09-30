@@ -81,6 +81,13 @@ func (r Reason) Says() string {
 	return ""
 }
 
+// NamingForm is how an account names its reason, in the words a role's
+// contract and a remedy print: the reason's token, a colon, then what the
+// operator has to do. It is a constant so the role contracts can carry it
+// verbatim, and a test holds it to Reasons, so a reason added to the list and
+// left out of here fails.
+const NamingForm = "open the account with the reason and a colon — one of fundamental-intent, credential, forge-setting, beyond-grant, human-gate, own-hold, or diverged-history — as in \"beyond-grant: add the PreToolUse hook to .claude/settings.json\""
+
 // NamedIn is the closed-list reason a written account names for itself, and
 // the empty reason where it names none. An account names one by opening with
 // it and a colon — "credential: the forge token expired" — which is how a

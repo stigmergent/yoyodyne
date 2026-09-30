@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -315,13 +316,13 @@ func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
 	if escalation.Cycles != 2 || escalation.Probe != "yoyodyne-five" || !strings.Contains(escalation.Reason, "independent review still required repair") {
 		t.Fatalf("escalation = %#v, want two cycles, the fifth item as the last probe, and its stop reason", escalation)
 	}
-	if !hold.WaitsOnAPerson() {
-		t.Fatal("the escalated hold does not wait on a person, want it the operator's")
+	if readmodel.IntakeHoldMover(hold) != readmodel.MoverProductManager {
+		t.Fatalf("the escalated hold is %s's, want the Lead Product Manager's", readmodel.IntakeHoldMover(hold))
 	}
 	if schedule.BrakeEscalated == nil || schedule.BrakeEscalated.Cycles != 2 {
 		t.Fatalf("schedule.BrakeEscalated = %#v, want the escalation on the session's own account", schedule.BrakeEscalated)
 	}
-	if rendered := schedule.Render(); !strings.Contains(rendered, "escalated to the operator") || !strings.Contains(rendered, "2 summons-and-probe cycle(s)") {
+	if rendered := schedule.Render(); !strings.Contains(rendered, "escalated past the development manager") || !strings.Contains(rendered, "2 summons-and-probe cycle(s)") {
 		t.Fatalf("schedule = %s, want the escalation rendered with the cycles spent", rendered)
 	}
 	// Every surface reads whose it is from the ownership registry — the next
