@@ -2234,10 +2234,11 @@ pulling:
 		freeAtPoll, filledByCarryOut := max(free, 0), 0
 
 		// A decision the development manager recorded is fired here, against the same
-		// capacity the queue's own work is chosen against and before any of it: a
-		// stoppage she has already judged is work that was chosen once and stopped,
-		// and leaving it behind the queue would be the harness preferring fresh work
-		// to work it has already spent a run on.
+		// capacity the queue's own work is chosen against and before any of it at
+		// its item's priority or below: a stoppage she has already judged is work
+		// that was chosen once and stopped, and leaving it behind the queue would be
+		// the harness preferring fresh work to work it has already spent a run on.
+		// Ready work of a higher priority is the exception, below.
 		//
 		// It takes a slot and is waited out exactly as a chosen item is. What it is
 		// not is a queue entry: the item is blocked or claimed rather than pullable,
@@ -2284,13 +2285,64 @@ pulling:
 		if s.Limit > 0 {
 			remaining = s.Limit - len(schedule.Started)
 		}
+		// A decision goes ahead of the queue only where nothing ready in the Lead
+		// Product Manager's order outranks the item it is about. Until
+		// yoyodyne-ifd.428.58 every decision took a free slot before the queue was
+		// read, whatever the priority of its item, and on 2026-09-29 the slot a run
+		// freed at 13:42 PDT went twenty-five seconds later to a re-run of the
+		// concurrent tracker access item (yoyodyne-ifd.271) at priority 3 while
+		// two priority-0 items stood ready. A decision outranked that way is held
+		// for the walk below, which fires it into a slot at the point in the order
+		// its item's priority puts it; a decision about an item at the same priority
+		// as the best ready work still goes first, for the reason above.
+		//
+		// Knowing that takes the queue, so the queue is read here, once, and only
+		// where a decision asks — the pull below reads it again otherwise. A read
+		// that failed ranks nothing and the decision goes first as it always did,
+		// because a decision held back on a queue nobody could read is held on no
+		// reason at all. Under the hold or the pause nothing is held back either:
+		// the queue is not pulled while they stand, so the attempt is what records
+		// the gate's refusal on the item.
+		//
+		// A pull that found no slot free asks too. It attempts a decision only so
+		// that the capacity gate's refusal is recorded, and the action reads the
+		// runs again: one that ended since this pull read them leaves the gate a
+		// slot to give, and an outranked decision attempted then took it ahead of
+		// the work that outranks it.
+		var early *pulled
+		earlyAsked := false
+		outranked := func(task CarryOutTask) (outrankedCarryOut, bool) {
+			if held || paused || harnessOwnTask(task.Decision) {
+				return outrankedCarryOut{}, false
+			}
+			if !earlyAsked {
+				earlyAsked = true
+				if read, err := pull.queue(ctx, claimed, claimedRead); err == nil {
+					early = &read
+				}
+			}
+			if early == nil {
+				return outrankedCarryOut{}, false
+			}
+			return outranking(task, *early, occupied)
+		}
 		var tasks []CarryOutTask
 		var passedCarryOuts map[string]string
+		var pendingCarryOuts []outrankedCarryOut
 		_, declining := drain.declinesStarts(pull.Poll, s.now())
 		if !declining {
-			tasks, passedCarryOuts = s.nextCarryOuts(&schedule, pull, occupied, waitingOn, closed, free, remaining)
+			tasks, passedCarryOuts, pendingCarryOuts = s.nextCarryOuts(&schedule, pull, occupied, waitingOn, closed, free, remaining, outranked)
 		}
-		for _, task := range tasks {
+		// With no slot free this pull never walks the queue, so a decision held back
+		// for outranking work is written up now, beside the ones passed over.
+		if free < 1 && len(pendingCarryOuts) > 0 {
+			for _, pending := range pendingCarryOuts {
+				passedCarryOuts[pending.task.RunID] = pending.reason()
+			}
+			pendingCarryOuts = nil
+		}
+		firedCarryOuts := 0
+		fireCarryOut := func(task CarryOutTask) {
 			index := len(schedule.Started)
 			schedule.Started = append(schedule.Started, Started{
 				WorkItemID: task.WorkItemID,
@@ -2311,6 +2363,7 @@ pulling:
 				filledByCarryOut++
 			}
 			carrying = true
+			firedCarryOuts++
 			// Hosted like any run this session starts, so a drain bound that runs
 			// out stops a carried-out run at its checks exactly as it stops a chosen
 			// one, rather than waiting it out past the bound.
@@ -2321,6 +2374,9 @@ pulling:
 				carried, outcome, err := pull.CarryOut.Carry(runCtx, task)
 				completions <- completed{index: index, outcome: outcome, err: err, carriedOut: &carried}
 			}(task)
+		}
+		for _, task := range tasks {
+			fireCarryOut(task)
 		}
 		// A declining drain attempted nothing and is within a poll of its restart,
 		// so a decision it left standing is the returning session's to fire or to
@@ -2479,12 +2535,20 @@ pulling:
 			continue
 		}
 
-		read, err := pull.queue(ctx, claimed, claimedRead)
-		if err != nil {
-			if !unreadable(err) {
-				break
+		// The queue a decision was ranked against is the one this pull chooses from,
+		// so the order that held a decision back is the order that decides when it
+		// fires.
+		var read pulled
+		if early != nil {
+			read = *early
+		} else {
+			read, err = pull.queue(ctx, claimed, claimedRead)
+			if err != nil {
+				if !unreadable(err) {
+					break
+				}
+				continue
 			}
-			continue
 		}
 		queue := read.queue
 		// Work a conversation carries whose landing is already in the repository
@@ -2610,8 +2674,33 @@ pulling:
 			s.host(session.dispatching(ctx, entry.ID), pull, entry.ID, index, selection, hosted, landings, completions)
 			return true
 		}
+		// firedInWalk is the slots the walk gave to a decision held back above for
+		// ready work that outranked it, which fill a slot as a start does.
+		firedInWalk := 0
 		bounded := func() bool {
-			return started == len(freeSlots) || (s.Limit > 0 && schedule.Chosen() >= s.Limit)
+			return started+firedInWalk == len(freeSlots) || (s.Limit > 0 && schedule.Chosen() >= s.Limit)
+		}
+		// firePending gives the slot being filled to the decision held back for
+		// outranked work, where the walk has reached work its item's priority
+		// matches or beats — or, with any, reached the end of the queue with the
+		// slot still empty. The highest-priority decision goes first, and the
+		// docket's order between two at one priority.
+		firePending := func(priority int, any bool) (string, bool) {
+			chosen := -1
+			for index, pending := range pendingCarryOuts {
+				if (any || pending.priority <= priority) && (chosen < 0 || pending.priority < pendingCarryOuts[chosen].priority) {
+					chosen = index
+				}
+			}
+			if chosen < 0 {
+				return "", false
+			}
+			task := pendingCarryOuts[chosen].task
+			pendingCarryOuts = append(pendingCarryOuts[:chosen:chosen], pendingCarryOuts[chosen+1:]...)
+			fireCarryOut(task)
+			flight.take(read.items[task.WorkItemID], "")
+			firedInWalk++
+			return task.WorkItemID, true
 		}
 
 		// racedNow is the entries this pull found racing work in flight. The
@@ -2636,6 +2725,13 @@ pulling:
 				if labelled && !slot.Prefers(read.items[entry.ID].Labels) {
 					past = append(past, walkedPast{entry: entry, slot: slot})
 					continue
+				}
+				if took, fired := firePending(entry.Priority, false); fired {
+					for index := range past {
+						past[index].took = took
+					}
+					leftBehind = append(leftBehind, past...)
+					return walkStarted, nil
 				}
 				answer, err := eligible(entry)
 				if err != nil {
@@ -2669,6 +2765,15 @@ pulling:
 				}
 				leftBehind = append(leftBehind, past...)
 				return walkStarted, nil
+			}
+			// A slot the queue left empty goes to a decision the order held back,
+			// since what outranked it was not startable after all. A slot walking
+			// only its label's work leaves it for the fallback walk, which asks the
+			// whole order first.
+			if !labelled {
+				if _, fired := firePending(0, true); fired {
+					return walkStarted, nil
+				}
 			}
 			return walkNothing, nil
 		}
@@ -2736,6 +2841,17 @@ pulling:
 			passOver(past.entry.ID, leftForAnotherSlotReason(past.slot, past.took))
 			poll.pass(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, "")
 		}
+		// A decision the walk never reached a slot for is written onto its item as
+		// unattempted, with the ready work that outranked it named, which is where the
+		// development manager reads why a decision of hers is standing.
+		if len(pendingCarryOuts) > 0 {
+			outrankedBy := make(map[string]string, len(pendingCarryOuts))
+			for _, pending := range pendingCarryOuts {
+				outrankedBy[pending.task.RunID] = pending.reason()
+			}
+			pendingCarryOuts = nil
+			s.recordUnattempted(ctx, &schedule, pull, outrankedBy)
+		}
 		if probing && started == 0 {
 			// Nothing was startable under the hold, so the probe found nothing to
 			// probe with. That is said on the hold and the cooldown is restarted,
@@ -2783,7 +2899,7 @@ pulling:
 			// held them, because a slot another process's run freed is refilled here
 			// with nothing of this session's having ended, and a reader who sees only
 			// the count cannot tell where the room came from.
-			slots := filledLine(filledByCarryOut+started, freeAtPoll, running-len(tasks)-started)
+			slots := filledLine(filledByCarryOut+started, freeAtPoll, running-firedCarryOuts-started)
 			if started == 0 {
 				session.filled(fmt.Sprintf("%s; a triage decision the development manager recorded was carried out; nothing was pulled from a backlog of %d admitted, %d of them ready",
 					slots, len(queue.Entries), queue.Ready()) + freedLine(freed))
@@ -4012,9 +4128,15 @@ func (s Scheduler) correct(ctx context.Context, schedule *Schedule, pull Pull) {
 // because the alternative is a decision this session never fires. Such a
 // decision was attempted, and its refusal is on the item, so it is not among
 // the ones passed over.
-func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, waitingOn map[string]string, closed closedGates, free, remaining int) ([]CarryOutTask, map[string]string) {
+//
+// A decision about an item that ready work in the Lead Product Manager's order
+// outranks is not fired here at all, and not passed over either: it is returned
+// as pending, for the walk of the queue to fire at the point in the order its
+// item's priority puts it. outranked says which decisions those are; nil says
+// none are, which is every decision before yoyodyne-ifd.428.58.
+func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
 	if pull.CarryOut == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	outstanding, err := pull.CarryOut.Outstanding()
 	// Kept apart from what a gate said about the attempt this pass then makes.
@@ -4035,6 +4157,7 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		slots = remaining
 	}
 	var chosen []CarryOutTask
+	var pending []outrankedCarryOut
 	passed := make(map[string]string)
 	taken := make(map[string]string)
 	for _, task := range outstanding {
@@ -4057,6 +4180,12 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 			}
 			continue
 		}
+		if outranked != nil {
+			if held, outranks := outranked(task); outranks {
+				pending = append(pending, held)
+				continue
+			}
+		}
 		chosen = append(chosen, task)
 		occupied[task.WorkItemID] = runstate.State{WorkItemID: task.WorkItemID}
 		taken[task.WorkItemID] = task.RunID
@@ -4066,7 +4195,57 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 	for id := range taken {
 		delete(occupied, id)
 	}
-	return chosen, passed
+	return chosen, passed, pending
+}
+
+// outrankedCarryOut is a decision held back from going ahead of the queue
+// because ready work in the Lead Product Manager's order outranks its item: the
+// decision, its item's priority, and the ready items ahead of it.
+type outrankedCarryOut struct {
+	task     CarryOutTask
+	priority int
+	ahead    []string
+}
+
+// outranking is whether ready work in the order outranks the item a decision is
+// about, read off the queue the pull chooses from. Work that is in flight, or is
+// the decision's own item, outranks nothing: it is not what a slot would go to.
+// An item the reading does not hold is outranked by nothing, because a decision
+// held back on a priority nobody read is held on no reason at all.
+func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.State) (outrankedCarryOut, bool) {
+	item, known := read.items[task.WorkItemID]
+	if !known {
+		return outrankedCarryOut{}, false
+	}
+	held := outrankedCarryOut{task: task, priority: item.Priority}
+	for _, entry := range read.queue.Entries {
+		if entry.Priority >= item.Priority {
+			break
+		}
+		if !entry.Ready || entry.ID == task.WorkItemID {
+			continue
+		}
+		if _, busy := occupied[entry.ID]; busy {
+			continue
+		}
+		held.ahead = append(held.ahead, entry.ID)
+	}
+	return held, len(held.ahead) > 0
+}
+
+// reason is what the item's record says of a decision the walk never reached a
+// slot for: the ready work that outranked it, and what fires it.
+func (o outrankedCarryOut) reason() string {
+	named := o.ahead
+	if len(named) > readmodel.MaxPassedOverNamed {
+		named = named[:readmodel.MaxPassedOverNamed]
+	}
+	listed := strings.Join(named, ", ")
+	if further := len(o.ahead) - len(named); further > 0 {
+		listed += fmt.Sprintf(", and %d further", further)
+	}
+	return fmt.Sprintf("its item is at priority %d and %s of higher priority in the Lead Product Manager's order stood ready (%s), so a free developer slot goes to that work first; a decision goes ahead of the queue only where nothing ready outranks its item, and this one takes the first slot left once the walk of the order reaches priority %d",
+		o.priority, plural(len(o.ahead), "item", "items"), listed, o.priority)
 }
 
 // carryOutRearms fires the re-arms the development manager decided about

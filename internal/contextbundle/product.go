@@ -1633,8 +1633,8 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 	ordered := append([]beads.WorkItem(nil), items...)
 	backlog.Sort(ordered)
 	rendered.WriteString("These are in backlog order: highest priority first, which is the order work is\n")
-	rendered.WriteString("pulled in. Items at the same priority are listed in the tracker's own order,\n")
-	rendered.WriteString("and nothing has decided which of those comes first.\n\n")
+	rendered.WriteString("pulled in. Items at the same priority are listed oldest-admitted first, which is\n")
+	rendered.WriteString("the harness's tie-break: nothing has decided which of those comes first.\n\n")
 	listed := ordered
 	if len(listed) > maxProductWorkItems {
 		listed = listed[:maxProductWorkItems]

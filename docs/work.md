@@ -1539,7 +1539,12 @@ to her once, as the one entry her docket folds the two into.
 recorded is fired by the pass itself, oldest stoppage first, as many per pull as
 there are developer slots free for them — and as a session's `--limit` leaves,
 since each is a run started — against a developer slot exactly as a pulled item
-is, so recording the decision is what causes it, and `yoyo triage repair` and
+is. It goes ahead of the queue's own work at its item's priority and below, and
+behind ready work of a higher priority: a decision about a priority-3 item waits
+while a priority-0 item stands ready, takes the slot the walk of the order
+reaches its priority with, or takes a slot the queue left empty, and a pull that
+gave it none writes onto the item which ready items outranked it. Recording the
+decision is what causes it, and `yoyo triage repair` and
 `yoyo triage rerun` are what fires one now rather than at the next pull. A merge
 re-arm she recorded is fired by the same pass, whether the merge it makes is one
 the forge dropped or one nothing ever asked the forge for — on every pull and
