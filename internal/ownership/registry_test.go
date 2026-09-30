@@ -77,6 +77,9 @@ func fixtures() map[Kind][]Entry {
 			{Kind: KindHold, Hold: HoldIntake},
 			{Kind: KindHold, Hold: HoldCapacity},
 			{Kind: KindHold},
+			// A brake hold written before the brake kept its own record is the
+			// brake's, not one the operator placed.
+			{Kind: KindHold, Hold: HoldIntake, IntakeHold: &runstate.IntakeHold{HeldBy: runstate.IntakeHolderBrake}},
 		},
 		KindOutage: {
 			{Kind: KindOutage, OutageCause: domain.ProviderUnauthenticated},

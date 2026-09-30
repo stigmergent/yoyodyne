@@ -287,7 +287,8 @@ func failingTaskRule(e Entry) (Resolution, bool) {
 }
 
 // holdRule: the operator for a hold or pause he placed; for the brake's intake
-// hold the development manager while she decides, the harness while it acts on
+// hold — one written before the brake kept its own record included — the
+// development manager while she decides, the harness while it acts on
 // her decision or runs a probe, and the Lead Product Manager, the next rung,
 // once it is escalated; and the harness for the provider's capacity hold.
 func holdRule(e Entry) (Resolution, bool) {
@@ -300,8 +301,15 @@ func holdRule(e Entry) (Resolution, bool) {
 		}
 		hold := *e.IntakeHold
 		remedy := tail(hold.Whose())
-		if !hold.Braked() {
+		switch {
+		case hold.HeldBy == runstate.IntakeHolderOperator:
 			return operators(ReasonOwnHold, remedy, "yoyo release")
+		case hold.HeldBy == runstate.IntakeHolderBrake && !hold.Braked():
+			// A brake hold written before the brake kept its own record: nothing
+			// works it, and it is still the brake's, so it is hers to release.
+			return owned(DevelopmentManager, "nothing new is chosen until `yoyo release` lifts it", "yoyo release")
+		case !hold.Braked():
+			return Resolution{}, false
 		}
 		switch {
 		case hold.Brake.Decision == runstate.BrakeDecisionRelease:

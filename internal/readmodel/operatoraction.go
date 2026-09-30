@@ -33,6 +33,12 @@ package readmodel
 // finding per pass, standing while any proposal in it is undecided. It is
 // derived in amendments.go and joins the others at the read model's reading and
 // at the channel's.
+//
+// Raising a finding for the operator does not make it his. Whose it is is the
+// ownership registry's answer (internal/ownership): his only where the account
+// that raised it names a reason on the closed list, and otherwise the Lead
+// Product Manager's, or for a batch the owning role's. Until
+// yoyodyne-ifd.432.25.1 every finding here was his by construction.
 
 import (
 	"fmt"
@@ -46,8 +52,9 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// OperatorAction is one finding only the operator can act on: what is needed,
-// where it is recorded, and since when.
+// OperatorAction is one finding raised for the operator's hand: what is
+// needed, where it is recorded, and since when. Whose it is is the registry's
+// to say; see Owner.
 type OperatorAction struct {
 	// Key names the finding durably, so a surface that says each one once can
 	// remember having said it. A report makes one finding however many times it

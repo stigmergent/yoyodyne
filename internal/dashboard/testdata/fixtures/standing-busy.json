@@ -184,8 +184,8 @@
       "kind": "directive",
       "count": 1,
       "waits_on": "waits on an unresolved directive",
-      "next": "`yoyo directive resolve` settles it, and the work it pauses is pulled",
-      "mover": "operator",
+      "next": "the Lead Product Manager ends it or carries it into a document or an item, `yoyo directive resolve` settles it, and the work it pauses is pulled",
+      "mover": "product-manager",
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.219",
@@ -233,7 +233,7 @@
       ]
     }
   ],
-  "not_startable_for_operator": "1 item here is the operator's — 1 waits on an unresolved directive; everything else is somebody else's to move",
+  "not_startable_for_operator": "nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one",
   "waiting_for_slot": {
     "ready": 3,
     "slots": 3,
@@ -246,7 +246,9 @@
     {
       "kind": "directive",
       "id": "directive-4f2c",
-      "mover": "operator",
+      "mover": "product-manager",
+      "remedy": "she ends it or carries it into a document or an item, and the work it affects waits until `yoyo directive resolve` settles it",
+      "capability": "yoyo directive resolve",
       "directive": {
         "schema_version": 1,
         "id": "directive-4f2c",
@@ -261,12 +263,14 @@
         ]
       },
       "what": "directive directive-4f2c is unresolved: which branch does this land on?",
-      "whose": "the operator's — the work it affects waits until `yoyo directive resolve` settles it"
+      "whose": "the Lead Product Manager's — she ends it or carries it into a document or an item, and the work it affects waits until `yoyo directive resolve` settles it"
     },
     {
       "kind": "amendment",
       "id": "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c",
       "mover": "architect",
+      "remedy": "nothing reaches the document until they or the operator decide it",
+      "capability": "yoyo amendment",
       "work_item_id": "yoyodyne-ifd.210",
       "amendment": {
         "schema_version": 1,
@@ -291,6 +295,8 @@
       "kind": "amendment",
       "id": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
       "mover": "architect",
+      "remedy": "nothing reaches the document until they or the operator decide it",
+      "capability": "yoyo amendment",
       "work_item_id": "yoyodyne-ifd.432.5",
       "amendment": {
         "schema_version": 1,
@@ -314,18 +320,22 @@
     {
       "kind": "owed-step",
       "id": "run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70",
-      "mover": "operator",
+      "mover": "harness",
+      "remedy": "`yoyo reconcile` reports which and settles it",
+      "capability": "yoyo reconcile",
       "work_item_id": "yoyodyne-ifd.222",
       "owed_step": {
         "status": "succeeded",
         "phase": "integrating"
       },
       "what": "run run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70 of yoyodyne-ifd.222 ended still owing a step",
-      "whose": "the operator's — `yoyo reconcile` reports which and settles it"
+      "whose": "the harness's — `yoyo reconcile` reports which and settles it"
     },
     {
       "kind": "held-work",
       "mover": "development-manager",
+      "remedy": "nothing pulls a stopped item until she decides what happens to it",
+      "capability": "yoyo triage",
       "held_work": {
         "awaiting": "decision",
         "count": 1
@@ -336,6 +346,8 @@
     {
       "kind": "held-work",
       "mover": "harness",
+      "remedy": "the decision is made, and what is outstanding is the harness acting on it",
+      "capability": "yoyo triage",
       "held_work": {
         "awaiting": "carry-out",
         "count": 1
@@ -346,6 +358,8 @@
     {
       "kind": "report",
       "mover": "product-manager",
+      "remedy": "reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up",
+      "capability": "report handling",
       "reports": {
         "collected": 14,
         "unhandled": 2,
@@ -360,6 +374,8 @@
       "kind": "conversation-carried-item",
       "id": "yoyodyne-ifd.188",
       "mover": "product-manager",
+      "remedy": "in conversation; no run will ever be started for it",
+      "capability": "the role's conversation",
       "work_item_id": "yoyodyne-ifd.188",
       "executor": "conversation:product-manager",
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",

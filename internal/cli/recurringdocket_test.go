@@ -315,7 +315,7 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 		"## Triage docket",
 		"## Waiting on the operator",
 		"5 entries on the needs-a-human line are the operator's",
-		"- [operator-action run:run-escalated, item yoyodyne-ifd.272] yoyodyne-ifd.272 needs your hand: the target branch diverged from the forge",
+		"- [operator-action run:run-escalated, item yoyodyne-ifd.272] yoyodyne-ifd.272 was raised for the operator's hand: the target branch diverged from the forge",
 		"since " + local(escalated) + ", 3 hours ago",
 		"- [degraded-service dashboard] the dashboard service is degraded: died 6 times within 2m0s of being started — since " + local(died) + ", 2 days ago",
 		"- [failing-task report-triage] the recurring task report-triage has failed before its first turn 2 times in a row",

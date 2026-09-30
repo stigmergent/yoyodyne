@@ -627,14 +627,13 @@ func FromOperatorAction(action OperatorAction) (Notification, error) {
 	}, nil
 }
 
-// FromIntakeEscalation says the harness has handed the brake's hold to the
-// operator at its cycle bound. The moment is the escalation's own rather than
-// the hold's, because that is when the hold became a person's, and the reason
-// is the hold's whole account — what tripped it, and the cycles and the last
-// probe's stoppage that ended the loop. The mover is left to the fixed clause:
-// the hold's own wording of it is the same account again, and a message that
-// said it twice is one the operator reads once. It is a warning: the hold now
-// waits on a person, and the hourly line raises it from there as it stands.
+// FromIntakeEscalation says the harness has escalated the brake's hold at its
+// cycle bound. The moment is the escalation's own rather than the hold's,
+// because that is when the hold changed hands, and the reason is the hold's
+// whole account — what tripped it, and the cycles and the last probe's
+// stoppage that ended the loop. Whose it is now is the ownership registry's
+// answer, read through the read model: the next rung above the development
+// manager, the Lead Product Manager. It is a warning.
 //
 // A hold the harness has not escalated is refused rather than said as if it
 // had: a message telling the operator the loop has ended, over a hold that is
@@ -643,7 +642,8 @@ func FromIntakeEscalation(hold runstate.IntakeHold) (Notification, error) {
 	if !hold.Braked() || !hold.Brake.EscalatedByHarness() {
 		return Notification{}, errors.New("address the brake's escalation: the harness has not escalated this hold")
 	}
-	notification := productNotification(KindIntakeEscalated, hold.Brake.Escalation.At, Detail{Reason: hold.Account()})
+	// Whose the escalated hold is, is the ownership registry's answer.
+	notification := productNotification(KindIntakeEscalated, hold.Brake.Escalation.At, Detail{Reason: hold.Account(), Mover: readmodel.IntakeHoldWhose(hold)})
 	notification.Event.Severity = report.SeverityWarning
 	return notification, nil
 }

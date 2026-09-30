@@ -1257,15 +1257,15 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 		// is said to him directly. His own hold is said to the channel alone,
 		// because he placed it.
 		toOperator := intake.HeldBy != runstate.IntakeHolderOperator && readmodel.IntakeHoldMover(intake).IsOperator()
-		saidDirectly := false
+		saidNow := false
 		if mark := intakeMark + stamp(intake.HeldAt); !advanced.Has(mark) {
 			advanced = advanced.With(mark)
-			saidDirectly = toOperator
+			saidNow = true
 			deliveries = append(deliveries, Delivery{
 				Stream:       productStream,
 				Cursor:       advanced,
-				Direct:       saidDirectly,
-				Tag:          saidDirectly,
+				Direct:       toOperator,
+				Tag:          toOperator,
 				Notification: notify.FromIntakeHold(intake),
 			})
 		}
@@ -1276,9 +1276,9 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 		if intake.Braked() && intake.Brake.Decision == runstate.BrakeDecisionEscalate && intake.Brake.DecidedAt != nil {
 			if mark := brakeDecisionMark + stamp(*intake.Brake.DecidedAt); !advanced.Has(mark) {
 				advanced = advanced.With(mark)
-				// A hold first read already escalated was said to him directly
-				// just above, in the same account; it is marked, not said twice.
-				if saidDirectly {
+				// A hold first read already escalated was said just above, in
+				// the same account; it is marked, not said twice.
+				if saidNow {
 					deliveries = append(deliveries, Delivery{Stream: productStream, Cursor: advanced})
 				} else {
 					deliveries = append(deliveries, Delivery{
