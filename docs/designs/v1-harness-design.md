@@ -114,6 +114,10 @@ revisions:
       by: architect
       at: 2026-09-29T02:00:00Z
       reason: yoyodyne-ifd.434 - the state root's default is the machine home ~/.yoyodyne; the layout under it, the repository binding, and the migration are the machine-home design's
+    - action: amended
+      by: architect
+      at: 2026-09-27T07:15:49Z
+      reason: yoyodyne-ifd.437.12 - 'cadence' reworded to 'release schedule' in the release-tag subsection; the excuse on the term's row comes off
 approvals:
     - revision: 0
       by: operator
@@ -508,7 +512,7 @@ When publishing is enabled:
 
 ### The release tag
 
-A release the product manager has decided under a cadence the operator delegated is cut by the harness, and its tag is the one ref besides run branches the harness pushes. The decision is the product manager's recorded act: the release item admitted under the delegated cadence, which the operator recorded as a directive. The cut is the supervisor's periodic pass and nothing else — never an agent, never a conversation, never a developer run. Agents push no tags, and that is unchanged.
+A release the product manager has decided under the release schedule the operator delegated is cut by the harness, and its tag is the one ref besides run branches the harness pushes. The decision is the product manager's recorded act: the release item admitted under that delegated schedule, which the operator recorded as a directive. The cut is the supervisor's periodic pass and nothing else — never an agent, never a conversation, never a developer run. Agents push no tags, and that is unchanged.
 
 It is an opt-in, `approvals.releases`, defaulting to `human`, for the reason publishing is one: a tag is visible outside the machine. Under `human` the cut stays a person's, and a release item's done condition says so. Under `automatic` the pass cuts when every gate the cut already holds is green — the release's notes on `main` carrying a readiness stamp whose verdict and pinned definition match a fresh reading of the commit to be tagged, the adoption walkthrough and `make check` green, `HEAD` at `origin/main` — and when the operator's pause is not placed; the intake hold does not apply, because a cut selects no work. The cut writes nothing to `main`: the notes and their stamp land through the release item's own reviewed run, which drafts the notes and stamps them with `yoyo conformance --notes` in its worktree, so the one path into the target branch stays a run's reviewed promotion. A cut that finds the notes absent or the stamp stale refuses as it does today and hands the release item back to the product manager rather than opening a pull request of its own. The tag is pushed under the harness's own identity, recorded on the release item and on the pass record, and said in the channel at warning severity, because a release is visible outside the machine. A release is not a deploy: the operations goal that a deploy happens only with the operator's explicit approval is untouched by any of this.
 

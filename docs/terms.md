@@ -141,7 +141,7 @@ longer says.
 
 | Term                | Write instead                                          | Still written in, until its owner amends it                                                                                                    |
 | ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cadence`           | how often it repeats, or its schedule                  | `docs/designs/v1-harness-design.md`                                                                                                           |
+| `cadence`           | how often it repeats, or its schedule                  |                                                                                                                                                |
 | `environmental stop` | what happened, with the cause named as outside the work: *the run was ended by something outside the work*, and what that something was. Every form of the word is covered — `environmental refusal` (*a round refused from outside the work*), `environmental cause` (*a cause outside the work*), `refused environmentally` | `docs/designs/recoverable-and-terminal-failures.md` |
 | `held for a person` | the mover named: waiting on the development manager's decision, waiting on the harness carrying out her decision, waiting on the architect's ruling — *a person* or *a human* only where the mover is the operator |                                                                                                                                                |
 | `idle bound`        | what happened: *the AI session running the developer produced no output for five minutes, so the harness ended the run* |                                                                                                                                                |
@@ -156,7 +156,7 @@ longer says.
 | `supersession pile` | the list of superseded pull requests                   |                                                                                                                                                |
 | `tranche`           | stage, or part 1 of 4                                  |                                                                                                                                                |
 | `wedged`            | stuck, or the condition said outright                  |                                                                                                                                                |
-| `whose-move`        | waiting on you — or, of a thing, who it is waiting on  |                                                                                                                                                |
+| `whose-move`        | waiting on you — or, of a thing, who it is waiting on  | `docs/designs/observability-and-dashboard.md`                                                                                                  |
 
 
 
