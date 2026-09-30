@@ -77,6 +77,10 @@ func (a Attention) Since() time.Time {
 		if a.UntracedPass != nil {
 			return a.UntracedPass.StartedAt
 		}
+	case AttentionFactoryStall:
+		if a.FactoryStall != nil {
+			return a.FactoryStall.Since
+		}
 	}
 	return time.Time{}
 }

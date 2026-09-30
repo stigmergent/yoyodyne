@@ -132,6 +132,13 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			`yoyodyne-ifd.209.7 waits on the gate "soak-reviewed": the operator has judged the parity soak`},
 		AttentionUntracedPass: {untracedPassAttention(UntracedPass{Task: "factory-watch", Role: domain.RoleProgramManager, StartedAt: moment.Add(-time.Hour), Findings: 2, First: "reviews wait an hour for a slot"}),
 			"the pass of factory-watch at 2026-08-30T11:00:00Z reported 2 finding(s) and left no trace of them: no memory written, no lane report changed, no report filed, no work admitted; the first: reviews wait an hour for a slot"},
+		AttentionFactoryStall: {factoryStallAttention(FactoryStall{
+			Since: moment.Add(-6 * time.Hour), LastPull: moment.Add(-6 * time.Hour), Limit: 2 * time.Hour, At: moment,
+			Failures: []PassFailure{{Task: "development-manager-sweep", At: moment.Add(-time.Hour), Attempts: 6, Problem: "list work items: timed out"}},
+		}),
+			"no work has been pulled and no recurring pass has succeeded for 6h0m0s, past the 2h0m0s limit: work was last pulled at " + localMoment(moment.Add(-6*time.Hour)) +
+				", and no recurring pass has ever succeeded; each pass's latest failure: development-manager-sweep failed 6 times since, latest at " + localMoment(moment.Add(-time.Hour)) +
+				": list work items: timed out"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -205,6 +212,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionProductDecision: "run-superseded",
 		AttentionHumanGate:       "soak-reviewed",
 		AttentionUntracedPass:    "factory-watch",
+		AttentionFactoryStall:    "2026-08-30T06:00:00Z",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)

@@ -110,6 +110,7 @@ type executionDocument struct {
 	LandingCheckTimeout                    *Duration `yaml:"landing_check_timeout"`
 	WorkPoll                               *Duration `yaml:"work_poll"`
 	RedeployDrainLimit                     *Duration `yaml:"redeploy_drain_limit"`
+	FactoryStallAfter                      *Duration `yaml:"factory_stall_after"`
 	BlockedRunsBeforeIntakeHold            *int      `yaml:"blocked_runs_before_intake_hold"`
 	BrakeCooldown                          *Duration `yaml:"brake_cooldown"`
 	BrakeEscalationCycles                  *int      `yaml:"brake_escalation_cycles"`

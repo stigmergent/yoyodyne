@@ -355,6 +355,14 @@ type Execution struct {
 	// right up to the restart; only the runs it hosts are what the drain is
 	// about.
 	RedeployDrainLimit Duration `yaml:"redeploy_drain_limit" json:"redeploy_drain_limit"`
+	// FactoryStallAfter is how long the product may go with no work pulled and
+	// no recurring pass succeeding before the harness says the factory has
+	// stalled: a critical report filed once when it begins, a note when passes
+	// succeed or work is pulled again, and an entry on the attention line while
+	// it stands. It is read by the supervisor rather than by any role's pass,
+	// because the roles that would notice are the ones failing; on 2026-09-29
+	// every pass failed for twelve hours and the one trace was a log nobody read.
+	FactoryStallAfter Duration `yaml:"factory_stall_after" json:"factory_stall_after"`
 	// BlockedRunsBeforeIntakeHold is the failure-storm brake: this many runs
 	// blocking in a row, with nothing landing between them, holds intake and
 	// summons the development manager to decide what happens to it. It is a
@@ -511,6 +519,10 @@ const (
 	// the bound cuts off loses nothing but the minutes its current phase had
 	// spent: it is re-adopted from durable state by the session that comes back.
 	defaultRedeployDrainLimit = Duration(15 * time.Minute)
+	// defaultFactoryStallAfter is two hours: twice the development manager's
+	// hourly sweep, so one failed pass is not a stall and two in a row with
+	// nothing pulled between them is.
+	defaultFactoryStallAfter = Duration(2 * time.Hour)
 	// defaultBlockedRunsBeforeIntakeHold is three, which is the same shape of
 	// bound as the repair and relaunch budgets: enough that one bad item and the
 	// unlucky item after it do not stop the line, and short of a session that
@@ -987,6 +999,11 @@ func (c Config) Validate() error {
 	// for a deploy sets this long rather than to nothing.
 	if c.Execution.RedeployDrainLimit <= 0 {
 		problems = append(problems, "execution.redeploy_drain_limit must be positive")
+	}
+	// Zero is a configuration assembled without the key, which reads the
+	// default; only a negative limit describes nothing anybody could mean.
+	if c.Execution.FactoryStallAfter < 0 {
+		problems = append(problems, "execution.factory_stall_after cannot be negative")
 	}
 	// Zero is a choice here — never brake, let the operator be the only thing
 	// that holds intake — so only a negative bound, which describes no run

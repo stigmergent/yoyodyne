@@ -472,6 +472,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		Supervision:       supervision,
 		Agents:            agentEndpoints(resolved.Config),
 		UnknownResetPause: resolved.Config.Execution.UsageLimitUnknownResetPause.Duration(),
+		FactoryStallAfter: resolved.Config.Execution.FactoryStallAfter.Duration(),
 		Capacity:          resolved.Config.Execution.MaxConcurrentDevelopers,
 		Slots:             resolved.Config.Execution.DeveloperSlots,
 		TrackerTimeout:    chatTrackerTimeout,

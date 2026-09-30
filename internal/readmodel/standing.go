@@ -322,6 +322,10 @@ type Sources struct {
 	// is every slot preferring nothing, and the line then reads exactly as it did
 	// before slots could prefer anything.
 	Slots []domain.DeveloperSlot
+	// FactoryStallAfter is execution.factory_stall_after as the caller read it:
+	// how long no pull and no successful recurring pass may go before the
+	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
+	FactoryStallAfter time.Duration
 	// TrackerTimeout bounds one tracker command, so an unresponsive tracker costs
 	// this answer a line rather than hanging the surface that asked.
 	TrackerTimeout time.Duration
@@ -870,6 +874,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		needs = append(needs, untracedPassAttention(pass))
 	}
 	needsProblem = joinProblems(needsProblem, untracedProblem)
+	// The factory having pulled nothing and completed no pass for longer than
+	// its limit is said here as well as reported: the report is filed once, when
+	// the supervisor notices, and this is where it stands until it clears.
+	factoryStall, factoryStallProblem := ReadFactoryStall(sources)
+	if factoryStall != nil {
+		needs = append(needs, factoryStallAttention(*factoryStall))
+	}
+	needsProblem = joinProblems(needsProblem, factoryStallProblem)
 	// Held work is on both lines for the reason handed-off work below is, and says
 	// a different thing on each: the queue's line says why nothing pulls each
 	// item, and this says who has to move and how many items are waiting on them.

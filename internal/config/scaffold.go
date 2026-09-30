@@ -292,6 +292,11 @@ execution:
   # The session keeps pulling into free seats and firing its recurring tasks
   # while it drains; only the runs it hosts are what the drain is about.
   redeploy_drain_limit: %s
+  # No work pulled and no recurring pass succeeding for this long is a factory
+  # stall. The supervisor files it as a critical report once when it begins,
+  # files a note when passes succeed or work is pulled again, and "yoyo status"
+  # names it while it stands.
+  factory_stall_after: %s
   # The failure-storm brake for a session left running unattended: this many runs
   # blocking in a row, with nothing landing between them, holds intake and
   # summons the development manager at once to decide what happens to it. It is
@@ -417,6 +422,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.LandingCheckTimeout),
 		renderScaffoldDuration(effective.Execution.WorkPoll),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
+		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.BlockedRunsBeforeIntakeHold,
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),
 		effective.Execution.BrakeEscalationCycles,

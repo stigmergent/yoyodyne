@@ -777,6 +777,18 @@ manager` or whichever role's pass it was. It asks nothing of a person. The
 dashboard's factory-problems section, once it is built, is meant to show it as
 one of that section's problems.
 
+**A factory stall is reported by the harness itself.** When no work has been
+pulled and no recurring pass has succeeded for longer than
+`execution.factory_stall_after`, the supervisor files a critical report in the
+harness's own voice, naming how long, the last success, and what each pass
+failed on; it files it once per stall, and files a note when a pull or a
+successful pass ends it. While the stall stands it is an entry on the attention
+line with the harness as the one to move. It is read by the supervisor rather
+than by any role's pass because the roles that would notice are the ones
+failing — see [saying when the factory has
+stalled](configuration.md#saying-when-the-factory-has-stalled). The
+factory-problems section, once it is built, is meant to show it too.
+
 Whether it is keeping up, or whether there is no cadence at all, is a question
 about a week rather than about a moment, so every listing of the pile leads with
 the two numbers that answer it:

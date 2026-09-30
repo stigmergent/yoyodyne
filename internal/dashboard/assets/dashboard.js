@@ -431,7 +431,8 @@
     { attention: "operator-action", title: "A finding only the operator can act on" },
     { attention: "product-decision", title: "A product decision about a run in flight" },
     { attention: "human-gate", title: "A step reserved for a person" },
-    { attention: "untraced-pass", title: "A pass that left no trace of what it found" }
+    { attention: "untraced-pass", title: "A pass that left no trace of what it found" },
+    { attention: "factory-stall", title: "A factory that has pulled nothing and completed no pass" }
   ];
 
   function kindTitle(kind) {
@@ -1788,6 +1789,18 @@
         add("Pass", dayAndClock(untraced.started_at));
         add("Findings", String(untraced.findings));
         add("First finding", untraced.first, "card-field-prose");
+        break;
+      case "factory-stall":
+        var stall = entry.factory_stall;
+        if (!stall) {
+          break;
+        }
+        add("Since", dayAndClock(stall.since));
+        add("Last pull", named(stall.last_pull) ? dayAndClock(stall.last_pull) : "none recorded");
+        add("Last successful pass", named(stall.last_pass) ? stall.last_pass_task + " at " + dayAndClock(stall.last_pass) : "none recorded");
+        (stall.failures || []).forEach(function (failure) {
+          add("Failing: " + failure.task, failure.attempts + " attempt(s), latest " + dayAndClock(failure.at) + ": " + failure.problem, "card-field-prose");
+        });
         break;
       case "hold":
         var hold = entry.operator_hold || entry.intake_hold || entry.capacity_hold;

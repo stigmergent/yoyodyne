@@ -584,6 +584,7 @@ func standingSources(configPath string) readmodel.Sources {
 	// provider is holding every role at once.
 	sources.Agents = agentEndpoints(cfg)
 	sources.UnknownResetPause = cfg.Execution.UsageLimitUnknownResetPause.Duration()
+	sources.FactoryStallAfter = cfg.Execution.FactoryStallAfter.Duration()
 	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		sources.Tracker = unreadableTracker{err}
