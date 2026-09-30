@@ -2087,7 +2087,9 @@ two commands.
 `yoyo triage rerun <run-id>` starts a fresh run of the item whose stopped run the
 docket entry names — the case where the ground moved under a change that was
 never wrong — or whose raise it names, once the item's owner has released it,
-starting from the raising run's preserved change. It takes the run and nothing else: why the run exists is read from
+starting from the raising run's preserved change. It also takes a run the docket
+never held, such as a re-run the harness cancelled on its way out, and starts that
+run's item again from the target branch. It takes the run and nothing else: why the run exists is read from
 the recorded decision and cites it, so the account is one you can check.
 **Your hold on intake applies to it**,
 because the harness is the one choosing here and the exemption for an item named
@@ -2097,8 +2099,13 @@ Four things refuse it. The stopped run has to be really over — terminal, and
 still standing on whichever of the two put it on the docket: its blocker, or, for
 a run that died before anything recorded one, the change it left behind — or,
 for a raise, the raise itself, with the item no longer parked by it. Either
-way that is read from the run's own record rather than from the docket entry. One
-docketed stoppage is re-run once. The work item has to be one a run
+way that is read from the run's own record rather than from the docket entry. A
+run the docket never held only has to have ended: it was never docketed because
+it left neither a blocker nor a change behind, so asking for one could only
+refuse what the development manager decided. A run the harness holds no record
+of is refused, naming the docket. One stoppage is re-run once, and a run the
+docket never held counts as one, claimed under the key the docket would have
+given it. The work item has to be one a run
 may start on — open or blocked, with nothing it depends on outstanding. Blocked
 counts because stopping the run is what blocked it, so re-entry supersedes that
 blocker rather than waiting for somebody to remember to reopen the item; what
