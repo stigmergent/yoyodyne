@@ -956,9 +956,6 @@ func (t Trigger) refuse(ctx context.Context, name string, task config.RecurringT
 	return fired
 }
 
-// firing is one firing as run takes it: what it is recorded under, what the
-// role is told, and — for a program manager's pass — the instance it wakes, the
-// events it carries, and what is done once its turns are over.
 // passStartingKey carries, on a firing's context, who is told as each pass
 // begins.
 type passStartingKey struct{}
@@ -980,6 +977,9 @@ func announcePass(ctx context.Context, pass runstate.WatchPass) {
 	}
 }
 
+// firing is one firing as run takes it: what it is recorded under, what the
+// role is told, and — for a program manager's pass — the instance it wakes, the
+// events it carries, and what is done once its turns are over.
 type firing struct {
 	name     string
 	pass     string

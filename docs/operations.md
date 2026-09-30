@@ -3700,19 +3700,24 @@ where the queue could not be read.
 
 Each entry under `standing.needs_human` is the thing waiting rather than a
 sentence about it: its `kind`, from a closed set — `amendment`,
-`conversation-carried-item`, `report`, `owed-step`, `publication`,
-`degraded-service`, `failing-task`, `hold`, `directive`, `outage`, `stall`,
-`held-work`, `human-gate`, `untraced-pass` — the `id` of the record it is about (an amendment's, a
+`conversation-carried-item`, `report`, `amendment-queue`, `owed-step`,
+`publication`, `degraded-service`, `failing-task`, `hold`, `directive`,
+`outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
+`human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered` — the `id`
+of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
-name, a human gate's name, or which switch a hold is: `operator`, `intake`, or
-`capacity`), the
+name, a human gate's name, which switch a hold is: `operator`, `intake`, or
+`capacity`, and for a `factory-stall` the moment the factory last did anything
+and for a `tracker-unanswered` the moment listings began failing), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
 `unnamed-role`), and
 the record itself, whole, under a field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`,
-`owed_step`, `publication`, `held_work`, `human_gate`, `untraced_pass`, and for a hold `operator_hold`, `intake_hold`, or
+`owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
+`product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
+`tracker_listings`, and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work
