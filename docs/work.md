@@ -1810,10 +1810,14 @@ provider anything, and noticing is all it does — restarting whatever died is t
 session's own exit and the supervisor that starts it. It costs one tracker read
 per `--stall-after`, and none while something else already accounts for the quiet.
 
-**A reading of the harness that fails does not end the session.** The tracker is
-a database a reconcile and every settling run write to, so a reading that fails
-is contention far more often than it is a store that is broken. The one that
-ended a session on 2026-09-01 succeeded again in 0.4s a few minutes later; what
+**A reading of the harness that fails does not end the session.** A reading of
+the tracker that fails is far more often something passing than a store that is
+broken. It is not the runs contending, since `bd` takes concurrent invocations
+one at a time and refuses none; it is more likely one `bd` invocation stalling
+past the adapter's 30 seconds, which `bd` does now and then under load for a
+reason not yet known
+([the exercise that found it](experiments/yoyodyne-ifd-271-concurrent-tracker-access.md)).
+The one that ended a session on 2026-09-01 succeeded again in 0.4s a few minutes later; what
 it cost was the session, which stopped on that single reading while the queue sat
 idle until an external job noticed the process was gone. So a watching session
 waits and reads again — two seconds, then four, doubling to thirty — and stops

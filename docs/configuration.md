@@ -2863,7 +2863,8 @@ against one embedded database was an open question until it was exercised live:
 the store takes concurrent invocations one at a time, so none is refused, and
 overlapping writes to one item all survive. What concurrency did show is that
 now and then one `bd` invocation stalls for minutes — 170 seconds to 40 minutes,
-in 3 of 9 six-way batches — and the adapter gives an invocation 30 seconds, so a
+in 3 of 10 batches of six creates at once — and the adapter gives an invocation
+30 seconds, so a
 run that meets one sees a tracker that did not answer. It was seen under an
 exclusive lock too, so it is not two invocations colliding, and its cause is not
 yet known. [The exercise and its numbers](experiments/yoyodyne-ifd-271-concurrent-tracker-access.md)
@@ -3203,9 +3204,12 @@ stop says whether it is an ending or a restart, so the one below reads as a
 session coming back rather than a line waiting for you to start another.
 
 **Beyond the three: a reading of the harness that fails does not end the
-session.** The tracker is a database a reconcile and every settling run write to,
-so a reading that fails is contention far more often than a store that is broken
-— and a session that exited on one left the queue idle until an external job
+session.** A reading of the tracker that fails is far more often something
+passing than a store that is broken. It is not the runs contending: `bd` takes concurrent invocations one
+at a time and refuses none. It is more likely one `bd` invocation stalling past
+the adapter's 30 seconds, which `bd` does now and then under load for a reason
+not yet known ([the exercise that found it](experiments/yoyodyne-ifd-271-concurrent-tracker-access.md)).
+A session that exited on one left the queue idle until an external job
 noticed. A watching session waits and reads again, two seconds doubling to
 thirty, and stops only once the readings have gone on failing for five minutes,
 saying how long it tried. None of it is configured: the numbers are the harness's

@@ -50,16 +50,17 @@ On 2026-09-03:
 | `bd update --append-notes` on **one** item | 6 writers | 6/6 lines present afterwards |
 | The capacity-2 run shape through `beads.Client` | 2 runs + scheduler reads | every invocation succeeded; every item closed with its notes and its price |
 
-On 2026-09-29, one store, 99 creates in all, every one of which succeeded and
-every one of which was present afterwards:
+On 2026-09-29, one store, 129 creates in all, every one of which succeeded and
+every one of which was present afterwards. The concurrent rows are ten batches
+of six creates at once: five without a lock and five behind one.
 
 | Exercise | Result |
 |---|---|
 | One invocation against an idle store | 0.6s to 1.75s; `list` 0.7s to 1.45s |
 | 6 creates one after another | 10.2s, about 1.7s each |
-| 60 creates one after another | about 55s in all, none over 2s |
+| 60 creates one after another | 42s in all, none over 1.3s |
 | 6 creates at once, 4 batches | 3 batches finished in 9.7s to 10.5s; in the fourth one create took 170s |
-| 6 creates at once, once more | 1,094s for the batch |
+| 6 creates at once, 1 more batch | 1,094s for the batch |
 | 6 creates at once, each behind an exclusive file lock, 5 batches | 4 batches finished in 5.5s to 8.3s; in the other one create took about 2,420s, and the two queued behind it waited with it |
 
 **How the timing rows fit together.** The row in the first version of this
@@ -75,18 +76,19 @@ caller waits its turn rather than being refused.
 
 ## The stall
 
-Three of the nine concurrent batches had an invocation that took between
-170 seconds and 40 minutes. Each of them still succeeded, and nothing it wrote
+Three of the ten batches of six creates at once had an invocation that took
+between 170 seconds and 40 minutes. Each of them still succeeded, and nothing it wrote
 was lost. What is known about it:
 
-- **It is not two invocations colliding.** In the stalled batch without a lock,
-  the other five creates had finished within 4.5s, so the slow one spent more
+- **It is not two invocations colliding.** In the 170-second stall, the only
+  one timed per invocation of the two without a lock, the other five creates
+  had finished within 4.5s, so the slow one spent more
   than two and a half minutes with nothing running beside it. In the batch
   behind an exclusive lock, only one `bd` process ran at a time, and one of them
   took about 40 minutes by itself. So a lock in the adapter would not remove
   the stall. It would only queue every other invocation behind it.
 - **It was not seen without concurrency.** None of 60 creates made one after
-  another stalled. Nine batches and sixty creates are too few to say it never
+  another stalled. Ten batches and sixty creates are too few to say it never
   happens there, only that it is much rarer.
 - **Its cause is not known.** The store's directory holds nothing but bd's own
   lock file, so whatever bd waits on is not visible from outside it.
