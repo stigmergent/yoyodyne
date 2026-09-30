@@ -125,6 +125,12 @@ var Classes = []Class{
 		Exercised:  "the dashboard's page, compiled into the binary by internal/dashboard. The HTML is html/template source, parsed when the package initializes, so a template that does not parse fails every test in it; and the package's tests serve each asset and hold the page to its own content-security policy — no inline script, no inline style, nothing from another origin — and hold every value that reaches it to being escaped. The script and the stylesheet are served whole and checked by nothing that reads their syntax: this module vendors no JavaScript or CSS parser, and what a browser makes of them is seen in a browser.",
 	},
 	{
+		ID:         "path-list",
+		Extensions: []string{".paths"},
+		Checks:     []string{"make test"},
+		Exercised:  "the lists of what a path check vouches for, which the harness reads to decide whether a change runs that check. internal/checks reads this repository's own through the same parser the harness uses, so a line that is not a pattern fails there rather than at the check stage of whatever run touches it, and holds the adoption walk's list to covering the README and the program it documents and to leaving out what is neither.",
+	},
+	{
 		ID:          "jsonl",
 		Extensions:  []string{".jsonl"},
 		Unexercised: "the tracker's derived exports. They are rewritten wholesale by `bd` from a store that is authoritative elsewhere, so a defect in one is fixed in the store rather than in the file, and a gate here would fail on churn nobody authored.",

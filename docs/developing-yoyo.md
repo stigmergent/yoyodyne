@@ -51,10 +51,35 @@ owns](#the-tracker-version-ci-pins) — and runs this target on every pull
 request. On a machine with no `bd` at all, the walk fetches that same pinned
 release itself, from [the one home Beads has](https://github.com/gastownhall/beads)
 into its scratch root, so a fresh machine and CI install the tracker from the
-same place; a machine that has `bd` walks with the one it has. It stays out of
-`check` because `check` is what a run applies to a developer's worktree, and
-that worktree is given neither the tracker, nor the network to fetch one, nor a
-reason to cut a scratch clone.
+same place; a machine that has `bd` walks with the one it has.
+
+The harness runs it too, for the changes that can break it, once
+`.yoyodyne/config.yaml` names it under `path_checks`:
+
+```yaml
+path_checks:
+  - command: make adoption
+    paths: scripts/walk-adoption.paths
+```
+
+It stays out of
+`check`, which every run applies to every change, because most changes touch
+nothing the walk vouches for and the walk is a build and a scratch project
+every time. Instead it is a [path check](configuration.md#checks-a-change-runs-only-when-it-touches-what-they-vouch-for):
+[`scripts/walk-adoption.paths`](../scripts/walk-adoption.paths) is the one
+place the paths it vouches for are declared — the README, the walk itself, the
+Makefile and module files, and the program under `cmd` and `internal` less its
+tests and test fixtures — and a run whose change touches any of them runs
+`make adoption` after the four declared checks, as a fifth check whose result
+the review is shown. A change touching none of them, a document elsewhere or a
+test, does not pay for it, and a change that edits the list runs the walk
+whatever the edited list says. With that entry in the configuration, this closes
+the gap two changes fell through on 2026-09-29, pull requests 902 and 907: each changed what `yoyo status`
+printed, passed every check the harness ran, and turned `main` red for
+whoever merged next, because the only thing that ran the walk was the forge.
+The harness's checks run outside any agent's sandbox, so the `bd` and the
+network the walk may need are the machine's own, and it walks in about thirty
+seconds.
 It needs no provider unless you pass `WALK_PROVIDER=1`, and it names any claim
 it could not exercise rather than passing over it. It does need a scratch root
 outside every git repository, which `$TMPDIR` and `/tmp` are on an ordinary

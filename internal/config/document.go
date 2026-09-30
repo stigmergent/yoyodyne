@@ -38,8 +38,10 @@ type configDocument struct {
 	// it, for the reason Checks does: what runs after a landing is one
 	// statement, and a list half from a bundle and half from a project is not the
 	// list either layer wrote.
-	LandingChecks *[]string                `yaml:"landing_checks"`
-	Agents        map[string]agentDocument `yaml:"agents"`
+	LandingChecks *[]string `yaml:"landing_checks"`
+	// PathChecks replaces an inherited list entirely, for the same reason.
+	PathChecks *[]PathCheck             `yaml:"path_checks"`
+	Agents     map[string]agentDocument `yaml:"agents"`
 	// Operators replaces an inherited mapping entirely rather than merging into
 	// it, for the reason the check list does and the allow-list it absorbed did:
 	// who may act is a decision, and a mapping silently assembled from two layers

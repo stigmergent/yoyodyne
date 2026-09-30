@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -476,4 +477,140 @@ func writeCommitted(t *testing.T, repository, relative, content string) {
 	}
 	runPipelineGit(t, repository, "add", relative)
 	runPipelineGit(t, repository, "commit", "-m", "add "+relative)
+}
+
+// A path check joins the gate for a change that touches what it vouches for,
+// and costs a change that touches none of it nothing: the adoption walk runs
+// for a change to the program it documents and not for one to a document
+// elsewhere. Where it runs, its result is a check result like any other, so the
+// review is shown it, and the stage's record says which path added it.
+func TestAPathCheckRunsOnlyForAChangeTouchingWhatItVouchesFor(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		changes string
+		added   bool
+	}{
+		{name: "a change to a walked path", changes: "internal/cli/status.go", added: true},
+		{name: "a change to a walked path's test", changes: "internal/cli/status_test.go", added: false},
+		{name: "an unrelated change", changes: "docs/notes.md", added: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			repository := pipelineRepository(t)
+			writeCommitted(t, repository, "scripts/walk.paths", "/README.md\n/internal/\n!*_test.go\n")
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+			provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+				path := filepath.Join(request.WorkingDirectory, filepath.FromSlash(test.changes))
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					return err
+				}
+				return os.WriteFile(path, []byte("package cli\n"), 0o600)
+			}, approveVerdict)
+			walked := filepath.Join(t.TempDir(), "walked.txt")
+			walk := "printf walked > " + walked
+			pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"true"})
+			pipeline.Config.PathChecks = []config.PathCheck{{Command: walk, Paths: "scripts/walk.paths"}}
+			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			_, statErr := os.Stat(walked)
+			if ran := statErr == nil; ran != test.added {
+				t.Fatalf("the path check ran = %v, want %v", ran, test.added)
+			}
+			var commands []string
+			for _, check := range outcome.Checks {
+				commands = append(commands, check.Command)
+			}
+			want := []string{"true"}
+			if test.added {
+				want = append(want, walk)
+			}
+			if strings.Join(commands, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("the checks the review is shown = %q, want %q", commands, want)
+			}
+			state, err := store.Load(outcome.RunID)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			recorded := state.CheckStage != nil && strings.Contains(state.CheckStage.Narrowed, "the change touches "+test.changes+", which scripts/walk.paths lists")
+			if recorded != test.added {
+				t.Fatalf("recorded stage = %#v, want the added check named = %v", state.CheckStage, test.added)
+			}
+		})
+	}
+}
+
+// A path check whose list cannot be read runs rather than being passed over:
+// the gate has no declaration to skip it on, and the record says what to fix.
+func TestAPathCheckWhoseListIsMissingRuns(t *testing.T) {
+	t.Parallel()
+
+	added := pathChecksFor(t.TempDir(), []config.PathCheck{{Command: "make adoption", Paths: "scripts/gone.paths"}}, []string{"docs/notes.md"})
+	if len(added) != 1 || added[0].command != "make adoption" || !strings.Contains(added[0].reason, "could not be read") {
+		t.Fatalf("added = %#v, want the check run and the unreadable list named", added)
+	}
+}
+
+// A change cannot switch off the check that holds it by editing the list the
+// check is chosen by: a change that empties the list and touches a path the
+// list covered on the target branch still runs the check, and the record says
+// the list's own change is why.
+func TestAChangeThatEmptiesAPathChecksListStillRunsIt(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	writeCommitted(t, repository, "scripts/walk.paths", "/README.md\n/internal/\n")
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "scripts", "walk.paths"), []byte("# nothing\n"), 0o600); err != nil {
+			return err
+		}
+		path := filepath.Join(request.WorkingDirectory, "internal", "cli", "status.go")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte("package cli\n"), 0o600)
+	}, approveVerdict)
+	walked := filepath.Join(t.TempDir(), "walked.txt")
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"true"})
+	pipeline.Config.PathChecks = []config.PathCheck{{Command: "printf walked > " + walked, Paths: "scripts/walk.paths"}}
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if _, err := os.Stat(walked); err != nil {
+		t.Fatalf("a change that emptied the list switched off its check: %v", err)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.CheckStage == nil || !strings.Contains(state.CheckStage.Narrowed, "touches scripts/walk.paths itself") {
+		t.Fatalf("recorded stage = %#v, want the list's own change named", state.CheckStage)
+	}
+}
+
+// Narrowing the list is the same case as emptying it: whatever the edited list
+// now says, the change that edited it runs the check.
+func TestAChangeThatNarrowsAPathChecksListStillRunsIt(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scripts", "walk.paths"), []byte("/README.md\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configured := []config.PathCheck{{Command: "make adoption", Paths: "scripts/walk.paths"}}
+	if added := pathChecksFor(root, configured, []string{"./scripts/walk.paths", "internal/cli/status.go"}); len(added) != 1 {
+		t.Fatalf("added = %#v, want the check run for a change narrowing its list", added)
+	}
+	if added := pathChecksFor(root, configured, []string{"internal/cli/status.go"}); len(added) != 0 {
+		t.Fatalf("added = %#v, want nothing for a change the unedited list does not cover", added)
+	}
 }

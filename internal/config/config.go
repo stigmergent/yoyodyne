@@ -81,8 +81,16 @@ type Config struct {
 	// red landing that files its own work item and blocks nothing. A project
 	// that names none runs nothing after a landing, which is what every project
 	// did before this existed.
-	LandingChecks []string               `yaml:"landing_checks,omitempty" json:"landing_checks,omitempty"`
-	Agents        map[string]AgentConfig `yaml:"agents" json:"agents"`
+	LandingChecks []string `yaml:"landing_checks,omitempty" json:"landing_checks,omitempty"`
+	// PathChecks are commands the per-run gate adds after Checks for a change
+	// that touches what they vouch for, and leaves out for one that touches none
+	// of it. Each names a file in the repository listing the paths it vouches
+	// for, so the list is kept beside the thing it describes rather than here;
+	// a change that edits that list runs the check whatever the list now says.
+	// A project that names none adds nothing, which is what every project did
+	// before this existed.
+	PathChecks []PathCheck            `yaml:"path_checks,omitempty" json:"path_checks,omitempty"`
+	Agents     map[string]AgentConfig `yaml:"agents" json:"agents"`
 	// Accounts are the provider accounts this project runs agents under, keyed by
 	// the alias each one is named by. It is top level rather than under `agents`
 	// because an account is a thing several agents share: which roles run on which
@@ -1174,6 +1182,9 @@ func (c Config) Validate() error {
 		if strings.TrimSpace(check) == "" {
 			problems = append(problems, fmt.Sprintf("landing check %d cannot be empty", index))
 		}
+	}
+	for index, check := range c.PathChecks {
+		problems = append(problems, check.problems(index)...)
 	}
 	// Admitting work without asking rests entirely on the operator's approval of
 	// the goal that work serves, so a project that records no goal approvals has

@@ -521,6 +521,10 @@ func (r *resolution) apply(applied layer) error {
 		r.config.LandingChecks = append([]string(nil), (*document.LandingChecks)...)
 		r.origins["landing_checks"] = applied.origin
 	}
+	if document.PathChecks != nil {
+		r.config.PathChecks = append([]PathCheck(nil), (*document.PathChecks)...)
+		r.origins["path_checks"] = applied.origin
+	}
 
 	for _, name := range sortedAgentNames(document.Agents) {
 		if err := r.applyAgent(name, document.Agents[name], applied); err != nil {
