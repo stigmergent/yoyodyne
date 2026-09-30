@@ -638,3 +638,40 @@ func TestAMissedPassIsMarkedAndItsClaimSaysHowItWasTaken(t *testing.T) {
 		t.Fatalf("Claim() = %+v, %v; want the cadence's claim not summoned", claimed, err)
 	}
 }
+
+// A pass's traces are kept on its record and read back, and a record that
+// marks a pass untraced while naming a trace it left is refused: the flag is
+// one somebody acts on, and it must not be able to disagree with the record.
+func TestAnUntracedPassIsRecordedAndCannotClaimATrace(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC)
+	account := &sweep.Result{Status: sweep.StatusComplete, Summary: "one", Findings: []sweep.Finding{{Issue: "x", Disposition: sweep.DispositionLeft}}}
+	store := newSweepStore(t)
+	untraced := Sweep{Task: "a-sweep", Role: "development-manager", StartedAt: at, EndedAt: at, Turns: 1, Result: account, Untraced: true}
+	if err := store.Append(untraced); err != nil {
+		t.Fatalf("Append() of an untraced pass error = %v", err)
+	}
+	traced := Sweep{Task: "a-sweep", Role: "development-manager", StartedAt: at, EndedAt: at, Turns: 1, Result: account,
+		ReportsFiled: 1, Admitted: []string{"yoyodyne-ifd.500"}}
+	if err := store.Append(traced); err != nil {
+		t.Fatalf("Append() of a traced pass error = %v", err)
+	}
+	recorded, _, err := store.List()
+	if err != nil || len(recorded) != 2 || !recorded[0].Untraced || recorded[0].LeftATrace() || !recorded[1].LeftATrace() || recorded[1].Admitted[0] != "yoyodyne-ifd.500" {
+		t.Fatalf("List() = %+v, %v; want the untraced pass and the traced one as written", recorded, err)
+	}
+	for name, bad := range map[string]Sweep{
+		"untraced with a report":   {ReportsFiled: 1},
+		"untraced with admissions": {Admitted: []string{"yoyodyne-ifd.500"}},
+		"untraced with a memory":   {Saved: []SavedWrite{{Kind: SavedMemory, Action: "remember", Memory: "m", Revision: 1}}},
+	} {
+		bad.Task, bad.Role, bad.StartedAt, bad.EndedAt, bad.Turns, bad.Result, bad.Untraced = "a-sweep", "development-manager", at, at, 1, account, true
+		if err := store.Append(bad); err == nil || !strings.Contains(err.Error(), "untraced") {
+			t.Errorf("%s: Append() error = %v, want the record refused", name, err)
+		}
+	}
+	if err := store.Append(Sweep{Task: "a-sweep", Role: "development-manager", StartedAt: at, EndedAt: at, Turns: 1, Result: account, Admitted: []string{" "}}); err == nil {
+		t.Error("a record admitting an unnamed item was kept")
+	}
+}

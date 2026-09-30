@@ -132,6 +132,28 @@ func TestSweepListingPutsQuestionsAboveTheFindings(t *testing.T) {
 	}
 }
 
+// A pass whose findings left no trace outside its account is marked as one
+// under its findings, and a pass that left one is not.
+func TestSweepListingMarksAnUntracedPass(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC)
+	untraced := recordedSweep("a-sweep", at, &sweep.Result{
+		Status:   sweep.StatusComplete,
+		Summary:  "found one",
+		Findings: []sweep.Finding{{Issue: "reviews wait an hour", Disposition: sweep.DispositionLeft}},
+	}, "")
+	untraced.Untraced = true
+	if rendered := renderSweepsAtDefault([]runstate.Sweep{untraced}); !strings.Contains(rendered, "UNTRACED: it left no trace of these findings") {
+		t.Errorf("rendered = %q, want the untraced pass marked", rendered)
+	}
+	traced := untraced
+	traced.Untraced, traced.ReportsFiled = false, 1
+	if rendered := renderSweepsAtDefault([]runstate.Sweep{traced}); strings.Contains(rendered, "UNTRACED") {
+		t.Errorf("rendered = %q, a traced pass is marked untraced", rendered)
+	}
+}
+
 // A fix that filed nothing is called what it is. It is the whole thing a week of
 // these reports is read for, and a reader must not have to compare two lines to
 // see it.

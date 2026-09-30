@@ -210,6 +210,12 @@ type Turn struct {
 	// durable the moment it is made, so a turn that failed after it still made
 	// it, and the pass's record has to say so.
 	Saved []runstate.SavedWrite `json:"saved,omitempty"`
+	// ReportsFiled is how many reports the turn filed that the pile kept, and
+	// Admitted the work items it admitted, by identifier. With Saved they are
+	// what the pass's record reads to say whether its findings left a trace.
+	// Both are carried whichever way the turn went, for the reason Saved is.
+	ReportsFiled int      `json:"reports_filed,omitempty"`
+	Admitted     []string `json:"admitted,omitempty"`
 }
 
 // ErrRoleUnreachable reports a firing that failed before the role was asked
@@ -274,6 +280,9 @@ type Fired struct {
 	// out. It is the one thing a reader cannot infer from a short report, and
 	// leaving it unsaid would make a bounded pass look like a finished one.
 	Truncated bool `json:"truncated,omitempty"`
+	// Untraced marks a pass that reported findings and left no trace of them
+	// outside its account, as its record marks it.
+	Untraced bool `json:"untraced,omitempty"`
 	// Summoned is what fired this pass out of its cadence, where something did.
 	Summoned string `json:"summoned,omitempty"`
 	// Events is how many events of each class a program manager instance's pass
@@ -1009,10 +1018,17 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// What an unfinished pass before this one already saved is said in this
 	// one's message, since it is run again over what that one was owed and
 	// would otherwise write the same memories and report a second time.
-	if already, problem := t.savedByUnfinishedPasses(name); problem != "" {
+	// And the findings the last pass that took a turn left no trace of are named
+	// in this one's, so the role can write the trace now rather than lose them.
+	if earlier, problem := t.earlierPasses(name); problem != "" {
 		problems = append(problems, problem)
-	} else if len(already) > 0 {
-		message += "\n\n" + alreadySavedMessage(already)
+	} else {
+		if already := savedByUnfinishedPasses(earlier); len(already) > 0 {
+			message += "\n\n" + alreadySavedMessage(already)
+		}
+		if untraced, found := lastUntracedPass(earlier); found {
+			message += "\n\n" + untracedMessage(untraced)
+		}
 	}
 	failed := false
 	for turn := 0; turn < task.Turns(); turn++ {
@@ -1027,6 +1043,14 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		for _, saved := range answered.Saved {
 			if len(recorded.Saved) < runstate.MaxSweepSavedWrites {
 				recorded.Saved = append(recorded.Saved, saved)
+			}
+		}
+		// And so are the reports it filed and the work it admitted, which are
+		// the other two traces a finding can leave.
+		recorded.ReportsFiled += answered.ReportsFiled
+		for _, admitted := range answered.Admitted {
+			if admitted = strings.TrimSpace(admitted); admitted != "" && len(recorded.Admitted) < runstate.MaxSweepSavedWrites {
+				recorded.Admitted = append(recorded.Admitted, admitted)
 			}
 		}
 		if model := strings.TrimSpace(answered.Model); model != "" && len(model) <= runstate.MaxSweepModelBytes {
@@ -1141,6 +1165,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	recorded.EndedAt = t.now()
 	recorded.Result = merged
 	recorded.Failed = failed
+	// Read before the harness adds its own findings below: what is checked is
+	// whether what the role found left a trace, and the forge's notices are the
+	// harness's, stated once on the record and nowhere else by design.
+	recorded.Untraced = merged != nil && len(merged.Findings) > 0 && !recorded.LeftATrace()
+	fired.Untraced = recorded.Untraced
 	// The harness's own reading of the forge joins the account after the role's
 	// turns, so what the role said is intact and what the harness noticed is
 	// stated beside it.
@@ -1582,31 +1611,100 @@ func describeSavedBeforeFailing(name string, saved []runstate.SavedWrite) string
 		name, len(saved), strings.Join(described, ", "))
 }
 
-// savedByUnfinishedPasses is every memory and lane-report write this task's
-// passes saved since its last pass that finished: the passes the next one is
-// run again over what they were owed. It reports what stopped it reading the
-// earlier passes as a problem for the record, and then lists nothing, since a
-// pass told nothing reads the same as one told there was nothing.
-func (t Trigger) savedByUnfinishedPasses(name string) ([]runstate.SavedWrite, string) {
+// earlierPasses is this task's recorded passes, in the order they were
+// written, read once for everything the next pass is told about the ones
+// before it. It reports what stopped it reading them as a problem for the
+// record, and then lists nothing, since a pass told nothing reads the same as
+// one told there was nothing.
+func (t Trigger) earlierPasses(name string) ([]runstate.Sweep, string) {
 	if t.Reports == nil {
 		return nil, ""
 	}
 	recorded, _, err := t.Reports.List()
 	if err != nil {
-		return nil, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told what an unfinished one had already saved: %v", name, err)
+		return nil, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told what an unfinished one had already saved or which findings an earlier one left no trace of: %v", name, err)
 	}
-	var saved []runstate.SavedWrite
-	for i := len(recorded) - 1; i >= 0; i-- {
-		earlier := recorded[i]
-		if earlier.Task != name {
-			continue
+	var passes []runstate.Sweep
+	for _, earlier := range recorded {
+		if earlier.Task == name {
+			passes = append(passes, earlier)
 		}
-		if !earlier.Unfinished() {
+	}
+	return passes, ""
+}
+
+// savedByUnfinishedPasses is every memory and lane-report write a task's
+// passes saved since its last pass that finished: the passes the next one is
+// run again over what they were owed.
+func savedByUnfinishedPasses(earlier []runstate.Sweep) []runstate.SavedWrite {
+	var saved []runstate.SavedWrite
+	for i := len(earlier) - 1; i >= 0; i-- {
+		if !earlier[i].Unfinished() {
 			break
 		}
-		saved = append(append([]runstate.SavedWrite(nil), earlier.Saved...), saved...)
+		saved = append(append([]runstate.SavedWrite(nil), earlier[i].Saved...), saved...)
 	}
-	return saved, ""
+	return saved
+}
+
+// lastUntracedPass is the task's last pass that took a turn, where that pass
+// is marked untraced. The records after it that took no turn — a miss, a
+// firing refused before its turn, a wait on the provider — asked the role
+// nothing, so they told it nothing either and are stepped over. A pass that
+// took a turn is told once: the pass after it is the one that could write the
+// trace, and whether it did is its own record's to say.
+func lastUntracedPass(earlier []runstate.Sweep) (runstate.Sweep, bool) {
+	for i := len(earlier) - 1; i >= 0; i-- {
+		if earlier[i].Turns == 0 {
+			continue
+		}
+		return earlier[i], earlier[i].Untraced
+	}
+	return runstate.Sweep{}, false
+}
+
+// maxUntracedListed bounds how many findings the message naming an untraced
+// pass lists, and maxUntracedFindingBytes what each says of itself, so the
+// list never costs the pass its message; the count beside them is whole.
+const (
+	maxUntracedListed       = 10
+	maxUntracedFindingBytes = 300
+)
+
+// untracedMessage tells a pass which findings the one before it reported and
+// left no trace of, so it writes the trace now for any that still hold.
+func untracedMessage(untraced runstate.Sweep) string {
+	var findings []sweep.Finding
+	if untraced.Result != nil {
+		findings = untraced.Result.Findings
+	}
+	lines := []string{
+		fmt.Sprintf("Your pass of %s at %s reported %d finding(s) and left no trace of them: it wrote no memory, changed no lane report, filed no report, and admitted no work. What is only in a pass's account is lost to you at your conversation's next compaction. For each finding below that still holds, leave its trace on this pass — a memory, your lane report where you keep one, a report, or admitted work — and say in this pass's account which you left:",
+			untraced.Task, untraced.StartedAt.UTC().Format(time.RFC3339), len(findings)),
+	}
+	for index, finding := range findings {
+		if index == maxUntracedListed {
+			lines = append(lines, fmt.Sprintf("- and %d more not listed here; the pass's whole account is in `yoyo sweeps`", len(findings)-maxUntracedListed))
+			break
+		}
+		lines = append(lines, "- "+cutFinding(finding.Issue))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// cutFinding holds one finding to a line of the message, cut on a character
+// boundary.
+func cutFinding(issue string) string {
+	issue = strings.Join(strings.Fields(issue), " ")
+	if len(issue) <= maxUntracedFindingBytes {
+		return issue
+	}
+	const marker = " […]"
+	cut := maxUntracedFindingBytes - len(marker)
+	for cut > 0 && !utf8.RuneStart(issue[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(issue[:cut]) + marker
 }
 
 // alreadySavedMessage tells a pass what an unfinished pass before it already
@@ -1837,6 +1935,9 @@ func (s RecurringSweep) Render() string {
 		}
 		if fired.SilentRepairs > 0 {
 			fmt.Fprintf(&rendered, "  %d of its fixes filed nothing for their root cause\n", fired.SilentRepairs)
+		}
+		if fired.Untraced {
+			fmt.Fprintf(&rendered, "  it left no trace of what it found: no memory, lane report, report, or admitted work; its next pass is told which findings\n")
 		}
 		if fired.PullRequests > 0 {
 			fmt.Fprintf(&rendered, "  %d of the findings are open pull requests the harness noticed on the forge, held open for work that is over\n", fired.PullRequests)

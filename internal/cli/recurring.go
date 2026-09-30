@@ -300,6 +300,11 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		// turn that failed afterwards still saved: the pass's record says which
 		// writes stood, and the pass run again is told not to make them twice.
 		Saved: reply.Saved,
+		// And the reports it filed and the work it admitted, the other two
+		// traces a finding can leave: a pass that reports findings and leaves
+		// none of the four is recorded as untraced.
+		ReportsFiled: len(reply.Reports),
+		Admitted:     reply.AdmittedWork(),
 	}
 	if err != nil {
 		return turn, notWoken(err)
@@ -630,6 +635,11 @@ func renderSweep(recorded runstate.Sweep) string {
 			fmt.Fprintf(&rendered, "      fixed with nothing filed for the root cause\n")
 		}
 	}
+	// A pass whose findings left nothing outside its account says so under
+	// them, because what it found is lost to the role at its next compaction.
+	if recorded.Untraced {
+		rendered.WriteString("  UNTRACED: it left no trace of these findings — no memory written, no lane report changed, no report filed, no work admitted; its next pass is told which they were\n")
+	}
 	// What the role recommended on the changes proposed to its own documents,
 	// after the findings: it is the batch `yoyo amendment` decides from, and the
 	// verdict is the role's argument rather than anything settled.
@@ -686,6 +696,11 @@ needs no attention. Below them come the pass's summary and what it found, each
 finding with what the role did about it -- fixed, filed, consulted, or left --
 and the work it filed for the root cause. A fix that filed nothing is named as
 one, which is the whole of what a run of these reports is read for.
+
+A finding has to leave a trace outside the account on the same pass: a memory
+written, a lane report changed, a report filed, or work admitted. A pass whose
+findings left none is marked UNTRACED; its task's next pass is told which
+findings they were, and until then "yoyo status" shows it waiting on the role.
 
 Each pass's header names the model its turns ran on: the task's own where it
 names one with "model", the role's configured model where it does not, and the

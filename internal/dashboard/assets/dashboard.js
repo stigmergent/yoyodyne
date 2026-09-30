@@ -351,6 +351,7 @@
     { mover: "product-manager", label: "the Lead Product Manager's" },
     { mover: "architect", label: "the architect's" },
     { mover: "development-manager", label: "the development manager's" },
+    { mover: "program-manager", label: "the program manager's" },
     { mover: "developer", label: "the developer's" },
     { mover: "reviewer", label: "the reviewer's" },
     { mover: "harness", label: "the harness's" },
@@ -429,7 +430,8 @@
     { attention: "held-work", title: "Admitted work held back" },
     { attention: "operator-action", title: "A finding only the operator can act on" },
     { attention: "product-decision", title: "A product decision about a run in flight" },
-    { attention: "human-gate", title: "A step reserved for a person" }
+    { attention: "human-gate", title: "A step reserved for a person" },
+    { attention: "untraced-pass", title: "A pass that left no trace of what it found" }
   ];
 
   function kindTitle(kind) {
@@ -1775,6 +1777,17 @@
         add("First failed", dayAndClock(failing.first_at));
         add("Latest", dayAndClock(failing.latest_at));
         add("What stopped it", failing.problem, "card-field-prose");
+        break;
+      case "untraced-pass":
+        var untraced = entry.untraced_pass;
+        add("Task", entry.id);
+        if (!untraced) {
+          break;
+        }
+        add("Role", untraced.role);
+        add("Pass", dayAndClock(untraced.started_at));
+        add("Findings", String(untraced.findings));
+        add("First finding", untraced.first, "card-field-prose");
         break;
       case "hold":
         var hold = entry.operator_hold || entry.intake_hold || entry.capacity_hold;

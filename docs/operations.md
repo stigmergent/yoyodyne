@@ -3598,17 +3598,17 @@ Each entry under `standing.needs_human` is the thing waiting rather than a
 sentence about it: its `kind`, from a closed set — `amendment`,
 `conversation-carried-item`, `report`, `owed-step`, `publication`,
 `degraded-service`, `failing-task`, `hold`, `directive`, `outage`, `stall`,
-`held-work`, `human-gate` — the `id` of the record it is about (an amendment's, a
+`held-work`, `human-gate`, `untraced-pass` — the `id` of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, or which switch a hold is: `operator`, `intake`, or
 `capacity`), the
 `mover` whose move it is, in the same closed vocabulary the
-page counts by (`operator`, a role such as `architect` or
-`development-manager`, `harness`, `forge`, `provider`, `nobody`, or
+page counts by (`operator`, a role such as `architect`,
+`development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
 `unnamed-role`), and
 the record itself, whole, under a field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`,
-`owed_step`, `publication`, `held_work`, `human_gate`, and for a hold `operator_hold`, `intake_hold`, or
+`owed_step`, `publication`, `held_work`, `human_gate`, `untraced_pass`, and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work
@@ -5065,6 +5065,19 @@ row are both named, and once a pass completes the one after it is told nothing
 of them.
 [A program manager instance's passes](configuration.md#a-program-manager-instances-passes)
 says what wakes one.
+
+**A pass whose findings left no trace is marked `UNTRACED`.** A finding has to
+leave a memory written, a lane report changed, a report filed, or work admitted
+on the same pass, because the account here is not something the role reads back
+and its conversation is compacted. A pass that reported findings of the role's
+own and left none of the four says so under its findings, and `--json` carries
+`untraced` with the traces the harness counted: `saved`, `reports_filed`, and
+`admitted`. The task's next pass that takes a turn is told the findings in its
+message and asked to leave the trace then; until that pass the untraced pass is
+an `untraced-pass` entry on [the "Needs a human"
+line](#where-the-harness-stands-the-four-lines), under the head for the role
+whose pass it was, and never among the operator's.
+[What comes back to you](reporting.md#whether-the-pile-is-draining) says why.
 
 **Some findings on a development manager's pass are the harness's own.** Beside
 what the role reported, the harness lists the forge's open pull requests on every

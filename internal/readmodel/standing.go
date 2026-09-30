@@ -862,6 +862,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		needs = append(needs, failingTaskAttention(task))
 	}
 	needsProblem = joinProblems(needsProblem, failingProblem)
+	// A pass that reported findings and left no trace of them is the role's
+	// problem to move rather than a person's, and is said with the role as its
+	// mover until a pass of the same task takes a turn again.
+	untraced, untracedProblem := ReadUntracedPasses(sources)
+	for _, pass := range untraced {
+		needs = append(needs, untracedPassAttention(pass))
+	}
+	needsProblem = joinProblems(needsProblem, untracedProblem)
 	// Held work is on both lines for the reason handed-off work below is, and says
 	// a different thing on each: the queue's line says why nothing pulls each
 	// item, and this says who has to move and how many items are waiting on them.

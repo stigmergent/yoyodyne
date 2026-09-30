@@ -392,3 +392,16 @@ func TestContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) {
 		t.Errorf("the contract does not carry the rule against routing approvals to the operator:\n%s", Contract())
 	}
 }
+
+// Every recurring task and every program manager pass ends on this contract, so
+// it is where the role is told that a finding has to leave a trace outside the
+// account, and which traces count.
+func TestContractSaysAFindingMustLeaveATrace(t *testing.T) {
+	t.Parallel()
+
+	for _, want := range []string{"A finding must leave a trace", "a memory written", "your lane report changed", "a report filed", "work admitted", "untraced"} {
+		if !strings.Contains(Contract(), want) {
+			t.Errorf("the contract does not carry %q:\n%s", want, Contract())
+		}
+	}
+}

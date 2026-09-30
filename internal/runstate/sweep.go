@@ -347,6 +347,28 @@ type Sweep struct {
 	// the pass after it. The next pass after one that did not complete is told
 	// these, so it does not write them again.
 	Saved []SavedWrite `json:"saved,omitempty"`
+	// ReportsFiled is how many reports the pass's turns filed that the pile
+	// kept, and Admitted the work items they admitted to the tracker, by
+	// identifier. With Saved they are the four traces a pass can leave outside
+	// its own account: a memory written, a lane report changed, a report filed,
+	// and work admitted. Each is absent on a pass that made none of that kind.
+	ReportsFiled int      `json:"reports_filed,omitempty"`
+	Admitted     []string `json:"admitted,omitempty"`
+	// Untraced marks a pass whose account reported findings of the role's own
+	// and whose turns left none of those traces. A finding that lives only in
+	// the account and the conversation is lost to the role at the conversation's
+	// next compaction, so the record says so, the role's next pass is told which
+	// findings they were, and the attention line carries it with the role as the
+	// one to move. It is absent on every other pass, and on every record written
+	// before it existed.
+	Untraced bool `json:"untraced,omitempty"`
+}
+
+// LeftATrace reports a pass whose turns left at least one trace outside its
+// own account: a memory write or lane report version it saved, a report it
+// filed, or work it admitted.
+func (s Sweep) LeftATrace() bool {
+	return len(s.Saved) > 0 || s.ReportsFiled > 0 || len(s.Admitted) > 0
 }
 
 // Unfinished reports a record of this task's that did not end the pass owed:
@@ -667,6 +689,22 @@ func (s Sweep) Validate() error {
 		if err := saved.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("saved[%d]: %w", i, err))
 		}
+	}
+	if s.ReportsFiled < 0 {
+		problems = append(problems, fmt.Errorf("reports filed is %d, and a pass cannot file a negative number of them", s.ReportsFiled))
+	}
+	if len(s.Admitted) > MaxSweepSavedWrites {
+		problems = append(problems, fmt.Errorf("%d admitted items in one pass, limit is %d", len(s.Admitted), MaxSweepSavedWrites))
+	}
+	for i, id := range s.Admitted {
+		if strings.TrimSpace(id) == "" || len(id) > MaxSweepModelBytes {
+			problems = append(problems, fmt.Errorf("admitted[%d] must name a work item", i))
+		}
+	}
+	// An untraced pass is one that left nothing, so a record claiming both is
+	// one whose flag nobody could act on.
+	if s.Untraced && s.LeftATrace() {
+		problems = append(problems, errors.New("a pass marked untraced left a trace"))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep: %w", err)
