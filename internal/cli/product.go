@@ -41,9 +41,11 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
 	"github.com/mason-bryant/yoyodyne/internal/supervise"
+	"github.com/mason-bryant/yoyodyne/internal/watchdog"
 )
 
 // startWait bounds how long `yoyo start` waits for the detached supervisor to
@@ -481,14 +483,64 @@ func (p *product) retireMaintenanceJob(ctx context.Context, by string) (said, pr
 // the product's binary when its branch lands, for a product whose binary is
 // built from its own checkout.
 func (p *product) residents(log func(format string, args ...any)) []supervise.Resident {
-	if p.runner == nil {
-		return nil
+	var residents []supervise.Resident
+	if p.runner != nil {
+		if rebuilder, ok := supervise.NewRebuilder(doctor.RepositoryPath(config.ProjectDirectory(p.resolved.Path), p.resolved.Config.Product.Repository), p.program, p.runner, slack.WithoutSecrets(p.environ), log); ok {
+			residents = append(residents, rebuilder)
+		}
 	}
-	rebuilder, ok := supervise.NewRebuilder(doctor.RepositoryPath(config.ProjectDirectory(p.resolved.Path), p.resolved.Config.Product.Repository), p.program, p.runner, slack.WithoutSecrets(p.environ), log)
-	if !ok {
-		return nil
+	if watch, ok := p.factoryWatch(log); ok {
+		residents = append(residents, watch)
 	}
-	return []supervise.Resident{rebuilder}
+	return residents
+}
+
+// factoryWatch is the supervisor's reading of whether the factory has stalled:
+// no work pulled and no recurring pass succeeding for longer than the
+// configured limit. It is hosted here rather than in the watch because the
+// watch's passes are the ones a stall means are failing. A store that cannot be
+// built leaves it out, and says so.
+func (p *product) factoryWatch(log func(format string, args ...any)) (*watchdog.FactoryWatch, bool) {
+	cfg := p.resolved.Config
+	runs, err := runstate.NewStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		log("the factory stall check is not running: %v", err)
+		return nil, false
+	}
+	passes, err := runstate.NewSweepStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		log("the factory stall check is not running: %v", err)
+		return nil, false
+	}
+	holds, err := runstate.NewOperatorHoldStore(p.stateRoot)
+	if err != nil {
+		log("the factory stall check is not running: %v", err)
+		return nil, false
+	}
+	stalls, err := runstate.NewFactoryStallStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		log("the factory stall check is not running: %v", err)
+		return nil, false
+	}
+	reports, err := runstate.NewReportStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		log("the factory stall check is not running: %v", err)
+		return nil, false
+	}
+	return &watchdog.FactoryWatch{
+		Runs:    runs,
+		Passes:  passes,
+		Holds:   holds,
+		Stalls:  stalls,
+		Reports: reports,
+		Attribution: report.Attribution{
+			ProductID:    cfg.Product.ID,
+			RepositoryID: string(cfg.Product.RepositoryID),
+			Build:        buildinfo.Commit(),
+		},
+		Limit: cfg.Execution.FactoryStallAfter.Duration(),
+		Log:   log,
+	}, true
 }
 
 func firstNonEmptyString(values ...string) string {

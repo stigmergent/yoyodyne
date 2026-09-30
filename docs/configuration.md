@@ -616,6 +616,7 @@ Up to three layers produce the effective configuration, later ones winning:
    `execution.check_stage_timeout` (`30m`),
    `execution.landing_check_timeout` (`2h`),
    `execution.redeploy_drain_limit` (`15m`),
+   `execution.factory_stall_after` (`2h`),
    `triage.stuck_merge_age` (`2h`),
    `triage.review_rounds_cap` (4),
    `approvals.publishing` (`human`), `approvals.work_items` (`human`), an
@@ -5793,6 +5794,8 @@ These are all errors, reported before any work is claimed:
   and report as passed;
 - an `execution.redeploy_drain_limit` that is zero or negative, since a drain
   with no bound is the two-hour wait on a deploy that the bound exists to end;
+- an `execution.factory_stall_after` that is negative, which describes no
+  limit anybody could mean; zero reads the two-hour default;
 - a `triage.stuck_merge_age` that is not a duration, or that is zero or
   negative — unlike the usage-limit pauses, "no time at all" is not a choice
   anybody can mean here;
@@ -6389,6 +6392,37 @@ are actually stored cannot be read from the file; `yoyo doctor` asks, under
 `service:slack`, and a service enabled with its tokens missing is a warning
 carrying the command that stores them — the same command its `slack-secrets`
 finding carries, because both are one question asked of one keychain.
+
+### Saying when the factory has stalled
+
+The supervisor reads, once a minute, whether the factory as a whole has
+stopped: **no work pulled and no recurring pass succeeding for longer than
+`execution.factory_stall_after`** (two hours by default), while passes are
+still being attempted. It reads the run records and the sweep log and nothing
+else — no tracker, no provider — so it still answers when the tracker is what
+stopped everything, and it runs in the supervisor rather than in the watch
+because the watch's passes are the ones a stall means are failing.
+
+```yaml
+execution:
+  factory_stall_after: 2h   # the default
+```
+
+When a stall begins the harness files a critical report in its own voice,
+naming how long nothing has happened, when work was last pulled and a pass
+last succeeded, and what each recurring task's latest attempt failed on. The
+report goes into the pile every report goes into, so it is put in front of the
+operator wherever critical reports reach him and delivered to the Lead Product
+Manager as a turn of its own. It is filed once per stall: the stall is recorded
+in `factory-stalls.jsonl` under the product's state directory, and readings
+that agree with a standing stall write nothing. The first pull or successful
+pass closes it and files a note saying what cleared it. While it stands,
+`yoyo status` names it on the attention line as the harness's move.
+
+A pass counts as successful when it took a turn and the role gave an account
+of it. The operator's pause is never a stall, and neither is a product whose
+recurring tasks are switched off over an empty queue: with no pass attempted
+there is nothing failing to report.
 
 ### The dashboard's entry
 
