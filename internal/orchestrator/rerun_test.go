@@ -1018,16 +1018,34 @@ func TestARerunIsRefusedWhenTheItemCannotBeRead(t *testing.T) {
 	}
 }
 
-// A stoppage nothing docketed is not triage's to act on: the docket entry is
-// what the one re-run is counted against.
-func TestARerunIsRefusedForARunNothingDocketed(t *testing.T) {
+// A run nothing docketed is re-run on the development manager's decision, and
+// its one re-run is counted against the key the docket would have given it,
+// because a run the harness cancelled on its way out is never docketed and her
+// decision about one used to be refused at every pass (yoyodyne-ifd.428.52). A
+// run the harness holds no record of is still refused, naming the docket.
+func TestARerunOfARunNothingDocketedStartsAndOneWithNoRecordIsRefused(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
 	harness.docket.entries = nil
-	_, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
+	if _, err := harness.rerunner().Rerun(context.Background(), rerunRequest()); err != nil {
+		t.Fatalf("Rerun() error = %v, want the recorded run re-run", err)
+	}
+	if len(harness.started) != 1 {
+		t.Fatalf("started = %#v, want one fresh run", harness.started)
+	}
+	if _, claimed, _ := harness.reruns.Find(triage.Key(triage.ClassStoppedRun, docketedRunID)); !claimed {
+		t.Fatalf("want the re-run claimed under the run's stopped-run key")
+	}
+
+	unrecorded := newRerunHarness(t, stoppedState())
+	unrecorded.docket.entries = nil
+	_, err := unrecorded.rerunner().Rerun(context.Background(), RerunRequest{Run: "run-44444444444444444444444444444444"})
 	if err == nil || !strings.Contains(err.Error(), "triage docket") {
 		t.Fatalf("Rerun() error = %v, want a refusal naming the docket", err)
+	}
+	if len(unrecorded.started) != 0 {
+		t.Fatalf("started = %#v, want nothing started", unrecorded.started)
 	}
 }
 
