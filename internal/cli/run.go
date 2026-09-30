@@ -691,6 +691,9 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// failing job's log read through the same forge access.
 		Filer:   parts.tracker(),
 		JobLogs: forge,
+		// Before a check is filed as the target's, the forge is asked whether it
+		// is red on the target's own head too.
+		TargetChecks: forge,
 		// Bringing a queued head up to date is a replay, and it makes a finished
 		// run live again, so it reads the hold and the slots a resumption reads.
 		// Only the sweep verb hosts the run it makes live; a pass without Continue

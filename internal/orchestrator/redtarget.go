@@ -27,11 +27,28 @@ package orchestrator
 // a queued head behind its target is (ResumeRedTargets); and a head still level
 // with a target whose checks now pass is re-armed by the watch's re-arm
 // carry-out, with nobody deciding anything (CarryRearms).
+//
+// Naming no file the change touches is not proof the failure is the target's.
+// On 2026-09-29 pull request 907 failed the build check on a test in a package
+// its own change added: the forge reported the failure per package and annotated
+// no file, so it was filed as main's, the merge was withdrawn, and a run was
+// spent finding that main does not have the package and passes. So before a
+// check is filed as the target's the harness confirms it (redTargetOwner, from
+// yoyodyne-c02): the forge is asked how the same check ended on the target's
+// own head, and a check that passes there is the change's. Where the forge
+// cannot say — the read fails, or the check has not run or not finished on the
+// target's head — the failing job's log and annotations are read instead, and
+// any file the change adds or modifies, or the directory one sits in, that they
+// name makes the failure the change's. A failure that is the change's is handed
+// back to be repaired, as a check failing on a file the change touches is, and
+// nothing is filed against the target.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
+	"sort"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -52,8 +69,166 @@ type ReconcileJobLogs interface {
 	JobLogTail(ctx context.Context, checkRun int64, lines int) (string, error)
 }
 
+// ReconcileTargetChecks reads how each check ended on the commit the target
+// branch points at. It is satisfied by publish.GitHub.
+type ReconcileTargetChecks interface {
+	BranchChecks(ctx context.Context, branch string) (publish.BranchCheckReading, error)
+}
+
 // redTargetLogLines is how much of a failing job's log an item carries.
 const redTargetLogLines = 60
+
+// redTargetOwnerLogLines is how much of a failing job's log is read for the
+// change's files before its failure is filed as the target's. It is more than
+// the item carries because a test runner's summary of which packages failed can
+// sit well above the line the step failed on.
+const redTargetOwnerLogLines = 400
+
+// redTargetOwnership is whose failure the checks red on a level head are, as
+// redTargetOwner decided it.
+type redTargetOwnership struct {
+	// Change says why the failure is the change's own, and is empty where every
+	// failing check is the target's.
+	Change string
+	// Confirmed says, per failing check, how it was found to be the target's.
+	Confirmed map[string]string
+}
+
+// redTargetOwner decides whether checks failing on a head level with its target,
+// on no file the change touches, are the target's failure or the change's own.
+// A check is the target's where the forge reports it red on the target's own
+// head too, and the change's where it passes there. Where the forge cannot say
+// either — the target's checks cannot be read, or this check has not run or
+// finished on its head — the check's annotations and the tail of its job's log
+// are read, and any file the change adds or modifies, or the directory one sits
+// in, that they name makes the failure the change's. files are the files the
+// change touches, as the forge lists them.
+func (r Reconciler) redTargetOwner(ctx context.Context, target string, checks runstate.PullRequestChecks, files []string) redTargetOwnership {
+	ownership := redTargetOwnership{Confirmed: make(map[string]string, len(checks.Failing))}
+	var onTarget *publish.BranchCheckReading
+	unread := "nothing is wired to this harness to read the target's own checks"
+	if r.TargetChecks != nil {
+		reading, err := r.TargetChecks.BranchChecks(ctx, target)
+		if err == nil {
+			onTarget = &reading
+		} else {
+			unread = fmt.Sprintf("the forge could not say how the checks ended on %s's own head (%s)", target, oneline.Bound(err.Error(), 200))
+		}
+	}
+	var own []string
+	for _, failing := range checks.Failing {
+		why := unread
+		if onTarget != nil {
+			head := nonEmpty(shortCommit(onTarget.HeadCommit), "its head")
+			switch {
+			case namedCheck(onTarget.Failing, failing.Name):
+				ownership.Confirmed[failing.Name] = fmt.Sprintf("The forge reports %s red on %s's own head, %s, as well.", failing.Name, target, head)
+				continue
+			case namedCheck(onTarget.Passing, failing.Name):
+				own = append(own, fmt.Sprintf("%s passes on %s's own head, %s", failing.Name, target, head))
+				continue
+			case namedCheck(onTarget.Pending, failing.Name):
+				why = fmt.Sprintf("%s has not finished on %s's own head, %s", failing.Name, target, head)
+			default:
+				why = fmt.Sprintf("%s has not run on %s's own head, %s", failing.Name, target, head)
+			}
+		}
+		if named := r.changeNamedByCheck(ctx, failing, files); len(named) > 0 {
+			own = append(own, fmt.Sprintf("%s, and the forge's account of %s names %s, which this change adds or modifies", why, failing.Name, strings.Join(named, ", ")))
+			continue
+		}
+		ownership.Confirmed[failing.Name] = fmt.Sprintf("Whether %s is red on %s's own head was not confirmed, because %s; the forge's log of it and its annotations name no file this change adds or modifies, nor the directory of one.", failing.Name, target, why)
+	}
+	ownership.Change = strings.Join(own, "; ")
+	return ownership
+}
+
+func namedCheck(names []string, name string) bool {
+	for _, candidate := range names {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
+
+// changeNamedByCheck is the files the change touches, and the directories they
+// sit in, that a failing check's annotations or the tail of its job's log name.
+// A test failure reported per package names the package rather than the file
+// the failing test is in, so the directory counts as much as the file does. A
+// directory at the top of the repository counts only where it is named as part
+// of a path, so a word that happens to share its name is not read as it.
+func (r Reconciler) changeNamedByCheck(ctx context.Context, failing runstate.FailingCheck, files []string) []string {
+	var text strings.Builder
+	for _, annotation := range failing.Annotations {
+		text.WriteString(annotation.Message)
+		text.WriteByte('\n')
+	}
+	if r.JobLogs != nil && failing.CheckRun > 0 {
+		if tail, err := r.JobLogs.JobLogTail(ctx, failing.CheckRun, redTargetOwnerLogLines); err == nil {
+			text.WriteString(tail)
+		}
+	}
+	account := text.String()
+	if strings.TrimSpace(account) == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var named []string
+	consider := func(candidate string, asPath bool) {
+		if candidate == "" || candidate == "." || candidate == "/" || seen[candidate] {
+			return
+		}
+		seen[candidate] = true
+		if mentionsPath(account, candidate, asPath) {
+			named = append(named, candidate)
+		}
+	}
+	for _, file := range files {
+		file = strings.Trim(strings.TrimSpace(file), "/")
+		consider(file, false)
+		directory := path.Dir(file)
+		consider(directory, !strings.Contains(directory, "/"))
+	}
+	sort.Strings(named)
+	if len(named) > runstate.MaxRecordedCheckPaths {
+		named = named[:runstate.MaxRecordedCheckPaths]
+	}
+	return named
+}
+
+// mentionsPath reports text naming a repository path whole: not as part of a
+// longer name on either side. asPath asks, further, that it be named as part of
+// a longer path — a slash beside it — which is how a directory at the top of the
+// repository is told apart from an ordinary word.
+func mentionsPath(text, name string, asPath bool) bool {
+	for from := 0; ; {
+		index := strings.Index(text[from:], name)
+		if index < 0 {
+			return false
+		}
+		start := from + index
+		end := start + len(name)
+		before, after := byte(' '), byte(' ')
+		if start > 0 {
+			before = text[start-1]
+		}
+		// A full stop ending a sentence ends the name too.
+		if end < len(text) && (text[end] != '.' || (end+1 < len(text) && pathNameByte(text[end+1]))) {
+			after = text[end]
+		}
+		if !pathNameByte(before) && !pathNameByte(after) && (!asPath || before == '/' || after == '/') {
+			return true
+		}
+		from = start + 1
+	}
+}
+
+// pathNameByte reports a byte that continues a file or directory name.
+func pathNameByte(b byte) bool {
+	return b == '_' || b == '-' || b == '.' ||
+		('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z') || ('0' <= b && b <= '9')
+}
 
 // redTargetMarker is the line an item filed for a check red on the target
 // carries in its notes, naming the check and the branch, which is what a later
@@ -67,6 +242,11 @@ func redTargetMarker(target, check string) string {
 // waitOnRedTarget settles a queued merge whose checks fail on a head level with
 // its target, on no file its change touches, as the target's failure. dropped is
 // a merge the forge already stopped holding, which has nothing to withdraw.
+// files are the files the change touches, as the forge lists them.
+//
+// The failure is confirmed as the target's first (redTargetOwner). One that is
+// the change's own is handed back to be repaired, as a check failing on a file
+// the change touches is, and nothing is filed against the target.
 //
 // Nothing is written until everything the wait names exists. The work item is
 // read for the goal it served, and every failing check is filed or found, before
@@ -74,10 +254,18 @@ func redTargetMarker(target, check string) string {
 // and the next sweep asks again, finding by its marker whatever this one filed.
 // A sweep wired with nothing to file through hands the merge back as it always
 // did.
-func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, checks runstate.PullRequestChecks, dropped bool) (Reconciliation, error) {
+func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, checks runstate.PullRequestChecks, files []string, dropped bool) (Reconciliation, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
 	describe := checks.Describe(target)
+	ownership := r.redTargetOwner(ctx, target, checks, files)
+	if ownership.Change != "" {
+		published.Checks = &checks
+		state.PullRequest = &published
+		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
+			"the forge's checks on pull request %d fail on this change with its head level with %s: %s; so the failure is this change's own rather than %s's, and nothing was filed against %s: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
+			published.Number, target, ownership.Change, target, target, describe))
+	}
 	if r.Filer == nil {
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail with its head level with %s, so nothing but this change differs from the target and bringing it up to date would change nothing: %s. Nothing is wired to this harness to file the target's failure as its own item, so the harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
@@ -101,7 +289,7 @@ func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, c
 	waiting := runstate.TargetRed{At: r.clock().Now(), TargetBranch: target, HeadCommit: checks.HeadCommit}
 	accounts := r.checkAccounts(ctx, checks)
 	for index, failing := range checks.Failing {
-		filed, err := r.fileRedTargetCheck(ctx, state, failing, target, statement, accounts[index])
+		filed, err := r.fileRedTargetCheck(ctx, state, failing, target, statement, ownership.Confirmed[failing.Name], accounts[index])
 		if err != nil {
 			return left(fmt.Sprintf("the failure of %s could not be filed (%v)", failing.Name, err))
 		}
@@ -149,7 +337,12 @@ func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, c
 // filing for a check the forge ran: priority 0, a bug, under the goal the run's
 // item served, with the harness's own words in the fields the protected-path
 // gate reads and what the forge's log said only in the notes.
-func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State, failing runstate.FailingCheck, target, statement, account string) (runstate.TargetRedCheck, error) {
+//
+// confirmed says how the check was found to be the target's, and goes into the
+// notes, beside the forge's own account, so whoever works the item knows whether the forge reported it red
+// on the target's own head or the harness could only find nothing of the change
+// in its log.
+func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State, failing runstate.FailingCheck, target, statement, confirmed, account string) (runstate.TargetRedCheck, error) {
 	published := state.PullRequest
 	marker := redTargetMarker(target, failing.Name)
 	head := shortCommit(published.HeadCommit)
@@ -171,6 +364,9 @@ func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State
 		failing.Name, target, published.Number, state.WorkItemID, state.RunID, head, target, target, ended, published.URL)
 	notes := fmt.Sprintf("Filed by the harness for %s red on %s, met by pull request %d of %s (%s) at %s, as a red landing files its own item.\n%s",
 		failing.Name, target, published.Number, state.WorkItemID, state.RunID, head, marker)
+	if confirmed != "" {
+		notes += "\n" + confirmed
+	}
 	if statement != "" {
 		notes += "\n\n" + goal.Note(statement)
 	}
@@ -412,7 +608,7 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 		result.Detail = fmt.Sprintf("every item pull request %d waited on for %s's red check is closed; %s", published.Number, target, checks.Describe(target))
 		return r.updateQueuedHead(ctx, state, result, true)
 	case checks.Red() && !checks.FailedInTheJob():
-		return r.waitOnRedTarget(ctx, state, checks, true)
+		return r.waitOnRedTarget(ctx, state, checks, reading.Files, true)
 	case checks.Red():
 		return r.rerunEndedJobsAfterRedTarget(ctx, state, checks)
 	default:

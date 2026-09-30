@@ -193,6 +193,11 @@ type Reconciler struct {
 	// JobLogs reads the tail of a failing job's log, which the filed item
 	// carries. Optional: without it the item says no log was read.
 	JobLogs ReconcileJobLogs
+	// TargetChecks reads how each check ended on the target branch's own head,
+	// which is what confirms a check red on a level head is the target's before
+	// it is filed as the target's. Optional: without it the failing job's log is
+	// read for the change's files instead (redTargetOwner).
+	TargetChecks ReconcileTargetChecks
 	// Intake and Capacity are read before a queued head is put back at its
 	// promotion, because that makes a finished run live again: a held intake and
 	// a full harness each leave the merge queued for the next sweep. A capacity

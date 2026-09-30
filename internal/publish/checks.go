@@ -229,6 +229,64 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 	return reading, nil
 }
 
+// BranchCheckReading is how the forge says each check ended on the commit a
+// branch points at: the commit, and each check's standing by name. It is what
+// says whether a check red on a pull request whose head is level with the branch
+// is red on the branch itself, which is the only thing that makes it the
+// branch's failure rather than the change's (yoyodyne-c02).
+type BranchCheckReading struct {
+	HeadCommit string
+	// Failing, Passing, and Pending name the checks that failed, passed, and
+	// have not finished on the branch's head.
+	Failing []string
+	Passing []string
+	Pending []string
+}
+
+// BranchChecks reads how every check ended on the commit a branch points at.
+// A branch whose head no check has run on reads as no checks at all, which
+// confirms nothing about any of them.
+func (g GitHub) BranchChecks(ctx context.Context, branch string) (BranchCheckReading, error) {
+	if err := validateArgument("branch", branch); err != nil {
+		return BranchCheckReading{}, err
+	}
+	runs, err := g.api(ctx, "repos/{owner}/{repo}/commits/"+branch+"/check-runs?per_page="+strconv.Itoa(maxReadCheckRuns))
+	if err != nil {
+		return BranchCheckReading{}, fmt.Errorf("ask the forge for the checks on %s: %w", branch, err)
+	}
+	if runs.Status != execution.ProcessSucceeded {
+		return BranchCheckReading{}, fmt.Errorf("ask the forge for the checks on %s: exit code %d: %s",
+			branch, runs.ExitCode, g.redact(firstLine(strings.TrimSpace(runs.Stderr))))
+	}
+	var reported struct {
+		CheckRuns []struct {
+			Name       string `json:"name"`
+			HeadSHA    string `json:"head_sha"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+		} `json:"check_runs"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(runs.Stdout)), &reported); err != nil {
+		return BranchCheckReading{}, fmt.Errorf("decode the checks on %s: %w", branch, err)
+	}
+	var reading BranchCheckReading
+	for _, run := range reported.CheckRuns {
+		if head := strings.TrimSpace(run.HeadSHA); reading.HeadCommit == "" && commitPattern.MatchString(head) {
+			reading.HeadCommit = head
+		}
+		name := strings.TrimSpace(run.Name)
+		switch {
+		case !strings.EqualFold(run.Status, "completed"):
+			reading.Pending = append(reading.Pending, name)
+		case failingConclusions[strings.ToLower(strings.TrimSpace(run.Conclusion))]:
+			reading.Failing = append(reading.Failing, name)
+		default:
+			reading.Passing = append(reading.Passing, name)
+		}
+	}
+	return reading, nil
+}
+
 // annotations reads one check run's annotations: the files they name, each once
 // and in order, and the first of them whole, as the forge wrote them.
 func (g GitHub) annotations(ctx context.Context, checkRun int64) ([]string, []Annotation, error) {

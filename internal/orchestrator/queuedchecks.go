@@ -38,7 +38,12 @@ package orchestrator
 //     is the target's own. It is filed as the target's, one p0 item per target
 //     branch and check as a red landing files its own, and the queued merge is
 //     withdrawn and waits on those items with the harness as its next mover
-//     rather than being handed to a person (redtarget.go, yoyodyne-m5p).
+//     rather than being handed to a person (redtarget.go, yoyodyne-m5p). It is
+//     filed only once it is confirmed: the same check red on the target's own
+//     head, or, where the forge cannot say, nothing the change adds or modifies
+//     named in the check's log. A check that passes on the target's head, or
+//     whose log names a file or directory of the change, is the change's own
+//     failure and is handed back as the next case is (yoyodyne-c02).
 //   - A failing check naming a file the change touches is the change's own
 //     failure. The queued merge is withdrawn and the item is handed back with
 //     the check named, as a dropped merge is, rather than left queued.
@@ -149,7 +154,7 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	default:
 		// A head level with its target, failing on no file its change touches:
 		// the target's own failure, filed as the target's (redtarget.go).
-		return r.waitOnRedTarget(ctx, state, checks, false)
+		return r.waitOnRedTarget(ctx, state, checks, reading.Files, false)
 	}
 }
 
@@ -418,7 +423,7 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state runstate.Sta
 	// failed on the target, and the queue dropping it is the same fact the sweep
 	// withdrawing it would have been: filed as the target's, and waited on.
 	if checks.BehindBy == 0 && checks.Red() && !checks.ChangeFails() && !checks.FailedInTheJob() && r.Filer != nil {
-		waiting, err := r.waitOnRedTarget(ctx, state, checks, true)
+		waiting, err := r.waitOnRedTarget(ctx, state, checks, reading.Files, true)
 		return waiting, true, err
 	}
 	if checks.BehindBy == 0 || checks.ChangeFails() {

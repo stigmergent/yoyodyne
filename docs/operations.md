@@ -2233,14 +2233,32 @@ the queue was landing them.
   "Process completed with exit code 2" on `.github` too, and that is what a
   genuine red test looks like, so a failed step annotated only there is not
   re-run. It names no file the change touches, so on a head level with its
-  target it is the target's failure and is filed and waited on as the next
-  bullet says, with the forge's account of the job carried on the filed item; on a
+  target it is confirmed as the target's failure or found to be the change's,
+  and filed and waited on or handed back, as the next bullet says, with the forge's account of the job carried on the filed item; on a
   head behind its target it is brought up to date as the bullet above says.
 - **A head level with its target whose failing checks name no file the change
   touches.** Nothing but the change differs from the target, so bringing the
   head up to date would change nothing, and the failure is the target's own — a
   required check red on main itself, or flaky there, which every merge queued
-  behind this one meets too. It is filed as the target's, exactly as a
+  behind this one meets too. **It is filed as the target's only once the harness
+  has confirmed it is.** A check that names no file can still be the change's:
+  a test runner that reports failures per package annotates nothing, and on
+  2026-09-29 pull request 907 failed the build on a test in a package its own
+  change added, was filed as main's failure, and had its approved merge
+  withdrawn while `make test` passed on main (yoyodyne-c02). So before filing,
+  the harness asks the forge how the same check ended on the commit the target
+  branch points at. Red there too, it is the target's. Passing there, it is the
+  change's. Where the forge cannot say — the read fails, or the check has not
+  run or not finished on the target's head — the harness reads the check's
+  annotations and the last 400 lines of its job's log, and counts any file the
+  change adds or modifies, or the directory one sits in, named there as the
+  change's; a directory at the top of the repository counts only where it is
+  named as part of a path. A failure that is the change's is handed back to be
+  repaired exactly as the **Anything else red** bullet below says, with the
+  reason naming what made it the change's, and nothing is filed against the
+  target. The filed item says in its notes how the check was confirmed: red on
+  the target's own head, or not confirmed there with nothing of the change in
+  its log. Once confirmed, it is filed as the target's, exactly as a
   [red landing](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs) is:
   one bug at priority 0 per target branch and failing check, naming the branch,
   the head, the check, and the run and item that met it, under the goal the item
@@ -2276,7 +2294,8 @@ the queue was landing them.
   like the one below, and on 2026-09-28 a red adoption check on main made pull
   request 863 a hand step.
 - **Anything else red** — a failing check whose annotations name a file the
-  change touches — is handed back. The queued merge is withdrawn and the run is
+  change touches, or a check on a level head found to be the change's as the
+  bullet above says — is handed back. The queued merge is withdrawn and the run is
   settled as a merge the forge dropped: a blocker on the item naming the failing
   check and the files, the drop recorded on the run, and the publication on the
   docket where `yoyo triage rearm` is decided. So is a head level with its target
@@ -2329,8 +2348,9 @@ file the change touches, the drop is the race a replay answers: the sweep puts
 the run back at its promotion exactly as above — with nothing to withdraw — and
 the change is brought up to date from the kept branch, checked, reviewed, and
 queued again. Where its head is level with the target and failing only checks
-that name no file the change touches, the drop is the target's red check, and
-is filed and waited on exactly as above, with nothing to withdraw. A drop is
+that name no file the change touches, the drop is the target's red check once
+the harness has confirmed it as above, and is filed and waited on exactly as
+above, with nothing to withdraw; one found to be the change's is handed back. A drop is
 handed back, to the development manager's docket, only when the change cannot
 be replayed: a local promotion, a run whose branch, worktree, approval, or
 sessions are gone, a request the forge closed, a head level with its target
@@ -2338,10 +2358,11 @@ failing some other way, or checks failing on the change itself. A reading of
 the checks the forge could not give leaves the record as it stands for the next
 sweep.
 
-A check that annotates no file says nothing about whose failure it is, and is
-not read as the change's: a head behind its target failing only such checks is
-brought up to date, and if it still fails once level with its target it is
-filed as the target's failure and waited on, as above. A reading the forge could not give leaves the merge queued, says
+A check that annotates no file says nothing by its annotations about whose
+failure it is: a head behind its target failing only such checks is brought up
+to date, and if it still fails once level with its target it is confirmed as
+above — against the target's own head, or its log — and filed as the target's
+failure and waited on, or handed back as the change's. A reading the forge could not give leaves the merge queued, says
 so, and writes nothing — a check state nobody read is not a red one. A merge
 nobody has read the checks of yet is docketed saying exactly that rather than
 as approved and queued with nothing beside it.
