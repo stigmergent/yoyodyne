@@ -63,6 +63,18 @@ func Touching(patterns, changed []string) (string, bool) {
 	return "", false
 }
 
+// ChangesFile reports whether a change's paths include the one file named,
+// both repository-relative.
+func ChangesFile(changed []string, file string) bool {
+	want := path.Clean(filepath.ToSlash(strings.TrimSpace(file)))
+	for _, changedPath := range changed {
+		if path.Clean(filepath.ToSlash(strings.TrimSpace(changedPath))) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func covered(patterns []string, file string) bool {
 	result := false
 	for _, pattern := range patterns {

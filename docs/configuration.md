@@ -2739,10 +2739,12 @@ that touches nothing on a path check's list does not run it. The run's record
 and the item's notes say which path check the gate added and which changed
 path added it, where they say what the gate was narrowed to.
 
-The list is read from the worktree of the change under test, not from the
-target branch, so a change that widens what a check covers is judged by the
-widened list, and the list lives beside the thing it describes rather than in
-this file. It takes the part of a `.gitignore`'s syntax everybody already
+The list lives beside the thing it describes rather than in this file, and a
+change that edits it runs the check whatever the edited list says. Otherwise
+the author of a change could narrow or empty the list and switch off the check
+meant to hold that change; so a change to the list costs that change one run
+of the check, and for every other change the list reads as the target branch
+holds it. It takes the part of a `.gitignore`'s syntax everybody already
 reads: one pattern a line, blank lines and `#` comments ignored; a pattern with
 no `/` matches any component of a path, so `*_test.go` is every Go test file; a
 `/` anchors a pattern at the repository root; a trailing `/` means a directory

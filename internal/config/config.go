@@ -85,10 +85,10 @@ type Config struct {
 	// PathChecks are commands the per-run gate adds after Checks for a change
 	// that touches what they vouch for, and leaves out for one that touches none
 	// of it. Each names a file in the repository listing the paths it vouches
-	// for, so the list is kept beside the thing it describes rather than here,
-	// and the change under test is judged by its own copy of it. A project that
-	// names none adds nothing, which is what every project did before this
-	// existed.
+	// for, so the list is kept beside the thing it describes rather than here;
+	// a change that edits that list runs the check whatever the list now says.
+	// A project that names none adds nothing, which is what every project did
+	// before this existed.
 	PathChecks []PathCheck            `yaml:"path_checks,omitempty" json:"path_checks,omitempty"`
 	Agents     map[string]AgentConfig `yaml:"agents" json:"agents"`
 	// Accounts are the provider accounts this project runs agents under, keyed by

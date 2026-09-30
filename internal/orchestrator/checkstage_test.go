@@ -554,3 +554,63 @@ func TestAPathCheckWhoseListIsMissingRuns(t *testing.T) {
 		t.Fatalf("added = %#v, want the check run and the unreadable list named", added)
 	}
 }
+
+// A change cannot switch off the check that holds it by editing the list the
+// check is chosen by: a change that empties the list and touches a path the
+// list covered on the target branch still runs the check, and the record says
+// the list's own change is why.
+func TestAChangeThatEmptiesAPathChecksListStillRunsIt(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	writeCommitted(t, repository, "scripts/walk.paths", "/README.md\n/internal/\n")
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "scripts", "walk.paths"), []byte("# nothing\n"), 0o600); err != nil {
+			return err
+		}
+		path := filepath.Join(request.WorkingDirectory, "internal", "cli", "status.go")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(path, []byte("package cli\n"), 0o600)
+	}, approveVerdict)
+	walked := filepath.Join(t.TempDir(), "walked.txt")
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"true"})
+	pipeline.Config.PathChecks = []config.PathCheck{{Command: "printf walked > " + walked, Paths: "scripts/walk.paths"}}
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if _, err := os.Stat(walked); err != nil {
+		t.Fatalf("a change that emptied the list switched off its check: %v", err)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.CheckStage == nil || !strings.Contains(state.CheckStage.Narrowed, "touches scripts/walk.paths itself") {
+		t.Fatalf("recorded stage = %#v, want the list's own change named", state.CheckStage)
+	}
+}
+
+// Narrowing the list is the same case as emptying it: whatever the edited list
+// now says, the change that edited it runs the check.
+func TestAChangeThatNarrowsAPathChecksListStillRunsIt(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scripts", "walk.paths"), []byte("/README.md\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configured := []config.PathCheck{{Command: "make adoption", Paths: "scripts/walk.paths"}}
+	if added := pathChecksFor(root, configured, []string{"./scripts/walk.paths", "internal/cli/status.go"}); len(added) != 1 {
+		t.Fatalf("added = %#v, want the check run for a change narrowing its list", added)
+	}
+	if added := pathChecksFor(root, configured, []string{"internal/cli/status.go"}); len(added) != 0 {
+		t.Fatalf("added = %#v, want nothing for a change the unedited list does not cover", added)
+	}
+}

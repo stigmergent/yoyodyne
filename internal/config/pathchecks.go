@@ -17,8 +17,9 @@ type PathCheck struct {
 	Command string `yaml:"command" json:"command"`
 	// Paths is the repository-relative file listing the paths the check vouches
 	// for, one pattern a line. It is read from the worktree of the change under
-	// test, so a change that widens what the check covers is judged by the
-	// widened list.
+	// test, and only decides for a change that leaves it untouched: a change that
+	// edits the list runs the check whatever the list now says, so no change can
+	// narrow the check that holds it.
 	Paths string `yaml:"paths" json:"paths"`
 }
 

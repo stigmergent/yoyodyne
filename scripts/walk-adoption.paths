@@ -1,8 +1,8 @@
 # What the adoption walk vouches for: a change touching any of these runs
 # `make adoption` in the harness's per-run check stage, and a change touching
-# none of them does not. The harness reads this file from the change's own
-# worktree, through the `path_checks` entry in .yoyodyne/config.yaml, so a change
-# that widens the list is judged by the widened list.
+# none of them does not, once .yoyodyne/config.yaml names the walk under
+# `path_checks`. A change that edits this file runs the walk whatever the file
+# then says, so no change can narrow the check that holds it.
 #
 # One pattern a line, in the part of .gitignore's syntax everybody reads: no "/"
 # matches any component, a "/" anchors at the repository root, a trailing "/"

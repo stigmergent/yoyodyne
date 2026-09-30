@@ -146,9 +146,10 @@ check: fmtcheck test race vet
 # is enforced rather than left to somebody remembering it.
 #
 # It stays out of `check` all the same, because `check` is every change's gate
-# and most changes touch nothing this vouches for. The harness runs it as a
-# path check instead, for a change touching a path scripts/walk-adoption.paths
-# lists; docs/developing-yoyo.md says when.
+# and most changes touch nothing this vouches for. Once .yoyodyne/config.yaml
+# names it under `path_checks`, the harness runs it as a path check instead,
+# for a change touching a path scripts/walk-adoption.paths lists;
+# docs/developing-yoyo.md says when.
 #
 #   make adoption                    every step that needs no provider
 #   WALK_PROVIDER=1 make adoption    also hand an item to a developer agent

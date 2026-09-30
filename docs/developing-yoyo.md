@@ -72,8 +72,9 @@ Makefile and module files, and the program under `cmd` and `internal` less its
 tests and test fixtures — and a run whose change touches any of them runs
 `make adoption` after the four declared checks, as a fifth check whose result
 the review is shown. A change touching none of them, a document elsewhere or a
-test, does not pay for it. That is what closes the gap two changes fell through
-on 2026-09-29, pull requests 902 and 907: each changed what `yoyo status`
+test, does not pay for it, and a change that edits the list runs the walk
+whatever the edited list says. With that entry in the configuration, this closes
+the gap two changes fell through on 2026-09-29, pull requests 902 and 907: each changed what `yoyo status`
 printed, passed every check the harness ran, and turned `main` red for
 whoever merged next, because the only thing that ran the walk was the forge.
 The harness's checks run outside any agent's sandbox, so the `bd` and the
