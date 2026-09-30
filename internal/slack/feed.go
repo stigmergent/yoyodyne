@@ -1228,18 +1228,17 @@ func (f *HarnessFeed) logDeliveries(stream, log string, cursor Cursor, records i
 // once there. The pair is forgotten once both have been said, so the product's
 // cursor does not grow a line for every afternoon somebody was away.
 //
-// A hold the brake placed is the one hold the operator did not place, so its
-// trip is said to him directly and tagged by member id as well as to the
-// channel, once, the moment it is first read: it names the runs it counted
-// with what stopped each, and the verb that lifts it. On 2026-09-19 the brake
-// tripped at 17:56Z, the channel got a note nobody was reading, and the line
-// stood for two hours. While the development manager and the harness work the
-// hold it is not his to move, and the message's next-move clause says whose
-// it is; he can still lift it sooner. The moment it becomes his — her
-// escalation, or the harness's at the bound on its loop — is said to him
-// directly once more, unless the trip was first read already escalated and
-// said that in the same message. His own hold is said to the channel alone,
-// because he placed it.
+// A hold the brake placed is said to the channel when it trips, naming the
+// runs it counted with what stopped each and the verb that lifts it, and again
+// when the development manager or the harness escalates it. Whether any of
+// those goes to the operator directly and tagged is the ownership registry's
+// answer, as the read model carries it: the brake's hold is the development
+// manager's while she decides, the harness's while it acts on her decision,
+// and the Lead Product Manager's — the next rung — once it is escalated, so
+// none of them is his, and the message's next-move clause names whose it is.
+// Until yoyodyne-ifd.432.25.1 the trip and both escalations were said to him
+// directly, because the sink decided for itself that they were his. His own
+// hold is said to the channel alone, because he placed it.
 //
 // A release names who lifted it where the store recorded one, which it does
 // for every release made since releases were written down; the record is
@@ -1251,10 +1250,17 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 
 	intake, held := read.intake, read.intakeHeld
 	if held {
+		// Whether a message about the hold goes to the operator directly is the
+		// ownership registry's answer, read through the read model: a brake hold
+		// is the development manager's while she decides, the harness's while it
+		// acts, and the Lead Product Manager's once escalated, so none of those
+		// is said to him directly. His own hold is said to the channel alone,
+		// because he placed it.
+		toOperator := intake.HeldBy != runstate.IntakeHolderOperator && readmodel.IntakeHoldMover(intake).IsOperator()
 		saidDirectly := false
 		if mark := intakeMark + stamp(intake.HeldAt); !advanced.Has(mark) {
 			advanced = advanced.With(mark)
-			saidDirectly = intake.HeldBy == runstate.IntakeHolderBrake
+			saidDirectly = toOperator
 			deliveries = append(deliveries, Delivery{
 				Stream:       productStream,
 				Cursor:       advanced,
@@ -1278,8 +1284,8 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 					deliveries = append(deliveries, Delivery{
 						Stream:       productStream,
 						Cursor:       advanced,
-						Direct:       true,
-						Tag:          true,
+						Direct:       toOperator,
+						Tag:          toOperator,
 						Notification: notify.FromIntakeHold(intake),
 					})
 				}
@@ -1300,8 +1306,8 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 					deliveries = append(deliveries, Delivery{
 						Stream:       productStream,
 						Cursor:       advanced,
-						Direct:       true,
-						Tag:          true,
+						Direct:       toOperator,
+						Tag:          toOperator,
 						Notification: notification,
 					})
 				}
@@ -1436,6 +1442,10 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 			deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
 			continue
 		}
+		// Said to the operator directly only where the ownership registry says
+		// the finding is his; one it resolves to a role is said in the item's
+		// thread with that role named as whose it is.
+		his := action.Owner().IsOperator()
 		notification, err := notify.FromOperatorAction(notify.OperatorAction{
 			WorkItemID: action.WorkItemID,
 			RunID:      action.RunID,
@@ -1457,8 +1467,8 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		deliveries = append(deliveries, Delivery{
 			Stream:       operatorActionStream,
 			Cursor:       advanced,
-			Direct:       true,
-			Tag:          true,
+			Direct:       his,
+			Tag:          his,
 			Notification: notification,
 		})
 	}

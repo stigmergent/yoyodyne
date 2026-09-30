@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -243,7 +244,7 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 	publishedEnded := now.Add(-26 * time.Hour)
 	standing := readmodel.Standing{NeedsHuman: []readmodel.Attention{
 		{
-			Kind: readmodel.AttentionOperatorAction, ID: "run:run-escalated", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.272",
+			Kind: readmodel.AttentionOperatorAction, ID: "run:run-escalated", Mover: ownership.Operator, WorkItemID: "yoyodyne-ifd.272",
 			OperatorAction: &readmodel.OperatorAction{
 				Key: "run:run-escalated", Subject: "yoyodyne-ifd.272", RunID: "run-escalated", WorkItemID: "yoyodyne-ifd.272",
 				Needs: "the target branch diverged from the forge", RecordedIn: "the triage decision on run-escalated",
@@ -251,22 +252,22 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 			},
 		},
 		{
-			Kind: readmodel.AttentionDegradedService, ID: "dashboard", Mover: readmodel.MoverOperator,
+			Kind: readmodel.AttentionDegradedService, ID: "dashboard", Mover: ownership.Operator,
 			Service: &runstate.SupervisedChild{Service: "dashboard", Reason: "died 6 times within 2m0s of being started", DiedAt: died},
 		},
 		{
-			Kind: readmodel.AttentionFailingTask, ID: "report-triage", Mover: readmodel.MoverOperator,
+			Kind: readmodel.AttentionFailingTask, ID: "report-triage", Mover: ownership.Operator,
 			FailingTask: &readmodel.FailingTask{
 				Task: "report-triage", Role: domain.RoleProductManager, Cause: runstate.PreTurnConversationUnopened,
 				Problem: "no agent fills the role", Failures: 2, FirstAt: failing, RaisedAt: failing, LatestAt: failing,
 			},
 		},
 		{
-			Kind: readmodel.AttentionOwedStep, ID: "run-owed", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.400",
+			Kind: readmodel.AttentionOwedStep, ID: "run-owed", Mover: ownership.Operator, WorkItemID: "yoyodyne-ifd.400",
 			OwedStep: &readmodel.OwedStep{Status: runstate.StatusSucceeded, EndedAt: owedEnded},
 		},
 		{
-			Kind: readmodel.AttentionPublication, ID: "run-published", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.401",
+			Kind: readmodel.AttentionPublication, ID: "run-published", Mover: ownership.Operator, WorkItemID: "yoyodyne-ifd.401",
 			Publication: &readmodel.Publication{
 				TargetBranch: "main", Branch: "yoyodyne/yoyodyne-ifd-401/abc", EndedAt: publishedEnded,
 				PullRequest: &runstate.PullRequest{Number: 42, URL: "https://example.test/pull/42"},

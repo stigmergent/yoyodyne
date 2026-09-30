@@ -4587,7 +4587,7 @@ func brakedMover(hold runstate.IntakeHold) string {
 	if !hold.Braked() {
 		return ""
 	}
-	return hold.Whose()
+	return readmodel.IntakeHoldWhose(hold)
 }
 
 // opening says what the session was started to do, which is the first thing its

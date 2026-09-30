@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -48,7 +49,7 @@ func TestAFailingTaskIsCountedFromTheLastFiringThatTookATurn(t *testing.T) {
 	if !dm.FirstAt.Equal(at.Add(2*time.Hour)) || !dm.RaisedAt.Equal(at.Add(4*time.Hour)) || !dm.LatestAt.Equal(at.Add(5*time.Hour)) {
 		t.Fatalf("dm moments = first %s raised %s latest %s", dm.FirstAt, dm.RaisedAt, dm.LatestAt)
 	}
-	if dm.Cause != runstate.PreTurnConversationUnopened || dm.Mover() != MoverOperator {
-		t.Fatalf("dm cause %q mover %q, want the latest cause and the operator's move", dm.Cause, dm.Mover())
+	if dm.Cause != runstate.PreTurnConversationUnopened || dm.Attention().Mover != ownership.Harness {
+		t.Fatalf("dm cause %q mover %q, want the latest cause and the harness's move", dm.Cause, dm.Attention().Mover)
 	}
 }

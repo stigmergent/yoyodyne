@@ -411,7 +411,7 @@ func stoppageCause(state runstate.State) (runstate.EnvironmentalCause, bool) {
 // the development manager's to make.
 func stoppageSeverity(state runstate.State, mover readmodel.Mover) report.Severity {
 	cause, environmental := stoppageCause(state)
-	if mover == readmodel.MoverOperator || (environmental && cause.NeedsAPerson()) {
+	if mover.IsOperator() || (environmental && cause.NeedsAPerson()) {
 		return report.SeverityCritical
 	}
 	if environmental || state.LostItsRace() {
@@ -554,11 +554,11 @@ func FromProposal(proposal amendment.Proposal) (Notification, error) {
 // counting it.
 func FromIntakeHold(hold runstate.IntakeHold) Notification {
 	detail := Detail{Reason: hold.Account()}
-	// A hold the brake is working itself is the development manager's or the
-	// harness's, and the record says which; the fixed clause names the operator,
-	// which is right for the operator's hold and for nothing else.
+	// A hold the brake is working itself is whoever the ownership registry reads
+	// off its record; the fixed clause names the operator, which is right for
+	// the operator's hold and for nothing else.
 	if hold.Braked() {
-		detail.Mover = hold.Whose()
+		detail.Mover = readmodel.IntakeHoldWhose(hold)
 		detail.Stops = strings.Join(hold.Brake.Entries(), "; ")
 	}
 	return productNotification(KindIntakeHeld, hold.HeldAt, detail)

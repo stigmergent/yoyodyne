@@ -296,7 +296,7 @@ func TestAnEscalatedStoppageIsAFindingForTheOperatorWhileItStands(t *testing.T) 
 	}
 	finding := named[0]
 	for _, want := range []string{
-		"yoyodyne-ifd.272 needs your hand: the target branch diverged from the forge",
+		"yoyodyne-ifd.272 was raised for the operator's hand: the target branch diverged from the forge",
 		"found by the development manager, escalating the stopped run to the operator",
 		"recorded in the development manager's escalation of run run-272a, recorded in chat-dm at turn 12, and the blocker on yoyodyne-ifd.272",
 	} {
@@ -304,8 +304,10 @@ func TestAnEscalatedStoppageIsAFindingForTheOperatorWhileItStands(t *testing.T) 
 			t.Fatalf("finding = %q, want it to say %q", finding.What(), want)
 		}
 	}
-	if !strings.HasPrefix(finding.Whose(), "the operator's") || !strings.Contains(finding.Whose(), "a later triage decision on the run") {
-		t.Fatalf("finding is %q, want the operator's move and what ends it", finding.Whose())
+	// Her escalation names no reason on the closed list, so it is the next
+	// rung's, not the operator's.
+	if !strings.HasPrefix(finding.Whose(), "the Lead Product Manager's") || !strings.Contains(finding.Whose(), "a later triage decision on the run") {
+		t.Fatalf("finding is %q, want the Lead Product Manager's move and what ends it", finding.Whose())
 	}
 	if standing.NeedsHumanProblem != "" {
 		t.Fatalf("NeedsHumanProblem = %q, want a fully read line", standing.NeedsHumanProblem)
@@ -475,18 +477,20 @@ func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
 	// Oldest first, in the order the pile was filed: the handled report was
 	// filed before the critical one.
 	handling, critical := named[0], named[1]
-	if !strings.Contains(critical.What(), "report-00000000000000000000000000000001 needs your hand: something was noticed") ||
+	if !strings.Contains(critical.What(), "report-00000000000000000000000000000001 was raised for the operator's hand: something was noticed") ||
 		!strings.Contains(critical.What(), "found by the developer, in a critical report") {
 		t.Fatalf("critical finding = %q", critical.What())
 	}
-	if !strings.Contains(handling.What(), "report-00000000000000000000000000000002 needs your hand: the operator has to add the hook to .claude/settings.json by hand") ||
+	if !strings.Contains(handling.What(), "report-00000000000000000000000000000002 was raised for the operator's hand: the operator has to add the hook to .claude/settings.json by hand") ||
 		!strings.Contains(handling.What(), "found by the Lead Product Manager, handling the report") ||
 		!strings.Contains(handling.What(), "about yoyodyne-ifd.383") {
 		t.Fatalf("handling finding = %q", handling.What())
 	}
+	// Neither names a reason on the closed list, so both are the Lead Product
+	// Manager's, who handles reports.
 	for _, waiting := range named {
-		if !strings.HasPrefix(waiting.Whose(), "the operator's") {
-			t.Fatalf("finding %q is %q, want the operator's move", waiting.What(), waiting.Whose())
+		if !strings.HasPrefix(waiting.Whose(), "the Lead Product Manager's") {
+			t.Fatalf("finding %q is %q, want the Lead Product Manager's move", waiting.What(), waiting.Whose())
 		}
 	}
 
@@ -499,8 +503,8 @@ func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
 	sources.Amendments = fakeAmendments{records: proposals}
 	rendered := ReadStanding(context.Background(), sources).Render()
 	for _, want := range []string{
-		"report-00000000000000000000000000000001 needs your hand",
-		"report-00000000000000000000000000000002 needs your hand",
+		"report-00000000000000000000000000000001 was raised for the operator's hand",
+		"report-00000000000000000000000000000002 was raised for the operator's hand",
 		"and 1 thing waiting on somebody not named here",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -1293,7 +1297,7 @@ func TestADirectivePauseIsTheItemsOwnRefusal(t *testing.T) {
 		t.Fatalf("refusal = %+v", standing.NotStartable[0])
 	}
 	// The same directive is a thing waiting on a person, with whose move it is.
-	if len(standing.NeedsHuman) != 1 || !strings.Contains(standing.NeedsHuman[0].Whose(), "the operator's") {
+	if len(standing.NeedsHuman) != 1 || !strings.HasPrefix(standing.NeedsHuman[0].Whose(), "the Lead Product Manager's") {
 		t.Fatalf("needs a human = %+v", standing.NeedsHuman)
 	}
 }
@@ -1420,7 +1424,7 @@ func TestAPromotionAwaitingTheForgeNeedsAHuman(t *testing.T) {
 	}{
 		{"run-dropped", "the development manager's", "pull request #"},
 		{"run-queued", "the forge's", "pull request #"},
-		{"run-unasked", "the operator's", "pull request #"},
+		{"run-unasked", "the development manager's", "pull request #"},
 		{"run-unrecorded", "the harness's", "holds no pull request for branch yoyodyne/item/unrecorded"},
 	} {
 		found := false
@@ -1749,7 +1753,7 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				trip.Decision, trip.DecidedAt, trip.DecisionReason = runstate.BrakeDecisionEscalate, &decidedAt, "the same check fails everywhere"
 			}),
 			want: []string{
-				"— the operator's — the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it",
+				"— the Lead Product Manager's — the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it",
 			},
 		},
 	} {
@@ -1761,7 +1765,7 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				t.Fatalf("%s: rendered:\n%s\nmissing: %q", scenario.name, rendered, want)
 			}
 		}
-		if scenario.name != "escalated" && strings.Contains(rendered, "the operator's") {
+		if strings.Contains(rendered, "the operator's") {
 			t.Fatalf("%s: rendered:\n%s\nwant a brake hold nobody escalated never reported as the operator's", scenario.name, rendered)
 		}
 	}

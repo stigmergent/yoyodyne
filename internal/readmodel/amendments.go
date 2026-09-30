@@ -29,6 +29,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -270,6 +271,8 @@ func AmendmentBatchActions(recommended []RecommendedAmendment) []OperatorAction 
 		owner := batch.owner.Title()
 		actions = append(actions, OperatorAction{
 			Key:     key,
+			Finding: ownership.FindingAmendmentBatch,
+			Role:    batch.owner,
 			Subject: fmt.Sprintf("the %s's batch of %s", owner, count(len(batch.entries), "proposed change")),
 			Needs: fmt.Sprintf("decide %s. The reasons: %s.",
 				strings.Join(decisions, "; "), strings.Join(reasons, "; ")),

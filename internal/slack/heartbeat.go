@@ -224,7 +224,11 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 		severity = report.SeverityWarning
 		tag = true
 	}
-	if state.Reason == readmodel.ReasonIntakeHold && held.intake.HeldBy == runstate.IntakeHolderBrake && held.intake.WaitsOnAPerson() {
+	// Whether a brake hold waits on the operator is the ownership registry's
+	// answer, read through the read model, and not this sink's: an escalated
+	// brake hold is the next rung's — the Lead Product Manager's — so it is not
+	// tagged to him.
+	if state.Reason == readmodel.ReasonIntakeHold && held.intake.HeldBy == runstate.IntakeHolderBrake && readmodel.IntakeHoldMover(held.intake).IsOperator() {
 		severity = report.SeverityWarning
 		tag = true
 		if now.Sub(state.Since) >= f.stallEscalation() {
@@ -336,7 +340,7 @@ func options(reason readmodel.Reason) []string {
 // attention line of `yoyo status` words it from.
 func lineMover(state readmodel.Stall, held switches) string {
 	if state.Reason == readmodel.ReasonIntakeHold && held.intakeHeld {
-		return held.intake.Whose()
+		return readmodel.IntakeHoldWhose(held.intake)
 	}
 	return state.Reason.Whose()
 }

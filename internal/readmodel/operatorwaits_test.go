@@ -8,10 +8,11 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// An owed step and a publication named as the operator's are dated from the
-// run's ending, which is when each began to wait, so the development manager's
-// sweep shows how long they have waited rather than that nothing says. They
-// were two of the kinds her sweep could not see before it carried his line.
+// An owed step and a publication are dated from the run's ending, which is
+// when each began to wait. Neither is the operator's — the registry gives the
+// owed step to the harness and an unmerged publication to the development
+// manager — so the development manager's sweep of what waits on him leaves
+// them out and shows his own entries, each dated from its record.
 func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T) {
 	t.Parallel()
 
@@ -30,25 +31,35 @@ func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T)
 		PullRequest:    &runstate.PullRequest{Number: 42, URL: "https://example.test/pull/42"},
 		PublishFailure: "the forge refused the merge request",
 	})
-	if publication.Mover != MoverOperator {
-		t.Fatalf("publication mover = %s, want the operator's for this test to cover the case", publication.Mover)
+	if publication.Mover != MoverDevelopmentManager || owed.Mover != MoverHarness {
+		t.Fatalf("publication mover = %s, owed step mover = %s, want the development manager's and the harness's", publication.Mover, owed.Mover)
 	}
 	if !publication.Since().Equal(promotedEnded) {
 		t.Errorf("publication since = %s, want the run's ending %s", publication.Since(), promotedEnded)
 	}
 
-	rendered := Standing{NeedsHuman: []Attention{owed, publication}}.RenderOperatorWaits(now)
+	heldAt := now.Add(-3 * time.Hour)
+	diverged := now.Add(-26 * time.Hour)
+	hold := operatorHoldAttention(runstate.OperatorHold{HeldAt: heldAt})
+	stall := divergedTargetAttention(runstate.DivergedTarget{TargetBranch: "main", Since: diverged})
+	if !hold.Mover.IsOperator() || !stall.Mover.IsOperator() {
+		t.Fatalf("hold mover = %s, diverged target mover = %s, want both the operator's", hold.Mover, stall.Mover)
+	}
+	rendered := Standing{NeedsHuman: []Attention{owed, publication, hold, stall}}.RenderOperatorWaits(now)
 	for _, want := range []string{
-		"[owed-step run-owed, item yoyodyne-ifd.1]",
-		"since " + localMoment(ended) + ", 5 hours ago",
-		"[publication run-published, item yoyodyne-ifd.2]",
-		"since " + localMoment(promotedEnded) + ", 26 hours ago",
+		"2 entries on the needs-a-human line are the operator's",
+		"[hold operator]",
+		"since " + localMoment(heldAt) + ", 3 hours ago",
+		"[stall diverged-target:main]",
+		"since " + localMoment(diverged) + ", 26 hours ago",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("the section does not carry %q:\n%s", want, rendered)
 		}
 	}
-	if strings.Contains(rendered, "not recorded on it") {
-		t.Errorf("an entry was rendered with no moment:\n%s", rendered)
+	for _, unwanted := range []string{"run-owed", "run-published", "not recorded on it"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Errorf("the section carries %q:\n%s", unwanted, rendered)
+		}
 	}
 }

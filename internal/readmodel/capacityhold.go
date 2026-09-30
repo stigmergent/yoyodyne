@@ -378,12 +378,12 @@ func (h CapacityHold) stoppedSays() string {
 	}
 }
 
-// Whose is whose move it is. The window is the provider's, and that is not the
-// whole answer the way it is for a session waiting one out: the configuration
-// that made the window hold every role is the operator's, and changing it is
-// what ends the next one early.
+// Whose is whose move it is, as the ownership registry answers for the
+// capacity hold: the window lifts on the provider's clock, and the
+// configuration that would move the work onto another model before it does is
+// named in the remedy.
 func (h CapacityHold) Whose() string {
-	return "the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does"
+	return resolved(Attention{Kind: AttentionHold, ID: HoldCapacity, CapacityHold: &h}).Whose()
 }
 
 // Mark names the hold durably, so a surface that repeats it while it stands can
@@ -411,7 +411,7 @@ func (h CapacityHold) Attention() (Attention, bool) {
 	if !h.Holding {
 		return Attention{}, false
 	}
-	return Attention{Kind: AttentionHold, ID: HoldCapacity, Mover: MoverOperator, CapacityHold: &h}, true
+	return resolved(Attention{Kind: AttentionHold, ID: HoldCapacity, CapacityHold: &h}), true
 }
 
 // CapacityHoldOf reads the hold from a set of sources, and says why it could
