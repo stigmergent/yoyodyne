@@ -137,6 +137,42 @@ func TestCriticalIsAnEscalationOrACarryOutStoppedForGood(t *testing.T) {
 	}
 }
 
+// A stoppage whose decision is recorded comes after every one nobody has
+// decided, however the decision is gated: on 2026-09-26 four such entries, each
+// critical for a gate that would not clear on its own, led the window ahead of
+// 29 undecided ones. Among the decided, the critical still lead.
+func TestWalkListsEveryUndecidedStoppageBeforeAnyDecidedOne(t *testing.T) {
+	t.Parallel()
+
+	gated := func(run string, daysAgo int, waiting bool) Entry {
+		entry := windowEntry(ClassStoppedRun, run, "item-"+run, daysAgo)
+		entry.Closed = &Closure{Decision: "rerun", ClosedAt: windowNow.AddDate(0, 0, -daysAgo+1)}
+		entry.CarryOut = &CarryOut{Decision: "rerun", Gate: "dependency", Waiting: waiting, RefusedAt: windowNow.Add(-time.Hour)}
+		return entry
+	}
+	waitingOldest := gated("run-waiting", 40, true)
+	refusedOld := gated("run-refused", 30, false)
+	escalation := windowEntry(ClassEscalation, "run-raised", "item-raised", 1)
+	older := windowEntry(ClassStoppedRun, "run-older", "item-older", 20)
+	newer := windowEntry(ClassStoppedRun, "run-newer", "item-newer", 2)
+	// A lapsed decision is a question again, so it is undecided.
+	lapsed := windowEntry(ClassPublication, "run-lapsed", "item-lapsed", 10)
+	lapsed.Closed = &Closure{Decision: "wait", ClosedAt: windowNow.AddDate(0, 0, -9), RevisitAfter: windowNow.AddDate(0, 0, -1)}
+
+	live := Live([]Entry{waitingOldest, refusedOld, escalation, older, newer, lapsed}, closedAmong(), windowNow)
+	window := Walk(live.Stoppages, WindowPosition{})
+
+	if got, want := stoppageKeys(window.Urgent), []string{escalation.Key}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("urgent = %v, want %v", got, want)
+	}
+	if got, want := stoppageKeys(window.Next), []string{older.Key, lapsed.Key, newer.Key}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("walk = %v, want %v", got, want)
+	}
+	if got, want := stoppageKeys(window.Decided), []string{refusedOld.Key, waitingOldest.Key}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("decided = %v, want the refused carry-out ahead of the waiting one: %v", got, want)
+	}
+}
+
 // The docket's build hands the window entries already folded, one per run with
 // the rest beneath (Fold). Such a run waits from its first docketing, and an
 // escalation folded beneath a later account of the run still jumps the walk.

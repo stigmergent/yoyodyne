@@ -11,13 +11,18 @@ package triage
 // not optional — a docket of hundreds delivered whole is the turn — so what is
 // decided here is what the bound is spent on.
 //
-// Three things decide it. Only live entries are in it: the work item is not
+// Four things decide it. Only live entries are in it: the work item is not
 // closed, and nobody has decided about the entry, or the decision has lapsed or
 // the harness was stopped carrying it out. Each stopped run is in it once, however
-// many entries it left. And it is a walk rather than a listing, exactly as the
+// many entries it left. It is a walk rather than a listing, exactly as the
 // report pile is: the oldest stoppage first, anything critical ahead of it, and a
 // durable position that the next pass resumes past, so an entry one pass could not
-// show is the first thing the next pass shows.
+// show is the first thing the next pass shows. And a stoppage nobody has decided
+// comes before every one whose decision is recorded and waiting on the harness,
+// however that decision is gated: on 2026-09-26 four decided entries, each read
+// as critical for a gate that would not clear on its own, filled the window ahead
+// of 29 stoppages nobody had decided
+// (docs/diagnoses/yoyodyne-ifd-428-38-decided-entries-filled-the-docket-window.md).
 
 import (
 	"sort"
@@ -69,6 +74,11 @@ type Stoppage struct {
 	// one about the same run and the wait began at the first.
 	Since  time.Time
 	Folded int
+	// Decided marks a stoppage every entry of which carries a decision still
+	// standing: it is on the docket only because the harness was stopped carrying
+	// that decision out. What it asks of the development manager is the gate, not
+	// a decision, so it waits behind every stoppage that still needs one.
+	Decided bool
 }
 
 // At is the position a window is left at by being carried past one stoppage.
@@ -120,11 +130,12 @@ func Live(entries []Entry, closed func(workItemID string) bool, now time.Time) L
 	folded := Fold(open)
 	docket.Folded = len(open) - len(folded)
 	for _, entry := range folded {
-		stoppage := Stoppage{Entry: entry, Since: entry.RecordedAt, Folded: len(entry.Earlier)}
+		stoppage := Stoppage{Entry: entry, Since: entry.RecordedAt, Folded: len(entry.Earlier), Decided: entry.decisionStands(now)}
 		for _, earlier := range entry.Earlier {
 			if earlier.RecordedAt.Before(stoppage.Since) {
 				stoppage.Since = earlier.RecordedAt
 			}
+			stoppage.Decided = stoppage.Decided && earlier.decisionStands(now)
 		}
 		docket.Stoppages = append(docket.Stoppages, stoppage)
 	}
@@ -161,6 +172,13 @@ func (e Entry) Undecided(at time.Time) bool {
 	return e.Closed == nil || !e.Closed.Holds(at) || e.CarryOutStopped()
 }
 
+// decisionStands reports an entry a decision still holds over at a moment. Such
+// an entry is on the docket at all only because its carry-out was stopped, and
+// it is the one kind of live entry that asks nobody to decide anything.
+func (e Entry) decisionStands(at time.Time) bool {
+	return e.Closed != nil && e.Closed.Holds(at)
+}
+
 // CarryOutStopped reports a settled entry whose decision the harness has tried to
 // carry out since it was decided, and been stopped. The finding has to be about
 // this decision — made after it — because a finding about an earlier decision on
@@ -175,6 +193,9 @@ func (e Entry) CarryOutStopped() bool {
 // carrying out by a gate that will not clear on its own. A product decision about
 // a run in flight is the third: the run spends for as long as the question waits,
 // so it is not left behind older stoppages that spend nothing while they wait.
+//
+// A stopped carry-out is critical among the decided entries only: it leads
+// them, and it never goes ahead of a stoppage nobody has decided (Walk).
 func (e Entry) Critical() bool {
 	if e.Class == ClassEscalation || e.Class == ClassProductDecision {
 		return true
@@ -182,14 +203,18 @@ func (e Entry) Critical() bool {
 	return e.CarryOutStopped() && !e.CarryOut.Waiting
 }
 
-// Window is what one pass is offered of the live docket, in the two parts a
-// caller has to keep apart. Urgent jumps the walk and Next is the walk: the
-// position advances over what was shown from Next and never over what jumped,
-// because a critical at the far end of the docket would otherwise carry the
-// position past everything between.
+// Window is what one pass is offered of the live docket, in the three parts a
+// caller has to keep apart and in the order it lists them. Urgent jumps the walk
+// and Next is the walk: the position advances over what was shown from Next and
+// never over what jumped, because a critical at the far end of the docket would
+// otherwise carry the position past everything between. Decided comes after
+// both: the stoppages whose decision is recorded and waiting on the harness,
+// critical ones first, listed only where the window has room once every
+// stoppage nobody has decided is listed.
 type Window struct {
-	Urgent []Stoppage
-	Next   []Stoppage
+	Urgent  []Stoppage
+	Next    []Stoppage
+	Decided []Stoppage
 }
 
 // Walk is what a window at one position is offered. Next begins past the
@@ -199,9 +224,13 @@ type Window struct {
 // last pass happened to end near the newest end.
 func Walk(stoppages []Stoppage, position WindowPosition) Window {
 	var window Window
-	var behind []Stoppage
+	var behind, gated []Stoppage
 	for _, one := range stoppages {
 		switch {
+		case one.Decided && one.Critical():
+			window.Decided = append(window.Decided, one)
+		case one.Decided:
+			gated = append(gated, one)
 		case one.Critical():
 			window.Urgent = append(window.Urgent, one)
 		case position.passed(one):
@@ -211,5 +240,6 @@ func Walk(stoppages []Stoppage, position WindowPosition) Window {
 		}
 	}
 	window.Next = append(window.Next, behind...)
+	window.Decided = append(window.Decided, gated...)
 	return window
 }
