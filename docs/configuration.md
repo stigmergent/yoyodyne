@@ -6424,6 +6424,14 @@ of it. The operator's pause is never a stall, and neither is a product whose
 recurring tasks are switched off over an empty queue: with no pass attempted
 there is nothing failing to report.
 
+Only a pull or a successful pass that started after the stall began closes
+it. Pausing the harness during a stall, raising the limit past it, or a sweep
+log that no longer holds the failures each stop the reading calling it a stall,
+but none of them is a recovery: the record stays open, no note is filed, and
+when the pause lifts the same stall is still the one standing rather than a
+new one reported again. While the pause is on, `yoyo status` names the pause
+rather than the stall.
+
 ### The dashboard's entry
 
 The dashboard is the one service with more to say than a switch, because it

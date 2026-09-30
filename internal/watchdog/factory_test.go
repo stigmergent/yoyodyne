@@ -183,3 +183,66 @@ func TestTheSupervisorsLookIsPaced(t *testing.T) {
 		t.Fatalf("lastLook = %s, want the look a minute on to read", watch.lastLook)
 	}
 }
+
+// The operator pausing the harness during a stall is not a recovery, and
+// lifting the pause is not a second stall: the one stall stands through both,
+// with no recovery note and no second critical report.
+func TestAPauseDuringAStallFilesNoRecoveryAndNoSecondStall(t *testing.T) {
+	t.Parallel()
+	watch, _, pile := newFactoryWatch(t)
+	hold := &factoryHold{}
+	watch.Holds = hold
+	now := factoryPulled.Add(3 * time.Hour)
+	opened, err := watch.Check(context.Background(), now)
+	if err != nil || opened.Opened == nil {
+		t.Fatalf("Check() = %+v, %v, want the stall opened", opened, err)
+	}
+
+	hold.held = true
+	for check := 0; check < 30; check++ {
+		now = now.Add(time.Minute)
+		reading, err := watch.Check(context.Background(), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reading.Closed != nil || reading.Opened != nil || reading.Standing == nil || reading.Standing.EventID != opened.Opened.EventID {
+			t.Fatalf("paused check %d = %+v, want the one stall left standing and untouched", check, reading)
+		}
+	}
+
+	hold.held = false
+	now = now.Add(time.Minute)
+	reading, err := watch.Check(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reading.Opened != nil || reading.Standing == nil || reading.Standing.EventID != opened.Opened.EventID {
+		t.Fatalf("Check() after the pause = %+v, want the same stall standing", reading)
+	}
+	if len(pile.filed) != 1 || pile.filed[0].Severity != report.SeverityCritical {
+		t.Fatalf("filed = %+v, want the one critical report and nothing else", pile.filed)
+	}
+	events, err := watch.Stalls.List()
+	if err != nil || len(events) != 1 || !events[0].Open() {
+		t.Fatalf("List() = %+v, %v, want the one stall, still open", events, err)
+	}
+}
+
+// A limit raised past the stall stops the reading calling it one, and nothing
+// has recovered either, so the record is left open and nothing is filed.
+func TestALongerLimitIsNotARecovery(t *testing.T) {
+	t.Parallel()
+	watch, _, pile := newFactoryWatch(t)
+	now := factoryPulled.Add(3 * time.Hour)
+	if _, err := watch.Check(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	watch.Limit = 24 * time.Hour
+	reading, err := watch.Check(context.Background(), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reading.Closed != nil || reading.Standing == nil || len(pile.filed) != 1 {
+		t.Fatalf("Check() = %+v and filed %d, want the stall left standing and no recovery", reading, len(pile.filed))
+	}
+}

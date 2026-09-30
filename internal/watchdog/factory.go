@@ -125,7 +125,25 @@ func (w *FactoryWatch) Check(ctx context.Context, now time.Time) (FactoryReading
 	if stalled {
 		observation.Since, observation.Says = stall.Since, stall.Says()
 	} else {
-		observation.Cleared = clearedBy(runs, passes, paused)
+		// A reading that finds no stall closes a standing one only where the
+		// factory actually moved after it began: a pull, or a pass that
+		// succeeded. The operator's pause, a longer limit, or a sweep log that no
+		// longer holds the failures each stop the reading calling it a stall
+		// without anything having recovered, and closing on one of them would
+		// file a recovery that did not happen and, once it lifted, a second
+		// report of the same stall. Such a reading leaves the record as it is.
+		standing, open, err := w.Stalls.Standing()
+		if err != nil {
+			return FactoryReading{}, err
+		}
+		if !open {
+			return FactoryReading{}, nil
+		}
+		cleared, moved := movedSince(runs, passes, standing.Since)
+		if !moved {
+			return FactoryReading{Standing: &standing}, nil
+		}
+		observation.Cleared = cleared
 	}
 	reconciled, err := w.Stalls.Reconcile(observation)
 	if err != nil {
@@ -184,31 +202,28 @@ func recoveryMessage(event runstate.FactoryStallEvent) string {
 		event.ClosedAt.Sub(event.Since).Round(time.Minute), oneline.Bound(event.Cleared, report.MaxMessageBytes/2))
 }
 
-// clearedBy says what a reading that found no stall saw: the pause, or the
-// latest pull or successful pass.
-func clearedBy(runs []runstate.State, passes []runstate.Sweep, paused bool) string {
-	if paused {
-		return "the operator paused the harness, which is a stop rather than a stall"
-	}
+// movedSince says what the factory did after a stall began, and whether it
+// did anything: the latest pull or successful pass started after since.
+func movedSince(runs []runstate.State, passes []runstate.Sweep, since time.Time) (string, bool) {
 	var pull, pass time.Time
 	var task string
 	for _, run := range runs {
-		if run.StartedAt.After(pull) {
+		if run.StartedAt.After(since) && run.StartedAt.After(pull) {
 			pull = run.StartedAt
 		}
 	}
 	for _, recorded := range passes {
-		if readmodel.PassSucceeded(recorded) && recorded.StartedAt.After(pass) {
+		if readmodel.PassSucceeded(recorded) && recorded.StartedAt.After(since) && recorded.StartedAt.After(pass) {
 			pass, task = recorded.StartedAt, recorded.Task
 		}
 	}
 	switch {
 	case !pass.IsZero() && pass.After(pull):
-		return fmt.Sprintf("the recurring pass %s succeeded at %s", task, pass.Local().Format("2006-01-02 15:04 MST"))
+		return fmt.Sprintf("the recurring pass %s succeeded at %s", task, pass.Local().Format("2006-01-02 15:04 MST")), true
 	case !pull.IsZero():
-		return "work was pulled at " + pull.Local().Format("2006-01-02 15:04 MST")
+		return "work was pulled at " + pull.Local().Format("2006-01-02 15:04 MST"), true
 	default:
-		return "no pass has been attempted within the limit since"
+		return "", false
 	}
 }
 
