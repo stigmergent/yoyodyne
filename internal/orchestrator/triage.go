@@ -336,7 +336,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// out and for no other settled entry, since a re-scope, a wait, and an
 	// escalation are never attempted and have nothing to be stopped by.
 	listable, unlisted := listableDocket(entries, now)
-	problems = append(problems, d.joinDecisions(listable, publicationsOf(recorded))...)
+	problems = append(problems, d.joinDecisions(listable, docketedRunsOf(entries), publicationsOf(recorded))...)
 	open, closed := openDocket(listable, now)
 	// One live entry per stopped run. The repeats are folded here, where every
 	// docket anybody reads is built, rather than rewritten on the log — so the
@@ -517,13 +517,14 @@ func (s standingDocket) dockets(key string, stoppedAt time.Time) bool {
 // is where the re-arms the harness has actually repeated are written. It is
 // indexed once for the same reason the item records are read once: a docket over
 // a long history would otherwise walk the runs per entry.
-func (d Docketer) joinDecisions(entries []triage.Entry, published map[string]publicationRearms) []error {
+//
+// docketedRuns is every run the whole docket holds an entry for, which is not
+// the same as the runs of the entries handed here: those are the listable ones,
+// and a run whose only entry was left out of them is still a run the docket
+// holds, so a finding about it must not be shown as though it held none.
+func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]bool, published map[string]publicationRearms) []error {
 	var problems []error
 	read := make(map[string]itemDecisions, len(entries))
-	docketedRuns := make(map[string]bool, len(entries))
-	for _, entry := range entries {
-		docketedRuns[entry.RunID] = true
-	}
 	for index := range entries {
 		entry := &entries[index]
 		decisions, seen := read[entry.WorkItemID]
@@ -576,6 +577,15 @@ func (d Docketer) joinDecisions(entries []triage.Entry, published map[string]pub
 		}
 	}
 	return problems
+}
+
+// docketedRunsOf is every run the docket holds an entry for, of any class.
+func docketedRunsOf(entries []triage.Entry) map[string]bool {
+	runs := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		runs[entry.RunID] = true
+	}
+	return runs
 }
 
 // undocketedCarryOut is the carry-out finding about the item's latest decision

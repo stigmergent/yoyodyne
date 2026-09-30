@@ -380,6 +380,11 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	}
 
 	entry, err := r.entry(priorRunID)
+	var missing NoDocketedStoppageError
+	undocketed := errors.As(err, &missing)
+	if undocketed {
+		entry, err = r.undocketedEntry(priorRunID, missing)
+	}
 	if err != nil {
 		return RerunResult{}, err
 	}
@@ -403,7 +408,16 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	// flight below describe something that is still moving, so both stop being
 	// true on their own — which is what a reader of either refusal has to act on,
 	// and why each of them says the stoppage kept its re-run.
-	if err := rerunnable(prior); err != nil {
+	// A run the docket never held is re-run on the development manager's decision
+	// alone: it ended without anything the stoppage rule counts, which is why it
+	// was never docketed, so asking that rule of it could only refuse what she
+	// decided. It still has to have ended.
+	if undocketed {
+		if !prior.Status.Terminal() {
+			return result, unspentRefusal(fmt.Errorf("run %s is recorded as %s rather than ended, so it is owed a continuation rather than a fresh run; a re-run is refused while anything of it is resumable",
+				prior.RunID, prior.Status))
+		}
+	} else if err := rerunnable(prior); err != nil {
 		return result, unspentRefusal(err)
 	}
 	if err := r.noRunInFlight(entry.WorkItemID); err != nil {
@@ -621,6 +635,35 @@ func (r Rerunner) entry(priorRunID string) (triage.Entry, error) {
 		}
 	}
 	return triage.Entry{}, err
+}
+
+// undocketedEntry is the entry a re-run of a run the docket never held is
+// claimed under: the stopped-run key the docket would have given it, so the
+// once-per-stoppage claim holds for it exactly as for a docketed one. A run the
+// harness cancelled on its way out is never docketed, and a decision about one
+// used to be refused at every pass for want of an entry — yoyodyne-ifd.187's
+// re-run of run-04e578ce, thirty-nine times — although what the development
+// manager decided is plain: start the item again (yoyodyne-ifd.428.52). A run
+// the harness holds no record of, or one of no work item, is still refused.
+func (r Rerunner) undocketedEntry(priorRunID string, missing NoDocketedStoppageError) (triage.Entry, error) {
+	prior, err := r.Runs.Load(priorRunID)
+	if err != nil || strings.TrimSpace(prior.WorkItemID) == "" {
+		return triage.Entry{}, missing
+	}
+	recorded := prior.StartedAt
+	if prior.CompletedAt != nil {
+		recorded = *prior.CompletedAt
+	}
+	return triage.Entry{
+		SchemaVersion: triage.SchemaVersion,
+		Key:           triage.Key(triage.ClassStoppedRun, prior.RunID),
+		Class:         triage.ClassStoppedRun,
+		ProductID:     prior.ProductID,
+		RunID:         prior.RunID,
+		WorkItemID:    prior.WorkItemID,
+		WorkItemTitle: prior.WorkItemTitle,
+		RecordedAt:    recorded,
+	}, nil
 }
 
 // docketedRaise finds the raise one run put on the docket, and whether there is

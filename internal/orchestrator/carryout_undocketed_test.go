@@ -47,7 +47,7 @@ func joined(t *testing.T, harness *rerunHarness) []triage.Entry {
 		t.Fatalf("List() error = %v", err)
 	}
 	docketer := Docketer{Decisions: harness.runs.Triage(), Reruns: harness.reruns}
-	if problems := docketer.joinDecisions(entries, nil); len(problems) != 0 {
+	if problems := docketer.joinDecisions(entries, docketedRunsOf(entries), nil); len(problems) != 0 {
 		t.Fatalf("joinDecisions() problems = %v", problems)
 	}
 	return entries
@@ -85,10 +85,10 @@ func TestARerunRecordedAfterARepairClosedTheEntryIsAttemptedAtTheNextPull(t *tes
 }
 
 // The 187 case: a re-run recorded against a run the docket never held, where
-// the item's one docketed stoppage has already been re-run. It is attempted,
-// refused, and the refusal on the item says why and that an escalation is what
-// applies — and the docket entry she reads for the item carries it.
-func TestARerunOfAnUndocketedRunIsRefusedNamingWhyAndTheDecisionThatApplies(t *testing.T) {
+// the item's one docketed stoppage has already been re-run. It is carried out:
+// the item starts again from the target branch, claimed under the key the docket
+// would have given the run, and it is not offered a second time.
+func TestARerunOfAnUndocketedRunStartsTheItemAgain(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
@@ -103,11 +103,64 @@ func TestARerunOfAnUndocketedRunIsRefusedNamingWhyAndTheDecisionThatApplies(t *t
 	}
 
 	later := harness.carryOutAt(2 * time.Hour)
+	// The claim is stamped by the rerunner's own clock, which has to read the
+	// same moment the carry-out does for the claim to answer the decision.
+	rerunner := harness.rerunner()
+	rerunner.Clock = laterClock{after: 2 * time.Hour}
+	later.Rerunner = rerunner
 	task := theOneOutstanding(t, later)
 	if task.RunID != undocketedRunID {
 		t.Fatalf("task = %#v, want the decision about the undocketed run attempted", task)
 	}
 	carried, _, err := later.Carry(context.Background(), task)
+	if err != nil {
+		t.Fatalf("Carry() error = %v", err)
+	}
+	if !carried.Carried || len(harness.started) != 2 {
+		t.Fatalf("carried = %#v, started = %#v, want the item started again", carried, harness.started)
+	}
+	if lift := harness.started[1].selection.Lift; lift != nil {
+		t.Fatalf("lift = %#v, want the fresh run started from the target branch", lift)
+	}
+	claimed, err := harness.reruns.Claimed(docketedItem)
+	if err != nil {
+		t.Fatalf("Claimed() error = %v", err)
+	}
+	found := false
+	for _, claim := range claimed {
+		found = found || claim.DocketKey == triage.Key(triage.ClassStoppedRun, undocketedRunID)
+	}
+	if !found {
+		t.Fatalf("claimed = %#v, want the re-run claimed under the undocketed run's stopped-run key", claimed)
+	}
+	if outstanding, err := harness.carryOutAt(3 * time.Hour).Outstanding(); err != nil || len(outstanding) != 0 {
+		t.Fatalf("outstanding = %#v, %v, want the carried-out decision not offered again", outstanding, err)
+	}
+}
+
+// unrecordedRunID is a run the harness holds no record of at all, which is
+// what a decision can name that nothing can start from.
+const unrecordedRunID = "run-44444444444444444444444444444444"
+
+// A re-run of a run the harness holds no record of cannot start anything. It
+// is refused, the refusal says why and names the decision the harness would
+// carry out instead, and the item's docket entry carries it — naming nobody
+// but the development manager, whose decision it is.
+func TestARerunOfAnUnrecordedRunIsRefusedNamingWhyAndTheDecisionThatApplies(t *testing.T) {
+	t.Parallel()
+
+	harness := newRerunHarness(t, stoppedState())
+	first := harness.carryOut()
+	if _, _, err := first.Carry(context.Background(), theOneOutstanding(t, first)); err != nil {
+		t.Fatalf("Carry() of the first decision error = %v", err)
+	}
+	if _, err := harness.runs.Triage().RecordRerun(context.Background(), docketedItem,
+		triageDecided(runstate.TriageDecisionRerun, unrecordedRunID), docketedNow.Add(time.Hour), laterCaps); err != nil {
+		t.Fatalf("RecordRerun() error = %v", err)
+	}
+
+	later := harness.carryOutAt(2 * time.Hour)
+	carried, _, err := later.Carry(context.Background(), theOneOutstanding(t, later))
 	if err != nil {
 		t.Fatalf("Carry() error = %v, want the refusal reported as a gate", err)
 	}
@@ -118,22 +171,22 @@ func TestARerunOfAnUndocketedRunIsRefusedNamingWhyAndTheDecisionThatApplies(t *t
 	if err != nil {
 		t.Fatalf("Counters() error = %v", err)
 	}
-	recorded, found := counters.CarryOutOf(undocketedRunID)
+	recorded, found := counters.CarryOutOf(unrecordedRunID)
 	if !found || recorded.Unattempted || recorded.Attempts != 1 {
 		t.Fatalf("finding = %#v (found %t), want the refusal of an attempt on the item", recorded, found)
 	}
-	for _, want := range []string{"holds no stoppage of it", "ended cancelled"} {
+	for _, want := range []string{"holds no stoppage of it", "is not a run the harness holds a record of"} {
 		if !strings.Contains(recorded.Refusal, want) {
 			t.Fatalf("refusal = %q, want it to say %q", recorded.Refusal, want)
 		}
 	}
-	for _, want := range []string{docketedRunID, "whose one re-run was claimed", "an escalation", "`yoyo run " + docketedItem + "`"} {
-		if !strings.Contains(recorded.Clears, want) {
-			t.Fatalf("clears = %q, want it to name %q", recorded.Clears, want)
-		}
+	if !strings.Contains(recorded.Clears, "a re-run recorded instead against the latest run of "+docketedItem) {
+		t.Fatalf("clears = %q, want it to name the re-run the harness would carry out", recorded.Clears)
 	}
-	if strings.Contains(recorded.Clears, "what the refusal itself names") {
-		t.Fatalf("clears = %q, want the decision that applies rather than a pointer back at the refusal", recorded.Clears)
+	for _, unwanted := range []string{"what the refusal itself names", "operator", "yoyo run"} {
+		if strings.Contains(recorded.Clears, unwanted) {
+			t.Fatalf("clears = %q, want nothing routed to %q", recorded.Clears, unwanted)
+		}
 	}
 
 	entries := joined(t, harness)
@@ -141,26 +194,22 @@ func TestARerunOfAnUndocketedRunIsRefusedNamingWhyAndTheDecisionThatApplies(t *t
 		t.Fatalf("docket = %#v, want the item's one stoppage", entries)
 	}
 	shown := entries[0].CarryOut
-	if shown == nil || shown.RunID != undocketedRunID || shown.Refusal != recorded.Refusal {
-		t.Fatalf("carry-out = %#v, want the item's entry to carry the refusal about the undocketed run", shown)
+	if shown == nil || shown.RunID != unrecordedRunID || shown.Refusal != recorded.Refusal {
+		t.Fatalf("carry-out = %#v, want the item's entry to carry the refusal about the unrecorded run", shown)
 	}
-	rendered := entries[0].Render()
-	for _, want := range []string{"is about run " + undocketedRunID + ", which this docket holds no entry for", "an escalation"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("rendered = %q, want it to say %q", rendered, want)
-		}
+	if rendered := entries[0].Render(); !strings.Contains(rendered, "is about run "+unrecordedRunID+", which this docket holds no entry for") {
+		t.Fatalf("rendered = %q, want it to say which run the finding is about", rendered)
 	}
 }
 
 // Where the item has a docketed stoppage that can still take the re-run, the
 // refusal names that stoppage as where the decision belongs.
-func TestARerunOfAnUndocketedRunNamesTheDocketedStoppageThatCouldTakeIt(t *testing.T) {
+func TestARerunOfAnUnrecordedRunNamesTheDocketedStoppageThatCouldTakeIt(t *testing.T) {
 	t.Parallel()
 
 	harness := newDocketedHarness(t, stoppedState())
-	recordUndocketedRun(t, harness)
 	if _, err := harness.runs.Triage().RecordRerun(context.Background(), docketedItem,
-		triageDecided(runstate.TriageDecisionRerun, undocketedRunID), docketedNow, rerunCaps); err != nil {
+		triageDecided(runstate.TriageDecisionRerun, unrecordedRunID), docketedNow, rerunCaps); err != nil {
 		t.Fatalf("RecordRerun() error = %v", err)
 	}
 	carrying := harness.carryOut()
@@ -175,14 +224,70 @@ func TestARerunOfAnUndocketedRunNamesTheDocketedStoppageThatCouldTakeIt(t *testi
 	if err != nil {
 		t.Fatalf("Counters() error = %v", err)
 	}
-	recorded, _ := counters.CarryOutOf(undocketedRunID)
+	recorded, _ := counters.CarryOutOf(unrecordedRunID)
 	for _, want := range []string{"recorded instead against a stoppage the docket holds", docketedRunID} {
 		if !strings.Contains(recorded.Clears, want) {
 			t.Fatalf("clears = %q, want it to name %q", recorded.Clears, want)
 		}
 	}
-	if strings.Contains(recorded.Clears, "escalation") {
-		t.Fatalf("clears = %q, want the open stoppage named rather than an escalation", recorded.Clears)
+}
+
+// A repair of a run the docket never held has no worktree to re-enter, so it is
+// refused naming the re-run of the same run as the decision the harness would
+// carry out.
+func TestARepairOfAnUndocketedRunNamesTheRerunThatWouldApply(t *testing.T) {
+	t.Parallel()
+
+	harness := newDocketedHarness(t, stoppedState())
+	recordUndocketedRun(t, harness)
+	carrying := harness.carryOut()
+	carrying.Repairer = RepairContinuer{Docket: harness.docket}
+	task := CarryOutTask{
+		WorkItemID: docketedItem,
+		RunID:      undocketedRunID,
+		DocketKey:  triage.Key(triage.ClassStoppedRun, undocketedRunID),
+		Decision:   runstate.TriageDecisionRepair,
+		DecidedAt:  docketedNow,
+	}
+	refusal, clears, undocketed := carrying.undocketed(task, NoDocketedStoppageError{RunID: undocketedRunID, Act: "repair"})
+	if !undocketed {
+		t.Fatalf("undocketed = false, want the missing stoppage recognised")
+	}
+	if !strings.Contains(refusal, "ended cancelled") {
+		t.Fatalf("refusal = %q, want how the run ended", refusal)
+	}
+	if !strings.Contains(clears, "a re-run recorded against run "+undocketedRunID+" instead") || strings.Contains(clears, "operator") {
+		t.Fatalf("clears = %q, want the re-run of the same run named and nobody else", clears)
+	}
+}
+
+// A run whose only entry is left out of the entries the join is handed is still
+// a run the docket holds, so a finding about it is not shown on its siblings as
+// though the docket held none.
+func TestAFindingIsNotShownAsUndocketedForARunTheWholeDocketHolds(t *testing.T) {
+	t.Parallel()
+
+	harness := newDocketedHarness(t, stoppedState())
+	if _, err := harness.runs.Triage().RecordRerun(context.Background(), docketedItem,
+		triageDecided(runstate.TriageDecisionRerun, unrecordedRunID), docketedNow, rerunCaps); err != nil {
+		t.Fatalf("RecordRerun() error = %v", err)
+	}
+	carrying := harness.carryOut()
+	if _, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil {
+		t.Fatalf("Carry() error = %v", err)
+	}
+	entries, err := harness.docket.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	docketer := Docketer{Decisions: harness.runs.Triage(), Reruns: harness.reruns}
+	whole := docketedRunsOf(entries)
+	whole[unrecordedRunID] = true
+	if problems := docketer.joinDecisions(entries, whole, nil); len(problems) != 0 {
+		t.Fatalf("joinDecisions() problems = %v", problems)
+	}
+	if entries[0].CarryOut != nil {
+		t.Fatalf("carry-out = %#v, want nothing shown about a run the whole docket holds", entries[0].CarryOut)
 	}
 }
 
@@ -234,9 +339,8 @@ func TestAFindingAboutAnUndocketedRunIsNotShownOnceSheDecidesPastIt(t *testing.T
 	t.Parallel()
 
 	harness := newDocketedHarness(t, stoppedState())
-	recordUndocketedRun(t, harness)
 	if _, err := harness.runs.Triage().RecordRerun(context.Background(), docketedItem,
-		triageDecided(runstate.TriageDecisionRerun, undocketedRunID), docketedNow, rerunCaps); err != nil {
+		triageDecided(runstate.TriageDecisionRerun, unrecordedRunID), docketedNow, rerunCaps); err != nil {
 		t.Fatalf("RecordRerun() error = %v", err)
 	}
 	carrying := harness.carryOut()
