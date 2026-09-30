@@ -105,17 +105,25 @@ func (s Sweeper) Notice(ctx context.Context, reported map[int]bool) ([]runstate.
 	// The tracker is read once per pass and only when some request names work
 	// to look up: a tracker read is the slow reading here, and a forge holding
 	// only requests nobody here opened gives it nothing to answer.
+	//
+	// A tracker that does not answer costs the pass the half of the reading it
+	// feeds and not the other half. Until yoyodyne-ifd.433.20 it cost both: the
+	// listing failing returned before any request was compared, so a pass on a
+	// contended store noticed nothing at all, including requests whose branches
+	// the forge itself says are carried. Now every request is still compared,
+	// and what could not be read is named beside what was found.
 	closed := map[string]string{}
+	var problems []error
 	for _, item := range items {
 		if item != "" {
 			if closed, err = s.closedWorkItems(ctx); err != nil {
-				return nil, err
+				closed = map[string]string{}
+				problems = append(problems, fmt.Errorf("%w; so no request was judged on its work item being closed, only on whether its branch is carried, and the harness reads the tracker again on the next pass", err))
 			}
 			break
 		}
 	}
 	var notices []runstate.ForgeNotice
-	var problems []error
 	for _, request := range candidates {
 		notice := runstate.ForgeNotice{
 			Number:     request.Number,

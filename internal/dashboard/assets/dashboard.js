@@ -432,7 +432,8 @@
     { attention: "product-decision", title: "A product decision about a run in flight" },
     { attention: "human-gate", title: "A step reserved for a person" },
     { attention: "untraced-pass", title: "A pass that left no trace of what it found" },
-    { attention: "factory-stall", title: "A factory that has pulled nothing and completed no pass" }
+    { attention: "factory-stall", title: "A factory that has pulled nothing and completed no pass" },
+    { attention: "tracker-unanswered", title: "The tracker not answering listings" }
   ];
 
   function kindTitle(kind) {
@@ -1801,6 +1802,16 @@
         (stall.failures || []).forEach(function (failure) {
           add("Failing: " + failure.task, failure.attempts + " attempt(s), latest " + dayAndClock(failure.at) + ": " + failure.problem, "card-field-prose");
         });
+        break;
+      case "tracker-unanswered":
+        var listings = entry.tracker_listings;
+        if (!listings) {
+          break;
+        }
+        add("Failing since", dayAndClock(listings.failing_since));
+        add("Listings failed", String(listings.failures || 0));
+        add("Latest", dayAndClock(listings.latest_at));
+        add("What it said", listings.latest, "card-field-prose");
         break;
       case "hold":
         var hold = entry.operator_hold || entry.intake_hold || entry.capacity_hold;

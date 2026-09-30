@@ -4,10 +4,14 @@ package watchdog
 //
 // The stall check beside this one asks whether anything has started over ready
 // work, and asks the tracker how much is ready to answer it. That is exactly
-// the question it cannot answer when the tracker is what has stopped: from
-// 21:51 PDT on 2026-09-29 every recurring pass failed on a tracker listing that
-// timed out, the watch pulled nothing, and nothing said so for twelve hours.
-// This check reads only the run records and the sweep log, asks no tracker and
+// the question it cannot answer when the tracker is what has stopped. From
+// 21:51 PDT on 2026-09-29 no recurring pass completed, the watch pulled
+// nothing, and nothing said so for twelve hours; it was read then as the
+// tracker's listings timing out, and was the machine asleep with one pass
+// holding the watch's poll across the sleep
+// (docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md). Either way
+// the check has to stand apart from what stopped. It reads only the run records
+// and the sweep log, asks no tracker and
 // no provider, and runs on the supervisor's own poll rather than inside the
 // watch whose passes are the ones failing.
 //

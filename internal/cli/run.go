@@ -163,9 +163,13 @@ type components struct {
 	// mirror-image reason: that log says when the harness could not spend, and
 	// this one says what it did spend, one line per invocation, whether the
 	// invocation was a run's, a review's, a conversation's, or an exchange's.
-	spend        *runstate.SpendStore
-	worktrees    *gitworktree.Manager
-	redactValues []string
+	spend *runstate.SpendStore
+	// trackerListings is how the tracker's listings stand: answering, or failing
+	// since a moment. Every listing the harness's tracker client makes writes its
+	// outcome there; see tracker.
+	trackerListings *runstate.TrackerListingStore
+	worktrees       *gitworktree.Manager
+	redactValues    []string
 }
 
 // roots is where a product's three durable places are: the checkout the runs
@@ -348,6 +352,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	trackerListings, err := runstate.NewTrackerListingStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	worktrees, err := gitworktree.New(gitworktree.Options{
 		Runner:                processRunner,
 		RepositoryRoot:        repository,
@@ -395,6 +403,7 @@ func buildComponents(configPath string) (components, error) {
 		capacityServed:  capacityServed,
 		divergences:     divergences,
 		spend:           spendLog,
+		trackerListings: trackerListings,
 		worktrees:       worktrees,
 		redactValues:    execution.SensitiveEnvironmentValues(os.Environ()),
 	}, nil
@@ -437,8 +446,21 @@ func primaryCheckout(repository, worktreeRoot string) (string, error) {
 	return primary, nil
 }
 
+// tracker is the harness's own tracker client. Every listing it makes writes
+// how it ended to the product's listing record, which is what `yoyo status`
+// reads to say the tracker is not answering listings and since when.
 func (c components) tracker() beads.Client {
-	return beads.Client{Runner: c.runner, Dir: c.repository}
+	return withListingRecord(beads.Client{Runner: c.runner, Dir: c.repository}, c.trackerListings)
+}
+
+// withListingRecord has a client write how its listings end to the record,
+// where there is one. The nil check is on the store rather than left to the
+// interface, because a nil *TrackerListingStore in the interface is not nil.
+func withListingRecord(client beads.Client, listings *runstate.TrackerListingStore) beads.Client {
+	if listings != nil {
+		client.Listings = listings
+	}
+	return client
 }
 
 func buildPipeline(configPath string) (orchestrator.Pipeline, error) {

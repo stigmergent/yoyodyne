@@ -104,6 +104,9 @@ const (
 	// no recurring pass for longer than its configured limit. The moment it last
 	// did either is the ID.
 	AttentionFactoryStall AttentionKind = "factory-stall"
+	// AttentionTrackerUnanswered is the tracker failing listings after their
+	// retries, since the moment the first of them failed. That moment is the ID.
+	AttentionTrackerUnanswered AttentionKind = "tracker-unanswered"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -128,6 +131,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionHumanGate,
 		AttentionUntracedPass,
 		AttentionFactoryStall,
+		AttentionTrackerUnanswered,
 	}
 }
 
@@ -401,6 +405,10 @@ type Attention struct {
 	// FactoryStall is how long the factory has done nothing, its last success,
 	// and what each pass failed on, on an AttentionFactoryStall entry.
 	FactoryStall *FactoryStall `json:"factory_stall,omitempty"`
+	// TrackerListings is how the tracker's listings stand, on an
+	// AttentionTrackerUnanswered entry: since when they have failed, how many,
+	// and what the latest said.
+	TrackerListings *runstate.TrackerListings `json:"tracker_listings,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -624,6 +632,14 @@ func (a Attention) What() string {
 		if a.FactoryStall != nil {
 			return a.FactoryStall.Says()
 		}
+	case AttentionTrackerUnanswered:
+		if a.TrackerListings != nil {
+			// What the latest listing said is cut to a line; the record carries it
+			// whole.
+			said := *a.TrackerListings
+			said.Latest = singleLine(said.Latest, maxRefusalBytes)
+			return said.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -719,6 +735,8 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — its next pass is told which findings they were, and a pass of the task that takes a turn clears this; nothing here needs a person"
 	case AttentionFactoryStall:
 		return a.Mover.Possessive() + " — every pass it attempts is failing, so no role is looking at anything; the critical report filed when it began names the failures, and the first pull or successful pass clears this and files the recovery"
+	case AttentionTrackerUnanswered:
+		return a.Mover.Possessive() + " — each listing is asked again within its bound before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this"
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }

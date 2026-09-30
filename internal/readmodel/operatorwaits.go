@@ -81,6 +81,10 @@ func (a Attention) Since() time.Time {
 		if a.FactoryStall != nil {
 			return a.FactoryStall.Since
 		}
+	case AttentionTrackerUnanswered:
+		if a.TrackerListings != nil {
+			return a.TrackerListings.FailingSince
+		}
 	}
 	return time.Time{}
 }

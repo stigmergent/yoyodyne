@@ -390,6 +390,26 @@ type Client struct {
 	// which drive a clear that lands late and one that never lands without
 	// waiting the seconds the real bound spans.
 	readBack staleBlockClearReadBack
+	// Listings is told how each listing ended, where it is set: that it
+	// answered, or that it failed after its retries and what it said. It is what
+	// lets `yoyo status` say the tracker is not answering listings and since
+	// when, rather than each reader learning it alone from the one listing it
+	// made. Nil records nothing, which is every client built for a single
+	// command. A record that cannot be written never fails the listing it is
+	// about: the listing's answer is the caller's, and the record is a reading
+	// of it.
+	Listings ListingRecorder
+	// listingPause is how a listing waits before it asks again. The zero value
+	// sleeps; it is set only by this package's tests, which drive a listing that
+	// times out on every attempt without waiting the seconds between them.
+	listingPause func(ctx context.Context, wait time.Duration) bool
+}
+
+// ListingRecorder is where a client writes how its listings end. It is
+// satisfied by *runstate.TrackerListingStore.
+type ListingRecorder interface {
+	Failed(at time.Time, failure string) error
+	Answered(at time.Time) error
 }
 
 var (
@@ -467,6 +487,11 @@ const everyStatus = "--all"
 // the flag is asked again without it, and what that reading loses is the lift:
 // it is bd's own page, whole where bd lifts its cap for a pipe and the first
 // fifty rows where it does not. A refusal for anything else is the error it was.
+//
+// A listing its bound killed is asked again, twice, after a short wait: see
+// listingWaits. One that still fails is refused naming how many attempts it
+// made and over how long, around the last failure, so a caller says the
+// tracker did not answer rather than that one listing timed out.
 func (c Client) List(ctx context.Context, status string) ([]WorkItem, error) {
 	var filter []string
 	if trimmed := strings.TrimSpace(status); trimmed != "" {
@@ -477,14 +502,94 @@ func (c Client) List(ctx context.Context, status string) ([]WorkItem, error) {
 	} else {
 		filter = append(filter, everyStatus)
 	}
-	data, err := c.run(ctx, append([]string{"list", "--json", unboundedListing}, filter...)...)
-	if err != nil && refusedFlag(err, unboundedListing) {
-		data, err = c.run(ctx, append([]string{"list", "--json"}, filter...)...)
+	items, err := c.listPatiently(ctx, filter)
+	c.recordListing(ctx, err)
+	return items, err
+}
+
+// listingWaits are the pauses between the attempts one listing makes, and so
+// how many it makes: one more than there are waits.
+//
+// A listing is retried because of what stops one. bd opens its embedded Dolt
+// store under an exclusive lock, every bd process takes it — reads included —
+// and a write holds it while it rewrites the whole export beside the store, so
+// a listing that arrives behind a write or two waits its turn and a bound of
+// thirty seconds kills some of those that would have answered a few seconds
+// later. docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md is the
+// evidence. The waits are short on purpose: a caller of a listing is a pass, a
+// docket, or a conversation somebody is reading, and three attempts at the
+// default bound are already a minute and a half of it. A store that is still
+// not answering after that is not contention a caller can wait out, and is
+// said as the tracker not answering.
+var listingWaits = []time.Duration{2 * time.Second, 8 * time.Second}
+
+// listPatiently makes one listing, asking again after each wait where the
+// listing was killed by its bound and the caller has not given up.
+func (c Client) listPatiently(ctx context.Context, filter []string) ([]WorkItem, error) {
+	started := time.Now()
+	attempts := 0
+	for {
+		attempts++
+		data, err := c.run(ctx, append([]string{"list", "--json", unboundedListing}, filter...)...)
+		if err != nil && refusedFlag(err, unboundedListing) {
+			data, err = c.run(ctx, append([]string{"list", "--json"}, filter...)...)
+		}
+		if err == nil {
+			return decodeWorkItems(data)
+		}
+		if !timedOut(err) || ctx.Err() != nil {
+			return nil, err
+		}
+		if attempts > len(listingWaits) {
+			return nil, fmt.Errorf("bd list did not answer within its %s bound on any of %d attempts over %s: %w",
+				c.timeout(), attempts, time.Since(started).Round(time.Second), err)
+		}
+		if !c.pauseListing(ctx, listingWaits[attempts-1]) {
+			return nil, err
+		}
+	}
+}
+
+// timedOut reports a bd the runner killed at its bound, which is the one
+// listing failure another attempt may well not meet: bd refusing, or answering
+// something that does not decode, is the same answer the next time.
+func timedOut(err error) bool {
+	var failure processFailure
+	return errors.As(err, &failure) && failure.status == execution.ProcessTimedOut
+}
+
+func (c Client) pauseListing(ctx context.Context, wait time.Duration) bool {
+	if c.listingPause != nil {
+		return c.listingPause(ctx, wait)
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// recordListing tells the recorder how a listing ended. A listing the caller
+// gave up on says nothing about the tracker and is not recorded either way.
+func (c Client) recordListing(ctx context.Context, err error) {
+	if c.Listings == nil || ctx.Err() != nil {
+		return
 	}
 	if err != nil {
-		return nil, err
+		_ = c.Listings.Failed(time.Now(), err.Error())
+		return
 	}
-	return decodeWorkItems(data)
+	_ = c.Listings.Answered(time.Now())
+}
+
+func (c Client) timeout() time.Duration {
+	if c.Timeout == 0 {
+		return defaultTimeout
+	}
+	return c.Timeout
 }
 
 // refusedFlag reports whether a bd failure is bd not knowing the flag, as
@@ -1481,15 +1586,11 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	if binary == "" {
 		binary = "bd"
 	}
-	timeout := c.Timeout
-	if timeout == 0 {
-		timeout = defaultTimeout
-	}
 	result, err := runner.Run(ctx, execution.Command{
 		Name:           binary,
 		Args:           args,
 		Dir:            c.Dir,
-		Timeout:        timeout,
+		Timeout:        c.timeout(),
 		MaxOutputBytes: maxBDOutputBytes,
 	}, nil)
 	if err != nil {

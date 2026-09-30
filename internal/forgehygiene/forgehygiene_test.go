@@ -207,6 +207,48 @@ func TestAReadingThatCannotBeMadeIsAnErrorNotSilence(t *testing.T) {
 	}
 }
 
+// timingOutBD is bd killed at its bound on every listing, which is what every
+// development manager pass met on 2026-09-30 at 11:13 PDT.
+type timingOutBD struct{ calls int }
+
+func (b *timingOutBD) Run(context.Context, execution.Command, execution.OutputObserver) (execution.ProcessResult, error) {
+	b.calls++
+	return execution.ProcessResult{Status: execution.ProcessTimedOut, ExitCode: -1}, nil
+}
+
+// A listing that times out on every attempt costs the pass the half of the
+// reading it feeds, not the whole of it. The real tracker client asks again
+// within its bound and then gives up, and the pass still compares every
+// request with the forge and reports the one whose branch is carried — naming
+// beside it that the closed work could not be read, whose move that is, and
+// that nothing was judged on it.
+func TestAListingThatTimesOutOnEveryAttemptLeavesThePassCarryingOn(t *testing.T) {
+	t.Parallel()
+
+	bd := &timingOutBD{}
+	forge := threeRequests()
+	sweeper := Sweeper{Forge: forge, Tracker: beads.Client{Runner: bd}}
+
+	notices, err := sweeper.Notice(context.Background(), nil)
+	if len(notices) != 1 || notices[0].Number != 460 || !notices[0].Contained || notices[0].ItemClosed {
+		t.Fatalf("notices = %+v, want the request whose branch main carries, reported on the forge's reading alone", notices)
+	}
+	if len(forge.compared) != 3 {
+		t.Fatalf("compared %v, want every request compared though the tracker did not answer", forge.compared)
+	}
+	if err == nil {
+		t.Fatal("Notice() error = nil, want what could not be read named beside what was found")
+	}
+	for _, want := range []string{"read the closed work items", "on any of 3 attempts", "status timed_out", "only on whether its branch is carried", "the harness reads the tracker again on the next pass"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Notice() error = %q, want it to say %q", err, want)
+		}
+	}
+	if bd.calls != 3 {
+		t.Errorf("bd was asked %d times, want the listing's three attempts", bd.calls)
+	}
+}
+
 // pagingBD stands in for the bd binary as `bd list` behaves on a terminal or in
 // what it takes for an agent session: it holds every closed item, newest first,
 // and hands back the first fifty of them unless the command line says otherwise
