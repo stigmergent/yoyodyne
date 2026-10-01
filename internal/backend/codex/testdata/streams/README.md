@@ -3,7 +3,8 @@
 What `codex exec --json` wrote to standard output on real invocations, recorded
 so the parser in `../../parser.go` is tested against what the CLI actually says
 rather than against anybody's account of it. Each file is one invocation's
-standard output, one event per line, unedited. None was written by hand.
+standard output, one event per line. None was written by hand, and each is
+unedited except where its entry below names a redaction.
 
 Each directory is named for the `codex --version` that wrote the streams in it.
 
@@ -29,20 +30,44 @@ binary at `../CodexCLI.app/Contents/MacOS/codex` (SHA-256
   Nothing in it was secret: the thread id is the throwaway session this
   invocation started, and no credential was loaded.
 
+- `reply-and-turn-completed.jsonl` is
+  `echo "Reply with the single word: ready" | codex exec --sandbox read-only --json --skip-git-repo-check -`,
+  run on 2026-10-01 by the operator's assistant outside any sandbox, against the
+  same `codex-cli 0.159.2` wrapper, with the operator's own `CODEX_HOME` signed in
+  through ChatGPT. **It reached the provider and completed.** It shows the reply
+  as an `item.completed` whose item is `{"type":"agent_message","text":"ready"}`,
+  and the turn ending in `turn.completed`, which carries no text and carries the
+  turn's `usage`: `input_tokens`, `cached_input_tokens`,
+  `cache_write_input_tokens`, `output_tokens`, and `reasoning_output_tokens`. Two
+  `item.completed` events of item type `error` arrive before `turn.started`, and
+  are warnings rather than failures: the CLI was ignoring two settings in the
+  operator's `config.toml`, and the turn went on to complete. **One redaction:**
+  the warning named the configuration file by its absolute path under the
+  operator's home directory, and that home directory is written here as `~`
+  (`~/.codex/config.toml`); nothing else was changed. The thread id is the
+  throwaway session the invocation started, and no credential appears. The CLI's
+  stderr on that run held only MCP transport errors for a local server that was
+  not running, and is not recorded.
+
 ## What is still missing
 
-No stream here reached the provider, so none shows a reply, token usage, or the
-way a turn ends. The run that recorded this one could not record one: the
-sandbox a developer run is confined to refuses network to the provider and
-refuses writes to the operator's `~/.codex`, where the signed-in CLI keeps its
-session state. A recording of a successful turn has to be made outside that
-sandbox, for example by the operator:
+- **A failed turn.** The `codex-cli 0.159.2` binary names a `turn.failed` event,
+  and the parser reads it as the turn's failed ending with the `message` of its
+  `error` object as its prose, which is the shape the provider's exec protocol
+  gives it. No stream here shows one, so that shape is not yet evidence; a
+  turn refused for a usage limit or a bad model would be.
+- **Shell, patch, and tool items.** A developer turn runs commands and edits
+  files, which the CLI reports as items of other types (`command_execution`,
+  `file_change`, and so on, with `item.started` beside them). None is recorded
+  here; the parser names the first one as unrecognized and otherwise records it
+  and carries on, which matters only if the stream then ends with no terminal.
+  A recording of a turn that runs a shell command is the next one to make, outside
+  the developer sandbox, which refuses network to the provider and refuses writes
+  to the operator's `~/.codex`:
 
 ```sh
 mkdir -p "$HOME/codex-recording" && cd "$HOME/codex-recording"
-echo "Reply with exactly the word: pong" |
-  codex exec --sandbox read-only --json --skip-git-repo-check - > turn-completed.jsonl
+echo "Run ls in this directory, then reply with the word: done" |
+  codex exec --sandbox read-only --json --skip-git-repo-check - > command-and-reply.jsonl
 codex --version
 ```
-
-and one that runs a shell command, so the command items are recorded too.

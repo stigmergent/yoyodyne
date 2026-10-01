@@ -51,11 +51,11 @@ const ClaudeCodeAdapterVersion = "claude-code/1"
 // on the same terms as the one above: a change to what the adapter sends or to
 // how it reads a stream, and not a change that leaves both alone.
 //
-// It is "codex/1" because this is the first Codex adapter this build has ever
-// carried. The adapter written under yoyodyne-ifd.6 never reached the line, so
-// no record anywhere names a Codex adapter version, and there is nothing an
-// earlier number would distinguish this from.
-const CodexAdapterVersion = "codex/1"
+// "codex/1" was the first Codex adapter this build carried. "codex/2" reads the
+// newer vocabulary's reply, usage, and ending — an agent_message item, and
+// turn.completed or turn.failed — where codex/1 read none of them and failed
+// every such stream as unreadable, so a record says which of the two read it.
+const CodexAdapterVersion = "codex/2"
 
 // Endpoint is one execution endpoint: which provider, read by which compiled
 // adapter, under which account, asking which model.
