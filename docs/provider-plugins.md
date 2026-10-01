@@ -6,6 +6,14 @@ Claude Code, which serves every role, and Codex, which is the developer's alone
 because its sandbox cannot hold the tool access every other role requires
 ([capability validation](#capability-validation)).
 
+No Codex CLI version is yet recorded as supported. The Codex adapter's stream
+reader was written from the provider's documented protocol rather than from a
+recorded run, and a reviewer has reported that current CLIs write a different
+event vocabulary. Until real streams are recorded and tested against, a Codex
+stream this adapter cannot read fails the run naming the CLI's version and the
+first event the adapter did not recognize, rather than as a run that ended
+without a terminal event.
+
 A project can declare a provider of its own in its configuration, without forking
 this repository or rebuilding the binary. **What a declaration supplies is the
 dialect and the executable, not a new way of launching a process.** Your provider

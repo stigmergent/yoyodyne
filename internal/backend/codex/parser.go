@@ -12,9 +12,12 @@ package codex
 // than off a run, and everything here degrades in the safe direction if a future
 // version disagrees: an event this parser does not recognize is recorded whole
 // and read as nothing, and an invocation whose terminal never arrives fails with
-// exactly that reason rather than with an outcome nobody produced. The first
-// real Codex stream this repository records is the evidence that should replace
-// this paragraph.
+// exactly that reason rather than with an outcome nobody produced — or, when the
+// stream carried an event this parser did not know, with the CLI's version and
+// that event's name, because a stream in a vocabulary this adapter does not
+// speak is a different fault from a terminal that never came. The first real
+// Codex stream this repository records is the evidence that should replace this
+// paragraph.
 
 import (
 	"encoding/json"
@@ -184,6 +187,11 @@ type streamParser struct {
 	// could read as an event. An unreadable line before that is held as plain
 	// stdout above as well as recorded; one after it is only recorded.
 	sawEnvelope bool
+	// unrecognized is the type of the first event this parser read and did not
+	// know, ahead of any terminal. A stream that then ends with no terminal is
+	// most likely one written in a vocabulary this adapter does not speak, and
+	// this is what lets that be said instead of a terminal reported missing.
+	unrecognized string
 }
 
 func newStreamParser(runID string, role domain.AgentRole, lastSequence uint64, clock execution.Clock, redactor execution.Redactor, sink func(execution.Event) error, reply func(string), dialect backend.Dialect) *streamParser {
@@ -276,6 +284,9 @@ func (p *streamParser) ParseLine(line string) error {
 	case eventError:
 		return p.parseTerminal(message, message.Message, true)
 	default:
+		if p.unrecognized == "" {
+			p.unrecognized = message.Type
+		}
 		return p.emit(execution.EventProcessOutput, map[string]any{
 			"provider_type": message.Type,
 		})
@@ -530,6 +541,12 @@ func (p *streamParser) Result() backend.RunResult {
 
 func (p *streamParser) SawTerminal() bool {
 	return p.sawTerminal
+}
+
+// FirstUnrecognized is the type of the first event this parser did not know,
+// read before any terminal, and empty when every event was one it knows.
+func (p *streamParser) FirstUnrecognized() string {
+	return p.unrecognized
 }
 
 // decodeMessage reads one line into the event it carries. The event normally

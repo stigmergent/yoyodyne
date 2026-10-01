@@ -649,6 +649,67 @@ func TestRunFailsWhenNoTerminalArrives(t *testing.T) {
 	}
 }
 
+// A stream in a vocabulary this adapter does not speak is named as that — the
+// CLI's version and the first event it did not recognize — rather than as a
+// terminal that never arrived, which reads as a provider that stopped mid-run.
+// The lines below are written by hand in the shape a reviewer reported the
+// current CLI writes; they are not a recorded stream.
+func TestAStreamThisAdapterCannotReadNamesTheVersionAndTheFirstUnknownEvent(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{results: []execution.ProcessResult{
+		{
+			Status: execution.ProcessSucceeded,
+			Stdout: lines(
+				`{"type":"thread.started","thread_id":"thread-1"}`,
+				`{"type":"turn.started"}`,
+				`{"type":"turn.completed"}`,
+			),
+		},
+		{Status: execution.ProcessSucceeded, Stdout: "codex-cli 9.9.9\n"},
+	}}
+	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		WorkingDirectory: "/worktree",
+		Prompt:           "implement",
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want the stream named as unreadable")
+	}
+	for _, want := range []string{"codex-cli 9.9.9", `"thread.started"`, "cannot read"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Run() error = %v, want it to name %s", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "without a terminal event") {
+		t.Fatalf("Run() error = %v, reported as a missing terminal", err)
+	}
+	if got := runner.commands[1].Args; len(got) != 1 || got[0] != "--version" {
+		t.Fatalf("second command = %#v, want the version asked for", got)
+	}
+}
+
+// A CLI that will not say its version does not stop the unreadable stream being
+// reported; the version is named as unknown.
+func TestAnUnreadableStreamIsReportedWhenTheVersionIsNot(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{results: []execution.ProcessResult{
+		{Status: execution.ProcessSucceeded, Stdout: lines(`{"type":"thread.started"}`)},
+		{Status: execution.ProcessFailed, ExitCode: 2},
+	}}
+	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		WorkingDirectory: "/worktree",
+		Prompt:           "implement",
+	})
+	if err == nil || !strings.Contains(err.Error(), "(version unknown)") || !strings.Contains(err.Error(), `"thread.started"`) {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 // A line this adapter cannot read is recorded rather than fatal: Codex writes to
 // standard output and nothing guarantees every line there is one of its events,
 // so a banner must not fail a run whose work was fine. Nothing is lost by being

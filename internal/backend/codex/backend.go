@@ -473,6 +473,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		}
 	}
 	if !parser.SawTerminal() && processResult.Status == execution.ProcessSucceeded {
+		if unrecognized := parser.FirstUnrecognized(); unrecognized != "" {
+			return result, fmt.Errorf("Codex %s wrote a stream this adapter cannot read: the first event it did not recognize was %q, and no terminal it recognizes arrived", b.installedVersion(ctx, configDir), unrecognized)
+		}
 		return result, errors.New("Codex stream ended without a terminal event")
 	}
 	if processResult.Status == execution.ProcessFailed {
@@ -482,6 +485,18 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		}
 	}
 	return result, nil
+}
+
+// installedVersion is what the CLI says its version is, for an error that has
+// to name it. It is asked only once a stream has already failed to read, so an
+// invocation that went well spends nothing on it, and a CLI that will not say is
+// named as such rather than failing the report of the fault that mattered.
+func (b Backend) installedVersion(ctx context.Context, configDir string) string {
+	versionResult, err := b.Runner.Run(ctx, execution.Command{Name: b.binary(), Args: []string{"--version"}, Env: environmentFor(configDir), Timeout: versionCheckTimeout}, nil)
+	if err != nil || versionResult.Status != execution.ProcessSucceeded || strings.TrimSpace(versionResult.Stdout) == "" {
+		return "(version unknown)"
+	}
+	return strings.TrimSpace(versionResult.Stdout)
 }
 
 // composePrompt is what the provider is actually sent. Codex has no separate
