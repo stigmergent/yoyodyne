@@ -184,6 +184,7 @@ func TestWhatRequiresApprovalIsTheProjectsToSay(t *testing.T) {
 		KindBrief:         true,
 		KindGoals:         true,
 		KindNonGoals:      true,
+		KindRules:         true,
 		KindDesign:        false,
 		KindSpecification: false,
 		KindDecision:      false,

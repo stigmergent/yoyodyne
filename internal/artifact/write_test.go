@@ -121,7 +121,7 @@ func TestAWriteIsRefusedForAKindTheRoleDoesNotOwn(t *testing.T) {
 			t.Fatalf("the %s revised a document: %v", role, err)
 		}
 	}
-	if got := Owned(domain.RoleProductManager); len(got) != 3 {
+	if got := Owned(domain.RoleProductManager); len(got) != 4 {
 		t.Fatalf("Owned(product manager) = %v", got)
 	}
 	if got := Owned(domain.RoleDevelopmentManager); got != nil {
