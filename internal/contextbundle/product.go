@@ -244,6 +244,7 @@ const (
 	kindBrief    = "brief"
 	kindGoals    = "goals"
 	kindNonGoals = "non-goals"
+	kindRules    = "rules"
 )
 
 // ProductRequest is the read-only evidence a product conversation is built
@@ -729,6 +730,10 @@ var goalsHeadingPattern = regexp.MustCompile(`(?i)^goals?\b`)
 // which heading is the non-goals.
 var nonGoalsHeadingPattern = regexp.MustCompile(`(?i)^non-?\s*goals?\b`)
 
+// rulesHeadingPattern matches the heading an operating-rules document states its
+// rules under.
+var rulesHeadingPattern = regexp.MustCompile(`(?i)^rules?\b`)
+
 // documentShape is the structure one kind of product document is held to: an
 // introduction, then its statements under one heading. The specification's
 // shape and the non-goals document's shape differ only in which heading that
@@ -762,16 +767,28 @@ var (
 		states:      "non-goals",
 		missing:     "the non-goals that bound the goals",
 	}
+	rulesShape = documentShape{
+		document:    "a rules document",
+		heading:     rulesHeadingPattern,
+		headingName: "`Rules`",
+		states:      "rules",
+		missing:     "the rules every role applies",
+	}
 )
 
 // documentStructureProblem reports why a product document does not follow the
 // shape its kind is held to, or "" when it does. A non-goals document is held
-// to the non-goals shape; everything else is a specification and held to that.
-// The distinction is drawn the way intentKind draws it: by the kind the
-// document records in its frontmatter, and failing that by what it is called.
+// to the non-goals shape, and a rules document to the rules shape; everything
+// else is a specification and held to that. The distinction is drawn the way
+// intentKind draws it: by the kind the document records in its frontmatter, and
+// failing that by what it is called. A rules document is only ever one by its
+// frontmatter, because no name says so the way "non-goals" does.
 func documentStructureProblem(documentPath, content string) string {
 	if nonGoalsDocument(documentPath, content) {
 		return nonGoalsStructureProblem(content)
+	}
+	if frontmatterKind(content) == kindRules {
+		return structureProblem(content, rulesShape)
 	}
 	return specificationStructureProblem(content)
 }
