@@ -224,8 +224,8 @@ Nothing about that widens what a role may do. The write goes through the same
 ownership boundary every other change to these documents goes through, so the
 architect cannot write the goals and the Lead Product Manager cannot write a
 design — each proposes to the other instead. Each kind also has one home and is
-written only there: the brief, the goals, and the non-goals go under
-`product.specifications`, designs and specifications under `product.designs`,
+written only there: the brief, the goals, the non-goals, and the operating
+rules go under `product.specifications`, designs and specifications under `product.designs`,
 and decision records under `product.decisions`. A role is told which of those its
 own kinds go in rather than being handed the list, so a design filed under the
 Lead Product Manager's home is refused even though that is an artifact home — it

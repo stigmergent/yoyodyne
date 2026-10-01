@@ -9,6 +9,15 @@ goal stated here named against it.
 filed here. Every other role proposes an amendment and waits for the owner to
 decide rather than editing one, and `yoyo amendment list` is what is waiting.
 
+**What is filed here.**
+
+- [The product brief](brief.md): what the product is, who it is for, and the
+  outcomes it is built to reach.
+- [The goals](goals/README.md): the goals that serve the brief, and the
+  non-goals that bound them.
+- [The operating rules](operating-rules.md): standing rules the operator gave
+  as directives, recorded here so every role reads them as product intent.
+
 **Editing by hand.** You may, and nothing here refuses it — you are the
 operator, and these documents are yours. Two things follow rather than nothing.
 Record the change in the document's own revision log under the product manager:

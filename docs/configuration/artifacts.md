@@ -101,7 +101,9 @@ failing that one named `non-goals` — is held to its own shape rather than to
 the specification's: an introduction saying what it bounds and why, then what
 the product will not do under a `Non-goals` heading. It states no goals, and it
 is not reported for that; one that states no non-goals, opens with them, or
-leaves the section empty is reported exactly as a specification is. Everything
+leaves the section empty is reported exactly as a specification is. A rules
+document — one whose frontmatter records `kind: rules` — is held to the same
+shape with its rules under a `Rules` heading. Everything
 else has its prose checked for the introduction-then-goals shape above, and its
 identity — the frontmatter naming its id, kind, status, and what it supports — is
 checked separately, by [artifact identity](#artifact-identity-and-metadata).
@@ -337,7 +339,7 @@ The document itself, unchanged by any of the above.
 | Field | Meaning |
 | --- | --- |
 | `id` | The stable identity, and the file's own name: `v1-goals` lives in `v1-goals.md`. Lower-case letters, digits, and hyphens. |
-| `kind` | `brief`, `goals`, `non-goals`, `design`, `specification`, or `decision`. |
+| `kind` | `brief`, `goals`, `non-goals`, `rules`, `design`, `specification`, or `decision`. A `rules` document records the standing rules the operator gave as directives, so every role reads them as product intent. |
 | `title` | One line naming what the document is. |
 | `supports` | The artifacts upstream of this one, by id: the goal a design serves, the brief a goal serves. Optional — the brief is the root and supports nothing. |
 | `status` | `draft` (written, not yet active), `active` (what the product currently intends), `superseded` (replaced by a later artifact), or `retired` (stopped applying, not replaced). |
@@ -506,8 +508,9 @@ the per-change gate autonomy is the absence of. Approving the goals is the one
 approval that then carries weight elsewhere, because it is what work is admitted
 against. `approvals.goals` covers the
 non-goals with the goals, because a bound on intent nobody approved is as much
-unapproved intent as a goal is, and it covers every other document filed in the
-specifications directory too, whatever its kind, because everything there is
+unapproved intent as a goal is; it covers the operating rules for the same
+reason, and it covers every other document filed in the specifications
+directory too, whatever its kind, because everything there is
 authoritative product intent. A decision record is the architect's account of
 how something was decided rather than a statement of what the product should do,
 and no setting asks you to approve one.
@@ -530,7 +533,7 @@ weaken.
 
 | Kind | Owner | Every other role |
 | --- | --- | --- |
-| `brief`, `goals`, `non-goals` | Lead Product Manager | Asks questions and [proposes amendments](#proposing-a-change-to-a-document-you-do-not-own) |
+| `brief`, `goals`, `non-goals`, `rules` | Lead Product Manager | Asks questions and [proposes amendments](#proposing-a-change-to-a-document-you-do-not-own) |
 | `design`, `specification`, `decision` | Architect | Identifies risks, asks questions, and [proposes amendments](#proposing-a-change-to-a-document-you-do-not-own) |
 
 The development manager appears in neither row, because it owns no repository

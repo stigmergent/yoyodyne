@@ -271,7 +271,7 @@ type Policy struct {
 // what that setting says the operator does.
 func (p Policy) SettingFor(recorded Artifact) (name string, mode domain.ApprovalMode, governed bool) {
 	switch recorded.Kind {
-	case KindBrief, KindGoals, KindNonGoals:
+	case KindBrief, KindGoals, KindNonGoals, KindRules:
 		return p.Setting(recorded.Kind)
 	}
 	if p.inSpecificationsHome(recorded.Path) {
@@ -305,6 +305,10 @@ func (p Policy) Setting(kind Kind) (name string, mode domain.ApprovalMode, gover
 		// project means by approving its goals is the pair: the non-goals are where
 		// the goals stop, and a bound on intent that nobody approved is as much an
 		// unapproved statement of intent as a goal is.
+		return "approvals.goals", p.Goals, true
+	case KindRules:
+		// The operating rules are product intent filed beside the goals, so the
+		// setting that governs the product's intent governs them too.
 		return "approvals.goals", p.Goals, true
 	case KindDesign, KindSpecification:
 		return "approvals.designs", p.Designs, true

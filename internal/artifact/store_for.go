@@ -25,6 +25,7 @@ func StoreFor(repositoryRoot string, product config.Product) Store {
 			KindBrief:         product.Specifications,
 			KindGoals:         product.Specifications,
 			KindNonGoals:      product.Specifications,
+			KindRules:         product.Specifications,
 			KindDesign:        product.Designs,
 			KindSpecification: product.Designs,
 			KindDecision:      product.Decisions,
