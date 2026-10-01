@@ -1864,10 +1864,15 @@ docket with the blocker it stopped on this time — and is delivered into her
 conversation by the watching pass as the first stoppage was, since the record of
 that delivery is about the stoppage it delivered and not the run — and work
 nothing has happened to since stays settled. **A decision to `wait` is the one that lapses rather than
-settling anything**: it says the forge still has the merge, so the entry comes
-back once the merge has been sitting there for another
+settling anything**: it says nothing is to be done yet — the forge still has the
+merge, or the stopped run is waiting on something that moves without her — so
+the entry comes back once it has been sitting there for another
 [`triage.stuck_merge_age`](configuration.md#triage-thresholds), carrying what
-was decided last time so whoever gets it knows they have seen it. **A repair or
+was decided last time so whoever gets it knows they have seen it. Until it comes
+back it is still listed, last, after every entry nobody has decided, saying until
+when, and the line counting what the docket could not list says how many of
+those are waits; once the wait runs out it is among the undecided again, at the
+age it had when it first stopped. **A repair or
 a re-run the harness tried to carry out and could not comes back the same way**:
 the entry is listed again carrying the decision she made and the gate that
 stopped it — which gate, what it said, and what would clear it — so a decision
@@ -1894,7 +1899,7 @@ names the run the entry is about: `repair` hands the item another bounded go at
 the change it has, `rerun` runs it again from the start, `rescope` splits out
 what was refused as out of scope, `rearm` repeats a merge the forge dropped —
 or arms one nothing ever asked the forge for, which is also answered by
-`rerun` — `wait` says the forge still has it, `escalate` hands it to you, and
+`rerun` — `wait` says nothing is to be done yet, `escalate` hands it to you, and
 `retire-raise` ends a raise its owner's amendment made moot. One more,
 `stop`, is about a run that has not stopped yet: it names a run still in flight
 whose work is superseded, narrowed, or mis-launched, with the item doing the work
@@ -1923,9 +1928,9 @@ closes the entry it settled — a repair, a re-run, or a re-scope closes the
 run's own entries, whichever of the stopped run, the run that died before it
 claimed, and the escalation a role raised from it the run carries, and a re-run
 closes the unfinished publication's entry too, and retiring a raise closes the
-raise's; a re-arm or a
-wait closes the unfinished publication's entry, `wait` only until the merge has
-been sitting there as long again and `rearm` for good; and an escalation closes
+raise's; a re-arm closes the unfinished publication's entry for good; a wait
+closes any of them, the run's own entries and the publication's alike, only
+until the entry has been sitting there as long again; and an escalation closes
 all of them, because an escalated item is waiting on you and none of it is hers
 to decide until you answer. Those are the entries a decision answers; what it
 closes is the run's whole live entry, so a decision that answers any of a run's

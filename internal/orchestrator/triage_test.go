@@ -1039,6 +1039,11 @@ func TestAPublicationWaitedOnComesBackOnceTheWaitHasRunOut(t *testing.T) {
 	if len(held.Entries) != 0 || held.Closed != 1 {
 		t.Fatalf("build while the wait holds = %#v, want the entry left alone", held)
 	}
+	// It is not a question while the wait holds, and it is still carried, apart,
+	// for the docket to list after everything that is.
+	if len(held.Waiting) != 1 || held.Waiting[0].Key != key || len(held.Listed()) != 1 {
+		t.Fatalf("waiting = %#v, want the waited publication carried apart", held.Waiting)
+	}
 
 	// The same decision, once the moment it named has passed.
 	docketer.Clock = docketClockAt{at: decided.Add(3 * time.Hour)}
@@ -1046,7 +1051,7 @@ func TestAPublicationWaitedOnComesBackOnceTheWaitHasRunOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() after the wait error = %v", err)
 	}
-	if len(lapsed.Entries) != 1 || lapsed.Closed != 0 {
+	if len(lapsed.Entries) != 1 || lapsed.Closed != 0 || len(lapsed.Waiting) != 0 {
 		t.Fatalf("build after the wait ran out = %#v, want the publication back", lapsed)
 	}
 	// It comes back as the entry it was, carrying what was decided about it, so
@@ -2187,5 +2192,36 @@ func TestAnAttemptWithNoFailureIsNotDocketed(t *testing.T) {
 		Failure:         "the dispatch died",
 	}); err == nil {
 		t.Fatal("RecordUnstartedAttempt() recorded an attempt with no docket wired")
+	}
+}
+
+// A waited run is carried apart from the open entries, one per run, and a run
+// docketed again since the wait is not: its open entry speaks for it.
+func TestWaitingDocketFoldsTheWaitsAndLeavesOutARunAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	now := docketedNow
+	waitedEntry := func(class triage.Class, run string, recorded time.Time) triage.Entry {
+		return triage.Entry{SchemaVersion: triage.SchemaVersion, Key: triage.Key(class, run), Class: class, RunID: run, WorkItemID: "item-" + run,
+			RecordedAt: recorded, Closed: &triage.Closure{Decision: "wait", ClosedAt: now.Add(-time.Hour), RevisitAfter: now.Add(time.Hour)}}
+	}
+	settled := waitedEntry(triage.ClassStoppedRun, "run-settled", now.Add(-5*time.Hour))
+	settled.Closed.RevisitAfter = time.Time{}
+	settled.Closed.Decision = "rescope"
+	entries := []triage.Entry{
+		waitedEntry(triage.ClassStoppedRun, "run-waited", now.Add(-4*time.Hour)),
+		waitedEntry(triage.ClassPublication, "run-waited", now.Add(-3*time.Hour)),
+		waitedEntry(triage.ClassStoppedRun, "run-asked-again", now.Add(-2*time.Hour)),
+		settled,
+	}
+	open := []triage.Entry{{Key: triage.Key(triage.ClassStoppedRun, "run-asked-again-later"), RunID: "run-asked-again", RecordedAt: now}}
+
+	listable, waiting, unlisted := listableDocket(entries, now)
+	if len(listable) != 0 || unlisted != 4 || len(waiting) != 3 {
+		t.Fatalf("listable %d, waiting %d, unlisted %d, want 0, 3, 4", len(listable), len(waiting), unlisted)
+	}
+	kept := waitingDocket(waiting, open)
+	if len(kept) != 1 || kept[0].RunID != "run-waited" || len(kept[0].Earlier) != 1 {
+		t.Fatalf("waiting docket = %#v, want the waited run folded once and the run asked again left out", kept)
 	}
 }
