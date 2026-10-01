@@ -2759,6 +2759,32 @@ not take back. A record left alone for a reason, such as a branch the forge
 answers about with some other request, is reported and is not a failure; a forge
 that could not be reached is, and the next sweep asks the same question again.
 
+**Which publications a pass asks about.** Only the unsettled ones. A request
+the record already holds as merged, as closed, as superseded by the
+convergence sweep below, or as handed back for a fresh run by the development
+manager's re-run is never asked about again: none of those answers can change
+what the harness does with it. That leaves the requests still recorded open
+with nothing settled about them, the merged publications still unfinished, the
+promotions whose record names no request, and the queued merges and
+interrupted landings the run settlement owes an answer. The first three are
+asked in batches — one forge query covers up to 50 branches, each read exactly
+as asking about that branch alone would read it, merge queue included — and a
+batch the forge does not answer leaves every record in it as it stands for the
+next sweep. The runs whose settlement asks the forge nothing — a run whose
+process died, one a redeploy drain preserved, one stopped on time — are settled
+before any queued merge or interrupted landing is asked about, so a slow forge
+never holds the developer slots those runs keep. The pass's last line says how
+many publications it asked about, in how many requests, and how long the forge
+took — `asked the forge about 12 unsettled publication(s) in 3 request(s),
+which took 4.2s` — and `--json` carries the same under `forge`, with the time
+in nanoseconds as `took_ns`; the
+[maintenance pass](#the-supervisors-maintenance-pass) records the end of what
+the sweep prints, so its record carries the line too. Until yoyodyne-ifd.429.38
+every recorded request that was not merged was asked about on every pass, one
+listing and one merge-queue question at a time: on 2026-09-29, over 798
+recorded publications, one pass ran past an hour while the two runs a redeploy
+drain had preserved held both developer slots with 49 items ready.
+
 Before either of those, the sweep looks for the one publication neither can see:
 **a promoted run whose record names no pull request at all.** Everything above
 starts from the request on the record — the docket keys a publication entry to
