@@ -10,10 +10,9 @@ package runstate
 // surfaces do not restart processes, and the harness is the only invoker — so
 // this store writes a record and nothing else.
 //
-// Until the supervisor's periodic pass lands (yoyodyne-ifd.413) nothing answers
-// a request. It is recorded, carried by the read model for the surfaces that
-// show the instance, and left open; the answer fields below are the ones that
-// pass will write, and nothing in this package writes them.
+// The supervisor's periodic pass is what answers a request: it reads the open
+// ones, acts on each within the supervisor's own bounds, and appends the answer
+// with Answer. Nothing else writes one.
 //
 // It is one append-only log per product, like the stalls: a request and the
 // answer to it are both appends, folded to one entry per request when read, so
@@ -38,6 +37,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // RestartRequestSchemaVersion is 1 and has never changed.
@@ -76,8 +76,7 @@ type RestartRequest struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	Turn           int    `json:"turn,omitempty"`
 	// AnsweredAt and Answer are what the supervisor's pass records once it has
-	// acted on the request. Nothing writes them until that pass exists, so every
-	// request recorded before it is open.
+	// acted on the request: what it did, or why it did nothing.
 	AnsweredAt *time.Time `json:"answered_at,omitempty"`
 	Answer     string     `json:"answer,omitempty"`
 }
@@ -187,8 +186,7 @@ func (s *RestartRequestStore) Path() string { return filepath.Join(s.root, "rest
 // the same moment cannot each find nothing open and each record one.
 //
 // It writes the record and does nothing else: no process is started, stopped,
-// or signalled here or anywhere a request reaches until the supervisor's pass
-// reads it.
+// or signalled here; the supervisor's pass is what acts on it.
 func (s *RestartRequestStore) Request(request RestartRequest) (RestartRequest, error) {
 	if request.ProductID != s.productID {
 		return RestartRequest{}, fmt.Errorf("restart request product %q does not match store product %q", request.ProductID, s.productID)
@@ -217,6 +215,47 @@ func (s *RestartRequestStore) Request(request RestartRequest) (RestartRequest, e
 		return RestartRequest{}, err
 	}
 	return request, nil
+}
+
+// Answer records what the supervisor's pass did about an open request. It is
+// an append of the request with its answer, under the same lock as Request, so
+// a request answered twice keeps the first answer and says so.
+func (s *RestartRequestStore) Answer(id, answer string, at time.Time) (RestartRequest, error) {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return RestartRequest{}, errors.New("an answer to a restart request says what was done")
+	}
+	if len(answer) > MaxRestartReasonBytes {
+		answer = oneline.Fold(answer, MaxRestartReasonBytes-len(oneline.Marker))
+	}
+	unlock, err := s.lock()
+	if err != nil {
+		return RestartRequest{}, err
+	}
+	defer unlock()
+	requests, err := s.List()
+	if err != nil {
+		return RestartRequest{}, err
+	}
+	for _, request := range requests {
+		if request.ID != id {
+			continue
+		}
+		if !request.Open() {
+			return request, fmt.Errorf("restart request %s was already answered at %s", id, request.AnsweredAt.UTC().Format(time.RFC3339))
+		}
+		answered := at.UTC()
+		request.AnsweredAt = &answered
+		request.Answer = answer
+		if err := request.Validate(); err != nil {
+			return RestartRequest{}, err
+		}
+		if err := s.append(request); err != nil {
+			return RestartRequest{}, err
+		}
+		return request, nil
+	}
+	return RestartRequest{}, fmt.Errorf("no restart request %s is recorded", id)
 }
 
 // List returns every request, folded to one entry each and oldest first. A log

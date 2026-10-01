@@ -578,6 +578,9 @@ func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSwe
 // leisure has to be able to see that at a glance.
 func renderSweep(recorded runstate.Sweep) string {
 	var rendered strings.Builder
+	if recorded.HarnessPass() {
+		return renderHarnessPass(recorded)
+	}
 	fmt.Fprintf(&rendered, "%s  %s (%s), %d turn(s)",
 		recorded.StartedAt.UTC().Format(time.RFC3339), recorded.Task, recorded.Role, recorded.Turns)
 	if recorded.CostUSD > 0 {
@@ -655,6 +658,34 @@ func renderSweep(recorded runstate.Sweep) string {
 	}
 	if recorded.Problem != "" {
 		fmt.Fprintf(&rendered, "  %s\n", recorded.Problem)
+	}
+	return rendered.String()
+}
+
+// renderHarnessPass writes one pass of the supervisor's own maintenance: it
+// woke no role and spent nothing, so the header says whose pass it was, and
+// each step follows in the order it was taken with what became of it. A step
+// that was skipped or failed is written in capitals, because a pass that did
+// less than it was meant to is what a reader of these is looking for.
+func renderHarnessPass(recorded runstate.Sweep) string {
+	var rendered strings.Builder
+	fmt.Fprintf(&rendered, "%s  %s (the supervisor's own pass, no role woken)\n",
+		recorded.StartedAt.UTC().Format(time.RFC3339), recorded.Task)
+	if recorded.Result != nil {
+		if summary := strings.TrimSpace(recorded.Result.Summary); summary != "" {
+			fmt.Fprintf(&rendered, "  %s\n", summary)
+		}
+	}
+	for _, step := range recorded.Steps {
+		outcome := string(step.Outcome)
+		if step.Outcome != runstate.StepRan {
+			outcome = strings.ToUpper(outcome)
+		}
+		fmt.Fprintf(&rendered, "  - %s: %s", step.Name, outcome)
+		if detail := strings.TrimSpace(step.Detail); detail != "" {
+			fmt.Fprintf(&rendered, ", %s", detail)
+		}
+		rendered.WriteString("\n")
 	}
 	return rendered.String()
 }

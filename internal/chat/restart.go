@@ -6,10 +6,12 @@ package chat
 // supervisor, `service.request-restart`, under "Restarts": a block naming a part
 // the services section declares writes one durable request, at most one open
 // per part per instance, and the supervisor's periodic pass is the only thing
-// that ever acts on one. That pass is yoyodyne-ifd.413 and has not landed, so a
-// request is recorded, carried by the read model, and acted on by nothing — and
-// the role is told exactly that in the result, so it never reports a part as
-// restarted that nobody restarted.
+// that ever acts on one (internal/maintain): at its next pass it treats the
+// request as it treats a death, under the same backoff and bound, restarts
+// nothing while the provider cannot be reached, never stops the scheduler, and
+// records its answer on the request. Recording is all this does, and the role
+// is told exactly that in the result, so it never reports a part as restarted
+// before the pass has said what it did.
 //
 // Nothing here starts, stops, or signals a process. The request path writes a
 // record through the store and renders what became of it; the harness is the
@@ -32,9 +34,9 @@ const restartFence = "```yoyodyne-restart"
 // maxRestartBlockBytes bounds the block itself: one part and a reason.
 const maxRestartBlockBytes = runstate.MaxRestartReasonBytes + 1<<10
 
-// restartExecutor is the work that builds what acts on a request, named in the
-// result and on every surface that shows one.
-const restartExecutor = "yoyodyne-ifd.413"
+// restartExecutor is what acts on a request, named in the result and in what
+// the operator is told.
+const restartExecutor = "the supervisor's periodic maintenance pass"
 
 // RestartRequests is where a program manager's restart requests are recorded.
 // It is satisfied by *runstate.RestartRequestStore.
@@ -148,13 +150,14 @@ func (s *Session) performRestartRequest(ask RestartAsk) RestartOutcome {
 }
 
 // renderRestartResult is what the role is told became of its request. A
-// recorded request says, in as many words, that nothing acts on it yet, so the
-// role never reports a part as restarted that nobody restarted.
+// recorded request says, in as many words, that nothing has acted on it yet and
+// only the supervisor's maintenance pass will, so the role never reports a part
+// as restarted that nobody restarted.
 func renderRestartResult(outcome RestartOutcome) string {
 	var rendered strings.Builder
 	rendered.WriteString("# Restart request\n\n")
 	if outcome.Recorded {
-		fmt.Fprintf(&rendered, "Recorded as %s: a request that the supervisor restart the %s. It is shown in your instance's entry in the standing. Nothing acts on it yet: the supervisor's periodic pass, which is the only thing that executes a restart request, is %s and has not landed, so no part has been or will be restarted until it does. Do not say the %s was restarted.\n\n",
+		fmt.Fprintf(&rendered, "Recorded as %s: a request that the supervisor restart the %s. It is shown in your instance's entry in the standing while it is open. Nothing has acted on it yet: %s is the only thing that executes a restart request, at its next pass and only while the product's supervisor is running, and it records on the request what it did — which may be nothing, since it restarts nothing while the provider cannot be reached, leaves a degraded part down, and never stops the scheduler. Do not say the %s was restarted.\n\n",
 			outcome.Request.ID, outcome.Request.Part, restartExecutor, outcome.Request.Part)
 		return rendered.String()
 	}
@@ -170,7 +173,7 @@ func (s *Session) reportRestart(out io.Writer, reply Reply) {
 	title := RoleTitle(s.state.Role)
 	outcome := *reply.Restart
 	if outcome.Recorded {
-		fmt.Fprintf(out, "the %s asked for the %s to be restarted (%s); nothing acts on the request until %s lands\n\n", title, outcome.Request.Part, outcome.Request.ID, restartExecutor)
+		fmt.Fprintf(out, "the %s asked for the %s to be restarted (%s); %s acts on it at its next pass and records what it did on the request\n\n", title, outcome.Request.Part, outcome.Request.ID, restartExecutor)
 		return
 	}
 	fmt.Fprintf(out, "the %s's request to restart %q was not recorded: %s\n\n", title, outcome.Ask.Part, outcome.Failure)
@@ -186,4 +189,4 @@ Where you believe a part of the product should be restarted — the Slack sink, 
 {"part":"scheduler","reason":"why, in a sentence or two"}
 ` + "```" + `
 
-The part is one of "slack", "dashboard", "scheduler", and "maintenance". The harness records the request durably and shows it in your instance's entry in the standing; at most one request per part may be open at a time, and a second while the first is unanswered is refused naming the first. You restart, stop, and signal nothing yourself. The supervisor's periodic pass is the only thing that acts on a request, and it has not been built yet (` + restartExecutor + `), so today a request is recorded and acted on by nothing: say that it was asked for, never that it happened.`
+The part is one of "slack", "dashboard", "scheduler", and "maintenance". The harness records the request durably and shows it in your instance's entry in the standing; at most one request per part may be open at a time, and a second while the first is unanswered is refused naming the first. You restart, stop, and signal nothing yourself. The supervisor's periodic maintenance pass is the only thing that acts on a request: at its next pass it restarts the part as it would restart one that died, under the same backoff and the same limit on repeated restarts, and records on the request what it did. It restarts nothing while the provider cannot be reached or is not logged in, leaves a part it has stopped restarting down, and never stops the scheduler, because that cancels the runs it hosts. So say that a restart was asked for, never that it happened.`

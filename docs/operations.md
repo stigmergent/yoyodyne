@@ -32,16 +32,16 @@ started the supervisor for yoyodyne as pid 48211, logging to …/products/yoyody
   slack: running as pid 48214, logging to …/products/yoyodyne/slack/sink.log
   dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`
   scheduler: running as pid 48215, logging to …/products/yoyodyne/scheduler.log
-  maintenance: enabled, and not yet a child of the supervisor: the periodic pass is yoyodyne-ifd.413; until that lands, `yoyo reconcile` is scheduled by hand
+  maintenance: the supervisor's own pass, every 10m0s; next at 2026-09-29T17:10:00Z
 stop it with `yoyo stop`; `yoyo status` says how each part stands
 ```
 
-Two of the four parts are declared and not yet started by the supervisor, and
-the line says which work adopts each: the dashboard is `yoyodyne-ifd.414`, and
-the maintenance pass — the resident that replaces the hand-rolled job — is
-`yoyodyne-ifd.413`. Until those land, `yoyo dashboard` and a scheduled
-`yoyo reconcile` are still yours, and the supervisor says so rather than
-starting a part it does not know how to.
+The dashboard is declared and not yet started by the supervisor, and the line
+says which work adopts it — adopting the dashboard as a supervised part
+(yoyodyne-ifd.414); until that lands `yoyo dashboard` is yours, and the supervisor says so rather than starting a part it does not
+know how to. The maintenance pass is no process at all: it is
+[the supervisor's own periodic pass](#the-supervisors-maintenance-pass), and its
+line says its cadence and what its last pass came to.
 
 **A second start while the product is running says so and does nothing.**
 Whether a supervisor is running is its lease's answer, an advisory lock the
@@ -77,25 +77,35 @@ reattached`. A part somebody starts by hand while the product is up is taken
 back the same way, which is also what brings a degraded part back once its
 cause is fixed.
 
-**A program manager may ask for a part to be restarted, and nothing acts on
-the request yet.** A [program manager](designs/program-manager.md) that thinks
-one of the four parts should be restarted ends its reply with one
-`yoyodyne-restart` block naming the part and why. The harness writes that down
-as a durable request under the state root — at
-`products/<product>/program-managers/restart-requests.jsonl`, recording the
-instance, the part, when, and the conversation turn that asked — and does
-nothing else: no instance restarts, stops, or signals a process, and the harness
-is the only thing that ever will. A part the section does not declare is
-refused naming the four, and each instance has at most one open request per
-part: a second while the first is unanswered is refused naming the first. The
-executor is the supervisor's periodic pass, `yoyodyne-ifd.413`, which will treat
-a request as it treats a death, under the same backoff and bound, and record
-what it did on the request. Until that lands a request is recorded, carried in
+**A program manager may ask for a part to be restarted, and the supervisor's
+maintenance pass is what acts on it.** A
+[program manager](designs/program-manager.md) that thinks one of the four parts
+should be restarted ends its reply with one `yoyodyne-restart` block naming the
+part and why. The harness writes that down as a durable request under the state
+root — at `products/<product>/program-managers/restart-requests.jsonl`,
+recording the instance, the part, when, and the conversation turn that asked —
+and does nothing else: no instance restarts, stops, or signals a process. A part
+the section does not declare is refused naming the four, and each instance has
+at most one open request per part: a second while the first is unanswered is
+refused naming the first. While it is open the request is carried in
 `yoyo status --json` under `standing.program_managers` as the instance's open
-`restart_requests`, and acted on by nothing — and the program manager is told
-exactly that in the result, so it never reports a part as restarted. A request
-waits on that pass rather than on you, so it is not on the "Needs a human" line;
-to restart a part yourself, `yoyo stop` and `yoyo start` are still the verbs.
+`restart_requests`.
+
+The [maintenance pass](#the-supervisors-maintenance-pass) answers every open
+request at its next pass, and appends what it did to the request as its
+`answer`. It treats a requested restart as a death: the part is stopped,
+counted against the same five-in-two-minutes bound, and started again after the
+backoff its failures earned, so a stream of requests leaves a part degraded
+rather than bouncing it without end. Four things are answered with nothing
+done, saying why: a part that is down or degraded is left as it stands; the
+scheduler is never stopped, because stopping it cancels the runs it hosts; a
+part that is not a process the supervisor starts — the dashboard until it is
+adopted, the maintenance pass itself, a part that is off — is named as such;
+and nothing is restarted while the provider cannot be reached or is not logged
+in. The program manager is told at the time it asks that a request is recorded
+and not yet acted on, so it never reports a part as restarted. A request waits
+on the pass rather than on you, so it is not on the "Needs a human" line; to
+restart a part yourself, `yoyo stop` and `yoyo start` are still the verbs.
 
 **`yoyo stop` stops the supervisor first**, so nothing restarts a part on its
 way down, and then the parts in the reverse of the order they were started in,
@@ -108,10 +118,52 @@ settles what that leaves. When what you want is for the runs to keep what they
 have and carry on later, [`yoyo pause`](#pausing-everything-and-resuming-it) is
 the verb and the product stays up.
 
-Nothing starts the product with the machine yet: `yoyo start` is typed, once,
-and the launchd job that runs it at login is the resident item,
-`yoyodyne-ifd.413`, whose form is `yoyo start --foreground` — the same verb,
-being the supervisor in the calling process rather than detaching one.
+**The product starts with the machine through a launch agent.** On macOS,
+[`yoyo setup`](#setting-up-with-yoyo-setup) ends by offering to install one: a
+per-user launchd job, `com.yoyodyne.supervisor.<product>`, under
+`~/Library/LaunchAgents`, whose program is the supervisor verb itself —
+`yoyo start --foreground --config <this checkout's configuration>`, from the
+binary that installed it — rather than a script. It is loaded at once and at
+every login, so a machine restart brings the product up with every part the
+services section enables, and nothing is typed by hand. Its settings are chosen
+for the history of the job it replaces:
+
+- **`AbandonProcessGroup` is true.** The parts the supervisor starts are sessions
+  of their own and survive it by design, to be reattached by the next one; a
+  launchd job without this setting tears down its whole process group when it
+  exits, which on 2026-09-03 killed every watch session and Slack sink the old
+  maintenance job had started, 77 times.
+- **`KeepAlive` restarts it only after an unsuccessful exit.** `yoyo stop` stops
+  the supervisor cleanly and it stays stopped; a crash is restarted by launchd.
+  A supervisor refused because another already holds the product's lease exits
+  cleanly too, so an agent loaded beside a supervisor started by hand does not
+  restart every few seconds for as long as that one runs.
+- **Its environment is the installing shell's `PATH`** and any state- or
+  configuration-home override (`YOYODYNE_STATE_HOME`, `XDG_STATE_HOME`,
+  `YOYODYNE_CONFIG_HOME`, `XDG_CONFIG_HOME`), so the parts find `git`, `bd`,
+  `make`, and the provider, and read the same state your own commands do.
+  Nothing else is carried, a Slack token least of all. Its output goes to the
+  supervisor log `yoyo start` names.
+
+Where the agent is loaded for this checkout, `yoyo start` asks launchd to start
+it (`launchctl kickstart`) rather than detaching a supervisor beside it, so the
+machine has one way the product is launched. Running `yoyo setup` again reports
+the agent already installed; an agent that reads differently — a moved binary or
+checkout — is replaced and reloaded after asking, which restarts the supervisor
+and leaves its parts running to be reattached. A difference in the `PATH` alone
+is not a replacement, so a walk from another shell cannot swap a working agent's
+tools out; to change the `PATH` it carries, remove the agent and run
+`yoyo setup` from the shell whose `PATH` it should have. A walk answering itself
+with `--yes` installs the agent only where `--launch-agent` asks for it. The
+step names the command that removes it:
+
+```sh
+launchctl bootout gui/$(id -u)/com.yoyodyne.supervisor.<product>
+rm ~/Library/LaunchAgents/com.yoyodyne.supervisor.<product>.plist
+```
+
+On a platform without launchd, the step says so and `yoyo start` is typed after
+each restart.
 
 **Starting the supervisor retires the operator's old maintenance job.** Before
 the supervisor, a launchd job of the operator's own, `com.yoyodyne.maintenance`,
@@ -150,9 +202,10 @@ until they are gone, and a build that fails is tried again when the branch next
 moves. What takes the build up is the paragraph below: a deploy reaches every
 part the supervisor hosts. The job's other steps are not carried: its
 bounce-when-idle compared a process's start time with the binary's, which is
-wrong for a watch that re-executes itself in place. Until `yoyodyne-ifd.413` and
-`yoyodyne-ifd.414` land, what the job did for reconcile and the dashboard is
-the maintenance line's and the dashboard line's hand steps above.
+wrong for a watch that re-executes itself in place. What the job did for
+reconcile is [the supervisor's maintenance pass](#the-supervisors-maintenance-pass);
+until adopting the dashboard as a supervised part (yoyodyne-ifd.414) lands, the
+dashboard is still started by hand.
 
 **A deploy reaches every part, with nobody restarting anything.** Every thirty
 seconds the supervisor reads which build the binary it starts the parts from is
@@ -179,7 +232,8 @@ the part is doing:
   pass could post a message whose cursor was never written, and the sink in its
   place would post it again; waiting the pass out is what rules that out.
 - **The dashboard** is moved the same way as soon as it is a child of the
-  supervisor, which is `yoyodyne-ifd.414`; until then it is started by hand and
+  supervisor, which is adopting the dashboard as a supervised part
+  (yoyodyne-ifd.414); until then it is started by hand and
   restarted by hand. A part can only become a child by saying which build it
   runs and what it is in the middle of — a test over the parts the supervisor
   starts fails for one that does not — so the dashboard cannot be adopted
@@ -201,7 +255,7 @@ Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1
   slack: running as pid 48214, logging to …/products/yoyodyne/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`
   scheduler: running as pid 48215, logging to …/products/yoyodyne/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit
-  maintenance: enabled, and not yet a child of the supervisor: the periodic pass is yoyodyne-ifd.413; until that lands, `yoyo reconcile` is scheduled by hand
+  maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 
 A product no supervisor has run for prints no such line. `--json` carries the
@@ -214,14 +268,112 @@ move. A part whose build cannot
 be read — one that recorded none, such as a binary built without Go's stamp —
 is compared with nothing and moved by nothing, and its line names no build.
 
+### The supervisor's maintenance pass
+
+The maintenance part of the services section is the supervisor's own periodic
+pass rather than a process it starts. It is what the operator's hand-rolled
+maintenance job did every ten minutes, taken by the resident instead, on the
+cadence the configuration sets:
+
+```yaml
+services:
+  maintenance:
+    enabled: true
+    every: 10m     # the default; a minute is the shortest
+```
+
+Each pass takes six steps, in this order, and each is recorded:
+
+- **provider** — whether the provider is answering, read from the product's
+  [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
+  the supervisor restarts nothing it would choose to restart: no part is moved
+  onto a deployed build, no requested restart is carried out, and the
+  supervisor does not take a build up itself. A restart cannot renew a login or
+  bring a network back, and it can kill a process that is waiting one of them
+  out; on 2026-09-17 the old job restarted the watch 158 times over an expired
+  login. A part that dies is still started again, because a part left dead
+  through an outage is one nothing is left to notice the outage ending.
+- **reconcile** — [`yoyo reconcile`](#recovering-interrupted-runs), run from the
+  supervisor's own binary: it settles what interrupted runs left behind,
+  converges the checkout and the worktrees, and takes the
+  [stall reading](#when-nothing-happened-at-all). It runs beside the
+  supervisor's looks at the parts rather than holding them up.
+- **rebuild** — what the supervisor's rebuilder last came to. It builds the
+  binary on its own thirty-second look when the branch lands something the
+  binary is made of (above), so a deploy has a build to take up.
+- **restart-requests** — the restarts program managers asked for, each answered
+  on the request with what was done (above).
+- **redeploy** — the deployed build taken up. The parts are moved onto it by the
+  supervisor's own looks, one at a time; what this step adds is the supervisor
+  itself, which re-executes into the new build once the pass is recorded,
+  leaving every part running to be reattached. It waits a pass where a part is
+  still being moved.
+- **slack** — where the sink stands: `yoyo slack ensure`, which the supervisor's
+  own look at the sink already takes every few seconds.
+
+The pass writes no tracker status of its own. The one step that touches the
+tracker is `yoyo reconcile`, whose every write is a settlement the harness
+records with a note on the item; nothing here runs `bd`, so there is no
+`bd update --status` for anybody to miss, which is what an operator's script
+beside the old job did to four items on 2026-09-18. And the scheduler is never
+stopped by it: a watch session takes a deployed build up itself, between the
+runs it hosts, under [`execution.redeploy_drain_limit`](#a-session-draining-to-restart-into-a-deployed-build),
+exactly as it does with no supervisor at all. The old job's bounce-when-idle
+step, which cancelled a live run, is not carried.
+
+Every pass is a record in the sweep log beside the recurring tasks', under the
+name `maintenance`, and [`yoyo sweeps`](#reading-what-the-recurring-tasks-found)
+shows it as the supervisor's own, one line per step, with a step that was
+skipped or failed in capitals and saying why:
+
+```text
+2026-09-29T17:00:00Z  maintenance (the supervisor's own pass, no role woken)
+  3 step(s) ran, 3 skipped, 0 failed
+  - provider: ran, answering
+  - reconcile: ran, yoyo reconcile exited 0: settled 0 runs
+  - rebuild: ran, /Users/you/github/yoyodyne/bin/yoyo is built from main's tip 3d3d367a1b2c
+  - restart-requests: SKIPPED, no program manager has an open restart request
+  - redeploy: SKIPPED, every part is on the deployed build 3d3d367a1b2c; nothing to take up
+  - slack: SKIPPED, the sink is not enabled in the services section
+```
+
+`yoyo sweeps --task maintenance` reads them alone. A pass with a failed step
+carries the failures as its problem and on its cadence's claim, so a pass that
+runs and achieves nothing is findable rather than quiet. The cadence is kept
+under the same claim a recurring task's is, so two supervisors cannot take one
+pass twice, and a recurring task may not be named `maintenance`. A product
+whose maintenance part is off gets none of this: `yoyo reconcile` is then yours
+to schedule, and the supervisor stays on the build it was started from until it
+is restarted.
+
+**Retiring the hand-rolled scripts.** With the launch agent installed and the
+maintenance part on, nothing the operator's two scripts did is left to them.
+`~/.local/yoyodyne/yoyodyne-maintenance.sh` was what the retired
+`com.yoyodyne.maintenance` job ran: its reconcile, its rebuild, and its
+`yoyo slack ensure` are the steps above, and its restarts are the supervisor's.
+`~/.local/yoyodyne/carry-out-queue.sh` opened items with a bare
+`bd update --status=open` and then ran `yoyo triage rerun` on decisions already
+recorded; a watching session carries out the development manager's recorded
+decisions itself, and a re-run claims its item and clears a stale blocked status
+with a note as it does, so nothing has to open an item ahead of it. Both can be
+deleted, along with whatever schedules the second — a launchd job or a crontab
+line of your own:
+
+```sh
+launchctl list | grep -i yoyodyne    # the supervisor's agent is com.yoyodyne.supervisor.<product>; anything else is yours
+crontab -l | grep -i yoyodyne
+rm ~/.local/yoyodyne/yoyodyne-maintenance.sh ~/.local/yoyodyne/carry-out-queue.sh
+```
+
 ## Setting up with `yoyo setup`
 
 `yoyo setup` walks a project to an installation that can run work, as
 questions: the tracker, the configuration, the checks read from what the
 repository already declares, the tracker's sync remote, the index at the door of
-each artifact home, and the optional offer of
-[reporting into Slack](reporting.md#reporting-into-slack), ending with
-`yoyo doctor`. Everything it does is something you could have typed, and it
+each artifact home, the optional offer of
+[reporting into Slack](reporting.md#reporting-into-slack), and, on macOS, the
+[launch agent](#starting-the-product-and-stopping-it) that starts the product
+with the machine, ending with `yoyo doctor`. Everything it does is something you could have typed, and it
 asks before each step.
 
 It changes nothing that is already there — a configuration that does not load is
@@ -3875,11 +4027,10 @@ harness were the ones with no stall history at all.
 
 How promptly a stall is noticed is `--stall-after` — ten minutes by default, and
 the same flag on both commands — and, for the sweep, the cadence of whatever runs
-it. Nothing `yoyo` installs runs the sweep on a schedule yet: the maintenance
-pass is the supervisor's periodic pass, `yoyodyne-ifd.413` (which absorbed
-`yoyodyne-ifd.207`), and until it lands scheduling it is yours —
-[`yoyo start`](#starting-the-product-and-stopping-it) says so on the
-maintenance line. A machine
+it. The product's supervisor runs it on its
+[maintenance pass](#the-supervisors-maintenance-pass), every
+`services.maintenance.every`; a product with that part off, or with no
+supervisor running, schedules `yoyo reconcile` itself. A machine
 running neither a watch session nor a sweep records no stalls, so this listing is
 empty on one; the sink says so when it starts, because that is the state nobody
 would think to check for.
@@ -4340,7 +4491,8 @@ binds, the hosts a request may name, and where a supplied token comes from —
 for the supervisor that will start it with the rest. The supervisor is here
 ([`yoyo start`](#starting-the-product-and-stopping-it)) and the dashboard is
 not yet its child: with the entry enabled, `yoyo start` says so and names the
-work that adopts it, `yoyodyne-ifd.414`. Until that lands, this command is
+work that adopts it, adopting the dashboard as a supervised part
+(yoyodyne-ifd.414). Until that lands, this command is
 started by hand and still binds loopback and serves on `--port`, exactly as
 below; the one thing it reads from the entry is `token`, and it reads that
 whether or not the entry is enabled.
@@ -4745,8 +4897,9 @@ resolved to; the blockers it names that the record does not bear out, under
 **Written**, which version it is, and the pass — or the operator's own turn —
 and the conversation turn that wrote it; the **Last pass** that completed; and
 the open **Restart requests**, each with the part, the reason, and when it was
-asked, and that nothing acts on one until the supervisor's periodic pass
-lands. That is everything the report holds, so the card ends there and names
+asked, and that the supervisor's
+[maintenance pass](#the-supervisors-maintenance-pass) answers each at its next
+pass. That is everything the report holds, so the card ends there and names
 no file: where the report is kept is in the answer's `instance.report_path`,
 for a program that reads it. An instance that has written no report says so in
 the summary's place. The instance is the one the

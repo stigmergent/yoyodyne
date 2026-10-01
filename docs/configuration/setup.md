@@ -403,8 +403,9 @@ Up to three layers produce the effective configuration, later ones winning:
    `services.slack.enabled` (`false`), `services.dashboard.enabled` (`false`),
    `services.dashboard.port` (8765), `services.dashboard.bind` (`127.0.0.1`),
    `services.dashboard.allowed_hosts` (empty), `services.dashboard.token`
-   (`generated`), `services.scheduler.enabled` (`true`), and
-   `services.maintenance.enabled` (`true`).
+   (`generated`), `services.scheduler.enabled` (`true`),
+   `services.maintenance.enabled` (`true`), and `services.maintenance.every`
+   (`10m`).
    `triage.repair_grant_attempts` is filled in too, but as a derivation rather
    than a fixed default: it takes the size of the effective
    `execution.repair_attempts_before_replan`, read after every layer has been

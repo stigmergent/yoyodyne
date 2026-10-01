@@ -147,8 +147,9 @@ Three steps, in this order:
 
 **`yoyo setup` does step 2 for you**, as questions: the tracker, the
 configuration, the checks, the tracker's sync remote, the artifact-home indexes,
-and optionally [reporting into Slack](docs/reporting.md#reporting-into-slack),
-ending with `yoyo doctor`. It asks before each step, changes nothing already
+optionally [reporting into Slack](docs/reporting.md#reporting-into-slack), and,
+on macOS, a [launch agent](docs/operations.md#starting-the-product-and-stopping-it)
+that starts the product with the machine, ending with `yoyo doctor`. It asks before each step, changes nothing already
 there, and is safe to run again: it resumes where an earlier run actually got
 to. `--yes` accepts every proposal; `--json` reports what is done and what is
 left and changes nothing.

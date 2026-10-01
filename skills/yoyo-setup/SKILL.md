@@ -109,8 +109,13 @@ disagree about the shape of the report. Say so, and offer to read plain
    afterwards is one whose `remedy` is now the thing to act on. Two of them are
    ordinary rather than a failure: Slack reporting is declined unless the
    operator names a channel, since an installation reports nothing and runs work
-   exactly the same; and storing a Slack token is always left to a terminal they
-   are watching, because the keychain asks for the token itself.
+   exactly the same; storing a Slack token is always left to a terminal they
+   are watching, because the keychain asks for the token itself; and, on macOS,
+   the `launch-agent` step — the per-user launchd job that starts the product's
+   supervisor with the machine — is skipped unless `--launch-agent` asks for
+   it. Offer it by name: it changes the machine rather than the repository, and
+   runs the product from this directory at every login. With their yes, run
+   `yoyo setup --yes --json --launch-agent`.
 3. **`yoyo doctor --json`**. If `status` is `ok` you are finished. Otherwise take
    the findings **in the order they are given** — the tools, then the project,
    then what the project turns on, so the first problem is usually why the ones

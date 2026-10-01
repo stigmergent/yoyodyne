@@ -1159,6 +1159,10 @@ loop — [`yoyo work --watch`](work.md#letting-the-harness-choose-the-work), on
 every pull and at most once per `--stall-after` — and
 [`yoyo reconcile`](operations.md#recovering-interrupted-runs), which takes the
 same reading on every sweep for the case the loop cannot see: itself being dead.
+The product's supervisor runs that sweep on its
+[maintenance pass](operations.md#the-supervisors-maintenance-pass), every
+`services.maintenance.every`; scheduling `yoyo reconcile` yourself is needed
+only where that part is off or no supervisor is running.
 Both take the threshold under that name. That division is `yoyodyne-ifd.295` and
 it exists because everything on this page is opt-in: reporting is an observation
 and never a gate, so while the sink was the only thing taking this reading, a

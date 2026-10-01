@@ -599,6 +599,12 @@ func renderScaffoldServices(builder *strings.Builder, services Services) {
 # load until it does. allowed_hosts are the names, beyond the bound address, a
 # request may carry as its Host; write them without a port. The token itself
 # is never written in this file.
+#
+# The maintenance pass is the supervisor's own: every "every", it runs
+# yoyo reconcile, which settles what interrupted runs left behind and catches
+# the checkout up, and answers the restart requests program managers made. It
+# restarts nothing while the provider cannot be reached or is not logged in,
+# and each pass is recorded where "yoyo sweeps" reads it.
 services:
   slack:
     enabled: %t
@@ -612,6 +618,7 @@ services:
     enabled: %t
   maintenance:
     enabled: %t
+    every: %s
 `,
 		services.Slack.Enabled,
 		services.Dashboard.Enabled,
@@ -621,6 +628,7 @@ services:
 		services.Dashboard.Token,
 		services.Scheduler.Enabled,
 		services.Maintenance.Enabled,
+		renderScaffoldDuration(services.Maintenance.Every),
 	)
 }
 

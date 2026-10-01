@@ -675,3 +675,38 @@ func TestAnUntracedPassIsRecordedAndCannotClaimATrace(t *testing.T) {
 		t.Error("a record admitting an unnamed item was kept")
 	}
 }
+
+// The harness's own maintenance pass names no role and carries its steps; a
+// record naming neither, or both, says nothing coherent about whose pass it
+// was, and a step that was skipped or failed has to say why.
+func TestAHarnessPassCarriesStepsInsteadOfARole(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC)
+	pass := Sweep{SchemaVersion: SweepSchemaVersion, ProductID: "example", Task: "maintenance", StartedAt: at, EndedAt: at,
+		Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "1 step(s) ran, 1 skipped, 0 failed"},
+		Steps: []SweepStep{
+			{Name: "reconcile", Outcome: StepRan, Detail: "yoyo reconcile exited 0"},
+			{Name: "redeploy", Outcome: StepSkipped, Detail: "every part is on the deployed build"},
+		}}
+	store := newSweepStore(t)
+	if err := store.Append(pass); err != nil {
+		t.Fatalf("Append() of a harness pass error = %v", err)
+	}
+	read, _, err := store.List()
+	if err != nil || len(read) != 1 || !read[0].HarnessPass() || len(read[0].Steps) != 2 {
+		t.Fatalf("List() = %+v, %v, want the harness pass with its steps", read, err)
+	}
+
+	neither := pass
+	neither.Steps = nil
+	both := pass
+	both.Role = "development-manager"
+	unexplained := pass
+	unexplained.Steps = []SweepStep{{Name: "redeploy", Outcome: StepSkipped}}
+	for name, invalid := range map[string]Sweep{"neither": neither, "both": both, "unexplained": unexplained} {
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("%s: a harness pass record validated: %+v", name, invalid)
+		}
+	}
+}

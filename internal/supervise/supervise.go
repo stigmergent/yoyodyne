@@ -127,6 +127,21 @@ type Supervisor struct {
 	// at after them on every tick: rebuilding the product's binary when its
 	// branch lands is the one there is.
 	Residents []Resident
+	// Scheduled are the parts that are passes the supervisor takes itself
+	// rather than processes it starts — the maintenance pass — each recorded
+	// with its cadence and what its last pass came to. Each is also a resident,
+	// which is how it is taken.
+	Scheduled []Scheduled
+	// RestartHold says why nothing running may be restarted right now, and is
+	// empty when a restart may go ahead. It is the provider guard: while the
+	// provider cannot be reached or is not logged in, a restart cannot renew the
+	// login or bring the network back, and it can kill a process that is waiting
+	// one of them out. It holds the restarts the supervisor chooses to make — a
+	// part moved onto a deployed build, a part restarted on a program manager's
+	// request, the supervisor taking a deployed build up itself — and never the
+	// start of a part that died, since a part left dead through an outage is a
+	// part nothing is left to notice the outage ending. Nil holds nothing.
+	RestartHold func() string
 	// Poll is how often each child is looked at; zero takes DefaultPoll.
 	Poll time.Duration
 	// Now and Sleep are the clock, injectable so a test drives the bounds
@@ -155,6 +170,9 @@ type Supervisor struct {
 	deployLook     bool
 	lastDeployLook time.Time
 	lastSaid       string
+	// takeUp is the deployed build a pass has asked the supervisor to take up
+	// by re-executing into it, which Run does once the tick asking it is over.
+	takeUp string
 }
 
 // ErrAlreadyRunning is a supervisor refused because another holds the lease.
@@ -184,6 +202,10 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	s.log("supervising %s as pid %d", s.Product, s.PID)
 	for {
 		s.Tick(ctx)
+		if s.takeUp != "" {
+			s.log("the supervisor for %s lets its lease go to take up the deployed build %s; its children are left running, to be reattached by the build that follows", s.Product, short(s.takeUp))
+			return &TakeUpError{Into: s.takeUp}
+		}
 		if !s.sleep(ctx, s.poll()) {
 			s.log("the supervisor for %s is stopping; its children are left running, and `yoyo stop` is what stops them", s.Product)
 			return nil
@@ -423,6 +445,10 @@ func (s *Supervisor) Supervision(now time.Time) runstate.Supervision {
 			children = append(children, *state)
 			continue
 		}
+		if pass, scheduled := s.scheduled(name); scheduled {
+			children = append(children, runstate.SupervisedChild{Service: name, State: runstate.ChildScheduled, Reason: pass.Describe()})
+			continue
+		}
 		if reason, notYet := s.notYet(name); notYet {
 			children = append(children, runstate.SupervisedChild{Service: name, State: runstate.ChildNotYet, Reason: reason})
 			continue
@@ -444,6 +470,15 @@ func (s *Supervisor) Supervision(now time.Time) runstate.Supervision {
 		ObservedAt:    now.UTC(),
 		Children:      children,
 	}
+}
+
+func (s *Supervisor) scheduled(name config.ServiceName) (Scheduled, bool) {
+	for _, pass := range s.Scheduled {
+		if pass != nil && pass.Service() == name {
+			return pass, true
+		}
+	}
+	return nil, false
 }
 
 func (s *Supervisor) notYet(name config.ServiceName) (string, bool) {
@@ -469,6 +504,11 @@ func (s *Supervisor) validate() error {
 	for _, resident := range s.Residents {
 		if resident == nil {
 			problems = append(problems, errors.New("a supervisor was given a resident that is nothing"))
+		}
+	}
+	for _, pass := range s.Scheduled {
+		if pass == nil {
+			problems = append(problems, errors.New("a supervisor was given a scheduled pass that is nothing"))
 		}
 	}
 	seen := make(map[config.ServiceName]struct{}, len(s.Children))
@@ -592,6 +632,8 @@ func DescribeChild(child runstate.SupervisedChild) string {
 		fmt.Fprintf(&said, "down, %s", child.Reason)
 	case runstate.ChildNotYet:
 		fmt.Fprintf(&said, "enabled, and not yet a child of the supervisor: %s", child.Reason)
+	case runstate.ChildScheduled:
+		fmt.Fprintf(&said, "the supervisor's own pass, %s", child.Reason)
 	case runstate.ChildOff:
 		fmt.Fprintf(&said, "off; set services.%s.enabled to start it with the product", child.Service)
 	default:

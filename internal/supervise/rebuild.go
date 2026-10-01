@@ -81,7 +81,16 @@ type Rebuilder struct {
 	lastLook   time.Time
 	considered string
 	lastSaid   string
+	// standing is what the rebuilder's latest look came to, and failed whether
+	// it was a build or a reading that did not work. They are what the periodic
+	// pass records as its rebuild step.
+	standing string
+	failed   bool
 }
+
+// Standing is what the rebuilder's latest look came to, and whether it failed.
+// It is empty before the first look.
+func (r *Rebuilder) Standing() (string, bool) { return r.standing, r.failed }
 
 // NewRebuilder is the rebuilder for a product whose binary lives inside the
 // checkout that builds it, and nothing where it does not: a binary installed
@@ -126,7 +135,7 @@ func (r *Rebuilder) Look(ctx context.Context, now time.Time) {
 	}
 	tip, err := r.git(ctx, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
-		r.say("not rebuilding %s: where %s stands could not be read: %v", r.Binary, branch, err)
+		r.fail("not rebuilding %s: where %s stands could not be read: %v", r.Binary, branch, err)
 		return
 	}
 	if tip == r.considered {
@@ -135,6 +144,7 @@ func (r *Rebuilder) Look(ctx context.Context, now time.Time) {
 	built, err := r.builtFrom(r.Binary)
 	if err == nil && built == tip {
 		r.considered = tip
+		r.standing, r.failed = fmt.Sprintf("%s is built from %s's tip %s", r.Binary, branch, short(tip)), false
 		return
 	}
 	if err == nil && built != "" {
@@ -150,7 +160,7 @@ func (r *Rebuilder) Look(ctx context.Context, now time.Time) {
 	// somebody's work in progress, and the build waits for them.
 	dirty, err := r.git(ctx, append([]string{"status", "--porcelain", "--"}, rebuildSources...)...)
 	if err != nil {
-		r.say("not rebuilding %s: whether the checkout has uncommitted changes could not be read: %v", r.Binary, err)
+		r.fail("not rebuilding %s: whether the checkout has uncommitted changes could not be read: %v", r.Binary, err)
 		return
 	}
 	if dirty != "" {
@@ -176,7 +186,7 @@ func (r *Rebuilder) build(ctx context.Context, branch, tip, built string) {
 	// tree fails the same way, and a build every poll is load for nothing.
 	r.considered = tip
 	if err != nil || result.Status != execution.ProcessSucceeded {
-		r.say("could not rebuild %s after %s landed at %s: %s; it is tried again when %s next moves", r.Binary, branch, short(tip), describeFailure(result, err), branch)
+		r.fail("could not rebuild %s after %s landed at %s: %s; it is tried again when %s next moves", r.Binary, branch, short(tip), describeFailure(result, err), branch)
 		return
 	}
 	from := "a build that carries no revision"
@@ -211,7 +221,17 @@ func (r *Rebuilder) builtFrom(path string) (string, error) {
 // say logs a line, and the same line once: a rebuilder that cannot build says
 // why every poll otherwise.
 func (r *Rebuilder) say(format string, args ...any) {
+	r.settle(false, format, args...)
+}
+
+// fail is say for a look that did not work.
+func (r *Rebuilder) fail(format string, args ...any) {
+	r.settle(true, format, args...)
+}
+
+func (r *Rebuilder) settle(failed bool, format string, args ...any) {
 	said := fmt.Sprintf(format, args...)
+	r.standing, r.failed = said, failed
 	if said == r.lastSaid {
 		return
 	}
