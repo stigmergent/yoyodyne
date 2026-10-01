@@ -328,7 +328,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	wantArgs := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", sandboxWorkspaceWrite, "-"}
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--json", "--skip-git-repo-check", "-"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -510,6 +510,12 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 // Resuming continues the provider's own session. It is an acceleration and never
 // the record: what the harness knows about this work is in its own durable
 // state, so a session the provider has forgotten costs context rather than work.
+//
+// The sandbox goes to `exec`, ahead of `resume`, because `exec resume` does not
+// take one: the CLI refuses `--sandbox` after `resume` before anything starts.
+// The options `exec resume` does list go after it. The sequence this replaced
+// put the sandbox after `resume`, and this test asserted it, so every resumed
+// session failed on its arguments while the suite stayed green.
 func TestRunResumesTheProvidersSession(t *testing.T) {
 	t.Parallel()
 
@@ -528,7 +534,7 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	wantArgs := []string{"exec", "resume", "session-1", "--json", "--skip-git-repo-check", "--sandbox", sandboxWorkspaceWrite, "--model", "gpt-test", "-"}
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-test", "-"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}

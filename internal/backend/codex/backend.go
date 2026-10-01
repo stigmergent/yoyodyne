@@ -271,6 +271,47 @@ func (Backend) Capabilities() backend.Capabilities {
 	return descriptor.Capabilities
 }
 
+// invocationArgs is the command line one invocation is made with, each option
+// placed on the command level whose own help lists it.
+//
+// That placement is the whole difficulty, because the CLI refuses an option on a
+// level that does not take it and refuses it before anything starts. `exec`
+// takes all four of the options this adapter passes; `exec resume` takes
+// `--json`, `--skip-git-repo-check`, and `--model` but not `--sandbox`, so a
+// resumed invocation that put the sandbox after `resume` was refused outright
+// ("unexpected argument '--sandbox' found") and no resumed session ever started.
+// The sandbox is given to `exec`, ahead of `resume`, and that is not a
+// formality: asked without a provider call, codex-cli 0.159.2 recorded the
+// resumed turn under the sandbox given there rather than the one the session
+// was started under. It is never dropped to let a resume start — a session that
+// could not be given its sandbox would run under whatever it was started with,
+// or none. testdata/cli-help holds the help this was read from, and
+// conformance_test.go checks every invocation against it.
+func invocationArgs(request backend.RunRequest, sandbox string) []string {
+	args := []string{"exec", "--sandbox", sandbox}
+	// Resuming continues the provider's own session, which is an acceleration
+	// and never the record: what the harness knows about this work is in its own
+	// durable state, and a session the provider has forgotten costs context
+	// rather than work.
+	if request.SessionID != "" {
+		args = append(args, "resume", request.SessionID)
+	}
+	args = append(args,
+		"--json",
+		// The worktree is a Git checkout, so this changes nothing for a real run;
+		// it is what lets the harness invoke the provider somewhere that is not
+		// one, which the conformance check does.
+		"--skip-git-repo-check",
+	)
+	if request.Model != "" {
+		args = append(args, "--model", request.Model)
+	}
+	// The prompt is read from standard input rather than put on the command line.
+	// It carries the role's contract and the evidence the role was given, both of
+	// which are long and neither of which belongs in a process listing.
+	return append(args, "-")
+}
+
 func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
 	if b.Runner == nil {
 		return backend.RunResult{}, errors.New("Codex process runner is required")
@@ -306,29 +347,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		return backend.RunResult{}, fmt.Errorf("Codex runs cannot be given effort level %q; this provider accepts no effort level", request.Effort)
 	}
 
-	args := []string{"exec"}
-	// Resuming continues the provider's own session, which is an acceleration
-	// and never the record: what the harness knows about this work is in its own
-	// durable state, and a session the provider has forgotten costs context
-	// rather than work.
-	if request.SessionID != "" {
-		args = append(args, "resume", request.SessionID)
-	}
-	args = append(args,
-		"--json",
-		// The worktree is a Git checkout, so this changes nothing for a real run;
-		// it is what lets the harness invoke the provider somewhere that is not
-		// one, which the conformance check does.
-		"--skip-git-repo-check",
-		"--sandbox", sandbox,
-	)
-	if request.Model != "" {
-		args = append(args, "--model", request.Model)
-	}
-	// The prompt is read from standard input rather than put on the command line.
-	// It carries the role's contract and the evidence the role was given, both of
-	// which are long and neither of which belongs in a process listing.
-	args = append(args, "-")
+	args := invocationArgs(request, sandbox)
 
 	timeout := request.Timeout
 	if timeout == 0 {
