@@ -1,0 +1,19 @@
+//go:build !(darwin || dragonfly || freebsd || illumos || linux || netbsd || openbsd)
+
+package beads
+
+import (
+	"context"
+	"errors"
+	"os"
+)
+
+// lockWriteFile refuses rather than letting a write run unqueued, because an
+// unqueued write is the one bd can lose without saying so.
+func lockWriteFile(context.Context, *os.File) error {
+	return errors.New("queueing writes to one tracker item is unsupported on this platform")
+}
+
+func unlockWriteFile(*os.File) error {
+	return nil
+}

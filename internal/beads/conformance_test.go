@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -495,6 +496,283 @@ func TestAppendedNoteDurabilityConformance(t *testing.T) {
 	// through the path that guard does not cover.
 	if named, records := goal.NamedIn(shown.Notes); !records || !strings.Contains(shown.Notes, "chat-2f0") {
 		t.Fatalf("appending to the notes took the item's own record with it: goal recorded = %v, named %q", records, named)
+	}
+}
+
+// TestConcurrentWriteConformance holds the adapter to what bd itself does not
+// do: two writes to one item that overlap both survive.
+//
+// bd 1.1.2 loses one of them now and then. An append reads the notes already
+// there and writes them back with its line added, a metadata key is set the
+// same way, and two that overlap each read the same notes; the one that finishes
+// second writes over the first, and both exit 0 answering with their own line in
+// place. Against bd directly, six appends and three other writes at once to one
+// item lost an append or a key in 4 of 15 batches
+// (docs/diagnoses/yoyodyne-ifd-433-23-concurrent-writes-to-one-item.md).
+// Client.write queues writes to one item on a lock every client of the store
+// shares, and this makes the overlapping writes a run, a reconcile, and a
+// conversation make to one item, through separate clients as separate
+// processes would, and reads every one of them back.
+//
+// A write the conformance bound ended is not judged, because whether it landed
+// depends on where bd was when it was ended; it is logged by name. Every other
+// error fails, and so does any write that answered and is not on the item.
+func TestConcurrentWriteConformance(t *testing.T) {
+	t.Parallel()
+
+	project := newTracker(t)
+	version := bdVersion(t, project)
+	ctx := context.Background()
+	newClient := func() Client {
+		return Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
+	}
+
+	contested, err := newClient().Create(ctx, NewWorkItem{
+		Title:       "The item everything writes to",
+		Description: "A run, a reconcile, and a conversation all reach it.",
+		Type:        "task",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	const appends = 8
+	landing := "0123456789abcdef0123456789abcdef01234567"
+	cost := Cost{TotalUSD: 1.25, Runs: 1}
+	type outcome struct {
+		who string
+		err error
+	}
+	outcomes := make(chan outcome, appends+2)
+	var writing sync.WaitGroup
+	write := func(who string, do func(Client) error) {
+		writing.Add(1)
+		go func() {
+			defer writing.Done()
+			outcomes <- outcome{who: who, err: do(newClient())}
+		}()
+	}
+	for writer := 0; writer < appends; writer++ {
+		write(fmt.Sprintf("append %d", writer), func(c Client) error {
+			_, err := c.RecordOutcome(ctx, contested.ID, appendedBy(writer))
+			return err
+		})
+	}
+	write("cost", func(c Client) error {
+		_, err := c.RecordCost(ctx, contested.ID, cost)
+		return err
+	})
+	write("landing", func(c Client) error {
+		_, err := c.RecordLanding(ctx, contested.ID, landing)
+		return err
+	})
+	writing.Wait()
+	close(outcomes)
+
+	stalled := map[string]bool{}
+	for result := range outcomes {
+		switch {
+		case result.err == nil:
+		case endedByBound(result.err):
+			stalled[result.who] = true
+			t.Logf("%s: ended by the %s conformance bound before bd answered, so it is not read back: %v", result.who, conformanceTimeout, result.err)
+		default:
+			t.Errorf("%s: overlapping write to one item failed: %v", result.who, result.err)
+		}
+	}
+
+	item, err := newClient().Show(ctx, contested.ID)
+	if err != nil {
+		t.Fatalf("Show() error = %v", err)
+	}
+	judged := 0
+	for writer := 0; writer < appends; writer++ {
+		if stalled[fmt.Sprintf("append %d", writer)] {
+			continue
+		}
+		judged++
+		if !strings.Contains(item.Notes, appendedBy(writer)) {
+			t.Errorf("work item %s notes = %q after %d overlapping appends, want append %d's in them: it answered "+
+				"success and is not on the item, which is a write bd lost because the adapter let it overlap another",
+				contested.ID, item.Notes, appends, writer)
+		}
+	}
+	if !stalled["cost"] {
+		judged++
+		if item.Cost == nil || formatCost(item.Cost.TotalUSD) != formatCost(cost.TotalUSD) || item.Cost.Runs != cost.Runs {
+			t.Errorf("work item %s cost = %#v after overlapping writes, want %#v: the price answered success and is not on the item", contested.ID, item.Cost, cost)
+		}
+	}
+	if !stalled["landing"] {
+		judged++
+		if item.Landing != landing {
+			t.Errorf("work item %s landing = %q after overlapping writes, want %q: the landing answered success and is not on the item", contested.ID, item.Landing, landing)
+		}
+	}
+	if judged == 0 {
+		t.Skipf("SKIPPED, not passed: every write against %s was ended by the conformance bound, so nothing was left to read back", version)
+	}
+	t.Logf("RAN against %s: %d of %d overlapping writes to one item were judged by reading it back", version, judged, appends+2)
+}
+
+// appendedBy is what one concurrent writer appends, distinct per writer so a
+// write that was accepted and dropped is told from one that never happened.
+func appendedBy(writer int) string {
+	return fmt.Sprintf("outcome recorded by writer %d", writer)
+}
+
+// endedByBound reports whether a bd write failed because a bound ended it --
+// the client's on the invocation, or the same bound on the wait for its item's
+// lock -- rather than because bd answered with an error.
+func endedByBound(err error) bool {
+	var failed processFailure
+	if errors.As(err, &failed) && failed.status == execution.ProcessTimedOut {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+// bdVersion is the bd a conformance check ran against, which is what its
+// verdict is about: these checks pin somebody else's software, and a pass
+// against one version says nothing about the next.
+func bdVersion(t *testing.T, dir string) string {
+	t.Helper()
+
+	command := exec.Command("bd", "version")
+	command.Dir = dir
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bd version error = %v: %s", err, output)
+	}
+	return strings.TrimSpace(strings.SplitN(string(output), "\n", 2)[0])
+}
+
+// TestWritesToOneItemQueue holds Client.write to the queue it exists for,
+// without a bd: a write to an item whose lock another writer holds waits for
+// it, and a write to a different item does not.
+func TestWritesToOneItemQueue(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	storeAt(t, filepath.Join(project, ".beads"), "metadata.json")
+	ctx := context.Background()
+	held := Client{Dir: project, Timeout: time.Minute}
+	release, err := held.lockItem(ctx, "yoyodyne-1")
+	if err != nil {
+		t.Fatalf("lockItem() error = %v", err)
+	}
+
+	other := Client{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: "{}"}}}, Dir: project, Timeout: time.Minute}
+	if _, err := other.write(ctx, "yoyodyne-2", "update", "yoyodyne-2"); err != nil {
+		t.Fatalf("write() to a different item error = %v, want it made while yoyodyne-1 is held", err)
+	}
+
+	queued := Client{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: "{}"}}}, Dir: project, Timeout: 200 * time.Millisecond}
+	if _, err := queued.write(ctx, "yoyodyne-1", "update", "yoyodyne-1"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("write() to an item whose lock is held error = %v, want it to wait out its bound rather than run", err)
+	}
+
+	// A client pointed at a subdirectory reaches the same store bd would, so it
+	// queues on the same lock rather than writing past it.
+	nested := filepath.Join(project, "internal", "beads")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	below := Client{Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: "{}"}}}, Dir: nested, Timeout: 200 * time.Millisecond}
+	if _, err := below.write(ctx, "yoyodyne-1", "update", "yoyodyne-1"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("write() from a subdirectory to an item whose lock is held error = %v, want it to queue on the same lock", err)
+	}
+
+	release()
+	if _, err := queued.write(ctx, "yoyodyne-1", "update", "yoyodyne-1"); err != nil {
+		t.Fatalf("write() after the lock was released error = %v", err)
+	}
+}
+
+// TestStoreDirectoryFollowsBd holds the lock's location to the store bd itself
+// writes to from the same directory: a lock taken anywhere else is one a second
+// writer to the same store never meets, which is the unqueued write the lock
+// exists to remove.
+func TestStoreDirectoryFollowsBd(t *testing.T) {
+	t.Parallel()
+
+	main := canonicalPath(t.TempDir())
+	if err := os.Mkdir(filepath.Join(main, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(main, ".beads")
+	storeAt(t, store, "metadata.json", "embeddeddolt/")
+
+	// A linked worktree checks out the tracked half of .beads and not the
+	// database, so bd goes to the main repository's store from it.
+	worktree := filepath.Join(main, "worktrees", "one")
+	gitDir := filepath.Join(main, ".git", "worktrees", "one")
+	storeAt(t, gitDir)
+	storeAt(t, filepath.Join(worktree, ".beads"), "metadata.json")
+	writeFile(t, filepath.Join(worktree, ".git"), "gitdir: "+gitDir+"\n")
+	writeFile(t, filepath.Join(gitDir, "commondir"), "../..\n")
+
+	// A worktree whose .beads redirects names the store it redirects to.
+	redirected := filepath.Join(main, "worktrees", "two")
+	redirectedGitDir := filepath.Join(main, ".git", "worktrees", "two")
+	storeAt(t, redirectedGitDir)
+	storeAt(t, filepath.Join(redirected, ".beads"), "metadata.json")
+	writeFile(t, filepath.Join(redirected, ".beads", "redirect"), "# the main checkout's store\n../../.beads\n")
+	writeFile(t, filepath.Join(redirected, ".git"), "gitdir: "+redirectedGitDir+"\n")
+	writeFile(t, filepath.Join(redirectedGitDir, "commondir"), "../..\n")
+
+	// A symlink to the checkout is the same store reached another way.
+	linked := filepath.Join(t.TempDir(), "linked")
+	if err := os.Symlink(main, linked); err != nil {
+		t.Fatal(err)
+	}
+
+	// A checkout with no store anywhere above it is one bd finds nothing in.
+	bare := canonicalPath(t.TempDir())
+	if err := os.Mkdir(filepath.Join(bare, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name, dir, env, want string
+	}{
+		{name: "the checkout itself", dir: main, want: store},
+		{name: "a subdirectory of it", dir: filepath.Join(main, "worktrees"), want: store},
+		{name: "a linked worktree", dir: worktree, want: store},
+		{name: "a subdirectory of a linked worktree", dir: filepath.Join(worktree, ".beads"), want: store},
+		{name: "a redirected worktree", dir: redirected, want: store},
+		{name: "a symlink to the checkout", dir: linked, want: store},
+		{name: "BEADS_DIR over the directory", dir: bare, env: store, want: store},
+		{name: "no store", dir: bare, want: ""},
+	} {
+		if got := storeDirectory(test.dir, test.env); got != test.want {
+			t.Errorf("%s: storeDirectory(%q) = %q, want %q", test.name, test.dir, got, test.want)
+		}
+	}
+}
+
+// storeAt makes dir with the named files in it, a trailing slash naming a
+// directory.
+func storeAt(t *testing.T, dir string, names ...string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if strings.HasSuffix(name, "/") {
+			if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		writeFile(t, filepath.Join(dir, name), "{}\n")
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1268,11 +1546,18 @@ func parentEdgesOf(item WorkItem) []string {
 // It skips where bd is not installed. bd is a required dependency of the harness
 // rather than an optional integration, so that is a statement about the machine
 // running the tests and not about these checks being optional.
+//
+// A skip reads as `ok` in a suite run without -v, so a green suite alone does
+// not say these ran. Where YOYODYNE_REQUIRE_BD is set a missing bd fails
+// instead, which is how a machine that is meant to have run them says so.
 func newTracker(t *testing.T) string {
 	t.Helper()
 
 	if _, err := exec.LookPath("bd"); err != nil {
-		t.Skipf("bd is not installed: %v", err)
+		if os.Getenv("YOYODYNE_REQUIRE_BD") != "" {
+			t.Fatalf("bd is not installed and YOYODYNE_REQUIRE_BD is set, so this check fails rather than skipping: %v", err)
+		}
+		t.Skipf("SKIPPED, not passed: bd is not installed: %v", err)
 	}
 	root := t.TempDir()
 	project := filepath.Join(root, "tracker")
