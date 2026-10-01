@@ -288,3 +288,71 @@ func TestOnlyAStopNamesTheItemThatSupersedesItsRun(t *testing.T) {
 		t.Fatalf("RecordDecision(wait naming a superseding item) error = %v", err)
 	}
 }
+
+// A repair handed back to its run is carried out, however few of the rounds it
+// granted were judged. The supervisor's periodic pass (yoyodyne-ifd.413) was
+// granted two rounds on 2026-09-30, continued at once, approved in one, and
+// stopped at its promotion — and with two rounds committed and one judged, every
+// reading said the harness had still to carry the repair out (yoyodyne-8ff).
+func TestARepairContinuedSinceItsDecisionIsCarriedOut(t *testing.T) {
+	t.Parallel()
+
+	decided := time.Date(2026, 9, 30, 20, 32, 55, 0, time.UTC)
+	repair := triageDecided(TriageDecisionRepair, decidedRunID)
+	repair.DecidedAt = decided
+	counters := TriageCounters{RepairGrants: 1, GrantedRounds: 2, CommittedRounds: 2, ReviewRounds: 1, Decisions: []TriageDecision{repair}}
+	if !counters.AwaitingCarryOut(decidedRunID) {
+		t.Fatal("the ledger alone stopped reading an unspent grant as outstanding")
+	}
+	run := State{RunID: decidedRunID}
+	if !counters.AwaitingCarryOutOf(run) {
+		t.Fatal("a repair no continuation carries reads as carried out")
+	}
+	for name, continuation := range map[string]RepairContinuation{
+		"before the decision":     {GrantedAttempts: 2, ContinuedAt: decided.Add(-time.Hour)},
+		"returned":                {GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), Returned: true},
+		"the harness's own stall": {ContinuedAt: decided.Add(2 * time.Minute), Stall: true, ByHarness: true},
+	} {
+		run.RepairContinuations = []RepairContinuation{continuation}
+		if !counters.AwaitingCarryOutOf(run) {
+			t.Fatalf("a continuation %s carried the repair out", name)
+		}
+	}
+	run.RepairContinuations = []RepairContinuation{{GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute)}}
+	if counters.AwaitingCarryOutOf(run) {
+		t.Fatal("a repair handed back to its run still reads as the harness's to carry out")
+	}
+}
+
+// A decision the harness tried and was refused is not one it still has to carry
+// out: the refusal is the development manager's to answer. A finding about an
+// earlier decision, one waiting on a switch the operator holds, and one no pass
+// reached leave the decision the harness's (yoyodyne-8ff).
+func TestARefusedCarryOutIsNotAwaitingTheHarness(t *testing.T) {
+	t.Parallel()
+
+	decided := time.Date(2026, 9, 28, 15, 43, 9, 0, time.UTC)
+	rearm := triageDecided(TriageDecisionRearm, decidedRunID)
+	rearm.DecidedAt = decided
+	refusal := TriageCarryOut{RunID: decidedRunID, Decision: TriageDecisionRearm, Gate: TriageGateHarness,
+		Refusal: "recorded no promotion", Attempts: 1, RefusedAt: decided.Add(18 * time.Hour)}
+	counters := TriageCounters{MergeRearms: 1, Decisions: []TriageDecision{rearm}}
+	if !counters.AwaitingCarryOut(decidedRunID) {
+		t.Fatal("a re-arm nothing has attempted reads as not the harness's")
+	}
+	for name, finding := range map[string]func(TriageCarryOut) TriageCarryOut{
+		"older than the decision": func(f TriageCarryOut) TriageCarryOut { f.RefusedAt = decided.Add(-time.Hour); return f },
+		"waiting on a switch":     func(f TriageCarryOut) TriageCarryOut { f.Waiting = true; return f },
+		"unattempted":             func(f TriageCarryOut) TriageCarryOut { f.Unattempted = true; return f },
+		"about another decision":  func(f TriageCarryOut) TriageCarryOut { f.Decision = TriageDecisionRerun; return f },
+	} {
+		counters.CarryOuts = []TriageCarryOut{finding(refusal)}
+		if _, refused := counters.RefusedCarryOut(decidedRunID); refused || !counters.AwaitingCarryOut(decidedRunID) {
+			t.Fatalf("a finding %s took the decision off the harness", name)
+		}
+	}
+	counters.CarryOuts = []TriageCarryOut{refusal}
+	if _, refused := counters.RefusedCarryOut(decidedRunID); !refused || counters.AwaitingCarryOut(decidedRunID) || !counters.Standing(decidedRunID).Refused {
+		t.Fatal("a refused re-arm still reads as the harness's to carry out")
+	}
+}

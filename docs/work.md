@@ -1567,7 +1567,15 @@ already ask: your pause, your intake hold, the item's own triage budgets,
 developer capacity, and the preserved worktree being what a continued developer
 could be handed back. A refusal spends nothing and is never silent: it is
 written onto the item's triage record and the docket entry she reads comes back
-carrying the decision and the gate, naming what would clear it. A gate shut for
+carrying the decision and the gate, naming what would clear it. From then on the
+decision is hers rather than the harness's: the entry's next mover names her, and
+so does the item's held line, which says what was refused and what clears it,
+because a line naming the harness over a decision the harness cannot carry out
+is one nobody acts on. A decision waiting on your pause or your intake hold, or
+one no pass has attempted yet, stays the harness's. A repair counts as carried
+out once its run records being handed back since the decision, however few of
+its granted rounds were judged, so a repaired run that stops again is hers to
+decide about too. A gate shut for
 one item — a directive, work it waits on, a worktree somebody has been in — is
 retried at a paced interval rather than every poll, so one decision that cannot
 fire does not starve the ones behind it; a gate shut for everything at once —

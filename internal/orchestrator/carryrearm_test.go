@@ -201,7 +201,7 @@ func TestARearmOfAPublicationItsRunNeverPromotedIsRefusedAloudAtTheNextPull(t *t
 // the supervisor's periodic pass (yoyodyne-ifd.413), whose re-arm was refused
 // onto its record from 2026-09-29 while its held line and its docket entry both
 // went on naming the harness, so nobody was placed to record the re-run it
-// needed (yoyodyne-8ff). The refusal is on the item, the docket entry is urgent
+// needed (yoyodyne-8ff). The refusal is on the item, the docket entry is live
 // and names her as the next mover, and the held line carries the refusal and is
 // hers rather than the harness's.
 func TestARefusedRearmIsHeldAsTheDevelopmentManagersMoveWithTheRefusalSaid(t *testing.T) {
@@ -248,9 +248,9 @@ func TestARefusedRearmIsHeldAsTheDevelopmentManagersMoveWithTheRefusalSaid(t *te
 
 	docketed := refusedOnTheDocket(t, harness)
 	rendered := docketed.Render()
-	if !docketed.Critical() || docketed.Counters.AwaitingCarryOut() ||
+	if docketed.Counters.AwaitingCarryOut() || !docketed.Counters.Standing.Refused ||
 		!strings.Contains(rendered, "Next mover: you") || strings.Contains(rendered, "Next mover: the harness") {
-		t.Fatalf("docketed entry critical=%v awaiting=%v renders:\n%s\nwant it urgent and naming the development manager", docketed.Critical(), docketed.Counters.AwaitingCarryOut(), rendered)
+		t.Fatalf("docketed entry awaiting=%v renders:\n%s\nwant it on the docket naming the development manager", docketed.Counters.AwaitingCarryOut(), rendered)
 	}
 
 	held, err := readmodel.HeldForAPerson(context.Background(), harness.runs, harness.runs.Triage(), nil)
