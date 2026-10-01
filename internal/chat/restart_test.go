@@ -89,7 +89,7 @@ func TestARestartRequestIsRecordedAndTheRoleIsToldNothingActsOnItYet(t *testing.
 		t.Fatalf("second Send() error = %v", err)
 	}
 	next := provider.requests[1].Prompt
-	for _, required := range []string{"# Restart request", "Recorded as " + recorded.ID, "Nothing acts on it yet", "yoyodyne-ifd.413", "has not landed"} {
+	for _, required := range []string{"# Restart request", "Recorded as " + recorded.ID, "Nothing has acted on it yet", "the supervisor's periodic maintenance pass", "Do not say the scheduler was restarted"} {
 		if !strings.Contains(next, required) {
 			t.Errorf("the next turn is not told %q:\n%s", required, next)
 		}

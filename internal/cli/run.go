@@ -234,7 +234,14 @@ func resolveRoots(resolved config.Resolved) (roots, error) {
 // layers of configuration. The watch, the sink, the dashboard, the supervisor,
 // conversations, and runs all open their stores through here.
 func productStateRoot(resolved config.Resolved) (string, error) {
-	root, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
+	return productStateRootFrom(resolved, os.Getenv, os.UserHomeDir, runtime.GOOS)
+}
+
+// productStateRootFrom is productStateRoot read through the seams a caller
+// holds rather than the process's own, so a walk that injects its environment
+// resolves the root it would name.
+func productStateRootFrom(resolved config.Resolved, getenv func(string) string, homeDir func() (string, error), goos string) (string, error) {
+	root, err := runstate.ResolveRoot(getenv, homeDir, goos)
 	if err != nil {
 		return "", err
 	}

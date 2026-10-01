@@ -707,7 +707,10 @@ every sweep — rather than by this process, and the sink sends the record to
 whoever you grant `direct-work` as a direct message, tagged to them by member id
 in the channel — and again every `--heartbeat` while the stall stands, never
 once per check, as a warning while it is young and critical once nothing has
-started for two hours:
+started for two hours. The sweep is run for you by the product's supervisor, on
+its [maintenance pass](../operations.md#the-supervisors-maintenance-pass) every
+`services.maintenance.every`; you schedule `yoyo reconcile` yourself only where
+that part is off or no supervisor is running:
 
 > Nothing at all has started on this product for 1 hour, with 47 items ready to
 > pull: 33 of the 47 admitted items are awaiting carry-out of decisions already

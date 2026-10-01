@@ -189,6 +189,10 @@ func (s *Supervisor) deploy(ctx context.Context, child Child, state *runstate.Su
 		state.Redeploy = fmt.Sprintf("%s; restarted into it once the %s service has moved, one part at a time", behind, ahead)
 		return
 	}
+	if held := s.restartHold(); held != "" {
+		state.Redeploy = fmt.Sprintf("%s; not restarted while %s", behind, held)
+		return
+	}
 	busy, err := deployable.Busy(ctx)
 	if err != nil {
 		state.Redeploy = fmt.Sprintf("%s; not restarted, because whether it is in the middle of anything could not be read: %v", behind, err)

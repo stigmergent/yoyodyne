@@ -50,7 +50,7 @@ package slack
 // and the operator's own interim script — thirty minutes of quiet, then force a
 // restart — retires by its detection half landing in the checker and its restart
 // half landing where restarts already live: the session's own bounded exit
-// (yoyodyne-ifd.288) under the supervisor that starts it (yoyodyne-ifd.207).
+// (yoyodyne-ifd.288) under the supervisor that starts it (internal/supervise).
 
 import (
 	"context"

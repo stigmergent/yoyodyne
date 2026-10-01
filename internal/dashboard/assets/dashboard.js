@@ -1200,7 +1200,7 @@
     facts.appendChild(figureRow("Report", named(instance.report_written_at) ? "written " + dayAndClock(instance.report_written_at) : "none written yet"));
     var requests = instance.restart_requests || [];
     if (requests.length > 0) {
-      facts.appendChild(figureRow("Restarts", count(requests.length, "restart request") + " open, which nothing acts on yet"));
+      facts.appendChild(figureRow("Restarts", count(requests.length, "restart request") + " open, answered by the supervisor's next maintenance pass"));
     }
     row.appendChild(facts);
     var open = el("p", "manager-open");
@@ -2037,7 +2037,7 @@
     fields.appendChild(field("Written", written));
     fields.appendChild(field("Last pass", named(instance.last_completed_pass_at) ? "completed " + dayAndClock(instance.last_completed_pass_at) : "none has completed"));
     fields.appendChild(listField("Restart requests", (instance.restart_requests || []).map(function (request) {
-      return request.part + ": " + request.reason + " — asked " + dayAndClock(request.requested_at) + ", unanswered; nothing acts on a request until the supervisor's periodic pass lands (" + request.id + ")";
+      return request.part + ": " + request.reason + " — asked " + dayAndClock(request.requested_at) + ", unanswered; the supervisor's maintenance pass answers it at its next pass (" + request.id + ")";
     }), "none open"));
     // The card ends with what it shows. report_path stays in the answer for a
     // program that reads the file; a path on a card a person reads suggests

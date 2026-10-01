@@ -261,8 +261,8 @@ func TestStartSaysWhatTheSupervisorRecordedAboutEachPart(t *testing.T) {
 }
 
 // The real parts are assembled from the services section: a part that is off
-// is off, the sink and the scheduler are children, and the two whose adoption
-// has not landed are named as such with the work that adopts them.
+// is off, the sink and the scheduler are children, and the dashboard, whose
+// adoption has not landed, is named as such with the work that adopts it.
 func TestTheRealPartsFollowTheServicesSection(t *testing.T) {
 	t.Parallel()
 
@@ -287,8 +287,10 @@ func TestTheRealPartsFollowTheServicesSection(t *testing.T) {
 	if len(children) != 1 || children[0].Name() != config.ServiceScheduler {
 		t.Errorf("children = %v, want the scheduler alone", children)
 	}
-	if len(notYet) != 2 || notYet[0].Name != config.ServiceDashboard || !strings.Contains(notYet[0].Reason, "yoyodyne-ifd.414") || notYet[1].Name != config.ServiceMaintenance || !strings.Contains(notYet[1].Reason, "yoyodyne-ifd.413") {
-		t.Errorf("notYet = %+v, want the dashboard and the maintenance pass with their adopting work named", notYet)
+	// The maintenance pass is the supervisor's own rather than a process, so it
+	// is neither a child nor a part waiting to be adopted.
+	if len(notYet) != 1 || notYet[0].Name != config.ServiceDashboard || !strings.Contains(notYet[0].Reason, "yoyodyne-ifd.414") {
+		t.Errorf("notYet = %+v, want the dashboard alone, with its adopting work named", notYet)
 	}
 	if len(off) != 1 || off[0] != config.ServiceSlack {
 		t.Errorf("off = %v, want slack", off)
@@ -611,5 +613,46 @@ services:
 		if child.Name() == config.ServiceScheduler && !self {
 			t.Error("the scheduler does not say it restarts itself, so the supervisor would stop it and cancel its runs")
 		}
+	}
+}
+
+// A foreground supervisor refused because another holds the product's lease
+// exits cleanly: the launch agent restarts the supervisor only on an
+// unsuccessful exit, and a refusal read as one would start another every few
+// seconds for as long as the first one ran.
+func TestAForegroundSupervisorRefusedByAnotherExitsCleanly(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := config.LoadResolved(writeConfig(t, validConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := t.TempDir()
+	store, err := runstate.NewSupervisionStore(stateRoot, resolved.Config.Product.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, held, err := store.Lease()
+	if err != nil || !held {
+		t.Fatalf("Lease() = %t, %v, want the lease for the first supervisor", held, err)
+	}
+	defer lease.Release()
+	p := &product{
+		resolved:  resolved,
+		stateRoot: stateRoot,
+		store:     store,
+		program:   "/opt/yoyo/bin/yoyo",
+		goos:      "darwin",
+		now:       time.Now,
+		children: func() ([]supervise.Child, []supervise.NotYet, []config.ServiceName, error) {
+			return nil, nil, config.ServiceNames, nil
+		},
+	}
+	var stdout, stderr strings.Builder
+	if code := p.supervise(context.Background(), &stdout, &stderr); code != 0 {
+		t.Errorf("supervise code = %d, want 0 for a refusal", code)
+	}
+	if !strings.Contains(stderr.String(), "start refused") {
+		t.Errorf("stderr = %q, want the refusal said", stderr.String())
 	}
 }

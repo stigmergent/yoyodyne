@@ -980,8 +980,8 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		Evaluations: parts.evaluations,
 		// Where a program manager's request that the supervisor restart a part is
 		// recorded. It is wired for every role because the authority to make one
-		// is decided in the chat package's table, and nothing acts on a request
-		// until the supervisor's pass does.
+		// is decided in the chat package's table, and the only thing that acts on
+		// a request is the supervisor's maintenance pass.
 		RestartRequests: parts.restartRequests,
 		// How a document this role owns reaches the repository: the role writes it,
 		// the operator approves it, and the harness performs the write through the

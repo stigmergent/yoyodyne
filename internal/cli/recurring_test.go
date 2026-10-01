@@ -381,3 +381,28 @@ func TestASweepSummaryShowsEveryItemBesideItsTitle(t *testing.T) {
 		t.Errorf("renderSweeps() = %q, want the filed item the tracker does not hold said to be unknown", rendered)
 	}
 }
+
+// The supervisor's own pass is shown as the harness's, with each step and what
+// became of it, and a step it did not take stands out.
+func TestSweepListingShowsTheHarnessPassStepByStep(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC)
+	rendered := renderSweepsAtDefault([]runstate.Sweep{{
+		Task: "maintenance", StartedAt: at, EndedAt: at,
+		Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "1 step(s) ran, 1 skipped, 0 failed"},
+		Steps: []runstate.SweepStep{
+			{Name: "reconcile", Outcome: runstate.StepRan, Detail: "yoyo reconcile exited 0"},
+			{Name: "redeploy", Outcome: runstate.StepSkipped, Detail: "nothing is restarted while the provider is not logged in"},
+		},
+	}})
+	for _, want := range []string{
+		"maintenance (the supervisor's own pass, no role woken)",
+		"  - reconcile: ran, yoyo reconcile exited 0",
+		"  - redeploy: SKIPPED, nothing is restarted while the provider is not logged in",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered lacks %q:\n%s", want, rendered)
+		}
+	}
+}

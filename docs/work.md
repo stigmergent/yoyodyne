@@ -1880,6 +1880,15 @@ and the drain and its bound are on every line the session writes while it
 lasts. [Operations](operations.md#a-session-draining-to-restart-into-a-deployed-build)
 says what a drain does and does not stop.
 
+The product's supervisor holds to the same rules rather than adding its own. It
+never stops a watching session to move it onto a deployed build — it waits for
+the session to restart itself, and reads the moment the session lets its lease
+go as that restart rather than a death — and its
+[maintenance pass](operations.md#the-supervisors-maintenance-pass) never stops the
+scheduler for any reason, a program manager's restart request included, because
+stopping it cancels the runs it hosts. What the supervisor builds after a
+landing is what a draining session restarts into.
+
 A restart has to be recorded before it is known to have happened, because one
 that works never comes back to record anything. So on the rare occasion it does
 not — the operating system refuses the re-execution, a bound turns out to have

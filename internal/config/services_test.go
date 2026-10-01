@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every part of the product is present whether or not a project mentions it,
@@ -24,7 +25,7 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 			Token:        DashboardTokenGenerated,
 		},
 		Scheduler:   Service{Enabled: true},
-		Maintenance: Service{Enabled: true},
+		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval)},
 	}
 	if !reflect.DeepEqual(resolved.Config.Services, want) {
 		t.Fatalf("services = %+v, want the defaults %+v", resolved.Config.Services, want)
@@ -38,6 +39,7 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 		"services.dashboard.token",
 		"services.scheduler.enabled",
 		"services.maintenance.enabled",
+		"services.maintenance.every",
 	} {
 		if origin := resolved.Origins[key]; origin != OriginDefault {
 			t.Errorf("origin[%q] = %q, want %q", key, origin, OriginDefault)
@@ -237,5 +239,50 @@ func TestAServiceOverrideKeepsWhatItDidNotRestate(t *testing.T) {
 	}
 	if !dashboard.Loopback() {
 		t.Errorf("Loopback() = false for the default bind")
+	}
+}
+
+// The maintenance pass's cadence is read from the file with its origin, and a
+// cadence under a minute is refused naming the floor: every pass reads the
+// tracker and asks the forge, so a cadence of seconds is load.
+func TestTheMaintenanceCadenceIsReadAndHasAFloor(t *testing.T) {
+	t.Parallel()
+
+	resolved := loadProject(t, minimalProjectConfig+`services:
+  maintenance:
+    enabled: true
+    every: 30m
+`, nil)
+	if got := resolved.Config.Services.Maintenance.Every.Duration(); got != 30*time.Minute {
+		t.Errorf("services.maintenance.every = %s, want 30m", got)
+	}
+	if origin := resolved.Origins["services.maintenance.every"]; origin == OriginDefault {
+		t.Errorf("origin of services.maintenance.every = %q, want the project file's", origin)
+	}
+
+	_, err := loadProjectError(t, minimalProjectConfig+`services:
+  maintenance:
+    every: 30s
+`, nil)
+	if err == nil || !strings.Contains(err.Error(), "services.maintenance.every is 30s") || !strings.Contains(err.Error(), "the shortest cadence is 1m") {
+		t.Errorf("a 30s cadence loaded as %v, want it refused naming the floor", err)
+	}
+}
+
+// A recurring task named for the maintenance pass would share its cadence
+// claim in the sweep log, so it is refused.
+func TestARecurringTaskMayNotTakeTheMaintenancePassesName(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadProjectError(t, minimalProjectConfig+`recurring_tasks:
+  maintenance:
+    role: development-manager
+    every: 1h
+    enabled: true
+    prompt: |
+      Sweep.
+`, nil)
+	if err == nil || !strings.Contains(err.Error(), `recurring task "maintenance" is named for the product's maintenance pass`) {
+		t.Errorf("a recurring task named maintenance loaded as %v, want it refused", err)
 	}
 }

@@ -211,6 +211,7 @@ services:           # the parts of the product, each on or off; see Services
     enabled: true
   maintenance:
     enabled: true
+    every: 10m
 
 checks: []          # yours to write; a run with none is refused
 landing_checks: []  # what runs whole, once per landing; see "Where the whole suite runs"
@@ -269,7 +270,8 @@ chose, written in three keys only that role's agents carry
 write the role holds is confined to that lane, read off each item as the action
 runs ([a program manager's lane](conversation.md#a-program-managers-lane)). It
 may also record [a request that a part be restarted](operations.md#starting-the-product-and-stopping-it),
-which nothing acts on yet.
+which the supervisor's [maintenance pass](operations.md#the-supervisors-maintenance-pass)
+answers at its next pass.
 [Talking to the other agents](conversation.md#talking-to-the-other-agents) states
 the table itself.
 
@@ -624,8 +626,9 @@ Up to three layers produce the effective configuration, later ones winning:
    `services.slack.enabled` (`false`), `services.dashboard.enabled` (`false`),
    `services.dashboard.port` (8765), `services.dashboard.bind` (`127.0.0.1`),
    `services.dashboard.allowed_hosts` (empty), `services.dashboard.token`
-   (`generated`), `services.scheduler.enabled` (`true`), and
-   `services.maintenance.enabled` (`true`).
+   (`generated`), `services.scheduler.enabled` (`true`),
+   `services.maintenance.enabled` (`true`), and `services.maintenance.every`
+   (`10m`).
    `triage.repair_grant_attempts` is filled in too, but as a derivation rather
    than a fixed default: it takes the size of the effective
    `execution.repair_attempts_before_replan`, read after every layer has been
@@ -5823,6 +5826,8 @@ These are all errors, reported before any work is claimed:
   `admissions`, and `stoppages`, or named twice; and a `recurring_tasks` entry
   named for a program manager instance its triggers wake, since an instance's
   passes are recorded and paced under its own name;
+- a `recurring_tasks` entry named `maintenance`, which is the name the
+  supervisor's maintenance pass records its passes and paces its cadence under;
 - a persona path that is absolute, traverses upward, is not Markdown, is missing,
   is empty, or resolves through a symlink to somewhere outside `.yoyodyne`;
 - a `role` that is not one of the harness's six, which is how a typo in an
@@ -5863,6 +5868,7 @@ These are all errors, reported before any work is claimed:
   nor an https image URL — all checked whether or not reporting is switched on,
   so a typo is found now rather than on the day somebody turns it on;
 - a `services` entry that is not one of the four the product has, a
+  `services.maintenance.every` under a minute, a
   `services.dashboard.port` outside 1–65535, a `services.dashboard.bind` that
   is not an IP address, a `services.dashboard.token` that is not `generated`,
   `keychain`, or `file`, an entry under `services.dashboard.allowed_hosts` that
@@ -6353,6 +6359,7 @@ services:
     enabled: true
   maintenance:
     enabled: true
+    every: 10m
 ```
 
 **Every service is present whether or not a project mentions it.** The section is
@@ -6508,17 +6515,27 @@ names Node as the development dependency this is about.
 acts on this section.** It starts the product's supervisor, which reads the
 section and starts every enabled part it knows how to: the Slack sink as
 `yoyo slack ensure` starts it, and the scheduler as `yoyo work --watch` under
-its own watch lease. Two parts are declared here ahead of the supervisor
-knowing how to start them, and `yoyo start` says so for each: the dashboard's
-adoption as a child is `yoyodyne-ifd.414`, and until it lands `yoyo dashboard`
+its own watch lease. One part is declared here ahead of the supervisor knowing
+how to start it, the dashboard, and `yoyo start` says so: adopting the dashboard
+as a supervised part is yoyodyne-ifd.414, and until it lands `yoyo dashboard`
 is started by hand and still binds loopback on its `--port` rather than reading
 this entry's `port`, `bind`, or `allowed_hosts` — `token` it does read, whether
 or not the entry is enabled, so that
-[a stored token outlives a restart](operations.md#watching-from-a-browser-the-dashboard);
-the maintenance pass is the resident item, `yoyodyne-ifd.413`, and
-until it lands `yoyo reconcile` is scheduled by hand. Declaring the whole
-section now is what lets that command and the resident that starts with the
-machine read one statement rather than two.
+[a stored token outlives a restart](operations.md#watching-from-a-browser-the-dashboard).
+Declaring the whole section now is what lets that command and the resident that
+starts with the machine read one statement rather than two.
+
+**The maintenance pass is the supervisor's own**, not a process it starts:
+every `services.maintenance.every` — ten minutes by default, a minute at the
+shortest, measured from the last pass as a recurring task's cadence is — it
+runs `yoyo reconcile`, answers the restart requests program managers made, and
+takes up a build deployed over the supervisor, restarting nothing while the
+provider cannot be reached or is not logged in. Each pass is recorded in the
+sweep log under the name `maintenance`, which is why a
+[recurring task](#recurring-tasks) may not take that name.
+[The maintenance pass](operations.md#the-supervisors-maintenance-pass) says what
+each step does and what it never does. With the part off, `yoyo reconcile` is
+yours to schedule.
 
 ## Recurring tasks
 
