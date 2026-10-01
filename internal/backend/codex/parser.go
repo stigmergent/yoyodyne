@@ -9,15 +9,20 @@ package codex
 // envelope under `msg` and names it in snake case — session_configured,
 // agent_message, token_count, task_complete — and is read from the provider's
 // documented protocol rather than off a run. The newer one is what
-// codex-cli 0.159.2 writes, read off a real invocation recorded under
-// testdata/streams: bare events named thread.started, turn.started, and
-// item.completed, the session carried as `thread_id`, and every reconnect
-// attempt reported as a top-level `error` that does not end the turn. That
-// recording never reached the provider, so it shows nothing of a reply, of
-// usage, or of how a turn ends, and this parser reads none of those in the newer
-// vocabulary: a stream that carries them fails naming the CLI's version and the
-// first event this parser did not recognize. A recorded stream that reached the
-// provider is the evidence that should replace this paragraph.
+// codex-cli 0.159.2 writes, read off real invocations recorded under
+// testdata/streams: bare events named thread.started, turn.started,
+// item.completed, and turn.completed, the session carried as `thread_id`, the
+// reply as an `agent_message` item's `text`, and the turn's usage on
+// turn.completed. Neither a top-level `error` (one per reconnect attempt) nor
+// an `error` item (a warning such as a configuration setting the CLI ignored)
+// ends the turn: both were recorded with the turn carrying on past them, the
+// second ending in a turn.completed. The turn ends at turn.completed, or at
+// turn.failed, which this CLI's binary names but no recording here has shown;
+// it is read in the shape the provider's exec protocol gives it, an `error`
+// object carrying a `message`. Any other turn.* event is not taken for an
+// ending: it is named as unrecognized, so a stream that then stops without a
+// terminal fails naming it. Shell, patch, and tool items are not yet recorded
+// and are named the same way.
 //
 // Everything here degrades in the safe direction: an event this parser does not
 // recognize is recorded whole and read as nothing, and an invocation whose
@@ -67,8 +72,15 @@ const (
 	eventThreadStarted = "thread.started"
 	eventTurnStarted   = "turn.started"
 	eventItemCompleted = "item.completed"
+	eventTurnCompleted = "turn.completed"
 	itemError          = "error"
+	itemAgentMessage   = "agent_message"
 )
+
+// eventTurnFailed is the newer vocabulary's failed ending. codex-cli 0.159.2's
+// binary carries the name, but no recorded stream has shown one: its shape is
+// the provider's exec protocol's, an `error` object with a `message`.
+const eventTurnFailed = "turn.failed"
 
 // truncatedStreamLine is the harness's own name for a provider line the process
 // runner had to cut at its per-line bound. It sits beside the duplicate terminal
@@ -98,6 +110,60 @@ type streamEnvelope struct {
 type streamItem struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+	// An agent_message item carries the agent's prose here.
+	Text string `json:"text"`
+}
+
+// turnUsage is what a turn.completed reports the turn read and wrote, as
+// codex-cli 0.159.2 wrote it. Input counts every token read, the cached ones
+// included, which is the provider's convention rather than the harness's.
+type turnUsage struct {
+	InputTokens           *int64 `json:"input_tokens"`
+	CachedInputTokens     *int64 `json:"cached_input_tokens"`
+	CacheWriteInputTokens *int64 `json:"cache_write_input_tokens"`
+	OutputTokens          *int64 `json:"output_tokens"`
+	ReasoningOutputTokens *int64 `json:"reasoning_output_tokens"`
+}
+
+// harnessUsage writes a turn's usage under the names the harness's price reader
+// looks for. The price reader's input is fresh input, with cache reads counted
+// beside it rather than inside it, so the cached reads are taken out of the
+// provider's input here; left in, every cache read would be counted twice in the
+// input total. Cache writes are left inside the input rather than moved to the
+// price reader's cache-creation count: no recording has shown a non-zero one,
+// so whether the provider counts them inside its input is not known, and left
+// where they are they are counted once either way. Reasoning is written beside
+// the output under the provider's own name, which the price reader does not read.
+// A count the provider did not state is left out rather than written as zero.
+func (u turnUsage) harnessUsage() (json.RawMessage, bool) {
+	if u.InputTokens == nil && u.CachedInputTokens == nil && u.OutputTokens == nil && u.ReasoningOutputTokens == nil {
+		return nil, false
+	}
+	counts := map[string]int64{}
+	if u.InputTokens != nil {
+		fresh := *u.InputTokens
+		if u.CachedInputTokens != nil {
+			fresh -= *u.CachedInputTokens
+		}
+		if fresh < 0 {
+			fresh = 0
+		}
+		counts["input_tokens"] = fresh
+	}
+	if u.CachedInputTokens != nil {
+		counts["cache_read_input_tokens"] = *u.CachedInputTokens
+	}
+	if u.OutputTokens != nil {
+		counts["output_tokens"] = *u.OutputTokens
+	}
+	if u.ReasoningOutputTokens != nil {
+		counts["reasoning_output_tokens"] = *u.ReasoningOutputTokens
+	}
+	encoded, err := json.Marshal(counts)
+	if err != nil {
+		return nil, false
+	}
+	return encoded, true
 }
 
 // providerMessage is one event, reduced to the fields this adapter reads. The
@@ -114,6 +180,11 @@ type providerMessage struct {
 	ThreadID string `json:"thread_id"`
 	// item.completed carries the item it completed.
 	Item json.RawMessage `json:"item"`
+	// turn.completed carries the turn's usage, and turn.failed its error. Both
+	// are kept raw: the older vocabulary uses neither name, and an unexpected
+	// shape under either must not make a whole line unreadable.
+	TurnUsage json.RawMessage `json:"usage"`
+	TurnError json.RawMessage `json:"error"`
 	// session_configured names the session a later invocation resumes and the
 	// model the provider resolved the requested selector to.
 	SessionID string `json:"session_id"`
@@ -225,6 +296,11 @@ type streamParser struct {
 	// most likely one written in a vocabulary this adapter does not speak, and
 	// this is what lets that be said instead of a terminal reported missing.
 	unrecognized string
+	// providerUsage is a turn.completed's usage object as the provider wrote it,
+	// kept beside the harness-named one on the terminal because the mapping
+	// takes cached reads out of the input and the record should still show what
+	// the provider said.
+	providerUsage json.RawMessage
 }
 
 func newStreamParser(runID string, role domain.AgentRole, lastSequence uint64, clock execution.Clock, redactor execution.Redactor, sink func(execution.Event) error, reply func(string), dialect backend.Dialect) *streamParser {
@@ -294,6 +370,10 @@ func (p *streamParser) ParseLine(line string) error {
 			return p.parseItem(message)
 		case eventError:
 			return p.parseNotice(message)
+		case eventTurnCompleted:
+			return p.parseTurnCompleted(message)
+		case eventTurnFailed:
+			return p.parseTurnFailed(message)
 		}
 	}
 
@@ -490,7 +570,14 @@ func (p *streamParser) parseItem(message providerMessage) error {
 		_ = json.Unmarshal(message.Item, &item)
 	}
 	switch item.Type {
+	case itemAgentMessage:
+		// The newer vocabulary's reply. Each one replaces the last, as the older
+		// vocabulary's agent_message does, so the turn's answer is its last.
+		return p.parseAgentMessage(providerMessage{Type: item.Type, Message: p.redactor.Redact(item.Text)})
 	case itemError:
+		// A warning the CLI carries on past — a recorded one named configuration
+		// settings it ignored, and the turn then completed. It is recorded and
+		// does not end the turn; a turn that fails says so with turn.failed.
 		return p.emit(execution.EventProcessOutput, map[string]any{
 			"provider_type": message.Type,
 			"item_type":     item.Type,
@@ -499,6 +586,44 @@ func (p *streamParser) parseItem(message providerMessage) error {
 	default:
 		return p.parseUnrecognized(message.Type + " (" + item.Type + " item)")
 	}
+}
+
+// parseTurnCompleted is the newer vocabulary's successful ending. It carries no
+// text, so the reply is the last agent_message item before it, and it carries
+// the turn's usage, which is written under the harness's names and also kept
+// as the provider wrote it.
+func (p *streamParser) parseTurnCompleted(message providerMessage) error {
+	if len(message.TurnUsage) > 0 {
+		var usage turnUsage
+		if json.Unmarshal(message.TurnUsage, &usage) == nil {
+			if mapped, measured := usage.harnessUsage(); measured {
+				p.result.Usage = mapped
+				p.providerUsage = message.TurnUsage
+			}
+		}
+	}
+	return p.parseTerminal(message, "", false)
+}
+
+// parseTurnFailed is the newer vocabulary's failed ending. Its prose is the
+// error object's message when it has one, and the raw object otherwise, so a
+// shape nobody recorded still reaches the dialect and the record.
+func (p *streamParser) parseTurnFailed(message providerMessage) error {
+	text := ""
+	if len(message.TurnError) > 0 {
+		var failure struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(message.TurnError, &failure) == nil && strings.TrimSpace(failure.Message) != "" {
+			text = failure.Message
+		} else {
+			text = string(message.TurnError)
+		}
+	}
+	if strings.TrimSpace(text) == "" {
+		text = message.Message
+	}
+	return p.parseTerminal(message, p.redactor.Redact(text), true)
 }
 
 func (p *streamParser) parseAgentMessage(message providerMessage) error {
@@ -567,6 +692,9 @@ func (p *streamParser) parseTerminal(message providerMessage, text string, faile
 	if len(p.result.Usage) > 0 {
 		payload["usage"] = json.RawMessage(p.result.Usage)
 	}
+	if len(p.providerUsage) > 0 {
+		payload["provider_usage"] = p.providerUsage
+	}
 	return p.emit(eventType, payload)
 }
 
@@ -575,7 +703,7 @@ func (p *streamParser) parseTerminal(message providerMessage, text string, faile
 // recorded as the anomaly it is and never replaces the first.
 func (p *streamParser) recordAfterTerminal(message providerMessage) error {
 	payload := map[string]any{"provider_type": message.Type}
-	if message.Type == eventTaskComplete || message.Type == eventError {
+	if message.Type == eventTaskComplete || message.Type == eventError || message.Type == eventTurnCompleted || message.Type == eventTurnFailed {
 		payload["anomaly"] = "terminal_after_terminal"
 	}
 	return p.emit(execution.EventProcessOutput, payload)

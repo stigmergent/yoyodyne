@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a0f87c-cdff-7233-adc4-8d2078a8ec52"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Codex is ignoring 2 unrecognized configuration settings. Check for typos or deprecated settings.\n  user (~/.codex/config.toml): `mcp_servers.anchor-mcp.transport` is ignored.\n  user (~/.codex/config.toml): `mcp_servers.obsidian.transport` is ignored."}}
+{"type":"item.completed","item":{"id":"item_1","type":"error","message":"Codex is ignoring 2 unrecognized configuration settings. Check for typos or deprecated settings.\n  user (~/.codex/config.toml): `mcp_servers.anchor-mcp.transport` is ignored.\n  user (~/.codex/config.toml): `mcp_servers.obsidian.transport` is ignored."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"ready"}}
+{"type":"turn.completed","usage":{"input_tokens":16304,"cached_input_tokens":13184,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}
