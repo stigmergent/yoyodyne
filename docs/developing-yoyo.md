@@ -34,7 +34,8 @@ developer records in its worktree, or your own hand — where the variable is
 not set and the whole module is what should run. An explicitly empty
 `RACE_PACKAGES` is the harness saying the change touches no Go package, and
 the target says so and passes. The check
-stage as a whole is bounded by `execution.check_stage_timeout`;
+stage as a whole is bounded by `execution.check_stage_timeout`, scaled for
+the machine's load;
 [what a whole check stage may cost](configuration.md#what-a-whole-check-stage-may-cost)
 is the arithmetic, and [where the whole suite runs](configuration.md#where-the-whole-suite-runs)
 is the arrangement.

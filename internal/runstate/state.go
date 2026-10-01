@@ -426,9 +426,18 @@ func (v VerificationExecution) Validate() error {
 // attempt's stage is not kept beside it.
 type CheckStage struct {
 	StartedAt time.Time `json:"started_at"`
-	// BoundSeconds is execution.check_stage_timeout as the stage was given it,
-	// in seconds for the reason every other span on the record is.
+	// BoundSeconds is the bound in force for the stage, in seconds for the
+	// reason every other span on the record is: execution.check_stage_timeout
+	// scaled for the machine's load the way a local Git command's budget is.
 	BoundSeconds int64 `json:"bound_seconds"`
+	// ConfiguredSeconds is execution.check_stage_timeout as configured, before
+	// the load scaled it, and Load and Cores are the reading that scaled it: the
+	// largest one-minute load average seen as a check began, and the cores it was
+	// read against. A stage whose load could not be read records no Cores, and
+	// a record written before the bound scaled records none of the three.
+	ConfiguredSeconds int64   `json:"configured_seconds,omitempty"`
+	Load              float64 `json:"load,omitempty"`
+	Cores             int     `json:"cores,omitempty"`
 	// Command is the check the stage is on, or the last one it ran.
 	Command string `json:"command,omitempty"`
 	// FinishedAt and ElapsedSeconds are written when the stage ends, however it
@@ -479,6 +488,12 @@ func (c CheckStage) Validate() error {
 	}
 	if c.ElapsedSeconds < 0 {
 		problems = append(problems, errors.New("elapsed_seconds cannot be negative"))
+	}
+	if c.ConfiguredSeconds < 0 || (c.ConfiguredSeconds > 0 && c.ConfiguredSeconds > c.BoundSeconds) {
+		problems = append(problems, errors.New("configured_seconds must be positive and no more than the bound the load scaled it to"))
+	}
+	if c.Load < 0 || c.Cores < 0 {
+		problems = append(problems, errors.New("load and cores cannot be negative"))
 	}
 	if c.FinishedAt != nil && c.FinishedAt.Before(c.StartedAt) {
 		problems = append(problems, errors.New("finished_at cannot precede started_at"))
@@ -556,6 +571,39 @@ func (c CheckStage) Bound() time.Duration {
 	return time.Duration(c.BoundSeconds) * time.Second
 }
 
+// Configured is execution.check_stage_timeout as configured, and the bound
+// itself on a record that predates the load scaling it.
+func (c CheckStage) Configured() time.Duration {
+	if c.ConfiguredSeconds <= 0 {
+		return c.Bound()
+	}
+	return time.Duration(c.ConfiguredSeconds) * time.Second
+}
+
+// Scaled reports a bound the machine's load raised above the configured figure.
+func (c CheckStage) Scaled() bool {
+	return c.Bound() > c.Configured()
+}
+
+// LoadSays names the load reading the bound was scaled by, in the words every
+// surface uses for it, and is empty where the load could not be read.
+func (c CheckStage) LoadSays() string {
+	if c.Cores <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("a one-minute load average of %.1f on %d cores", c.Load, c.Cores)
+}
+
+// BoundSays says the bound in force beside the configured figure: the bound
+// alone where the load did not raise it, and where it did, the configured
+// figure and the load that scaled it.
+func (c CheckStage) BoundSays() string {
+	if !c.Scaled() {
+		return describeSpan(c.Bound())
+	}
+	return fmt.Sprintf("%s (%s configured, scaled for %s)", describeSpan(c.Bound()), describeSpan(c.Configured()), c.LoadSays())
+}
+
 // Running reports a stage that has started and not ended.
 func (c CheckStage) Running() bool {
 	return c.FinishedAt == nil
@@ -581,7 +629,7 @@ func (c CheckStage) SpentBy(now time.Time) time.Duration {
 // Describe says where the stage stands, in the words every surface uses for
 // it: what it has spent of its bound, and which check it is on.
 func (c CheckStage) Describe(now time.Time) string {
-	said := fmt.Sprintf("checks: %s of %s", describeSpan(c.SpentBy(now)), describeSpan(c.Bound()))
+	said := fmt.Sprintf("checks: %s of %s", describeSpan(c.SpentBy(now)), c.BoundSays())
 	if c.Command != "" {
 		switch {
 		case c.StoppedAtBound:
