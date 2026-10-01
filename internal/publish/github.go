@@ -665,6 +665,114 @@ func (g GitHub) State(ctx context.Context, head string) (PullRequest, error) {
 	return found, nil
 }
 
+// MaxStatesPerQuery bounds how many branches one States query asks about. Each
+// branch is one aliased field of a single GraphQL query, and the forge charges a
+// query by the nodes it may return, so a bound keeps one query well inside the
+// forge's per-query limits whatever the history holds.
+const MaxStatesPerQuery = 50
+
+// States reports what the forge says about the pull request of each branch
+// named, in one GraphQL query rather than one listing per branch: the answer for
+// each branch is the one State gives — the latest request the branch carries, in
+// any state, with a request the merge queue has taken read as a merge the forge
+// holds. A branch with no request is absent from the answer rather than an
+// error, because in a batch it is one branch's answer and not the query's.
+//
+// A query the forge does not answer is an error for the whole batch: nothing in
+// it was answered, and the caller asks again next time.
+func (g GitHub) States(ctx context.Context, heads []string) (map[string]PullRequest, error) {
+	answered := make(map[string]PullRequest, len(heads))
+	if len(heads) == 0 {
+		return answered, nil
+	}
+	if len(heads) > MaxStatesPerQuery {
+		return nil, fmt.Errorf("asked about %d branches in one query, and one query asks about at most %d", len(heads), MaxStatesPerQuery)
+	}
+	variables := make([]string, 0, len(heads))
+	fields := make([]string, 0, len(heads))
+	args := []string{}
+	for index, head := range heads {
+		if err := validateArgument("head branch", head); err != nil {
+			return nil, err
+		}
+		variables = append(variables, fmt.Sprintf("$h%d: String!", index))
+		// The ordering is the listing's own, so the request answered for a branch
+		// carrying more than one is the one State would have answered with.
+		fields = append(fields, fmt.Sprintf(`h%d: pullRequests(headRefName: $h%d, states: [OPEN, CLOSED, MERGED], first: 1, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { number url state mergedAt headRefOid autoMergeRequest { mergeMethod } mergeCommit { oid } isInMergeQueue } }`, index, index))
+		// -f, not -F: a branch name is passed as the string it is, never read as a
+		// number, a boolean, or a file to load.
+		args = append(args, "-f", fmt.Sprintf("h%d=%s", index, head))
+	}
+	query := fmt.Sprintf("query($owner: String!, $name: String!, %s) {\n  repository(owner: $owner, name: $name) {\n    %s\n  }\n}",
+		strings.Join(variables, ", "), strings.Join(fields, "\n    "))
+	stdout, err := g.graphql(ctx, fmt.Sprintf("ask the forge about the pull requests of %d branch(es)", len(heads)),
+		append([]string{"-f", "query=" + query, "-F", "owner={owner}", "-F", "name={repo}"}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	var reported struct {
+		Data struct {
+			Repository map[string]*struct {
+				Nodes []struct {
+					Number           int    `json:"number"`
+					URL              string `json:"url"`
+					State            string `json:"state"`
+					MergedAt         string `json:"mergedAt"`
+					HeadRefOid       string `json:"headRefOid"`
+					AutoMergeRequest *struct {
+						MergeMethod string `json:"mergeMethod"`
+					} `json:"autoMergeRequest"`
+					MergeCommit *struct {
+						OID string `json:"oid"`
+					} `json:"mergeCommit"`
+					IsInMergeQueue *bool `json:"isInMergeQueue"`
+				} `json:"nodes"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &reported); err != nil {
+		return nil, fmt.Errorf("decode the pull requests of %d branch(es): %w", len(heads), err)
+	}
+	if reported.Data.Repository == nil {
+		return nil, fmt.Errorf("the forge's answer about the pull requests of %d branch(es) names no repository", len(heads))
+	}
+	for index, head := range heads {
+		connection, present := reported.Data.Repository[fmt.Sprintf("h%d", index)]
+		if !present || connection == nil {
+			return nil, fmt.Errorf("the forge's answer does not say whether branch %s has a pull request", head)
+		}
+		if len(connection.Nodes) == 0 {
+			continue
+		}
+		one := connection.Nodes[0]
+		if one.Number <= 0 {
+			return nil, fmt.Errorf("pull request for %s reported no number", head)
+		}
+		found := PullRequest{
+			Number:     one.Number,
+			URL:        one.URL,
+			State:      one.State,
+			Merged:     strings.EqualFold(one.State, "MERGED") || strings.TrimSpace(one.MergedAt) != "",
+			HeadCommit: strings.TrimSpace(one.HeadRefOid),
+			AutoMerge:  one.AutoMergeRequest != nil,
+		}
+		if one.MergeCommit != nil {
+			found.MergeCommit = strings.TrimSpace(one.MergeCommit.OID)
+		}
+		// The queue is read as State reads it: an open request with no auto-merge
+		// that the queue holds is a merge the forge is holding, and an answer that
+		// does not say is an error rather than a drop.
+		if !found.Merged && !found.AutoMerge && strings.EqualFold(found.State, "OPEN") {
+			if one.IsInMergeQueue == nil {
+				return nil, fmt.Errorf("the forge's answer about pull request %d does not say whether it is in the merge queue", one.Number)
+			}
+			found.AutoMerge = *one.IsInMergeQueue
+		}
+		answered[head] = found
+	}
+	return answered, nil
+}
+
 // ListOpen reports every pull request the forge holds open for the configured
 // repository, whichever branch each carries and whoever opened it. It is the
 // reading the forge-hygiene pass takes: what the harness knows about its own

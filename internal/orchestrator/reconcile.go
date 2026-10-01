@@ -209,6 +209,10 @@ type Reconciler struct {
 	// sweep verb does. A queued head is put back at its promotion only by a sweep
 	// that will host it; any other pass leaves the merge queued for one that will.
 	HostsRuns bool
+	// Forge tallies what this sweep asked the forge about its publications and
+	// how long the forge took, so a pass can say it. Optional: a sweep wired
+	// without it asks exactly the same questions and tallies nothing.
+	Forge *ForgeQuestions
 }
 
 // DefaultVanishedGrace is how long a run the harness stopped on time is left
@@ -338,11 +342,32 @@ func (r Reconciler) Reconcile(ctx context.Context) ([]Reconciliation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("discover outstanding runs: %w", err)
 	}
-	results := make([]Reconciliation, 0, len(outstanding))
-	for _, recorded := range outstanding {
-		results = append(results, r.reconcileRun(ctx, recorded))
+	// The runs whose settlement asks the forge nothing — a run whose process
+	// died, one a redeploy drain preserved, one stopped on time — are settled
+	// before the ones that wait on the forge's answer about a merge, so a slow or
+	// unanswering forge never holds the slots those runs keep. The results are
+	// reported in the store's order either way.
+	results := make([]Reconciliation, len(outstanding))
+	var askingForge []int
+	for index, recorded := range outstanding {
+		if asksForge(recorded) {
+			askingForge = append(askingForge, index)
+			continue
+		}
+		results[index] = r.reconcileRun(ctx, recorded)
+	}
+	for _, index := range askingForge {
+		results[index] = r.reconcileRun(ctx, outstanding[index])
 	}
 	return results, nil
+}
+
+// asksForge reports a run whose settlement may wait on the forge: a queued
+// merge, or a landing through a pull request nobody confirmed. It is read off
+// the listing only to order the settlements; each is still decided under its
+// own lease from the record as it then stands.
+func asksForge(state runstate.State) bool {
+	return queuedMerge(state) || unconfirmedLanding(state)
 }
 
 // reconcileRun takes the run's lease and settles what it finds under it. The
@@ -738,7 +763,7 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 			"run %s is waiting on the queued merge of pull request %d, and reconciliation has no forge access to ask about it",
 			state.RunID, published.Number)
 	}
-	observed, err := r.Publisher.State(ctx, published.Branch)
+	observed, err := r.askState(ctx, published.Branch)
 	if err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("ask the forge about the queued merge for run %s: %w", state.RunID, err)
 	}
@@ -1023,7 +1048,7 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 			"run %s was landing its change on %s through its pull request, and reconciliation has no forge access to ask what became of it",
 			state.RunID, target)
 	}
-	observed, err := r.Publisher.State(ctx, state.Branch)
+	observed, err := r.askState(ctx, state.Branch)
 	if err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("ask the forge about the interrupted landing of run %s: %w", state.RunID, err)
 	}
