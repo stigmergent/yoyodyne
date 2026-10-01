@@ -568,7 +568,7 @@ func TestAHoldReadWithoutTheTriageRecordSaysNothingWasWiredToReadIt(t *testing.T
 // nothingDecided is the reading of an item nobody has decided anything about,
 // which is every item in the fixtures that predate the two holds being told
 // apart.
-func nothingDecided(string, string) (bool, string) { return false, "" }
+func nothingDecided(string, runstate.State) decidedStanding { return decidedStanding{} }
 
 // decisions is a triage record readable for the items it names, and empty for
 // every other — which is what an item nothing has been decided about actually
@@ -860,5 +860,35 @@ func TestAFirstStallIsHeldAsTheHarnessesMoveUntilItsContinuationIsSpent(t *testi
 	}
 	if mover := StoppageMover(stall, nil, false); mover != MoverDevelopmentManager {
 		t.Fatalf("StoppageMover() = %s, want the development manager", mover)
+	}
+}
+
+// A repair the harness has handed back to its run is not still the harness's to
+// carry out when the run stops again. The supervisor's periodic pass
+// (yoyodyne-ifd.413) was repaired on 2026-09-30, approved, and stopped at its
+// promotion when its replay conflicted; its hold went on naming the harness,
+// because two granted rounds stood against one judged, and nobody was placed to
+// decide the second repair (yoyodyne-8ff). Read with the run's own record, the
+// hold is the development manager's.
+func TestAStopAfterACarriedOutRepairIsTheDevelopmentManagersMove(t *testing.T) {
+	t.Parallel()
+
+	decided := time.Date(2026, 9, 30, 20, 32, 55, 0, time.UTC)
+	stopped := preservedRun("run-05654a9d", "yoyodyne-ifd.413", decided.Add(41*time.Minute))
+	repair := decisions(map[string]runstate.TriageCounters{stopped.WorkItemID: {
+		RepairGrants: 1, GrantedRounds: 2, CommittedRounds: 2, ReviewRounds: 1,
+		Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRepair, RunID: stopped.RunID, DecidedAt: decided}},
+	}})
+
+	waiting := heldForAPerson([]runstate.State{stopped}, nil, repair, asRecorded)
+	if !waiting.Decided(stopped.WorkItemID) {
+		t.Fatalf("the hold says %q before the repair was handed back, want the harness's carry-out", heldReason(t, waiting, stopped.WorkItemID))
+	}
+
+	stopped.RepairContinuations = []runstate.RepairContinuation{{GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), Reason: "Triaged: repair"}}
+	held := heldForAPerson([]runstate.State{stopped}, nil, repair, asRecorded)
+	reason := heldReason(t, held, stopped.WorkItemID)
+	if held.Decided(stopped.WorkItemID) || !strings.Contains(reason, awaitingDecisionClause) || strings.Contains(reason, awaitingCarryOutClause) {
+		t.Fatalf("the hold says %q (decided %v), want the development manager named once the repair was carried out", reason, held.Decided(stopped.WorkItemID))
 	}
 }

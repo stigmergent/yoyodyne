@@ -3713,6 +3713,23 @@ func (s State) CarriedOutRepairAttempts() int {
 	return carried
 }
 
+// RepairContinuedSince reports a repair grant handed back to this run at or
+// after a moment: a continuation somebody decided, which the environment did
+// not refuse. It is what says a repair decided at that moment was carried out,
+// counted the way CarriedOutRepairAttempts counts it — a returned round bought
+// nothing, and the harness carrying on a stall itself spends no grant.
+func (s State) RepairContinuedSince(decidedAt time.Time) bool {
+	for _, continuation := range s.RepairContinuations {
+		if continuation.Returned || continuation.ByHarness {
+			continue
+		}
+		if !continuation.ContinuedAt.Before(decidedAt) {
+			return true
+		}
+	}
+	return false
+}
+
 // ContinuedStall reports a run the triage carry-out made live again to carry on
 // an attempt the harness had stopped before anything was returned to its
 // developer. It is what such a run is recognized by afterwards, and it has to

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -191,6 +192,78 @@ func TestARearmOfAPublicationItsRunNeverPromotedIsRefusedAloudAtTheNextPull(t *t
 	docketed := refusedOnTheDocket(t, harness)
 	if !docketed.Critical() || !strings.Contains(docketed.CarryOut.Refusal, "recorded no promotion") {
 		t.Fatalf("docketed = %+v, want the refused re-arm urgent on the docket", docketed)
+	}
+}
+
+// Once the harness has refused a re-arm it cannot make, nothing anybody reads
+// about the item says the harness is carrying it out. The decision was recorded
+// a day before the pull that refuses it, against a run that never promoted —
+// the supervisor's periodic pass (yoyodyne-ifd.413), whose re-arm was refused
+// onto its record from 2026-09-29 while its held line and its docket entry both
+// went on naming the harness, so nobody was placed to record the re-run it
+// needed (yoyodyne-8ff). The refusal is on the item, the docket entry is live
+// and names her as the next mover, and the held line carries the refusal and is
+// hers rather than the harness's.
+func TestARefusedRearmIsHeldAsTheDevelopmentManagersMoveWithTheRefusalSaid(t *testing.T) {
+	t.Parallel()
+
+	harness := newRearmHarness(t)
+	unpromoted := harness.state
+	published := *unpromoted.PullRequest
+	published.MergeMethod = ""
+	unpromoted.PullRequest = &published
+	unpromoted.Integration = nil
+	unpromoted.PublishFailure = ""
+	unpromoted.Blocker = "Yoyodyne stopped this item: its target branch and the one on the remote have diverged, so the change was never promoted."
+	if err := harness.runs.Save(unpromoted); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	harness.decide(t)
+	harness.docket.close(harness.publication(), runstate.TriageDecisionRearm, docketedNow)
+
+	// Before any pull, the decision is the harness's to carry out, and every
+	// reading says so.
+	before, err := readmodel.HeldForAPerson(context.Background(), harness.runs, harness.runs.Triage(), nil)
+	if err != nil {
+		t.Fatalf("HeldForAPerson() before the pull error = %v", err)
+	}
+	if !before.Decided(harness.state.WorkItemID) {
+		reason, _ := before.Reason(harness.state.WorkItemID)
+		t.Fatalf("before any pull the hold reads %q, want it the harness's carry-out", reason)
+	}
+
+	watch := harness.carryOut(nil)
+	watch.Clock = laterClock{after: 24 * time.Hour}
+	carried, err := watch.CarryRearms(context.Background(), false)
+	if err != nil || len(carried) != 1 || carried[0].Carried || !strings.Contains(carried[0].Problem, "recorded no promotion") {
+		t.Fatalf("CarryRearms() = %+v, %v; want the day-old re-arm refused for the missing promotion", carried, err)
+	}
+	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+	if _, refused := counters.RefusedCarryOut(harness.state.RunID); !refused || counters.AwaitingCarryOut(harness.state.RunID) {
+		t.Fatalf("carry-outs = %+v; want the refusal standing and nothing left for the harness to carry out", counters.CarryOuts)
+	}
+
+	docketed := refusedOnTheDocket(t, harness)
+	rendered := docketed.Render()
+	if docketed.Counters.AwaitingCarryOut() || !docketed.Counters.Standing.Refused ||
+		!strings.Contains(rendered, "Next mover: you") || strings.Contains(rendered, "Next mover: the harness") {
+		t.Fatalf("docketed entry awaiting=%v renders:\n%s\nwant it on the docket naming the development manager", docketed.Counters.AwaitingCarryOut(), rendered)
+	}
+
+	held, err := readmodel.HeldForAPerson(context.Background(), harness.runs, harness.runs.Triage(), nil)
+	if err != nil {
+		t.Fatalf("HeldForAPerson() error = %v", err)
+	}
+	reason, holding := held.Reason(harness.state.WorkItemID)
+	if !holding || held.Decided(harness.state.WorkItemID) {
+		t.Fatalf("the hold reads %q (holding %v, decided %v), want it held as the development manager's move", reason, holding, held.Decided(harness.state.WorkItemID))
+	}
+	if !strings.Contains(reason, "recorded no promotion") || !strings.Contains(reason, "re-run") ||
+		!strings.Contains(reason, "hers to move rather than the harness's") || strings.Contains(reason, "outstanding is the harness carrying that decision out") {
+		t.Fatalf("the hold reads %q, want the refusal said and the development manager named", reason)
 	}
 }
 

@@ -761,9 +761,15 @@ type Standing struct {
 	// Repair is the decision being a repair grant, which is the one kind whose
 	// carrying out the decision itself cannot report.
 	Repair bool `json:"repair,omitempty"`
-	// GrantOutstanding is the item standing committed to rounds it has not spent,
-	// which is what says a granted repair has not been handed back yet.
+	// GrantOutstanding is a granted repair not handed back to its run yet: the
+	// item standing committed to rounds it has not spent, where the run's own
+	// record shows no continuation since the decision.
 	GrantOutstanding bool `json:"grant_outstanding,omitempty"`
+	// Refused is the harness having tried to carry this decision out since it was
+	// made and been refused by a gate, with the refusal standing on the item's
+	// record. A decision waiting on the operator's pause or hold, or one no pass
+	// has attempted yet, is not refused.
+	Refused bool `json:"refused,omitempty"`
 }
 
 // AwaitingCarryOut reports a decision standing about one stoppage that the
@@ -796,8 +802,16 @@ type Standing struct {
 // A re-run produces a fresh run, and once that run stops it is the latest one the
 // item has, so the hold names it instead and nothing stands recorded about it. A
 // re-arm the forge then honours settles the publication and lifts the hold.
+//
+// A decision the harness has tried to carry out and been refused is not one it
+// still has to act on: what the refusal asks for is hers, which is why the docket
+// leads with it (Entry.Critical). Naming the harness over it is how the re-arms
+// of the supervisor's periodic pass (yoyodyne-ifd.413) and the maintenance-duties
+// item (yoyodyne-ifd.434.10) were refused onto their records from 2026-09-29 while
+// every line read about either still said the harness was carrying them out, and
+// nobody was placed to record the re-run each needed (yoyodyne-8ff).
 func AwaitingCarryOut(standing Standing) bool {
-	if !standing.Decided || !standing.Spends {
+	if !standing.Decided || !standing.Spends || standing.Refused {
 		return false
 	}
 	if standing.Repair {
@@ -2086,6 +2100,12 @@ func (e Entry) renderNextMover() string {
 	}
 	if e.CountersProblem != "" {
 		return "      Next mover: unknown — " + gone + "this item's triage record could not be read, so whether anything is already decided about it cannot be said here.\n"
+	}
+	// A decision the harness was refused carrying out is hers again, whatever it
+	// was: the refusal below says what it is waiting for, and a re-arm refused for a
+	// run whose record cannot describe the merge is answered only by a re-run.
+	if e.Counters.Standing.Refused {
+		return "      Next mover: you — " + gone + "the harness tried to carry out the decision recorded about this stoppage and was refused, as the carry-out below says, so it is not the harness's to act on: what the refusal asks for, or a different decision in its place, is yours.\n"
 	}
 	if e.Counters.AwaitingCarryOut() {
 		return "      Next mover: the harness — " + gone + "a decision about this stoppage is already recorded and has not been carried out, so what is outstanding is the carry-out rather than a decision.\n"

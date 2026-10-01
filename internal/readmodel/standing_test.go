@@ -1647,7 +1647,10 @@ func TestTheHeldWorkLineCountsUnattemptedDecisionsBesideRefusedOnes(t *testing.T
 	if standing.CarryOutsRefused != 1 || standing.CarryOutsUnattempted != 1 {
 		t.Fatalf("standing counts %d refused and %d unattempted, want one of each", standing.CarryOutsRefused, standing.CarryOutsUnattempted)
 	}
-	want := "Not startable (3 of 3 admitted items; 3 await the harness carrying out a decision already recorded; decisions not carried out: 1 refused, 1 unattempted):\n"
+	// The refused one is the development manager's to answer rather than the
+	// harness's to carry out, so it is counted with the decisions waiting on her
+	// (yoyodyne-8ff); the other two are still the harness's.
+	want := "Not startable (3 of 3 admitted items; 1 awaits the development manager's decision, 2 await the harness carrying out a decision already recorded; decisions not carried out: 1 refused, 1 unattempted):\n"
 	if rendered := standing.Render(); !strings.Contains(rendered, want) {
 		t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
 	}

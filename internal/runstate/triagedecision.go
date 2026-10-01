@@ -281,12 +281,36 @@ func (c TriageCounters) LatestDecision() (TriageDecision, bool) {
 // about, and that one is undecided whatever the record says about the run.
 func (c TriageCounters) Standing(runID string) triage.Standing {
 	decision, decided := c.DecisionOf(runID)
+	_, refused := c.RefusedCarryOut(runID)
 	return triage.Standing{
 		Decided:          decided && !decision.InFlight(),
 		Spends:           decision.Spends(),
 		Repair:           decision.Decision == TriageDecisionRepair,
 		GrantOutstanding: c.GrantOutstanding(),
+		Refused:          refused,
 	}
+}
+
+// StandingOf is Standing read with the stopped run's own record beside it, which
+// is what answers whether a granted repair was handed back. The item's grant
+// counter cannot: it turns into counted rounds only as the attempts it bought
+// are judged, so a repaired run approved in fewer rounds than it was granted, and
+// then stopped at its promotion, left the item committed to rounds nothing would
+// ever spend — and the supervisor's periodic pass (yoyodyne-ifd.413) read as the
+// harness's to carry out on 2026-09-30 after its repair had been carried out
+// (yoyodyne-8ff). A continuation of the run made since the decision is the
+// carry-out itself, and the carry-out reads it the same way: one decision buys
+// one continuation and no more.
+func (c TriageCounters) StandingOf(run State) triage.Standing {
+	standing := c.Standing(run.RunID)
+	if !standing.Repair || !standing.GrantOutstanding {
+		return standing
+	}
+	decision, _ := c.DecisionOf(run.RunID)
+	if run.RepairContinuedSince(decision.DecidedAt) {
+		standing.GrantOutstanding = false
+	}
+	return standing
 }
 
 // AwaitingCarryOut reports a decision standing about one stopped run that the
@@ -295,6 +319,12 @@ func (c TriageCounters) Standing(runID string) triage.Standing {
 // rather than assembling the standing itself.
 func (c TriageCounters) AwaitingCarryOut(runID string) bool {
 	return triage.AwaitingCarryOut(c.Standing(runID))
+}
+
+// AwaitingCarryOutOf is AwaitingCarryOut with the run's own record read beside
+// the ledger, by StandingOf.
+func (c TriageCounters) AwaitingCarryOutOf(run State) bool {
+	return triage.AwaitingCarryOut(c.StandingOf(run))
 }
 
 // RecordDecision records a triage decision that spends nothing: a re-scope, a

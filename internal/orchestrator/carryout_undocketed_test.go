@@ -47,7 +47,7 @@ func joined(t *testing.T, harness *rerunHarness) []triage.Entry {
 		t.Fatalf("List() error = %v", err)
 	}
 	docketer := Docketer{Decisions: harness.runs.Triage(), Reruns: harness.reruns}
-	if problems := docketer.joinDecisions(entries, docketedRunsOf(entries), nil); len(problems) != 0 {
+	if problems := docketer.joinDecisions(entries, docketedRunsOf(entries), nil, nil); len(problems) != 0 {
 		t.Fatalf("joinDecisions() problems = %v", problems)
 	}
 	return entries
@@ -283,7 +283,7 @@ func TestAFindingIsNotShownAsUndocketedForARunTheWholeDocketHolds(t *testing.T) 
 	docketer := Docketer{Decisions: harness.runs.Triage(), Reruns: harness.reruns}
 	whole := docketedRunsOf(entries)
 	whole[unrecordedRunID] = true
-	if problems := docketer.joinDecisions(entries, whole, nil); len(problems) != 0 {
+	if problems := docketer.joinDecisions(entries, whole, nil, nil); len(problems) != 0 {
 		t.Fatalf("joinDecisions() problems = %v", problems)
 	}
 	if entries[0].CarryOut != nil {

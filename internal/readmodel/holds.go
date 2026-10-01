@@ -171,22 +171,32 @@ func standingStops(decisions Decisions) latestStop {
 // standing is what triage has decided about one item's stoppage: whether a
 // decision the harness carries out stands about it, and what stopped this
 // reading finding out.
-type standing func(workItemID, runID string) (decided bool, problem string)
+type standing func(workItemID string, run runstate.State) decidedStanding
+
+// decidedStanding is one reading of a stoppage's triage record. carryOut is a
+// decision the harness has still to act on; refused is a decision it tried to
+// act on and a gate refused, which is the development manager's again and is
+// held as hers; problem is what stopped the reading.
+type decidedStanding struct {
+	carryOut bool
+	refused  *runstate.TriageCarryOut
+	problem  string
+}
 
 // standingDecisions reads each item's triage record once, however many of its
 // runs are held: one item's stoppages share one record, and a queue of stopped
 // runs would otherwise open the same file for each of them.
 func standingDecisions(decisions Decisions) standing {
 	if decisions == nil {
-		return func(string, string) (bool, string) {
-			return false, "nothing was wired to read what triage has decided about it"
+		return func(string, runstate.State) decidedStanding {
+			return decidedStanding{problem: "nothing was wired to read what triage has decided about it"}
 		}
 	}
 	read := make(map[string]runstate.TriageCounters)
 	failed := make(map[string]string)
-	return func(workItemID, runID string) (bool, string) {
+	return func(workItemID string, run runstate.State) decidedStanding {
 		if problem, known := failed[workItemID]; known {
-			return false, problem
+			return decidedStanding{problem: problem}
 		}
 		counters, seen := read[workItemID]
 		if !seen {
@@ -194,7 +204,7 @@ func standingDecisions(decisions Decisions) standing {
 			if err != nil {
 				problem := fmt.Sprintf("what triage has decided about it could not be read: %v", err)
 				failed[workItemID] = problem
-				return false, problem
+				return decidedStanding{problem: problem}
 			}
 			read[workItemID], counters = opened, opened
 		}
@@ -202,7 +212,11 @@ func standingDecisions(decisions Decisions) standing {
 		// manager's docket reads too: one item given two answers to whether a
 		// carry-out is outstanding is one item given two next movers, which is a
 		// disagreement only the operator could adjudicate.
-		return counters.AwaitingCarryOut(runID), ""
+		reading := decidedStanding{carryOut: counters.AwaitingCarryOutOf(run)}
+		if refused, found := counters.RefusedCarryOut(run.RunID); found {
+			reading.refused = &refused
+		}
+		return reading
 	}
 }
 
@@ -224,15 +238,29 @@ const (
 //
 // since is when the item came to be held, which is the run's stop for every
 // hold this closes.
-func heldFor(runID, account string, decided bool, problem string, since time.Time) backlog.Hold {
+//
+// A decision the harness was refused carrying out is held as the development
+// manager's, with the refusal said: it is not the harness's to act on, and a line
+// naming the harness over it is one nobody acts on (yoyodyne-8ff).
+func heldFor(runID, account string, reading decidedStanding, since time.Time) backlog.Hold {
 	switch {
-	case problem != "":
-		return backlog.Hold{Reason: account + "; " + problem + ", so this is stated as a stoppage nobody has decided about", Since: since, RunID: runID}
-	case decided:
+	case reading.problem != "":
+		return backlog.Hold{Reason: account + "; " + reading.problem + ", so this is stated as a stoppage nobody has decided about", Since: since, RunID: runID}
+	case reading.refused != nil:
+		return backlog.Hold{Reason: account + "; " + refusedCarryOut(*reading.refused), Since: since, RunID: runID}
+	case reading.carryOut:
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	default:
 		return backlog.Hold{Reason: account + "; " + awaitingDecisionClause, Since: since, RunID: runID}
 	}
+}
+
+// refusedCarryOut closes a hold whose decision the harness was refused carrying
+// out: what was refused, why, what clears it, and that the move is the
+// development manager's.
+func refusedCarryOut(refused runstate.TriageCarryOut) string {
+	return fmt.Sprintf("the harness tried to carry out the %q the development manager decided and was refused by %s (%s, last at %s), so it is hers to move rather than the harness's: what clears it is %s",
+		refused.Decision, refused.Gate, strings.TrimSpace(refused.Refusal), refused.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(refused.Clears))
 }
 
 // stoppedAt is when a run stopped, which is when the item it was carrying came
@@ -307,8 +335,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 			reasons[workItemID] = backlog.Hold{Reason: redTargetPublication(run), Decided: true, Since: run.PullRequest.TargetRed.At}
 			continue
 		}
-		carryOut, problem := decided(workItemID, run.RunID)
-		reasons[workItemID] = heldFor(run.RunID, unmergedPublication(run), carryOut, problem, stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, unmergedPublication(run), decided(workItemID, run), stoppedAt(run))
 	}
 	// The stoppages, each looked at rather than read: a run whose change the
 	// repository still holds, a run whose change nothing could look for, and a run
@@ -326,8 +353,10 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		if found.Holds() {
 			return true
 		}
-		carryOut, _ := decided(run.WorkItemID, run.RunID)
-		return carryOut
+		// A decision the harness was refused carrying out still stands, so it holds
+		// the item as surely as one it has still to carry out.
+		reading := decided(run.WorkItemID, run)
+		return reading.carryOut || reading.refused != nil
 	}) {
 		found := looked[run.RunID]
 		preserved := found.Holds()
@@ -351,23 +380,23 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 			reasons[workItemID] = backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 			continue
 		}
-		carryOut, problem := decided(workItemID, run.RunID)
+		reading := decided(workItemID, run)
 		if run.IntegrationStop != nil {
-			reasons[workItemID] = heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), carryOut, problem, stoppedAt(run))
+			reasons[workItemID] = heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), reading, stoppedAt(run))
 			continue
 		}
 		// A first silent-stream stall nobody has decided about is the harness's to
 		// continue, with no decision to wait on: it is held as the harness's move,
 		// in words that say so rather than as a decision already recorded.
-		if preserved && !carryOut && problem == "" && run.HarnessContinuesStall() {
+		if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
 			reasons[workItemID] = backlog.Hold{Reason: preservedChange(run, found) + "; " + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 			continue
 		}
 		if !preserved {
-			reasons[workItemID] = heldFor(run.RunID, continuedStoppage(run), carryOut, problem, stoppedAt(run))
+			reasons[workItemID] = heldFor(run.RunID, continuedStoppage(run), reading, stoppedAt(run))
 			continue
 		}
-		reasons[workItemID] = heldFor(run.RunID, preservedChange(run, found), carryOut, problem, stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, preservedChange(run, found), reading, stoppedAt(run))
 	}
 	// A raise whose re-run the development manager has decided and the harness
 	// has still to carry out. The run that raised the item succeeded, so none of
@@ -383,8 +412,8 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		if _, held := reasons[workItemID]; held || !run.Status.Terminal() || !run.Escalated() {
 			continue
 		}
-		if carryOut, _ := decided(workItemID, run.RunID); carryOut {
-			reasons[workItemID] = heldFor(run.RunID, raiseRerun(run), true, "", stoppedAt(run))
+		if reading := decided(workItemID, run); reading.carryOut || reading.refused != nil {
+			reasons[workItemID] = heldFor(run.RunID, raiseRerun(run), reading, stoppedAt(run))
 		}
 	}
 	// The merged publications last. Only these know the change reached everywhere
@@ -394,8 +423,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool {
 		return outstandingPublication(run) && mergeConfirmed(run)
 	}) {
-		carryOut, problem := decided(workItemID, run.RunID)
-		reasons[workItemID] = heldFor(run.RunID, mergedPublication(run), carryOut, problem, stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, mergedPublication(run), decided(workItemID, run), stoppedAt(run))
 	}
 	// A stop the development manager decided, last, because it is only ever about
 	// the item's latest run and says the most about what to do with it. Such a run
