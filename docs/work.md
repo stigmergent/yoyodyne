@@ -1677,8 +1677,10 @@ beside what actually stopped the run.
 
 **A pass also fires whichever [recurring task](configuration.md#recurring-tasks)
 is due**, where a project has configured any — a role woken on a cadence to look
-at its own domain, rather than because something happened. At most one per pass,
-and every firing ends in a durable report that
+at its own domain, rather than because something happened. Its turns are taken
+beside the pass rather than inside it, in the role's own conversation, so a long
+pass holds neither the queue nor another role's firing, and every firing ends in
+a durable report that
 [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found) reads. A
 firing of a development manager's task carries the [triage
 docket](conversation.md#roles-asking-each-other-things) as it stands, read for
