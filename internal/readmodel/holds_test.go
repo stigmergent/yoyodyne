@@ -568,7 +568,7 @@ func TestAHoldReadWithoutTheTriageRecordSaysNothingWasWiredToReadIt(t *testing.T
 // nothingDecided is the reading of an item nobody has decided anything about,
 // which is every item in the fixtures that predate the two holds being told
 // apart.
-func nothingDecided(string, string) (bool, string) { return false, "" }
+func nothingDecided(string, runstate.State) decidedStanding { return decidedStanding{} }
 
 // decisions is a triage record readable for the items it names, and empty for
 // every other — which is what an item nothing has been decided about actually

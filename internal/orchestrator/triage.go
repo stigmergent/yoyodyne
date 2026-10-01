@@ -336,7 +336,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// out and for no other settled entry, since a re-scope, a wait, and an
 	// escalation are never attempted and have nothing to be stopped by.
 	listable, unlisted := listableDocket(entries, now)
-	problems = append(problems, d.joinDecisions(listable, docketedRunsOf(entries), publicationsOf(recorded))...)
+	problems = append(problems, d.joinDecisions(listable, docketedRunsOf(entries), publicationsOf(recorded), byID)...)
 	open, closed := openDocket(listable, now)
 	// One live entry per stopped run. The repeats are folded here, where every
 	// docket anybody reads is built, rather than rewritten on the log — so the
@@ -522,7 +522,7 @@ func (s standingDocket) dockets(key string, stoppedAt time.Time) bool {
 // the same as the runs of the entries handed here: those are the listable ones,
 // and a run whose only entry was left out of them is still a run the docket
 // holds, so a finding about it must not be shown as though it held none.
-func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]bool, published map[string]publicationRearms) []error {
+func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]bool, published map[string]publicationRearms, runs map[string]runstate.State) []error {
 	var problems []error
 	read := make(map[string]itemDecisions, len(entries))
 	for index := range entries {
@@ -552,7 +552,14 @@ func (d Docketer) joinDecisions(entries []triage.Entry, docketedRuns map[string]
 		if entry.Class == triage.ClassPublication {
 			publication = published[entry.RunID]
 		}
-		entry.Counters = d.counters(decisions.counters, entry.RunID, entry.Counters.RepairAttempts, len(decisions.claimed), publication)
+		// The run's own record is read beside the ledger, because it is what says a
+		// granted repair was handed back (TriageCounters.StandingOf); a run the
+		// listing does not hold is asked of the ledger alone.
+		run, recorded := runs[entry.RunID]
+		if !recorded {
+			run = runstate.State{RunID: entry.RunID}
+		}
+		entry.Counters = d.counters(decisions.counters, run, entry.Counters.RepairAttempts, len(decisions.claimed), publication)
 		entry.Rerun = rerunOf(*entry, decisions.claimed)
 		// Joined here and never written, exactly as the re-run above is: an override
 		// answers the escalation this entry produced, so it is always made after the
@@ -1995,12 +2002,13 @@ func publicationChecks(published runstate.PullRequest, state runstate.State) str
 // carries what has been decided and made about the one publication it describes
 // beside the item's total.
 //
-// runID is the stoppage the entry is about, and is what makes the standing below
-// this entry's own rather than the item's. An entry that names no run — an
+// run is the stoppage the entry is about, and is what makes the standing below
+// this entry's own rather than the item's; its record is what says a granted
+// repair was handed back to it. An entry that names no run — an
 // unready item, a dispatch that never became one — carries no standing, which is
 // the truth about it: nothing can have been decided about a stoppage that never
 // happened, however much the item has been decided about elsewhere.
-func (d Docketer) counters(ledger runstate.TriageCounters, runID string, repairAttempts, rerunsCarriedOut int, publication publicationRearms) triage.Counters {
+func (d Docketer) counters(ledger runstate.TriageCounters, run runstate.State, repairAttempts, rerunsCarriedOut int, publication publicationRearms) triage.Counters {
 	permitted := d.Caps.Overridden(ledger.Overrides)
 	return triage.Counters{
 		ReviewRounds:        ledger.ReviewRounds,
@@ -2037,7 +2045,7 @@ func (d Docketer) counters(ledger runstate.TriageCounters, runID string, repairA
 		// record the status surfaces read it from, by the same rule: an item that
 		// read as the harness's on the docket and as the development manager's on
 		// the status head would be one piece of work with two next movers.
-		Standing: ledger.Standing(runID),
+		Standing: ledger.StandingOf(run),
 	}
 }
 
@@ -2114,7 +2122,7 @@ func (d Docketer) recordedCounters(state runstate.State, publication publication
 	if err != nil {
 		return triage.Counters{}, fmt.Errorf("read what triage has recorded about %s: %w", state.WorkItemID, err)
 	}
-	return d.counters(ledger, state.RunID, state.RepairAttempts, 0, publication), nil
+	return d.counters(ledger, state, state.RepairAttempts, 0, publication), nil
 }
 
 // publicationsOf indexes what each run's record says about the publication it
@@ -2139,15 +2147,15 @@ func publicationsOf(recorded []runstate.State) map[string]publicationRearms {
 // to have been made about.
 func (d Docketer) unreadyCounters(workItemID string) (triage.Counters, string) {
 	if d.Decisions == nil {
-		return d.counters(runstate.TriageCounters{}, "", 0, 0, publicationRearms{}),
+		return d.counters(runstate.TriageCounters{}, runstate.State{}, 0, 0, publicationRearms{}),
 			"nothing was wired to read what triage has recorded about " + workItemID + ", so the figures beside this entry are the configured caps and no spend at all"
 	}
 	ledger, err := d.Decisions.Counters(workItemID)
 	if err != nil {
-		return d.counters(runstate.TriageCounters{}, "", 0, 0, publicationRearms{}),
+		return d.counters(runstate.TriageCounters{}, runstate.State{}, 0, 0, publicationRearms{}),
 			fmt.Sprintf("read what triage has recorded about %s: %v", workItemID, err)
 	}
-	return d.counters(ledger, "", 0, 0, publicationRearms{}), ""
+	return d.counters(ledger, runstate.State{}, 0, 0, publicationRearms{}), ""
 }
 
 func docketFindings(findings []runstate.Finding) []triage.Finding {

@@ -257,6 +257,21 @@ func (c TriageCounters) CarryOutOf(runID string) (TriageCarryOut, bool) {
 	return TriageCarryOut{}, false
 }
 
+// RefusedCarryOut is the refusal standing about the decision recorded about one
+// stopped run, and whether there is one: a finding about that same decision,
+// written since it was made, by a gate that refused the attempt rather than one
+// it waits on or one no pass reached. It is the finding CarryOutFindings counts
+// as refused, asked of one run.
+func (c TriageCounters) RefusedCarryOut(runID string) (TriageCarryOut, bool) {
+	decision, decided := c.DecisionOf(runID)
+	finding, found := c.CarryOutOf(runID)
+	if !decided || !found || finding.Decision != decision.Decision || finding.RefusedAt.Before(decision.DecidedAt) ||
+		finding.Waiting || finding.Unattempted {
+		return TriageCarryOut{}, false
+	}
+	return finding, true
+}
+
 // CarryOutFindings counts the findings standing about this item's decisions as
 // they stand now: how many a gate refused, and how many no pass attempted. A
 // finding about a decision since superseded is not counted, and neither is one
