@@ -3,6 +3,7 @@ package publish
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -1609,5 +1610,66 @@ func TestGitHubBranchChecksReadsEachCheckOnTheBranchesHead(t *testing.T) {
 	}
 	if _, err := (GitHub{Runner: runner}).BranchChecks(context.Background(), "--main"); err == nil {
 		t.Error("BranchChecks() of a branch starting with a dash returned no error")
+	}
+}
+
+// A sweep asks about many branches in one query rather than one listing each,
+// and reads each answer as State reads one: a merged request, an open one the
+// merge queue holds, an open one nothing holds, and a branch with no request at
+// all, which is absent from the answer rather than a failure of the batch.
+func TestGitHubStatesAsksAboutManyBranchesInOneQuery(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("api graphql", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"data":{"repository":{
+		"h0":{"nodes":[{"number":10,"url":"u10","state":"MERGED","mergedAt":"2026-09-29T00:00:00Z","headRefOid":"abc","autoMergeRequest":null,"mergeCommit":{"oid":"def"},"isInMergeQueue":false}]},
+		"h1":{"nodes":[{"number":11,"url":"u11","state":"OPEN","mergedAt":null,"headRefOid":"abd","autoMergeRequest":null,"mergeCommit":null,"isInMergeQueue":true}]},
+		"h2":{"nodes":[{"number":12,"url":"u12","state":"OPEN","mergedAt":null,"headRefOid":"abe","autoMergeRequest":null,"mergeCommit":null,"isInMergeQueue":false}]},
+		"h3":{"nodes":[]}}}}`})
+
+	heads := []string{"yoyodyne/a/1", "yoyodyne/b/2", "yoyodyne/c/3", "yoyodyne/d/4"}
+	states, err := (GitHub{Runner: runner}).States(context.Background(), heads)
+	if err != nil {
+		t.Fatalf("States() error = %v", err)
+	}
+	if queries := runner.matching("api graphql"); len(queries) != 1 {
+		t.Fatalf("queries = %v, want every branch asked about in one", queries)
+	}
+	if listings := runner.matching("pr list"); len(listings) != 0 {
+		t.Fatalf("listings = %v, want no branch listed on its own", listings)
+	}
+	query := strings.Join(runner.matching("api graphql")[0], " ")
+	for index, head := range heads {
+		if !strings.Contains(query, fmt.Sprintf("h%d=%s", index, head)) {
+			t.Errorf("query %q does not pass branch %s as a string variable", query, head)
+		}
+	}
+	if merged := states[heads[0]]; !merged.Merged || merged.MergeCommit != "def" || merged.Number != 10 {
+		t.Errorf("merged = %#v, want a merged request with its merge commit", merged)
+	}
+	if queued := states[heads[1]]; queued.Merged || !queued.AutoMerge {
+		t.Errorf("queued = %#v, want the merge queue read as a merge the forge holds", queued)
+	}
+	if open := states[heads[2]]; open.AutoMerge || open.State != "OPEN" {
+		t.Errorf("open = %#v, want an open request nothing holds", open)
+	}
+	if _, found := states[heads[3]]; found {
+		t.Errorf("a branch with no request was answered: %#v", states[heads[3]])
+	}
+
+	failed := &scriptedRunner{}
+	failed.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	failed.reply("api graphql", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 502"})
+	if _, err := (GitHub{Runner: failed}).States(context.Background(), heads); err == nil || !strings.Contains(err.Error(), "HTTP 502") {
+		t.Errorf("States() on an unanswered query error = %v, want the forge's words", err)
+	}
+
+	tooMany := make([]string, MaxStatesPerQuery+1)
+	for index := range tooMany {
+		tooMany[index] = fmt.Sprintf("yoyodyne/x/%d", index)
+	}
+	if _, err := (GitHub{Runner: &scriptedRunner{}}).States(context.Background(), tooMany); err == nil {
+		t.Error("States() asked about more branches than one query may")
 	}
 }

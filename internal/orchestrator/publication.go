@@ -157,11 +157,16 @@ func (r Reconciler) RecoverPublications(ctx context.Context) ([]PublicationRecov
 		return recovered, fmt.Errorf(
 			"%d promoted run(s) record no pull request for a publication they made, and reconciliation has no forge access to look the requests up", len(lost))
 	}
+	branches := make([]string, 0, len(lost))
+	for _, state := range lost {
+		branches = append(branches, state.Branch)
+	}
+	answers := r.askForge(ctx, branches)
 	for _, state := range lost {
 		if err := ctx.Err(); err != nil {
 			return recovered, err
 		}
-		recovered = append(recovered, r.recoverPublication(ctx, state))
+		recovered = append(recovered, r.recoverPublication(ctx, answers, state))
 	}
 	return recovered, nil
 }
@@ -204,13 +209,13 @@ func lostPublicationRecord(state runstate.State) bool {
 // the request's head as the forge holds it rather than as the promotion would
 // have it, because a request that moved is exactly what the arming has to be
 // able to refuse.
-func (r Reconciler) recoverPublication(ctx context.Context, recorded runstate.State) PublicationRecovery {
+func (r Reconciler) recoverPublication(ctx context.Context, answers forgeAnswers, recorded runstate.State) PublicationRecovery {
 	recovery := PublicationRecovery{
 		RunID:      recorded.RunID,
 		WorkItemID: recorded.WorkItemID,
 		Branch:     recorded.Branch,
 	}
-	observed, err := r.Publisher.State(ctx, recorded.Branch)
+	observed, err := r.state(ctx, answers, recorded.Branch)
 	if err != nil {
 		recovery.Failure = fmt.Errorf("ask the forge for the pull request of branch %s, published by run %s: %w",
 			recorded.Branch, recorded.RunID, err).Error()
@@ -464,8 +469,13 @@ func (r Reconciler) RefreshPublications(ctx context.Context) ([]PublicationRefre
 		return refreshed, fmt.Errorf(
 			"%d recorded publication(s) are unsettled, and reconciliation has no forge access to ask what became of them", len(unsettled))
 	}
+	branches := make([]string, 0, len(unsettled))
 	for _, state := range unsettled {
-		refreshed = append(refreshed, r.refreshPublication(ctx, state))
+		branches = append(branches, state.PullRequest.Branch)
+	}
+	answers := r.askForge(ctx, branches)
+	for _, state := range unsettled {
+		refreshed = append(refreshed, r.refreshPublication(ctx, answers, state))
 	}
 	return refreshed, nil
 }
@@ -473,27 +483,40 @@ func (r Reconciler) RefreshPublications(ctx context.Context) ([]PublicationRefre
 // unsettledPublication reports a recorded publication whose state can still be
 // wrong and that nothing else in the sweep will ask about.
 //
-// Three things put a record out of reach, each for its own reason. A run that
+// Several things put a record out of reach, each for its own reason. A run that
 // published nothing has nothing to ask about. A run that still owes a step is
 // reconciliation's own, and the one thing it can owe about a publication — a
 // merge the forge queued — is settled there as part of settling the whole run,
-// so asking here as well would be two paths deciding one merge. And a request
-// the record already has as merged is finished: merged is the one answer a forge
+// so asking here as well would be two paths deciding one merge. A request the
+// record already has as merged is finished: merged is the one answer a forge
 // does not take back, which makes it the one that ends the asking rather than a
 // question every later sweep repeats.
+//
+// The rest are settled by what the harness itself decided, so no answer the
+// forge could give changes what anything here does with them. A request
+// recorded closed is over: nothing the harness reads a closed request for
+// waits on it being reopened. A request the convergence sweep recorded as
+// superseded was closed by that sweep and is never asked about again. And a
+// request the development manager handed back for a fresh run is that run's to
+// supersede, and no surface reads it as work meanwhile. Until yoyodyne-ifd.429.38
+// every one of those was asked about on every sweep, one forge call at a time,
+// and a pass over 798 recorded publications took more than an hour.
 func unsettledPublication(state runstate.State) bool {
 	published := state.PullRequest
 	if published == nil || state.Outstanding() {
 		return false
 	}
-	return !published.Merged
+	if published.Merged || published.Superseded != "" || published.HandedBack != nil {
+		return false
+	}
+	return !strings.EqualFold(strings.TrimSpace(published.State), "CLOSED")
 }
 
 // refreshPublication asks about one run's pull request and records the answer
 // under that run's own lease, which is what keeps the reading and the write one
 // act: the record that is rewritten is the record that was read, so a sweep
 // settling the same run beside this cannot lose either half.
-func (r Reconciler) refreshPublication(ctx context.Context, recorded runstate.State) PublicationRefresh {
+func (r Reconciler) refreshPublication(ctx context.Context, answers forgeAnswers, recorded runstate.State) PublicationRefresh {
 	published := *recorded.PullRequest
 	refresh := PublicationRefresh{
 		RunID:      recorded.RunID,
@@ -502,7 +525,7 @@ func (r Reconciler) refreshPublication(ctx context.Context, recorded runstate.St
 		URL:        published.URL,
 		Recorded:   nonEmpty(published.State, "unrecorded"),
 	}
-	observed, err := r.Publisher.State(ctx, published.Branch)
+	observed, err := r.state(ctx, answers, published.Branch)
 	if err != nil {
 		refresh.Failure = fmt.Errorf("ask the forge about pull request %d of run %s: %w",
 			published.Number, recorded.RunID, err).Error()
@@ -660,11 +683,16 @@ func (r Reconciler) FinishPublications(ctx context.Context) ([]PublicationSettle
 		return settled, fmt.Errorf(
 			"%d recorded publication(s) are merged and unfinished, and reconciliation has no forge access to ask what merged them", len(unfinished))
 	}
+	branches := make([]string, 0, len(unfinished))
+	for _, state := range unfinished {
+		branches = append(branches, state.PullRequest.Branch)
+	}
+	answers := r.askForge(ctx, branches)
 	for _, state := range unfinished {
 		if err := ctx.Err(); err != nil {
 			return settled, err
 		}
-		settled = append(settled, r.finishPublication(ctx, state))
+		settled = append(settled, r.finishPublication(ctx, answers, state))
 	}
 	return settled, nil
 }
@@ -706,7 +734,7 @@ func unfinishedPublication(state runstate.State) bool {
 // tried first, and nothing is written anywhere unless it goes. The alternative
 // was a settlement note and a leftover note on the item at every sweep the
 // branch went on refusing to be deleted.
-func (r Reconciler) finishPublication(ctx context.Context, recorded runstate.State) PublicationSettlement {
+func (r Reconciler) finishPublication(ctx context.Context, answers forgeAnswers, recorded runstate.State) PublicationSettlement {
 	published := *recorded.PullRequest
 	settlement := PublicationSettlement{
 		RunID:       recorded.RunID,
@@ -719,7 +747,7 @@ func (r Reconciler) finishPublication(ctx context.Context, recorded runstate.Sta
 	// confirms a merge other merges have since landed on top of. It is asked about
 	// the branch, and a different request answering for that branch is a
 	// publication this record was never about.
-	observed, err := r.Publisher.State(ctx, published.Branch)
+	observed, err := r.state(ctx, answers, published.Branch)
 	if err != nil {
 		settlement.Failure = fmt.Errorf("ask the forge about pull request %d of run %s: %w",
 			published.Number, recorded.RunID, err).Error()

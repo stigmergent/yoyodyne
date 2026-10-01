@@ -86,7 +86,11 @@ type reconcileOutput struct {
 	// the replay, the re-review, and the merge queued again, with what it came
 	// to. Like the continuations it is written once those runs have finished.
 	Updates []orchestrator.UpdateContinuation `json:"updates"`
-	Error   string                            `json:"error,omitempty"`
+	// Forge is what this sweep asked the forge about its publications and how
+	// long the forge took: only the unsettled ones are asked, in batches, and a
+	// pass that takes long says where the time went.
+	Forge *orchestrator.ForgeQuestions `json:"forge,omitempty"`
+	Error string                       `json:"error,omitempty"`
 }
 
 // reconcileSweep is everything one sweep found, gathered so the reporting takes
@@ -108,6 +112,9 @@ type reconcileSweep struct {
 	StallProblem     string
 	Continuations    []orchestrator.WaitContinuation
 	Updates          []orchestrator.UpdateContinuation
+	// Forge is what the sweep asked the forge about its publications, and how
+	// long the forge took.
+	Forge *orchestrator.ForgeQuestions
 }
 
 // reconcileRuns settles every run an interrupted process left outstanding and
@@ -157,6 +164,9 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// that fell behind its target is put back at its promotion here rather than
 	// left queued for a pass that will host it.
 	reconciler.HostsRuns = true
+	// What the sweep asks the forge is tallied, so the pass says how many
+	// publications it asked about and how long the forge took.
+	reconciler.Forge = &orchestrator.ForgeQuestions{}
 	results, err := reconciler.Reconcile(ctx)
 	// A promoted run whose record names no pull request is asked about first, by
 	// its branch, and the request the forge holds is written onto the record: the
@@ -242,6 +252,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		Supervision:      supervision,
 		Stall:            stall,
 		StallProblem:     stallProblem,
+		Forge:            reconciler.Forge,
 	}
 	// The runs that exited on their in-process usage-limit bound and whose
 	// deadline has since passed are continued last, after everything the sweep
@@ -620,6 +631,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			StallProblem:     sweep.StallProblem,
 			Continuations:    sweep.Continuations,
 			Updates:          sweep.Updates,
+			Forge:            sweep.Forge,
 		}
 		if results == nil {
 			output.Runs = []orchestrator.Reconciliation{}
@@ -743,6 +755,11 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		printSupervision(stdout, sweep.Supervision)
 		printStall(stdout, stderr, sweep.Stall, sweep.StallProblem)
 		printContinuations(stdout, stderr, sweep.Continuations)
+		// Said last, so the maintenance pass, which records the end of what this
+		// prints, carries how long the forge took on every pass.
+		if sweep.Forge != nil {
+			fmt.Fprintln(stdout, sweep.Forge.Describe())
+		}
 	}
 	if failed {
 		return 1
@@ -1086,8 +1103,11 @@ leaves the checkout exactly where it was.
 
 It also re-asks the forge about the pull request of every run that ended without
 its publication being settled, and records what the forge now says — merged,
-closed, or still open. Nothing is merged for you: the record is brought onto the
-truth, so what reads it afterwards reads truth too.
+closed, or still open. A request recorded merged, closed, superseded, or handed
+back for a fresh run is never asked about again, and the rest are asked in
+batches, one forge query for up to 50 branches; the sweep's last line says how
+many it asked about and how long the forge took. Nothing is merged for you: the
+record is brought onto the truth, so what reads it afterwards reads truth too.
 
 It then closes the pull requests whose work landed by another vehicle: a run
 that ended without integrating, whose item a later run of this harness did
