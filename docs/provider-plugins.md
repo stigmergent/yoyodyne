@@ -6,13 +6,16 @@ Claude Code, which serves every role, and Codex, which is the developer's alone
 because its sandbox cannot hold the tool access every other role requires
 ([capability validation](#capability-validation)).
 
-No Codex CLI version is yet recorded as supported. The Codex adapter's stream
-reader was written from the provider's documented protocol rather than from a
-recorded run, and a reviewer has reported that current CLIs write a different
-event vocabulary. Until real streams are recorded and tested against, a Codex
-stream this adapter cannot read fails the run naming the CLI's version and the
+No Codex CLI version is yet recorded as supported. The only real stream
+recorded so far, from codex-cli 0.159.2, never reached the provider, so it shows
+how that version starts a session and reports reconnecting, and nothing of how
+it replies, counts tokens, or ends a turn. The adapter reads what that stream
+shows: the session it starts, and its reconnect notices as the provider
+retrying rather than as the run failing. It does not yet read a 0.159.2 reply
+or ending, so a run on that version fails naming the CLI's version and the
 first event the adapter did not recognize, rather than as a run that ended
-without a terminal event.
+without a terminal event. The recorded streams, and what is still missing from
+them, are in `internal/backend/codex/testdata/streams`.
 
 A project can declare a provider of its own in its configuration, without forking
 this repository or rebuilding the binary. **What a declaration supplies is the

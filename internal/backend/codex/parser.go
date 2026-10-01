@@ -5,19 +5,27 @@ package codex
 // What each thing the provider said *means* is the dialect's, and what to do
 // about it is the harness's.
 //
-// The vocabulary below is Codex's own non-interactive event protocol: each line
-// is an envelope carrying an event under `msg`, and the event names itself with
-// a `type`. No recorded Codex stream existed in this repository when this was
-// written, so the names are read from the provider's documented protocol rather
-// than off a run, and everything here degrades in the safe direction if a future
-// version disagrees: an event this parser does not recognize is recorded whole
-// and read as nothing, and an invocation whose terminal never arrives fails with
-// exactly that reason rather than with an outcome nobody produced — or, when the
-// stream carried an event this parser did not know, with the CLI's version and
-// that event's name, because a stream in a vocabulary this adapter does not
-// speak is a different fault from a terminal that never came. The first real
-// Codex stream this repository records is the evidence that should replace this
-// paragraph.
+// Codex has written two vocabularies. The older one wraps each event in an
+// envelope under `msg` and names it in snake case — session_configured,
+// agent_message, token_count, task_complete — and is read from the provider's
+// documented protocol rather than off a run. The newer one is what
+// codex-cli 0.159.2 writes, read off a real invocation recorded under
+// testdata/streams: bare events named thread.started, turn.started, and
+// item.completed, the session carried as `thread_id`, and every reconnect
+// attempt reported as a top-level `error` that does not end the turn. That
+// recording never reached the provider, so it shows nothing of a reply, of
+// usage, or of how a turn ends, and this parser reads none of those in the newer
+// vocabulary: a stream that carries them fails naming the CLI's version and the
+// first event this parser did not recognize. A recorded stream that reached the
+// provider is the evidence that should replace this paragraph.
+//
+// Everything here degrades in the safe direction: an event this parser does not
+// recognize is recorded whole and read as nothing, and an invocation whose
+// terminal never arrives fails with exactly that reason rather than with an
+// outcome nobody produced — or, when the stream carried an event this parser
+// did not know, with the CLI's version and that event's name, because a stream
+// in a vocabulary this adapter does not speak is a different fault from a
+// terminal that never came.
 
 import (
 	"encoding/json"
@@ -52,6 +60,16 @@ const (
 	eventTokenCount        = "token_count"
 )
 
+// The newer vocabulary's names, each one seen in a recorded stream. An item is
+// recognized by the type of the item it carries rather than by the event alone,
+// because the item is what says whether this parser knows what it is reading.
+const (
+	eventThreadStarted = "thread.started"
+	eventTurnStarted   = "turn.started"
+	eventItemCompleted = "item.completed"
+	itemError          = "error"
+)
+
 // truncatedStreamLine is the harness's own name for a provider line the process
 // runner had to cut at its per-line bound. It sits beside the duplicate terminal
 // below as an anomaly rather than a failure: what that envelope said is gone,
@@ -75,12 +93,27 @@ type streamEnvelope struct {
 	Msg json.RawMessage `json:"msg"`
 }
 
+// streamItem is what a newer-vocabulary item event carries, reduced to the
+// fields this adapter reads.
+type streamItem struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
 // providerMessage is one event, reduced to the fields this adapter reads. The
 // provider sends more than this on several of them, and what is not read here is
 // still recorded: the raw line reaches the event log whenever this parser has
 // nothing better to say about it.
 type providerMessage struct {
 	Type string `json:"type"`
+	// enveloped says the event arrived under `msg`, which is the older
+	// vocabulary. It decides what an `error` is: a terminal there, and a notice
+	// the turn carries on past in the newer one.
+	enveloped bool
+	// thread.started names the session a later invocation resumes.
+	ThreadID string `json:"thread_id"`
+	// item.completed carries the item it completed.
+	Item json.RawMessage `json:"item"`
 	// session_configured names the session a later invocation resumes and the
 	// model the provider resolved the requested selector to.
 	SessionID string `json:"session_id"`
@@ -251,6 +284,19 @@ func (p *streamParser) ParseLine(line string) error {
 		return p.recordAfterTerminal(message)
 	}
 
+	if !message.enveloped {
+		switch message.Type {
+		case eventThreadStarted:
+			return p.parseThreadStarted(message)
+		case eventTurnStarted:
+			return p.emit(execution.EventProcessOutput, map[string]any{"provider_type": message.Type})
+		case eventItemCompleted:
+			return p.parseItem(message)
+		case eventError:
+			return p.parseNotice(message)
+		}
+	}
+
 	switch message.Type {
 	case eventSessionConfigured:
 		return p.parseSessionConfigured(message)
@@ -284,13 +330,20 @@ func (p *streamParser) ParseLine(line string) error {
 	case eventError:
 		return p.parseTerminal(message, message.Message, true)
 	default:
-		if p.unrecognized == "" {
-			p.unrecognized = message.Type
-		}
-		return p.emit(execution.EventProcessOutput, map[string]any{
-			"provider_type": message.Type,
-		})
+		return p.parseUnrecognized(message.Type)
 	}
+}
+
+// parseUnrecognized records an event this parser does not know, and remembers
+// the first one ahead of any terminal for the error a stream with no terminal
+// fails with.
+func (p *streamParser) parseUnrecognized(eventType string) error {
+	if p.unrecognized == "" {
+		p.unrecognized = eventType
+	}
+	return p.emit(execution.EventProcessOutput, map[string]any{
+		"provider_type": eventType,
+	})
 }
 
 func (p *streamParser) EmitProcessOutput(output execution.Output) error {
@@ -402,6 +455,52 @@ func (p *streamParser) parseSessionConfigured(message providerMessage) error {
 	})
 }
 
+// parseThreadStarted is the newer vocabulary's session: the thread a later
+// invocation resumes. It names no model, so the resolved model stays unknown
+// rather than being taken from the request.
+func (p *streamParser) parseThreadStarted(message providerMessage) error {
+	p.result.SessionID = message.ThreadID
+	return p.emit(execution.EventRunStarted, map[string]any{
+		"session_id": message.ThreadID,
+	})
+}
+
+// parseNotice reads a newer-vocabulary `error`, which is the CLI saying what
+// went wrong while it carries on — "Reconnecting... 2/5" — rather than ending the
+// turn. Read as a terminal, the way the older vocabulary's `error` is, the first
+// reconnect in a recorded stream ended the invocation as a refusal that stands,
+// because its prose quoted the 403 a proxy had answered with. The dialect is
+// asked anyway, so what a notice means is the contract's answer rather than this
+// parser's.
+func (p *streamParser) parseNotice(message providerMessage) error {
+	p.observe(backend.ProviderEvent{Type: message.Type, Text: message.Message})
+	return p.emit(execution.EventProcessOutput, map[string]any{
+		"provider_type": message.Type,
+		"error":         truncate(message.Message),
+	})
+}
+
+// parseItem reads one completed item. Only the item types a recorded stream has
+// carried are recognized; any other is named as the event this parser did not
+// know, item type and all, because "item.completed" alone would not say which
+// item a newer CLI wrote that this one cannot read.
+func (p *streamParser) parseItem(message providerMessage) error {
+	var item streamItem
+	if len(message.Item) > 0 {
+		_ = json.Unmarshal(message.Item, &item)
+	}
+	switch item.Type {
+	case itemError:
+		return p.emit(execution.EventProcessOutput, map[string]any{
+			"provider_type": message.Type,
+			"item_type":     item.Type,
+			"error":         truncate(p.redactor.Redact(item.Message)),
+		})
+	default:
+		return p.parseUnrecognized(message.Type + " (" + item.Type + " item)")
+	}
+}
+
 func (p *streamParser) parseAgentMessage(message providerMessage) error {
 	p.result.FinalText = message.Message
 	if err := p.emit(execution.EventAgentMessage, execution.ReplyPayload(message.Message)); err != nil {
@@ -506,6 +605,7 @@ func (p *streamParser) observe(event backend.ProviderEvent) {
 // could corrupt parsing if a poorly chosen credential happened to equal one.
 func (p *streamParser) redactMessage(message *providerMessage) {
 	message.SessionID = p.redactor.Redact(message.SessionID)
+	message.ThreadID = p.redactor.Redact(message.ThreadID)
 	message.Model = p.redactor.Redact(message.Model)
 	message.Message = p.redactor.Redact(message.Message)
 	message.LastAgentMessage = p.redactor.Redact(message.LastAgentMessage)
@@ -549,10 +649,9 @@ func (p *streamParser) FirstUnrecognized() string {
 	return p.unrecognized
 }
 
-// decodeMessage reads one line into the event it carries. The event normally
-// sits under `msg`; a line that is a bare event with no envelope around it is
-// read as one too, because which of the two shapes a version writes is not
-// something this adapter should fail a run over.
+// decodeMessage reads one line into the event it carries. The older vocabulary
+// puts the event under `msg` and the newer one writes it bare; both are read,
+// and which of the two it was is kept on the message.
 func decodeMessage(line string) (providerMessage, bool) {
 	var envelope streamEnvelope
 	if json.Unmarshal([]byte(line), &envelope) != nil {
@@ -566,6 +665,7 @@ func decodeMessage(line string) (providerMessage, bool) {
 	if json.Unmarshal(body, &message) != nil || strings.TrimSpace(message.Type) == "" {
 		return providerMessage{}, false
 	}
+	message.enveloped = len(envelope.Msg) > 0
 	return message, true
 }
 

@@ -658,8 +658,10 @@ func TestRunFailsWhenNoTerminalArrives(t *testing.T) {
 // A stream in a vocabulary this adapter does not speak is named as that — the
 // CLI's version and the first event it did not recognize — rather than as a
 // terminal that never arrived, which reads as a provider that stopped mid-run.
-// The lines below are written by hand in the shape a reviewer reported the
-// current CLI writes; they are not a recorded stream.
+// The lines below are written by hand: the first two are the shape a recorded
+// codex-cli 0.159.2 stream opens with, and the third is the terminal a reviewer
+// reported the current CLI ends a turn with, which no recorded stream has shown
+// and this parser does not read.
 func TestAStreamThisAdapterCannotReadNamesTheVersionAndTheFirstUnknownEvent(t *testing.T) {
 	t.Parallel()
 
@@ -683,7 +685,7 @@ func TestAStreamThisAdapterCannotReadNamesTheVersionAndTheFirstUnknownEvent(t *t
 	if err == nil {
 		t.Fatal("Run() error = nil, want the stream named as unreadable")
 	}
-	for _, want := range []string{"codex-cli 9.9.9", `"thread.started"`, "cannot read"} {
+	for _, want := range []string{"codex-cli 9.9.9", `"turn.completed"`, "cannot read"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Run() error = %v, want it to name %s", err, want)
 		}
@@ -702,7 +704,7 @@ func TestAnUnreadableStreamIsReportedWhenTheVersionIsNot(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{results: []execution.ProcessResult{
-		{Status: execution.ProcessSucceeded, Stdout: lines(`{"type":"thread.started"}`)},
+		{Status: execution.ProcessSucceeded, Stdout: lines(`{"type":"turn.completed"}`)},
 		{Status: execution.ProcessFailed, ExitCode: 2},
 	}}
 	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
@@ -711,7 +713,7 @@ func TestAnUnreadableStreamIsReportedWhenTheVersionIsNot(t *testing.T) {
 		WorkingDirectory: "/worktree",
 		Prompt:           "implement",
 	})
-	if err == nil || !strings.Contains(err.Error(), "(version unknown)") || !strings.Contains(err.Error(), `"thread.started"`) {
+	if err == nil || !strings.Contains(err.Error(), "(version unknown)") || !strings.Contains(err.Error(), `"turn.completed"`) {
 		t.Fatalf("Run() error = %v", err)
 	}
 }

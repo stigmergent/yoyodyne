@@ -29,9 +29,11 @@ const (
 	// account is exhausted, so it is evidence rather than a reason for the
 	// harness to wait.
 	eventStreamError = "stream_error"
-	// eventError is Codex ending the invocation on something it could not carry
-	// on past. It is this provider's whole error channel: an attempt that reached
-	// the agent at all ends on a completed task instead.
+	// eventError is, in the older vocabulary, Codex ending the invocation on
+	// something it could not carry on past: an attempt that reached the agent at
+	// all ends on a completed task instead. In the newer vocabulary the same name
+	// is a notice the turn carries on past, and the parser hands it over as no
+	// terminal.
 	eventError = "error"
 	// eventTaskComplete is the invocation's own successful terminal, carrying the
 	// agent's last message.
@@ -146,6 +148,12 @@ func (Dialect) Observe(event backend.ProviderEvent) (backend.Observation, bool) 
 	case event.Channel.Plain():
 		return observePlainOutput(event.Text)
 	case event.Type == eventStreamError:
+		return backend.Observation{Answer: backend.AnswerRetrying}, true
+	case event.Type == eventError && !event.Terminal:
+		// The newer vocabulary's `error` does not end the turn: a recorded
+		// codex-cli 0.159.2 stream wrote one per reconnect attempt and carried
+		// on. It is the provider retrying by itself, whatever status its prose
+		// quotes, and the turn's own ending is what says how it went.
 		return backend.Observation{Answer: backend.AnswerRetrying}, true
 	case event.Terminal && event.Failed:
 		return observeFailedTerminal(event)
