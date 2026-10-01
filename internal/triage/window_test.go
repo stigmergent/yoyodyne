@@ -199,3 +199,75 @@ func TestLiveReadsAFoldedRunFromItsFirstDocketingAndKeepsItsCritical(t *testing.
 		t.Fatalf("urgent = %v, want the run an escalation is folded beneath", got)
 	}
 }
+
+// The docket of 2026-10-01: eleven stopped runs the development manager decided
+// to wait on, each stopped longer ago than anything new, and three new
+// stoppages. The three come first and the waits after them; once one wait runs
+// out its run is undecided again, at the age it had when it first stopped.
+func TestAWaitedStoppageWaitsBehindEveryUndecidedOneUntilTheWaitRunsOut(t *testing.T) {
+	t.Parallel()
+
+	var entries []Entry
+	for index := range 11 {
+		waited := windowEntry(ClassStoppedRun, fmt.Sprintf("run-waited-%02d", index), fmt.Sprintf("item-waited-%02d", index), 30-index)
+		revisit := windowNow.AddDate(0, 0, 3)
+		if index == 4 {
+			revisit = windowNow.Add(time.Hour)
+		}
+		waited.Closed = &Closure{Decision: "wait", ClosedAt: windowNow.AddDate(0, 0, -1), RevisitAfter: revisit}
+		entries = append(entries, waited)
+	}
+	fresh := []Entry{
+		windowEntry(ClassStoppedRun, "run-new-a", "item-new-a", 3),
+		windowEntry(ClassStoppedRun, "run-new-b", "item-new-b", 2),
+		windowEntry(ClassStoppedRun, "run-new-c", "item-new-c", 1),
+	}
+	entries = append(entries, fresh...)
+
+	live := Live(entries, closedAmong(), windowNow)
+	if live.Settled != 0 || len(live.Stoppages) != 14 {
+		t.Fatalf("settled %d, live %d, want 0 and every stoppage listed", live.Settled, len(live.Stoppages))
+	}
+	window := Walk(live.Stoppages, WindowPosition{})
+	if len(window.Urgent) != 0 || len(window.Decided) != 0 {
+		t.Fatalf("urgent %v, decided %v, want neither", stoppageKeys(window.Urgent), stoppageKeys(window.Decided))
+	}
+	if got, want := stoppageKeys(window.Next), stoppageKeys([]Stoppage{{Entry: fresh[0]}, {Entry: fresh[1]}, {Entry: fresh[2]}}); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("undecided = %v, want the three new stoppages first: %v", got, want)
+	}
+	if len(window.Waiting) != 11 || window.Waiting[0].Entry.Key != entries[0].Key {
+		t.Fatalf("waiting = %v, want the eleven waited runs, oldest first", stoppageKeys(window.Waiting))
+	}
+	for _, waited := range window.Waiting {
+		if !waited.Waiting || waited.Decided {
+			t.Fatalf("%s: waiting %v decided %v, want a wait and not a decision waiting on the harness", waited.Entry.Key, waited.Waiting, waited.Decided)
+		}
+	}
+
+	// Two hours later the fifth wait has run out, and that run is a question again
+	// at the age it had: older than every new stoppage, so first of the undecided.
+	later := windowNow.Add(2 * time.Hour)
+	rejoined := Walk(Live(entries, closedAmong(), later).Stoppages, WindowPosition{})
+	if got, want := stoppageKeys(rejoined.Next), []string{entries[4].Key, fresh[0].Key, fresh[1].Key, fresh[2].Key}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("undecided after the wait ran out = %v, want %v", got, want)
+	}
+	if len(rejoined.Waiting) != 10 {
+		t.Fatalf("waiting after one wait ran out = %v, want the other ten", stoppageKeys(rejoined.Waiting))
+	}
+}
+
+// A run is waited on only while every entry it has is: one docketed again
+// beside the wait is a question.
+func TestAFoldedRunIsWaitingOnlyWhileEveryEntryOfItIs(t *testing.T) {
+	t.Parallel()
+
+	waited := windowEntry(ClassPublication, "run-mixed", "item-mixed", 10)
+	waited.Closed = &Closure{Decision: "wait", ClosedAt: windowNow.AddDate(0, 0, -1), RevisitAfter: windowNow.AddDate(0, 0, 2)}
+	standing := windowEntry(ClassStoppedRun, "run-mixed", "item-mixed", 1)
+	standing.Earlier = []Entry{waited}
+
+	live := Live([]Entry{standing}, closedAmong(), windowNow)
+	if len(live.Stoppages) != 1 || live.Stoppages[0].Waiting {
+		t.Fatalf("live = %+v, want the run listed as undecided", live.Stoppages)
+	}
+}

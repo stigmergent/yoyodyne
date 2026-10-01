@@ -248,8 +248,8 @@ func conversationDocketEntries(parts components, role domain.AgentRole) chat.Tri
 	return conversationDocketLog{
 		store: parts.docket,
 		clock: execution.RealClock{},
-		// How long a decision to wait leaves a publication alone: as long again as
-		// it took to become docketable in the first place. The role decides to wait;
+		// How long a decision to wait leaves an entry alone, a publication or a
+		// stopped run: as long again as a publication takes to become docketable. The role decides to wait;
 		// what waiting means in hours is the operator's number, and it is the same
 		// one that put the entry on the docket.
 		revisitAfter: parts.config.Triage.StuckMergeAge.Duration(),
@@ -727,13 +727,14 @@ func (g conversationGround) triageDocket() (entries []triage.Entry, unavailable,
 		return nil, "", ""
 	}
 	built, err := g.docket.Build()
+	listed := built.Listed()
 	if err == nil {
-		return built.Entries, "", ""
+		return listed, "", ""
 	}
-	if len(built.Entries) == 0 {
+	if len(listed) == 0 {
 		return nil, err.Error(), fmt.Sprintf("the triage docket could not be read, continuing without it: %v", err)
 	}
-	return built.Entries, "", fmt.Sprintf("the triage docket is incomplete: %v", err)
+	return listed, "", fmt.Sprintf("the triage docket is incomplete: %v", err)
 }
 
 // Movement reports what the repository and the tracker have done since a

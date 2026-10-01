@@ -1991,3 +1991,69 @@ func TestSectionHeadingRecognizesEverySectionTheAssemblyOpens(t *testing.T) {
 		}
 	}
 }
+
+// The docket of 2026-10-01: eleven stopped runs the development manager decided
+// to wait on, every one older than the three new stoppages beside them. The
+// three are listed first, each waited run after them says until when, and a
+// docket too long to list whole says how many of what it left out are waits.
+func TestTheDocketWindowListsWaitedStoppagesAfterEveryUndecidedOne(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	waited := func(index int) triage.Entry {
+		entry := docketEntry(fmt.Sprintf("run-waited-%026x", index), fmt.Sprintf("yoyodyne-waited-%d", index))
+		entry.RecordedAt = now.AddDate(0, 0, -40+index)
+		entry.Closed = &triage.Closure{Decision: "wait", DecidedBy: "the development manager", ClosedAt: now.AddDate(0, 0, -1), RevisitAfter: now.AddDate(0, 0, 2)}
+		return entry
+	}
+	undecided := func(index int) triage.Entry {
+		entry := docketEntry(fmt.Sprintf("run-%032x", index), fmt.Sprintf("yoyodyne-undecided-%d", index))
+		entry.RecordedAt = now.AddDate(0, 0, -3).Add(time.Duration(index) * time.Minute)
+		return entry
+	}
+	var entries []triage.Entry
+	for index := range 11 {
+		entries = append(entries, waited(index))
+	}
+	for index := range 3 {
+		entries = append(entries, undecided(index))
+	}
+
+	rendered, position := TriageDocket(ProductRequest{TriageDocket: entries, TriageDocketAt: now, TriageDocketItems: []beads.WorkItem{}})
+	listed := listedDocketItems(rendered)
+	if len(listed) != 14 {
+		t.Fatalf("listed %d entries, want all fourteen: %v", len(listed), listed)
+	}
+	for index, item := range listed {
+		want := fmt.Sprintf("yoyodyne-undecided-%d", index)
+		if index >= 3 {
+			want = fmt.Sprintf("yoyodyne-waited-%d", index-3)
+		}
+		if item != want {
+			t.Fatalf("entry %d is on %s, want %s: the new stoppages first, then the waits; listed %v", index, item, want, listed)
+		}
+	}
+	if !strings.Contains(rendered, "to be looked at again after 2026-10-03T12:00:00Z") {
+		t.Fatalf("a waited entry did not say until when:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "not listed because a decision still standing settled them") {
+		t.Fatalf("the waits were counted as settled:\n%s", rendered)
+	}
+	// The walk advanced over the new stoppages and not over the waits, which sit
+	// outside it.
+	if position == nil || position.Key != entries[13].Key {
+		t.Fatalf("position = %+v, want past the last new stoppage", position)
+	}
+
+	// A docket too long to list whole leaves the waits out first and counts them.
+	for index := 3; index < maxDocketEntries+3; index++ {
+		entries = append(entries, undecided(index))
+	}
+	crowded, _ := TriageDocket(ProductRequest{TriageDocket: entries, TriageDocketAt: now, TriageDocketItems: []beads.WorkItem{}})
+	if strings.Contains(strings.Join(listedDocketItems(crowded), " "), "yoyodyne-waited-") {
+		t.Fatalf("a waited entry was listed while undecided ones were left out:\n%s", crowded)
+	}
+	if want := "14 further live docket entry(s) are not listed here, the oldest of them stopped 40d ago. 3 of them nobody has decided, and 11 are stoppages you decided to wait on, each one undecided again once its wait runs out."; !strings.Contains(crowded, want) {
+		t.Fatalf("the docket did not say what remains, want %q:\n%s", want, crowded)
+	}
+}

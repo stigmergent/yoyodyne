@@ -1761,6 +1761,7 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 	ordered = append(ordered, window.Urgent...)
 	ordered = append(ordered, window.Next...)
 	ordered = append(ordered, window.Decided...)
+	ordered = append(ordered, window.Waiting...)
 	sections := make([]string, 0, maxDocketEntries)
 	for _, standing := range ordered {
 		if len(sections) >= maxDocketEntries {
@@ -1790,22 +1791,25 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 		rendered.WriteString(cutDocketEntry(section, share))
 		shown[standing.Entry.Key] = true
 		// The position advances only over what the walk itself listed. A critical
-		// jumped the walk to be here, and a decided entry is outside it; advancing to
-		// where either sits would skip everything between.
-		if !standing.Decided && !standing.Critical() {
+		// jumped the walk to be here, and a decided or waited entry is outside it;
+		// advancing to where any of them sits would skip everything between.
+		if !standing.Decided && !standing.Waiting && !standing.Critical() {
 			at := standing.At()
 			position = &at
 		}
 	}
 	if remaining := len(live.Stoppages) - len(sections); remaining > 0 {
 		var oldest time.Time
-		decided := 0
+		decided, waiting := 0, 0
 		for _, standing := range live.Stoppages {
 			if shown[standing.Entry.Key] {
 				continue
 			}
-			if standing.Decided {
+			switch {
+			case standing.Decided:
 				decided++
+			case standing.Waiting:
+				waiting++
 			}
 			if oldest.IsZero() || standing.Since.Before(oldest) {
 				oldest = standing.Since
@@ -1813,8 +1817,16 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 		}
 		fmt.Fprintf(&rendered, "\n%d further live docket entry(s) are not listed here, the oldest of them stopped %s ago.",
 			remaining, docketAge(now.Sub(oldest.UTC())))
-		if undecided := remaining - decided; decided > 0 {
-			fmt.Fprintf(&rendered, " %d of them nobody has decided, and %d are decisions of yours already recorded and waiting on the harness carrying them out.", undecided, decided)
+		if decided > 0 || waiting > 0 {
+			counts := []string{fmt.Sprintf("%d of them nobody has decided", remaining-decided-waiting)}
+			if decided > 0 {
+				counts = append(counts, fmt.Sprintf("%d are decisions of yours already recorded and waiting on the harness carrying them out", decided))
+			}
+			if waiting > 0 {
+				counts = append(counts, fmt.Sprintf("%d are stoppages you decided to wait on, each one undecided again once its wait runs out", waiting))
+			}
+			last := len(counts) - 1
+			fmt.Fprintf(&rendered, " %s, and %s.", strings.Join(counts[:last], ", "), counts[last])
 		}
 		rendered.WriteString(" The next docket you are given resumes past the last one listed here, so what nobody has decided comes first then. Treat what you cannot see as unread rather than as absent.\n")
 	}
@@ -1957,7 +1969,9 @@ Lead Product Manager made about an item whose run is still in flight — and the
 the oldest stoppage this docket has not yet shown you, resuming past where the
 last docket you were given stopped. Last, where there is room, come decisions of
 yours the harness was stopped carrying out, the ones stopped by a gate that will
-not clear on its own ahead of the ones waiting on a gate that will. An entry too
+not clear on its own ahead of the ones waiting on a gate that will, and after
+those the stoppages you decided to wait on, each of which is back among the
+undecided, at the age it had, once its wait runs out. An entry too
 long for its share of the docket is cut, and says so. A run that ended on
 a durable blocker is here, and so is an approved publication the forge has not
 merged.
@@ -1978,7 +1992,8 @@ An entry states that something stopped or never started. It does not decide what
 becomes of it, and nothing has: an entry stands until somebody decides, and
 recording a decision closes it. So what is listed here is what nobody has decided
 about yet — a stoppage settled in an earlier conversation is closed and is not
-here, whatever the harness has or has not carried out since. An entry that says
+here, whatever the harness has or has not carried out since — except, at the
+end, what you decided to wait on, which says until when. An entry that says
 what was decided about it is one that came back: the same work stopped again
 after that decision, or a decision to wait ran out. Read the counters before
 deciding one — an item that has reached its review-round cap is one no further

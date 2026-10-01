@@ -23,6 +23,10 @@ package triage
 // as critical for a gate that would not clear on its own, filled the window ahead
 // of 29 stoppages nobody had decided
 // (docs/diagnoses/yoyodyne-ifd-428-38-decided-entries-filled-the-docket-window.md).
+// A stoppage she decided to wait on is listed after both, until the wait runs
+// out: on 2026-10-01 eleven stopped runs she had waited on filled the top of
+// every docket, because a wait closed only a publication and every other entry
+// it was recorded on stood as though nobody had looked.
 
 import (
 	"sort"
@@ -79,6 +83,11 @@ type Stoppage struct {
 	// that decision out. What it asks of the development manager is the gate, not
 	// a decision, so it waits behind every stoppage that still needs one.
 	Decided bool
+	// Waiting marks a stoppage every entry of which carries a decision to wait
+	// that has not run out. It asks nothing of anybody until it does, so it is
+	// listed after every other stoppage, and once the wait runs out it is a
+	// question again at the age it had when it first stopped.
+	Waiting bool
 }
 
 // At is the position a window is left at by being carried past one stoppage.
@@ -98,7 +107,8 @@ type LiveDocket struct {
 	Dead int
 	// Settled counts entries a decision still standing has settled. The docket's
 	// own build already leaves these out; they are counted here as well so a
-	// caller handing the window the whole log is shown the same thing.
+	// caller handing the window the whole log is shown the same thing. A wait is
+	// not among them: a waited stoppage is listed, last (Stoppage.Waiting).
 	Settled int
 	// Folded counts entries this read folded beneath another about the same run;
 	// a docket the build already folded has none left to fold.
@@ -114,7 +124,7 @@ func Live(entries []Entry, closed func(workItemID string) bool, now time.Time) L
 	var docket LiveDocket
 	open := make([]Entry, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.Undecided(now) {
+		if !entry.Undecided(now) && !entry.WaitStands(now) {
 			docket.Settled++
 			continue
 		}
@@ -130,13 +140,18 @@ func Live(entries []Entry, closed func(workItemID string) bool, now time.Time) L
 	folded := Fold(open)
 	docket.Folded = len(open) - len(folded)
 	for _, entry := range folded {
-		stoppage := Stoppage{Entry: entry, Since: entry.RecordedAt, Folded: len(entry.Earlier), Decided: entry.decisionStands(now)}
+		stoppage := Stoppage{Entry: entry, Since: entry.RecordedAt, Folded: len(entry.Earlier),
+			Decided: entry.decisionStands(now), Waiting: entry.WaitStands(now)}
 		for _, earlier := range entry.Earlier {
 			if earlier.RecordedAt.Before(stoppage.Since) {
 				stoppage.Since = earlier.RecordedAt
 			}
 			stoppage.Decided = stoppage.Decided && earlier.decisionStands(now)
+			stoppage.Waiting = stoppage.Waiting && earlier.WaitStands(now)
 		}
+		// A wait is a decision that nothing is to be carried out yet, so a waited
+		// stoppage is never one waiting on the harness.
+		stoppage.Decided = stoppage.Decided && !stoppage.Waiting
 		docket.Stoppages = append(docket.Stoppages, stoppage)
 	}
 	sort.SliceStable(docket.Stoppages, func(i, j int) bool {
@@ -179,6 +194,15 @@ func (e Entry) decisionStands(at time.Time) bool {
 	return e.Closed != nil && e.Closed.Holds(at)
 }
 
+// WaitStands reports an entry a decision to wait still holds over at a moment:
+// a decision that names when it is to be looked at again, which has not come.
+// Such an entry is closed and asks nobody anything, and the docket still lists
+// it, after everything else, so a reader can see what is being waited on and
+// till when rather than taking it for settled.
+func (e Entry) WaitStands(at time.Time) bool {
+	return e.Closed != nil && !e.Closed.RevisitAfter.IsZero() && e.Closed.Holds(at) && !e.CarryOutStopped()
+}
+
 // CarryOutStopped reports a settled entry whose decision the harness has tried to
 // carry out since it was decided, and been stopped. The finding has to be about
 // this decision — made after it — because a finding about an earlier decision on
@@ -210,11 +234,13 @@ func (e Entry) Critical() bool {
 // otherwise carry the position past everything between. Decided comes after
 // both: the stoppages whose decision is recorded and waiting on the harness,
 // critical ones first, listed only where the window has room once every
-// stoppage nobody has decided is listed.
+// stoppage nobody has decided is listed. Waiting comes last of all: the
+// stoppages she decided to wait on, oldest first, until each wait runs out.
 type Window struct {
 	Urgent  []Stoppage
 	Next    []Stoppage
 	Decided []Stoppage
+	Waiting []Stoppage
 }
 
 // Walk is what a window at one position is offered. Next begins past the
@@ -227,6 +253,8 @@ func Walk(stoppages []Stoppage, position WindowPosition) Window {
 	var behind, gated []Stoppage
 	for _, one := range stoppages {
 		switch {
+		case one.Waiting:
+			window.Waiting = append(window.Waiting, one)
 		case one.Decided && one.Critical():
 			window.Decided = append(window.Decided, one)
 		case one.Decided:

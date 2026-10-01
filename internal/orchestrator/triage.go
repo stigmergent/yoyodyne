@@ -240,9 +240,17 @@ type DocketBuild struct {
 	// which puts the entry back carrying both the decision and the gate; see
 	// openDocket.
 	Entries []triage.Entry `json:"entries"`
+	// Waiting are the stoppages a decision to wait still holds over, folded one per
+	// run as Entries are. They are closed and are not among Entries, which is what
+	// every reader that counts open questions reads; they are carried so the
+	// development manager's docket can list them after everything else rather
+	// than lose sight of them until the wait runs out (triage.Stoppage.Waiting).
+	// A run docketed again since the wait is a question again, and is in Entries
+	// instead.
+	Waiting []triage.Entry `json:"waiting,omitempty"`
 	Added   int            `json:"added"`
 	// Closed is how many of the docket's entries have been decided and are
-	// therefore not listed. It is reported rather than dropped because a docket
+	// therefore not among Entries; the waits in Waiting are counted in it. It is reported rather than dropped because a docket
 	// that silently shows a subset is one a reader takes for the whole: the number
 	// says the rest were settled rather than never noticed.
 	Closed int `json:"closed"`
@@ -251,6 +259,16 @@ type DocketBuild struct {
 	// comes to: they are still open, and a decision about the entry above them
 	// settles them with it.
 	Folded int `json:"folded,omitempty"`
+}
+
+// Listed is what the development manager's docket is rendered from: the open
+// stoppages and, after them, the ones she is waiting on. triage.Live tells the
+// two apart by the decision each carries, so they are handed over as one list.
+func (b DocketBuild) Listed() []triage.Entry {
+	if len(b.Waiting) == 0 {
+		return b.Entries
+	}
+	return append(slices.Clone(b.Entries), b.Waiting...)
 }
 
 // Build scans every recorded run, dockets what has stopped and is not docketed
@@ -335,7 +353,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// them. It is read for the settled entries whose decision the harness carries
 	// out and for no other settled entry, since a re-scope, a wait, and an
 	// escalation are never attempted and have nothing to be stopped by.
-	listable, unlisted := listableDocket(entries, now)
+	listable, waiting, unlisted := listableDocket(entries, now)
 	problems = append(problems, d.joinDecisions(listable, docketedRunsOf(entries), publicationsOf(recorded), byID)...)
 	open, closed := openDocket(listable, now)
 	// One live entry per stopped run. The repeats are folded here, where every
@@ -347,7 +365,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// Where a run a product decision is about stands now, which is what she
 	// decides between stopping it and letting it finish from.
 	joinProductDecisions(live, byID, now)
-	return DocketBuild{Entries: live, Added: added, Closed: closed + unlisted, Folded: len(open) - len(live)}, errors.Join(problems...)
+	return DocketBuild{Entries: live, Waiting: waitingDocket(waiting, live), Added: added, Closed: closed + unlisted, Folded: len(open) - len(live)}, errors.Join(problems...)
 }
 
 // lookAgain puts what the repository holds now onto every open entry whose run
@@ -393,18 +411,44 @@ func (d Docketer) look(state runstate.State) triage.Found {
 // settled ones whose decision is one the harness carries out — which are listed
 // again only where the harness has tried and a gate stopped it, and that is
 // read off the item's record by the join. The rest were settled by a decision
-// nothing attempts, so nothing about them changes after the closure.
-func listableDocket(entries []triage.Entry, now time.Time) ([]triage.Entry, int) {
-	listable := make([]triage.Entry, 0, len(entries))
-	unlisted := 0
+// nothing attempts, so nothing about them changes after the closure. Of those,
+// the ones a wait holds over are handed back apart, still counted as unlisted.
+func listableDocket(entries []triage.Entry, now time.Time) (listable, waiting []triage.Entry, unlisted int) {
+	listable = make([]triage.Entry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Closed != nil && entry.Closed.Holds(now) && !harnessCarriesOut(entry.Closed.Decision) {
 			unlisted++
+			if entry.WaitStands(now) {
+				waiting = append(waiting, entry)
+			}
 			continue
 		}
 		listable = append(listable, entry)
 	}
-	return listable, unlisted
+	return listable, waiting, unlisted
+}
+
+// waitingDocket is the waited stoppages folded one per run, less any run that
+// has an open entry: a run docketed again since somebody decided to wait on it
+// is a question again, and the open entry speaks for it.
+func waitingDocket(waiting, open []triage.Entry) []triage.Entry {
+	if len(waiting) == 0 {
+		return nil
+	}
+	asked := make(map[string]bool, len(open))
+	for _, entry := range open {
+		asked[strings.TrimSpace(entry.RunID)] = true
+	}
+	kept := make([]triage.Entry, 0, len(waiting))
+	for _, entry := range waiting {
+		if run := strings.TrimSpace(entry.RunID); run == "" || !asked[run] {
+			kept = append(kept, entry)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return triage.Fold(kept)
 }
 
 // harnessCarriesOut reports a decision the scheduling pass fires itself: the two

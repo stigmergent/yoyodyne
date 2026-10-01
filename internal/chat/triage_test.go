@@ -1156,8 +1156,9 @@ func TestATriageDecisionClosesTheDocketEntryItSettled(t *testing.T) {
 	}
 }
 
-// A wait is a decision about the publication the forge has not finished, and an
-// escalation hands the whole run to the operator. Which entries a decision
+// A wait answers any entry a run has — the publication the forge has not
+// finished, and the run's own stoppage, where on 2026-10-01 eleven waits closed
+// nothing — and an escalation hands the whole run to the operator. Which entries a decision
 // closes is what keeps a live question on the docket while a settled one leaves.
 func TestWhichEntriesADecisionClosesFollowsWhatItAnswers(t *testing.T) {
 	t.Parallel()
@@ -1166,7 +1167,7 @@ func TestWhichEntriesADecisionClosesFollowsWhatItAnswers(t *testing.T) {
 		decision string
 		classes  []triage.Class
 	}{
-		{decision: "wait", classes: []triage.Class{triage.ClassPublication}},
+		{decision: "wait", classes: []triage.Class{triage.ClassStoppedRun, triage.ClassUnstartedRun, triage.ClassEscalation, triage.ClassPublication}},
 		{decision: "escalate", classes: []triage.Class{triage.ClassStoppedRun, triage.ClassUnstartedRun, triage.ClassEscalation, triage.ClassPublication}},
 	} {
 		t.Run(decided.decision, func(t *testing.T) {
