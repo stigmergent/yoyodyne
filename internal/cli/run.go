@@ -516,6 +516,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			StageTimeout: cfg.Execution.CheckStageTimeout.Duration(),
 			RedactValues: redactValues,
 		},
+		// The stage's bound is that figure scaled for the machine's load, by the
+		// same reading and cap a local Git command's budget is scaled by, because
+		// a flat figure stops working suites when three runs share the machine.
+		Load: gitworktree.MachineLoad,
 		// The landing checks run in a checkout of the integrated commit the
 		// worktree manager cuts for them, and a red landing files its item through
 		// the tracker. Both are the harness's own access, wired here so that no

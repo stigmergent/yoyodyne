@@ -90,6 +90,109 @@ func TestTheCheckStageEndsAtItsBoundNamingTheBoundAndTheCheck(t *testing.T) {
 	}
 }
 
+// The stage's bound is the configured figure scaled for the machine's load by
+// the reading and cap a local Git command's budget uses, read again as each
+// check begins: here the stage starts on an idle machine at the configured
+// thirty minutes, the load climbs to three times the cores as the second check
+// begins, and make race is given the ninety minutes that makes. A stage the
+// scaled bound still stops is a stop from outside the work: it names the bound,
+// the load, and the check, keeps the run's branch, worktree, and session for the
+// harness to continue, and counts toward nothing — no review round, repair
+// grant, or re-run on the item, and not the intake brake.
+func TestTheCheckStageBoundScalesWithLoadAndAStopUnderItCountsTowardNothing(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"make fmtcheck", "make test", "make race", "make vet"})
+	clock := &steppingClock{now: time.Now().UTC().Add(time.Hour)}
+	started := clock.now
+	pipeline.Checks = checks.Runner{
+		Process:      &timedChecks{clock: clock, takes: map[string]time.Duration{"make fmtcheck": time.Minute, "make test": time.Minute, "make race": 10 * time.Hour, "make vet": time.Minute}},
+		Clock:        clock,
+		Timeout:      12 * time.Hour,
+		StageTimeout: 30 * time.Minute,
+	}
+	pipeline.Load = func() (float64, int, bool) {
+		if clock.now.Equal(started) {
+			return 8, 16, true
+		}
+		return 48, 16, true
+	}
+	before, err := store.Triage().Counters(tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+
+	outcome, runErr := pipeline.Run(context.Background(), tracker.Item.ID)
+	if runErr == nil {
+		t.Fatal("Run() error = nil, want the run stopped at the scaled stage bound")
+	}
+	for _, want := range []string{
+		"check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h28m0s",
+		"the stage had spent 1h30m0s across 3 check(s)",
+	} {
+		if !strings.Contains(runErr.Error(), want) {
+			t.Fatalf("Run() error = %v, want it to name %q", runErr, want)
+		}
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	stage := state.CheckStage
+	if stage == nil || stage.Bound() != 90*time.Minute || stage.Configured() != 30*time.Minute || stage.Load != 48 || stage.Cores != 16 || !stage.StoppedAtBound {
+		t.Fatalf("recorded stage = %#v, want the 30m bound scaled to 90m for a load of 48 on 16 cores and stopped at it", stage)
+	}
+	if says := stage.Describe(clock.now); !strings.HasPrefix(says, "checks: 90m of 90m (30m configured, scaled for a one-minute load average of 48.0 on 16 cores)") {
+		t.Fatalf("Describe() = %q, want the scaled bound beside the configured figure", says)
+	}
+	notes := strings.Join(tracker.NoteRecords, "\n")
+	if !strings.Contains(notes, "Check stage: 1h30m0s of the 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores), stopped at the bound during make race") {
+		t.Fatalf("item notes do not say the bound was scaled:\n%s", notes)
+	}
+
+	// Recorded as a stop from outside the work, naming the bound, the load, and
+	// the check, and settled as one that spent nothing.
+	refused := state.Environmental
+	if refused == nil || refused.Cause != runstate.CauseCheckStageBound || !refused.Settled || !refused.Refused || refused.Problem != "" {
+		t.Fatalf("environmental record = %#v, want a settled %s refusal", refused, runstate.CauseCheckStageBound)
+	}
+	for _, want := range []string{"1h30m0s", "load average of 48.0 on 16 cores", "make race"} {
+		if !strings.Contains(refused.Detail, want) {
+			t.Fatalf("environmental detail = %q, want it to name %q", refused.Detail, want)
+		}
+	}
+	// The run keeps everything the harness continues it from.
+	if !state.HarnessContinuesCheckStage() || state.WorktreeRemoved || state.BranchRemoved || state.RepairAttempts != 0 {
+		t.Fatalf("stopped run = %#v, want its branch, worktree, and session kept for the harness to continue", state)
+	}
+	if runs := len(provider.RequestsForRole(domain.RoleDeveloper)); runs != 1 {
+		t.Fatalf("developer invocations = %d, want only the first attempt", runs)
+	}
+	after, err := store.Triage().Counters(tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Counters() error = %v", err)
+	}
+	if after.ReviewRounds != before.ReviewRounds || after.CommittedRounds != before.CommittedRounds || after.RepairGrants != before.RepairGrants ||
+		after.GrantedRounds != before.GrantedRounds || after.Reruns != before.Reruns {
+		t.Fatalf("the item's budgets moved:\nbefore %#v\nafter  %#v", before, after)
+	}
+	if claimed, _ := store.Reruns().Claimed(tracker.Item.ID); len(claimed) != 0 {
+		t.Fatalf("re-runs claimed = %#v, want none", claimed)
+	}
+	// And the intake brake does not count it: the scheduler reads it as a stop
+	// the environment made rather than a run that blocked on its change.
+	var scheduled Started
+	scheduled.record(completed{outcome: outcome, err: runErr})
+	if !scheduled.environmental {
+		t.Fatalf("scheduled run = %#v, want the stop read as environmental so the brake counts toward nothing", scheduled)
+	}
+}
+
 // A stage the bound stopped judged nothing, so what the run is owed is its
 // checks again on the change it already has — not a re-run from the target
 // branch that redoes the development. The stopped run dockets itself saying load

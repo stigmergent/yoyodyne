@@ -84,6 +84,12 @@ type Request struct {
 	// out, which is every per-run gate.
 	Timeout   time.Duration
 	Unbounded bool
+	// StageBound, where set, is asked for the stage's bound as each check
+	// begins, in place of the runner's StageTimeout. Its first answer is the
+	// bound; a later answer only ever raises it, so a bound scaled for the
+	// machine's load grows as the load does and never takes back time a check
+	// was already given. Unbounded still wins over it.
+	StageBound func() time.Duration
 }
 
 type Runner struct {
@@ -160,6 +166,11 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			stageStarted = now
 		}
 		stageElapsed := now.Sub(stageStarted)
+		if request.StageBound != nil && !request.Unbounded {
+			if bound := request.StageBound(); bound > 0 && (len(results) == 0 || bound > stageTimeout) {
+				stageTimeout = bound
+			}
+		}
 		if request.Started != nil {
 			request.Started(safeCommand, stageElapsed)
 		}

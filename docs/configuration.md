@@ -2517,15 +2517,37 @@ execution:
   check_stage_timeout: 30m   # the whole list, from the first check starting to the last ending
 ```
 
+**The bound in force scales with the machine's load**, exactly as a local Git
+command's budget does: `check_stage_timeout` is the figure for an idle machine,
+and where the one-minute load average is above the number of cores it is
+multiplied by how far above — twice the cores is twice the bound — up to ten
+times the configured figure. It is the same reading and the same cap the Git
+budget uses (one function, `gitworktree.ScaleForLoad`), because the two were
+stopping working commands under the same load: on 2026-09-26 a stage with the
+gate already narrowed to three packages was stopped in `make race` at a load
+average of 40 to 55 on 16 cores. The load is read as each check begins rather
+than once, because the load a stage starts under is not the load three suites
+beside each other build up, and the bound only ever grows: a check already
+given what the stage had left keeps it. A platform that cannot report its load
+holds the stage to the configured figure.
+
 Each check is given the smaller of its own budget and what the stage has left,
 and a check the stage has nothing left for is not started. A stage that reaches
 its bound **ends the run as a stoppage** — `timed_out`, no repair attempt spent,
-the change preserved — and what it names is the bound, the check it stopped and
-how long that check had run, what the stage had spent across how many checks,
-and the two things that move it: narrow the per-run gate to what the change
-touches, or raise the bound. That is a different failure from a check reaching
-its own budget, and it is reported as one, because raising `check_timeout` does
-nothing for a check the stage stopped. Because a stage the bound stopped judged
+the change preserved — and what it names is the bound, the configured figure
+and the load that scaled it, the check it stopped and how long that check had
+run, what the stage had spent across how many checks, and the two things that
+move it: narrow the per-run gate to what the change touches, or raise the
+bound. That is a different failure from a check reaching its own budget, and it
+is reported as one, because raising `check_timeout` does nothing for a check the
+stage stopped.
+
+**A stage the scaled bound still stops is a stop from outside the work.** It is
+recorded on the run as one, of cause `check-stage-bound`, naming the bound, the
+load, and the check; the run keeps its branch, its worktree, and its developer
+session; and it counts toward nothing — not the
+[failure-storm brake](#watching-instead-of-draining), and not the item's review
+rounds, repair grant, or re-run. Because a stage the bound stopped judged
 nothing, the harness [continues it at its checks by
 itself](operations.md#what-a-check-stage-may-cost-and-where-the-whole-suite-runs)
 — on the change the run already has, at a pull with a slot free and the
@@ -2533,18 +2555,21 @@ machine's load below its cores, at most twice per run, spending nothing —
 rather than leaving it to a re-run that redoes the development.
 
 **The bound is visible while the checks run, not only when it stops them.**
-The run's record carries the stage — when it began, its bound, and which check
-it is on — so `yoyo status` says where a run in its checks stands in place of
-the bare phase:
+The run's record carries the stage — when it began, the bound in force, the
+configured figure and the load reading that scaled it, and which check it is
+on — so `yoyo status` says where a run in its checks stands in place of the
+bare phase, with the configured figure beside a bound the load raised:
 
 ```text
 Running (1 developer run):
   yoyodyne-ifd.389 (Timing-bound tests do not fail the gate under machine load) — checks: 14m of 30m, on make race, 1h02m elapsed, $4.10 so far
+  yoyodyne-ifd.432.13 (…) — checks: 41m of 90m (30m configured, scaled for a one-minute load average of 48.0 on 16 cores), on make race, 1h20m elapsed, $6.75 so far
 ```
 
 The same figures reach the item: the run's notes carry `Check stage: 14m0s of
-the 30m0s execution.check_stage_timeout bound` above the per-check lines, with
-what the gate was narrowed to beside it, and a stage the bound stopped says so
+the 30m0s execution.check_stage_timeout bound` above the per-check lines — with
+`(the configured 30m0s scaled for a one-minute load average of …)` after the
+bound where the load raised it — and what the gate was narrowed to beside it, and a stage the bound stopped says so
 there in the same words `yoyo status` uses for the run. The Slack thread's
 "checks passed" line says what the stage spent of its bound, for the same
 reason the per-check pair is recorded on every run: a stage walking toward its
@@ -2554,7 +2579,9 @@ The default is thirty minutes on purpose, and in minutes on purpose. It is the
 per-check default rather than something above it, because the bound is what
 makes the per-run gate worth narrowing: with the race suite narrowed to the
 packages a change touches — [below](#where-the-whole-suite-runs) — this
-repository's whole stage fits it with two runs contending. A project whose
+repository's whole stage fits it with two runs contending, and the load scaling
+is what keeps it fitting when a third suite beside them loads the machine past
+its cores. A project whose
 stage does not fit it is told, on the first run that reaches it, which check
 the bound stopped and what moves it. Like the per-check budget it must be
 positive; a stage with no bound would be every check's budget added up again.
@@ -3284,7 +3311,8 @@ continues it from the phase it was stopped at — the session that stopped it
 never does, however long it goes on pulling. Two phases are waited out past the
 bound rather than interrupted. A run at its promotion is one. A run at its
 checks is the other, to the end of that check stage and no further than the
-stage's start plus [`check_stage_timeout`](#what-a-whole-check-stage-may-cost),
+stage's start plus its bound — [`check_stage_timeout`](#what-a-whole-check-stage-may-cost)
+as the machine's load scaled it, which the run's record carries —
 because a check stage stopped part-way is run again whole: on 2026-09-28, with
 a build deployed on nearly every landing, three stops in ten hours were each a
 check stage of twenty minutes or more that the fifteen-minute bound cut short.
@@ -3296,7 +3324,8 @@ run is at stake by then, and the landing is recorded as unverified and files
 nothing. The bound is minutes rather than hours on purpose: on 2026-09-19 a
 session waited two hours on one run's race suite under load, with its second
 seat empty and two recurring passes missed — a wait the check-stage bound now
-caps at thirty minutes by default. What a run the bound stops loses is the
+caps at thirty minutes by default on a machine within its cores, and at that
+figure scaled for the load past them. What a run the bound stops loses is the
 minutes its current phase had spent, and a developer attempt and a review
 resume where they were. Set it longer if that trade is wrong for your project, and never to
 nothing — a drain with no bound is the wait this exists to end, and the

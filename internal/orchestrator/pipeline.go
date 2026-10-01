@@ -357,6 +357,12 @@ type Pipeline struct {
 	Store     StateStore
 	Backend   backend.Backend
 	Checks    CheckRunner
+	// Load is the machine's load, read as each check begins to scale the check
+	// stage's bound the way a local Git command's budget is scaled. Optional: a
+	// pipeline without one — or on a platform that cannot report the load —
+	// holds the stage to the configured figure, as Git reads an unknown load as
+	// idle.
+	Load MachineLoad
 	// Instances is where the workflow instances runs are executed against are
 	// recorded. It is the same store the runs are in — a harness has one durable
 	// state root — and it is named separately because an instance is written
@@ -5288,11 +5294,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// way it carries every other.
 	narrowing := checks.NarrowGoPackages(a.worktree.Path, changed)
 	added := pathChecksFor(a.worktree.Path, p.Config.PathChecks, changed)
+	configured := p.checkStageTimeout()
 	stage := &runstate.CheckStage{
-		StartedAt:    p.clock().Now(),
-		BoundSeconds: int64(p.checkStageTimeout() / time.Second),
-		Narrowed:     narrowing.Describe() + describePathChecks(added),
+		StartedAt:         p.clock().Now(),
+		BoundSeconds:      int64(configured / time.Second),
+		ConfiguredSeconds: int64(configured / time.Second),
+		Narrowed:          narrowing.Describe() + describePathChecks(added),
 	}
+	p.scaleCheckStage(stage)
 	a.state.CheckStage = stage
 	a.state.UpdatedAt = p.clock().Now()
 	_ = p.Store.Save(a.state)
@@ -5302,6 +5311,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 		Commands:     withPathChecks(p.Config.Checks, added),
 		LastSequence: a.state.LastSequence,
 		Env:          []string{narrowing.Env()},
+		// The bound is read again as each check begins, because the load a
+		// stage starts under is not the load three suites beside each other
+		// build up; it only ever grows, and the record carries it before the
+		// check it bounds starts.
+		StageBound: func() time.Duration {
+			p.scaleCheckStage(stage)
+			return stage.Bound()
+		},
 		// Which check the stage is on goes onto the record as each begins.
 		Started: func(command string, _ time.Duration) {
 			stage.Command = command
@@ -5334,9 +5351,16 @@ func (a *activeRun) verify(ctx context.Context) error {
 			// just started. So the stoppage names the bound, the check, what the
 			// stage had spent across how many checks, and the two things that
 			// move it — narrowing the gate, or raising the bound.
+			//
+			// The bound it reached was already scaled for the machine's load, so
+			// what stopped the stage is the machine rather than the change: it is
+			// recorded as a stop from outside the work, naming the bound, the
+			// load, and the check, and it counts toward nothing — no brake, no
+			// review round, no repair grant, no re-run.
 			cause = fmt.Errorf(
-				"the check stage reached its %s execution.check_stage_timeout bound during %s, which had run for %s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
-				stage.Bound(), check.Command, check.Elapsed().Round(time.Second), stage.Elapsed().Round(time.Second), len(checkResults), stage.Narrowed, checks.ChangedGoPackagesVariable)
+				"the check stage reached its %s execution.check_stage_timeout bound%s during %s, which had run for %s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
+				stage.Bound(), stageBoundLoad(*stage), check.Command, check.Elapsed().Round(time.Second), stage.Elapsed().Round(time.Second), len(checkResults), stage.Narrowed, checks.ChangedGoPackagesVariable)
+			a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
 		case check.Process.Status == execution.ProcessTimedOut:
 			// A check stopped on time says nothing about the change: the work
 			// may have been passing the whole way, as it was when this bound
@@ -5448,6 +5472,43 @@ func (a *activeRun) closeCheckStage(stage *runstate.CheckStage, results []checks
 	}
 	a.outcome.CheckStage = stage
 	a.state.UpdatedAt = finished
+}
+
+// scaleCheckStage raises the stage's bound for the machine's load as it reads
+// now: the configured figure scaled by the reading and the cap a local Git
+// command's budget is scaled by (gitworktree.ScaleForLoad). It never lowers the
+// bound — a check already given what the stage had left keeps it — and it
+// records the heaviest reading it scaled for, beside the configured figure.
+func (p Pipeline) scaleCheckStage(stage *runstate.CheckStage) {
+	if p.Load == nil {
+		return
+	}
+	load, cores, ok := p.Load()
+	if !ok {
+		return
+	}
+	if stage.Cores == 0 || load > stage.Load {
+		stage.Load, stage.Cores = load, cores
+	}
+	scaled := int64(gitworktree.ScaleForLoad(stage.Configured(), load, cores) / time.Second)
+	if scaled > stage.BoundSeconds {
+		stage.BoundSeconds = scaled
+	}
+}
+
+// stageBoundLoad is what a stoppage at the stage bound says about the load the
+// bound was scaled for: the configured figure and the reading where the load
+// raised it, the reading alone where it did not, and nothing where the load
+// could not be read.
+func stageBoundLoad(stage runstate.CheckStage) string {
+	switch {
+	case stage.Scaled():
+		return fmt.Sprintf(" (the configured %s scaled for %s)", stage.Configured(), stage.LoadSays())
+	case stage.LoadSays() != "":
+		return fmt.Sprintf(" (not scaled: %s is at or under one per core)", stage.LoadSays())
+	default:
+		return ""
+	}
 }
 
 // landingCheckTimeout is the budget each landing check is given, read from the
@@ -8863,7 +8924,7 @@ func renderOutcomeNotes(outcome Outcome) string {
 func renderCheckNotes(outcome Outcome) []string {
 	var lines []string
 	if stage := outcome.CheckStage; stage != nil {
-		line := fmt.Sprintf("Check stage: %s of the %s execution.check_stage_timeout bound", stage.Elapsed().Round(time.Second), stage.Bound())
+		line := fmt.Sprintf("Check stage: %s of the %s execution.check_stage_timeout bound%s", stage.Elapsed().Round(time.Second), stage.Bound(), stageBoundLoad(*stage))
 		if stage.StoppedAtBound {
 			line += ", stopped at the bound during " + stage.Command
 		}

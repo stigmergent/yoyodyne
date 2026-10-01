@@ -359,6 +359,44 @@ func TestTheStageBoundStopsTheCheckItArrivesDuringAndStartsNothingAfterIt(t *tes
 	}
 }
 
+// A request that answers the stage's bound as each check begins replaces the
+// runner's figure with its first answer and only ever raises it after that: a
+// bound scaled for a load that climbs mid-stage gives the later checks more,
+// and one that falls back takes nothing from them.
+func TestARequestsStageBoundReplacesTheRunnersAndOnlyGrows(t *testing.T) {
+	t.Parallel()
+
+	clock := &steppingClock{now: time.Date(2026, 9, 26, 16, 0, 0, 0, time.UTC)}
+	process := &advancingRunner{clock: clock, runs: 12 * time.Minute}
+	answers := []time.Duration{20 * time.Minute, 60 * time.Minute, 30 * time.Minute}
+	asked := 0
+	results, _, err := (Runner{Process: process, Clock: clock, Timeout: 30 * time.Minute, StageTimeout: 2 * time.Hour}).Run(
+		context.Background(),
+		Request{
+			RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(),
+			Commands: []string{"make fmtcheck", "make test", "make race"},
+			StageBound: func() time.Duration {
+				answer := answers[asked]
+				asked++
+				return answer
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	// 20m for the first check, cut to it; 60m from the second on, so the second
+	// is given its own 30m whole and the third keeps 60m less 24m rather than
+	// falling back to the 30m answered last.
+	if got := process.budgets; !reflect.DeepEqual(got, []time.Duration{20 * time.Minute, 30 * time.Minute, 30 * time.Minute}) {
+		t.Fatalf("budgets given = %v, want the first answer used and the bound grown, never shrunk", got)
+	}
+	if len(results) != 3 || results[2].StageTimeout != time.Hour || results[0].StageTimeout != 20*time.Minute {
+		t.Fatalf("results = %#v, want the stage recorded at each check's bound", results)
+	}
+}
+
 func TestACheckTheStageHasNothingLeftForIsRecordedAsStoppedWithoutRunning(t *testing.T) {
 	t.Parallel()
 

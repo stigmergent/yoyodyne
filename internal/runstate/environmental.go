@@ -174,6 +174,19 @@ const (
 	// main and failing two tests its change never touched (yoyodyne-ifd.429.16).
 	// Only the sweep records it, on the resumption it makes.
 	CauseQueuedHeadBehind EnvironmentalCause = "queued-head-behind"
+	// CauseCheckStageBound is a check stage stopped at its bound — the
+	// configured execution.check_stage_timeout already scaled for the machine's
+	// load the way a local Git command's budget is — before the checks reached a
+	// verdict. No check failed and nothing was handed back to the developer: what
+	// ran out was the machine, as on 2026-09-26 when make race was stopped at a
+	// load average of 40 to 55 on 16 cores with the change already passing
+	// (yoyodyne-ifd.429.26). The run keeps its branch, worktree, and developer
+	// session, and the harness continues it at its checks itself.
+	//
+	// Like the usage window it ends the round before anything judged it, so it
+	// is settled without asking the worktree: the change the attempt left is on
+	// the branch for the continuation to check, not a delivery the stop spent.
+	CauseCheckStageBound EnvironmentalCause = "check-stage-bound"
 )
 
 // Valid reports a cause this harness recognizes. A record naming anything else
@@ -181,7 +194,7 @@ const (
 // declared is a budget nothing accounted for.
 func (c EnvironmentalCause) Valid() bool {
 	switch c {
-	case CauseHandbackMissingChange, CauseDirtyPrimary, CauseWorktreeCheckoutKilled, CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure, CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget, CauseRemoteAuthRefused, CauseQueuedHeadBehind:
+	case CauseHandbackMissingChange, CauseDirtyPrimary, CauseWorktreeCheckoutKilled, CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure, CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget, CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound:
 		return true
 	default:
 		return false
@@ -216,10 +229,10 @@ func (c EnvironmentalCause) NeedsAPerson() bool {
 
 // EndsTheRoundUnjudged reports a cause that ends the round before anything
 // could judge what it holds, so the round is refused without the worktree
-// being asked whether it delivered. Only the provider's usage window does: see
-// CauseUsageWindow.
+// being asked whether it delivered: the provider's usage window, and the check
+// stage stopped at its bound. See CauseUsageWindow and CauseCheckStageBound.
 func (c EnvironmentalCause) EndsTheRoundUnjudged() bool {
-	return c == CauseUsageWindow
+	return c == CauseUsageWindow || c == CauseCheckStageBound
 }
 
 // Title says what a cause is, the way somebody reading a docket entry or a
@@ -251,6 +264,8 @@ func (c EnvironmentalCause) Title() string {
 		return "the remote refused the credential the harness presented"
 	case CauseQueuedHeadBehind:
 		return "its queued merge's head fell behind the target and failed checks on files the change does not touch"
+	case CauseCheckStageBound:
+		return "the check stage reached its bound, already scaled for the machine's load, before the checks judged the change"
 	default:
 		return string(c)
 	}

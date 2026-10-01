@@ -3929,6 +3929,15 @@ func MachineLoad() (load float64, cores int, ok bool) {
 	return load, runtime.NumCPU(), ok
 }
 
+// ScaleForLoad is a budget scaled for the machine's load exactly as a local Git
+// command's is: unchanged at or below one load per core, grown in proportion
+// past that, and capped at maxLoadFactor times. It is exported so a bound kept
+// elsewhere — the check stage's — scales by the one reading and the one cap
+// rather than by a copy of them that could drift.
+func ScaleForLoad(base time.Duration, load float64, cores int) time.Duration {
+	return scaledTimeout(base, load, cores)
+}
+
 // checkoutTimeout is the budget one creation's `git worktree add` gets: the
 // budget a local Git command gets, plus an allowance for every file the add has
 // to write.
