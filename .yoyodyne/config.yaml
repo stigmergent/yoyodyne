@@ -329,6 +329,13 @@ agents:
     backend: claude-code
     model: opus
     effort: medium  # Claude Code's own default for opus, pinned so it is stated (operator, 2026-09-27)
+    # Served by Codex while opus has no capacity, at the operator's direction of
+    # 2026-10-01. Codex can serve only the developer role (its sandbox cannot hold
+    # the other roles' tool access), and an agent has one alternate.
+    failover:
+      enabled: true
+      model: gpt-6.1-sol
+      provider: codex
     # One instance per developer slot, because the capacity rule refuses a
     # limit the instances cannot supply; two with max_concurrent_developers: 2.
     instances: 2
