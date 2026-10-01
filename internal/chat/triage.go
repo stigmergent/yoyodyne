@@ -115,8 +115,9 @@ const (
 	// transient cause.
 	decisionRearm = runstate.TriageDecisionRearm
 	// decisionWait is the decision that nothing is to be done yet: the forge
-	// still has the merge, and waiting is what it needs. It is recorded rather
-	// than left unsaid so the next reader knows somebody looked.
+	// still has the merge, or the stopped run is waiting on something that will
+	// move without a decision. It is recorded rather than left unsaid so the next
+	// reader knows somebody looked.
 	decisionWait = runstate.TriageDecisionWait
 	// decisionEscalate hands the entry to the operator, which is the only
 	// decision that asks a person for anything.
@@ -159,7 +160,14 @@ var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross)
 // a repair, a re-run, and a re-scope answer a run — one that stopped, one that
 // died before it claimed, or one a role escalated as unmeetable, which are the
 // three entries a run can put on the docket under its own identifier — and a
-// re-arm and a wait answer a publication the forge did not finish.
+// re-arm answers a publication the forge did not finish.
+//
+// A wait answers either. It began as the answer to a merge the forge still had,
+// and is recorded on stopped runs as well, where it says nothing is to be done
+// about this run yet; answering only a publication left every such wait closing
+// nothing, and on 2026-10-01 eleven stopped runs she had waited on led every
+// docket as though nobody had looked. It closes for a while rather than for
+// good, whichever entry it answers.
 //
 // Escalating answers either, and closes both where a run has both. An escalation
 // blocks the work item and hands it to the operator, so nothing about that run is
@@ -183,7 +191,7 @@ var triageSettles = map[string]triageSettlement{
 	decisionRerun:    {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
 	decisionRescope:  {classes: runEntryClasses},
 	decisionRearm:    {classes: []triage.Class{triage.ClassPublication}},
-	decisionWait:     {classes: []triage.Class{triage.ClassPublication}, revisit: true},
+	decisionWait:     {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication), revisit: true},
 	decisionEscalate: {classes: append(slices.Clone(runEntryClasses), triage.ClassPublication)},
 	// The two decisions about a run in flight answer the Lead Product Manager's
 	// decision about it, which is the one entry a run has before it stops.
@@ -203,10 +211,10 @@ var runEntryClasses = []triage.Class{triage.ClassStoppedRun, triage.ClassUnstart
 type triageSettlement struct {
 	classes []triage.Class
 	// revisit says the decision holds for a while rather than settling anything.
-	// Waiting is the only one: its whole content is that the forge still has the
-	// merge, so an entry it closed for good would be a stuck merge nobody ever
-	// looks at again on the strength of a decision to look again. How long the
-	// harness leaves it alone is the harness's, not this role's.
+	// Waiting is the only one: its whole content is "not yet", so an entry it
+	// closed for good would be a stuck merge or a stopped run nobody ever looks at
+	// again on the strength of a decision to look again. How long the harness
+	// leaves it alone is the harness's, not this role's.
 	revisit bool
 }
 
@@ -219,7 +227,7 @@ var triageVerbs = map[string]string{
 	decisionRerun:    "Triaged: to be run again from the start",
 	decisionRescope:  "Triaged: re-scoped, with what was out of scope split out",
 	decisionRearm:    "Triaged: its dropped merge to be re-armed once",
-	decisionWait:     "Triaged: waiting, because the forge still has it",
+	decisionWait:     "Triaged: waiting, with nothing to be done about it yet",
 	decisionEscalate: "Escalated to the operator by triage",
 	decisionStop:     "Triaged: stopped in flight, with its change preserved",
 	decisionProceed:  "Triaged: left to finish in flight",

@@ -190,13 +190,14 @@ func (d sweepDocket) Window() string {
 // read.
 func (d sweepDocket) docket() string {
 	built, err := d.docketer.Build()
-	if err != nil && len(built.Entries) == 0 {
+	listed := built.Listed()
+	if err != nil && len(listed) == 0 {
 		rendered, _ := contextbundle.TriageDocket(contextbundle.ProductRequest{TriageDocketUnavailable: err.Error()})
 		return rendered
 	}
-	request := contextbundle.ProductRequest{TriageDocket: built.Entries, TriageDocketAt: time.Now()}
+	request := contextbundle.ProductRequest{TriageDocket: listed, TriageDocketAt: time.Now()}
 	var problems []string
-	if len(built.Entries) > 0 {
+	if len(listed) > 0 {
 		if d.items == nil {
 			request.TriageDocketItemsUnavailable = "no tracker was given to this pass"
 		} else if items, listErr := d.items.List(context.Background(), ""); listErr != nil {

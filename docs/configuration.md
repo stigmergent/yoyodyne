@@ -5323,12 +5323,13 @@ offers no event to hang a deadline on. It must be positive: an age of no time at
 all dockets every publication the instant it is made, which is a docket of
 everything and a triage of nothing.
 
-It is also how long a decision to `wait` leaves that entry alone. Waiting says
-the forge still has the merge, which is "not yet" rather than a decision about
-it, so the entry comes back once it has been sitting there this long again —
-otherwise a merge nothing is happening to would disappear on the strength of a
-decision to look at it later, since nothing about it will ever change to bring it
-back.
+It is also how long a decision to `wait` leaves that entry alone, whether the
+entry is a publication or a stopped run. Waiting says "not yet" rather than
+deciding anything, so the entry comes back once it has been sitting there this
+long again — otherwise a merge or a stopped run nothing is happening to would
+disappear on the strength of a decision to look at it later, since nothing about
+it will ever change to bring it back. Until then the development manager's
+docket still lists it, after every entry nobody has decided, saying until when.
 
 `review_rounds_cap` bounds the review rounds one work item may accumulate in
 total — across repairs, across runs — past which triage may no longer hand it
