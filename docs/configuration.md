@@ -2904,6 +2904,18 @@ configured, and the default of `1` is deliberate: raising it is a decision about
 your machine, and [how long a check may take](#how-long-a-check-may-take) is the
 setting that has to move with it.
 
+More than one run means more than one process writing to the tracker, and `bd`
+does not protect two writes to one item from each other: two notes appended to
+one item at the same moment can leave only one of them, with both commands
+reporting success. So the harness queues its writes to any one item, across
+every process using the same tracker, on a lock file per item under
+`.beads/yoyodyne-writes/`. Writes to different items do not wait for each other.
+A write that waits longer than the tracker command limit for the one ahead of
+it fails with an error rather than going ahead unqueued. The queue covers the
+harness's own writes only: a `bd update` typed by hand is not in it.
+[The diagnosis](diagnoses/yoyodyne-ifd-433-23-concurrent-writes-to-one-item.md)
+has the measurements.
+
 ### A developer slot that prefers a label
 
 Each unit of `max_concurrent_developers` is a **developer slot**: the capacity

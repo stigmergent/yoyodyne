@@ -769,7 +769,7 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 		args = append(args, "--remove-label="+strings.TrimSpace(label))
 	}
 	args = append(args, "--json")
-	data, err := c.run(ctx, args...)
+	data, err := c.write(ctx, id, args...)
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1046,7 +1046,7 @@ func sleepWithin(ctx context.Context, interval time.Duration) error {
 }
 
 func (c Client) claim(ctx context.Context, id string) (WorkItem, error) {
-	data, err := c.run(ctx, "update", id, "--claim", "--json")
+	data, err := c.write(ctx, id, "update", id, "--claim", "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1107,7 +1107,7 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 	corrected := fmt.Sprintf(
 		"%s. That refusal came before anything below. The harness is clearing this item's blocked status to claim it: nothing unfinished blocks it, and the status was left over from whatever did. The claim follows once the tracker reads the status back as open.",
 		singleLineNote(refusal.Error()))
-	if _, err := c.run(ctx, "update", id, "--status=open", "--append-notes="+corrected, "--json"); err != nil {
+	if _, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+corrected, "--json"); err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, fmt.Errorf("clear the stale blocked status on %s: %w", id, err))
 	}
 	claimed, account, err := c.claimOnConfirmedClear(ctx, id)
@@ -1132,7 +1132,7 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 		// finds the account rather than a promise, and a status the tracker still
 		// holds as blocked with nothing saying why the claim never followed.
 		note := fmt.Sprintf("The harness could not confirm the clear above: %s. The item is left for the next pull rather than claimed.", returned)
-		if _, err := c.run(ctx, "update", id, "--append-notes="+note, "--json"); err != nil {
+		if _, err := c.write(ctx, id, "update", id, "--append-notes="+note, "--json"); err != nil {
 			return WorkItem{}, account, errors.Join(unconfirmed, refusal, fmt.Errorf("record the unconfirmed clear on %s: %w", id, err))
 		}
 		return WorkItem{}, account, errors.Join(unconfirmed, refusal)
@@ -1149,7 +1149,7 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 	if account.ClaimsRefused > 0 {
 		claimedNote = fmt.Sprintf("The harness read the cleared status back as open, bd refused the claim on the status %d time(s) after that, and the item was claimed on read %d.", account.ClaimsRefused, account.Reads)
 	}
-	_, _ = c.run(ctx, "update", id, "--append-notes="+claimedNote, "--json")
+	_, _ = c.write(ctx, id, "update", id, "--append-notes="+claimedNote, "--json")
 	return claimed, account, nil
 }
 
@@ -1262,7 +1262,7 @@ func (c Client) RecordOutcome(ctx context.Context, id, notes string) (WorkItem, 
 	if strings.TrimSpace(notes) == "" {
 		return WorkItem{}, errors.New("outcome notes are required")
 	}
-	data, err := c.run(ctx, "update", id, "--append-notes="+notes, "--json")
+	data, err := c.write(ctx, id, "update", id, "--append-notes="+notes, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1284,7 +1284,7 @@ func (c Client) Block(ctx context.Context, id, reason string) (WorkItem, error) 
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("blocker reason is required")
 	}
-	data, err := c.run(ctx, "update", id, "--status=blocked", "--append-notes="+reason, "--json")
+	data, err := c.write(ctx, id, "update", id, "--status=blocked", "--append-notes="+reason, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1315,7 +1315,7 @@ func (c Client) Unblock(ctx context.Context, id, note string) (WorkItem, error) 
 	if strings.TrimSpace(note) == "" {
 		return WorkItem{}, errors.New("a note saying what made the blocked status stale is required")
 	}
-	data, err := c.run(ctx, "update", id, "--status=open", "--append-notes="+note, "--json")
+	data, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+note, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1345,7 +1345,7 @@ func (c Client) Release(ctx context.Context, id, reason string) (WorkItem, error
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("release reason is required")
 	}
-	data, err := c.run(ctx, "update", id, "--status=open", "--append-notes="+reason, "--json")
+	data, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+reason, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1378,7 +1378,7 @@ func (c Client) changeBlocker(ctx context.Context, command, applied, id, blocker
 	if err := validateIssueID(blockerID); err != nil {
 		return fmt.Errorf("invalid blocker: %w", err)
 	}
-	data, err := c.run(ctx, "dep", command, id, blockerID, "--json")
+	data, err := c.write(ctx, id, "dep", command, id, blockerID, "--json")
 	if err != nil {
 		return err
 	}
@@ -1413,7 +1413,7 @@ func (c Client) RecordGoalWitness(ctx context.Context, id, statement string) (Wo
 	if strings.TrimSpace(statement) == "" {
 		return WorkItem{}, errors.New("the goal to witness is required")
 	}
-	data, err := c.run(ctx, "update", id, "--set-metadata="+goalWitnessKey+"="+witnessValue(statement), "--json")
+	data, err := c.write(ctx, id, "update", id, "--set-metadata="+goalWitnessKey+"="+witnessValue(statement), "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1443,7 +1443,7 @@ func (c Client) RecordCost(ctx context.Context, id string, cost Cost) (WorkItem,
 	if err := cost.Validate(); err != nil {
 		return WorkItem{}, fmt.Errorf("invalid work item cost: %w", err)
 	}
-	data, err := c.run(ctx, "update", id,
+	data, err := c.write(ctx, id, "update", id,
 		"--set-metadata="+costTotalKey+"="+formatCost(cost.TotalUSD),
 		"--set-metadata="+costRunsKey+"="+strconv.Itoa(cost.Runs),
 		"--set-metadata="+costUnknownKey+"="+strconv.Itoa(cost.UnknownRuns),
@@ -1478,7 +1478,7 @@ func (c Client) RecordLanding(ctx context.Context, id, landing string) (WorkItem
 		return WorkItem{}, err
 	}
 	landing = strings.TrimSpace(landing)
-	data, err := c.run(ctx, "update", id, "--set-metadata="+LandingKey+"="+landing, "--json")
+	data, err := c.write(ctx, id, "update", id, "--set-metadata="+LandingKey+"="+landing, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1503,7 +1503,7 @@ func (c Client) Complete(ctx context.Context, id, reason string) (WorkItem, erro
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("completion reason is required")
 	}
-	data, err := c.run(ctx, "close", id, "--reason="+reason, "--json")
+	data, err := c.write(ctx, id, "close", id, "--reason="+reason, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1545,7 +1545,7 @@ func (c Client) Reopen(ctx context.Context, id, reason string, parking domain.Wo
 	if err := errors.Join(parkingProblem(parking)...); err != nil {
 		return WorkItem{}, err
 	}
-	data, err := c.run(ctx, "update", id, "--status=open", "--append-notes="+reason,
+	data, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+reason,
 		"--set-metadata="+parkedKey+"="+parking.Reason(), "--json")
 	if err != nil {
 		return WorkItem{}, err
