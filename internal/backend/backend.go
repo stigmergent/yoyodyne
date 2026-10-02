@@ -54,10 +54,15 @@ type Availability struct {
 // So the mode is a function of the role's posture, decided by the adapter that
 // knows the provider's spelling of it, and there is no field here for a caller
 // to name one. What a role's session is is settled by which role it is, and no
-// caller is in a position to say otherwise.
+// caller is in a position to say otherwise. A capacity probe is the one
+// narrower operation: the adapter enforces its fixed, bounded inspection
+// request even when the endpoint serves only developers.
 type RunRequest struct {
-	RunID            string
-	Role             domain.AgentRole
+	RunID string
+	Role  domain.AgentRole
+	// CapacityProbe selects the trusted adapter's bounded inspection request.
+	// It only removes access; it never changes which role an endpoint serves.
+	CapacityProbe    bool
 	WorkingDirectory string
 	Prompt           string
 	SystemPrompt     string

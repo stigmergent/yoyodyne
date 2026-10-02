@@ -61,8 +61,8 @@ func dispatchEndpoints(parts components, item beads.WorkItem) ([]backend.Endpoin
 }
 
 // probeProviderCapacity gives the provider no assignment or session to continue.
-// It uses the registered reviewer's read-only posture, a short work bound, and
-// the ordinary spend meter.
+// The compiled adapter narrows its access and work bound regardless of which
+// configured role the endpoint serves. Spend uses the ordinary meter.
 func probeProviderCapacity(ctx context.Context, parts components, endpoint backend.Endpoint) (*runstate.Spend, error) {
 	account, err := parts.config.Endpoint(parts.stateRoot, endpoint.AccountAlias)
 	if err != nil {
@@ -76,8 +76,12 @@ func probeProviderCapacityWith(ctx context.Context, parts components, endpoint b
 	if err != nil {
 		return nil, err
 	}
-	if err := registry.EligibleFor(endpoint, domain.RoleReviewer); err != nil {
-		return nil, err
+	role := domain.RoleReviewer
+	if err := registry.EligibleFor(endpoint, role); err != nil {
+		role = domain.RoleDeveloper
+		if err := registry.EligibleFor(endpoint, role); err != nil {
+			return nil, err
+		}
 	}
 	account, err := parts.config.Endpoint(parts.stateRoot, endpoint.AccountAlias)
 	if err != nil {
@@ -97,11 +101,11 @@ func probeProviderCapacityWith(ctx context.Context, parts components, endpoint b
 			AccountAlias: endpoint.AccountAlias, ConfigRevision: parts.config.Revision()},
 	}
 	result, err := provider.Run(ctx, backend.RunRequest{
-		RunID: id, Role: domain.RoleReviewer, WorkingDirectory: parts.repository,
-		Prompt: "Reply with OK to confirm this endpoint can serve a request. Do not inspect files or use tools.",
+		RunID: id, Role: role, CapacityProbe: true, WorkingDirectory: parts.repository,
+		Prompt: backend.CapacityProbePrompt,
 		Model:  endpoint.Model, AccountAlias: endpoint.AccountAlias, AccountConfigDir: account.Directory,
 		AllowedTools: []string{},
-		Timeout:      30 * time.Second, IdleTimeout: 30 * time.Second,
+		Timeout:      backend.CapacityProbeTimeout, IdleTimeout: backend.CapacityProbeTimeout,
 	})
 	if result.UsageLimit != nil {
 		limit := result.UsageLimit

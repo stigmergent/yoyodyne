@@ -362,6 +362,10 @@ func (Backend) Capabilities() backend.Capabilities {
 }
 
 func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
+	request, err := request.RestrictCapacityProbe()
+	if err != nil {
+		return backend.RunResult{}, err
+	}
 	if b.Runner == nil {
 		return backend.RunResult{}, errors.New("Claude Code process runner is required")
 	}
@@ -379,6 +383,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 
 	sessionMode := sessionModeFor(request.Role)
+	if request.CapacityProbe {
+		sessionMode = readOnlySessionMode
+	}
 	allowedTools := request.AllowedTools
 	if allowedTools == nil {
 		if readOnlyRole(request.Role) {
@@ -413,7 +420,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		"--permission-mode", sessionMode,
 		"--name", "yoyodyne-" + shortRunID(request.RunID),
 	}
-	if request.Role == domain.RoleDeveloper {
+	if request.Role == domain.RoleDeveloper && !request.CapacityProbe {
 		args = append(args, "--settings", developerSettings)
 	} else {
 		// Repository instruction files are evidence, not harness policy. Safe

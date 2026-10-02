@@ -3924,7 +3924,11 @@ While waiting, fresh work stays in the backlog while the
 harness makes a bounded capacity probe, at most once per
 `usage_limit_unknown_reset_pause` interval for that capacity scope. Each probe
 has a 30-second limit, uses read-only provider access, and records its spend as
-`capacity-probe`. Probe reservations and refusals survive supervisor restarts;
+`capacity-probe`. It uses an eligible reviewer role when available, otherwise an
+eligible developer role. Both compiled adapters enforce the same fixed probe
+prompt and inspection restrictions, even for a provider declared only for
+developers or worktree writes; probing grants no additional role permissions
+and resumes no session. Probe reservations and refusals survive supervisor restarts;
 an interrupted or refused probe releases no work. A successfully served probe
 records the evidence that makes dispatch eligible again. Waiting items retain
 their backlog priority, and the scheduler names the reset or next probe time.

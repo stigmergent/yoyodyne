@@ -42,7 +42,7 @@ func TestCapacityProbeUsesReadOnlyAccessAndRecordsSpendAndCapacityEvidence(t *te
 			if (err != nil) != refused {
 				t.Fatalf("probe = %v, refused %t", err, refused)
 			}
-			if provider.request.Role != domain.RoleReviewer || len(provider.request.AllowedTools) != 0 || provider.request.Timeout != 30*time.Second || provider.request.SessionID != "" {
+			if provider.request.Role != domain.RoleReviewer || !provider.request.CapacityProbe || len(provider.request.AllowedTools) != 0 || provider.request.Timeout != 30*time.Second || provider.request.SessionID != "" {
 				t.Fatalf("request = %+v", provider.request)
 			}
 			if spent == nil || spent.CapacityProbeID == "" || spent.RunID != "" || spent.Phase != runstate.SpendPhaseCapacityProbe {
@@ -72,6 +72,88 @@ func TestCapacityProbeUsesReadOnlyAccessAndRecordsSpendAndCapacityEvidence(t *te
 				}
 			}
 		})
+	}
+}
+
+func TestCapacityProbeReleasesUnknownResetForRestrictedDeveloperEndpoints(t *testing.T) {
+	t.Parallel()
+	for _, adapter := range []domain.Backend{domain.BackendClaudeCode, domain.BackendCodex} {
+		for _, restriction := range []string{"developer-only", "worktree-write-only"} {
+			t.Run(string(adapter)+"/"+restriction, func(t *testing.T) {
+				t.Parallel()
+				root := t.TempDir()
+				runs, err := runstate.NewStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				limits, err := runstate.NewUsageLimitStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				served, err := runstate.NewCapacityServedStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				log, err := runstate.NewSpendStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				plugin := backend.ProviderPlugin{Adapter: adapter,
+					Roles:    []domain.AgentRole{domain.RoleDeveloper},
+					Postures: []backend.Posture{backend.PostureWorktreeWrite, backend.PostureReadOnly},
+					Dialect:  backend.DialectSpec{Rules: []backend.DialectRule{{Type: "retry", Answer: backend.AnswerRetrying}}}}
+				if restriction == "worktree-write-only" {
+					plugin.Roles = append(plugin.Roles, domain.RoleReviewer)
+					plugin.Postures = []backend.Posture{backend.PostureWorktreeWrite}
+				}
+				agent := pooledDeveloper()
+				agent.Backend = "restricted"
+				cfg := config.Config{Product: config.Product{ID: "yoyodyne"},
+					Agents:    map[string]config.AgentConfig{"developers": agent},
+					Providers: map[string]backend.ProviderPlugin{"restricted": plugin}}
+				parts := components{config: cfg, stateRoot: root, repository: root, usageLimits: limits, capacityServed: served, spend: log}
+				endpoints, err := dispatchEndpoints(parts, beads.WorkItem{})
+				if err != nil || len(endpoints) != 1 {
+					t.Fatalf("dispatch endpoints = %+v, %v", endpoints, err)
+				}
+				endpoint := endpoints[0]
+				registry, err := cfg.ProviderRegistry()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := registry.EligibleFor(endpoint, domain.RoleReviewer); err == nil {
+					t.Fatal("fixture unexpectedly permits ordinary review")
+				}
+				if err := limits.Record(runstate.UsageLimitExhaustion{SchemaVersion: runstate.UsageLimitSchemaVersion,
+					ProductID: "yoyodyne", At: time.Now().Add(-time.Hour), Waiting: "a developer run",
+					Provider: endpoint.Provider, AccountAlias: endpoint.AccountAlias, Model: endpoint.Model}); err != nil {
+					t.Fatal(err)
+				}
+				pool := accountPool{config: cfg, stateRoot: root, runs: runs, usageLimits: limits, capacityServed: served}
+				if _, err := pool.ChooseAccount(); err == nil {
+					t.Fatal("unknown-reset refusal did not withhold dispatch")
+				}
+				provider := &capturingBackend{result: backend.RunResult{Process: execution.ProcessResult{Status: execution.ProcessSucceeded}, CostReported: true}}
+				spent, err := probeProviderCapacityWith(context.Background(), parts, endpoint, provider)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !provider.request.CapacityProbe || provider.request.Role != domain.RoleDeveloper || provider.request.SessionID != "" || len(provider.request.AllowedTools) != 0 || provider.request.Timeout != backend.CapacityProbeTimeout {
+					t.Fatalf("probe request = %+v", provider.request)
+				}
+				if spent == nil || spent.Phase != runstate.SpendPhaseCapacityProbe {
+					t.Fatalf("probe spend = %+v", spent)
+				}
+				// Rebuild the pool to prove the release is durable, not a local flag.
+				fresh := accountPool{config: cfg, stateRoot: root, runs: runs, usageLimits: limits, capacityServed: served}
+				if chosen, err := fresh.ChooseAccount(); err != nil || chosen.Alias != endpoint.AccountAlias {
+					t.Fatalf("dispatch after served probe = %+v, %v", chosen, err)
+				}
+				if err := registry.EligibleFor(endpoint, domain.RoleReviewer); err == nil {
+					t.Fatal("probe widened ordinary reviewer eligibility")
+				}
+			})
+		}
 	}
 }
 

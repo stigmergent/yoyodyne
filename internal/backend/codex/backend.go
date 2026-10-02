@@ -411,6 +411,10 @@ func invocationArgs(request backend.RunRequest, sandbox string) []string {
 }
 
 func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned backend.RunResult, runErr error) {
+	request, err := request.RestrictCapacityProbe()
+	if err != nil {
+		return backend.RunResult{}, err
+	}
 	if b.Runner == nil {
 		return backend.RunResult{}, errors.New("Codex process runner is required")
 	}
@@ -426,6 +430,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	sandbox, err := sandboxFor(request.Role)
 	if err != nil {
 		return backend.RunResult{}, err
+	}
+	if request.CapacityProbe {
+		sandbox = sandboxReadOnly
 	}
 	// Codex has no per-tool control: what an agent may do is decided by the
 	// sandbox and by nothing else. A request naming tools is therefore refused
