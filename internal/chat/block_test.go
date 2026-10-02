@@ -214,6 +214,62 @@ func TestMalformedBlocksCannotHideUnauthorizedActions(t *testing.T) {
 	}
 }
 
+func TestInvalidSiblingCannotHideUnauthorizedActions(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, fence, collection, forbidden, invalid, wantReason string
+		role                                                    domain.AgentRole
+	}{
+		{
+			name: "tracker action", fence: trackerFence, collection: "actions", role: domain.RoleDevelopmentManager,
+			forbidden: `{"action":"reprioritize"}`, invalid: `{"action":5}`, wantReason: "reprioritize",
+		},
+		{
+			name: "artifact action", fence: artifact.WriteFence, collection: "documents", role: domain.RoleProductManager,
+			forbidden: `{"action":"create","kind":"design"}`, invalid: `{"action":5,"kind":"goals"}`, wantReason: "design",
+		},
+		{
+			name: "artifact kind", fence: artifact.WriteFence, collection: "documents", role: domain.RoleProductManager,
+			forbidden: `{"action":"create","kind":"design"}`, invalid: `{"action":"create","kind":5}`, wantReason: "design",
+		},
+	} {
+		for _, order := range []string{"invalid first", "invalid last"} {
+			t.Run(test.name+"/"+order, func(t *testing.T) {
+				first, second := test.invalid, test.forbidden
+				if order == "invalid last" {
+					first, second = second, first
+				}
+				block := test.fence + "\n{\"" + test.collection + "\":[" + first + "," + second + "]}\n```\n"
+				provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: block +
+					memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`)}}}
+				options, _ := documentOptions(t, provider)
+				root := t.TempDir()
+				memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				tracker := &fakeTracker{}
+				options.Role, options.Agent = test.role, string(test.role)
+				options.Store, options.Memories, options.Tracker = newTestStore(t, root), memories, tracker
+				session := openTestSession(t, options)
+				reply, err := session.Send(context.Background(), "Carry on.")
+				var unauthorized *AuthorityError
+				if !errors.As(err, &unauthorized) || !strings.Contains(err.Error(), test.wantReason) {
+					t.Fatalf("Send() = %v, want the unauthorized request to refuse the whole reply", err)
+				}
+				if len(reply.Actions) != 0 || len(tracker.shown) != 0 || len(reply.Memories) != 0 || len(reply.Writes) != 0 ||
+					len(session.Writes()) != 0 || len(reply.BlockRefusals) != 0 || len(provider.requests) != 1 {
+					t.Fatalf("unauthorized reply carried out other blocks: %+v", reply)
+				}
+				all, problems, err := memories.Memories(string(test.role))
+				if err != nil || len(problems) != 0 || len(all) != 0 {
+					t.Fatalf("memory store = %v, %v, %v; want no memory written", all, problems, err)
+				}
+			})
+		}
+	}
+}
+
 func TestAuthorizedMalformedBlocksStillFailValidation(t *testing.T) {
 	t.Parallel()
 	for _, block := range []string{
@@ -224,6 +280,8 @@ func TestAuthorizedMalformedBlocksStillFailValidation(t *testing.T) {
 			block + block,
 			strings.TrimSuffix(block, "```\n"),
 			strings.Replace(block, "\n{", " invalid\n{", 1),
+			strings.Replace(block, "]}", `,{"action":5}]}`, 1),
+			strings.Replace(block, "]}", `,{"action":"create","kind":5}]}`, 1),
 		} {
 			parsed, err := splitReply(domain.RoleProductManager, malformed+
 				memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`))

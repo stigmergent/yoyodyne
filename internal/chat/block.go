@@ -200,7 +200,8 @@ func (s *Session) reportBlockRefusals(out io.Writer, reply Reply) {
 // Each occurrence starts at its opening line; disregard that line's trailing
 // text, or read JSON placed directly after the opener, without requiring a
 // closing fence or EOF.
-// Malformed framing must not conceal a known action the role may not take.
+// Malformed framing or another entry's invalid field type must not conceal a
+// known action the role may not take.
 func blockAuthority(role domain.AgentRole, fence, block string) error {
 	if fence != trackerFence && fence != artifact.WriteFence {
 		return nil
@@ -213,14 +214,18 @@ func blockAuthority(role domain.AgentRole, fence, block string) error {
 	authority, _ := AuthorityFor(role)
 	if fence == trackerFence {
 		var document struct {
-			Actions []struct {
-				Action string `json:"action"`
-			} `json:"actions"`
+			Actions []json.RawMessage `json:"actions"`
 		}
 		if decoder.Decode(&document) != nil {
 			return nil
 		}
-		for _, action := range document.Actions {
+		for _, entry := range document.Actions {
+			var action struct {
+				Action string `json:"action"`
+			}
+			if json.Unmarshal(entry, &action) != nil {
+				continue
+			}
 			if _, known := trackerCapabilities[action.Action]; known && !authority.MayAct(action.Action) {
 				return &AuthorityError{Role: role, Refused: fmt.Sprintf("the %q tracker action", action.Action),
 					Reason: "this role may ask for " + renderActions(authority.TrackerActions)}
@@ -229,15 +234,19 @@ func blockAuthority(role domain.AgentRole, fence, block string) error {
 		return nil
 	}
 	var document struct {
-		Documents []struct {
-			Action artifact.WriteAction `json:"action"`
-			Kind   artifact.Kind        `json:"kind"`
-		} `json:"documents"`
+		Documents []json.RawMessage `json:"documents"`
 	}
 	if decoder.Decode(&document) != nil {
 		return nil
 	}
-	for _, write := range document.Documents {
+	for _, entry := range document.Documents {
+		var write struct {
+			Action artifact.WriteAction `json:"action"`
+			Kind   artifact.Kind        `json:"kind"`
+		}
+		if json.Unmarshal(entry, &write) != nil {
+			continue
+		}
 		if write.Action == artifact.WriteCreate && write.Kind.Valid() {
 			if err := (artifact.Write{Action: write.Action, Kind: write.Kind}).Authorize(role); err != nil {
 				return &AuthorityError{Role: role, Refused: "a document to be written", Reason: err.Error()}
