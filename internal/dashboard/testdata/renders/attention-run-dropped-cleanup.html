@@ -49,7 +49,7 @@
       <div class="popup-card">
         <div class="popup-head">
           <div>
-            <h2 id="card-heading" class="popup-title">merge stuck</h2>
+            <h2 id="card-heading" class="popup-title">run not finished</h2>
             <p id="card-note" class="popup-note">run-dropped · read 14:05:09</p>
           </div>
           <button type="button" id="card-close" class="popup-close">Close</button>
@@ -58,19 +58,19 @@
           <dl id="card-fields" class="card-fields">
             <div class="card-field card-field-prose">
               <dt>What</dt>
-              <dd>merge of pull request 732 for yoyodyne-ifd.435.1 was dropped by the forge: build failed</dd>
+              <dd>cleanup of the branch and worktree for yoyodyne-ifd.435.1 is not finished: remove worktree: directory busy</dd>
             </div>
             <div class="card-field card-field-prose">
               <dt>Waiting on</dt>
-              <dd>the development manager's — the forge dropped the merge: build failed; she decides a repair, re-run, or re-arm, which the harness carries out; `yoyo reconcile` settles it once the forge records the merge</dd>
+              <dd>the harness's — `yoyo reconcile` finishes the run's cleanup and records it</dd>
             </div>
             <div class="card-field">
               <dt>Kind</dt>
-              <dd>merge stuck</dd>
+              <dd>run not finished</dd>
             </div>
             <div class="card-field">
               <dt>Mover</dt>
-              <dd>the development manager's</dd>
+              <dd>the harness's</dd>
             </div>
             <div class="card-field card-field-id">
               <dt>Run</dt>
@@ -82,21 +82,13 @@
                 <button class="item-open item-id" type="button" data-item="yoyodyne-ifd.435.1">yoyodyne-ifd.435.1</button>
               </dd>
             </div>
-            <div class="card-field card-field-id">
-              <dt>Target branch</dt>
-              <dd>main</dd>
-            </div>
-            <div class="card-field card-field-id">
-              <dt>Branch</dt>
-              <dd>run-dropped</dd>
+            <div class="card-field">
+              <dt>Ended</dt>
+              <dd>succeeded</dd>
             </div>
             <div class="card-field">
-              <dt>Pull request</dt>
-              <dd>#732 https://forge.example/pull/732</dd>
-            </div>
-            <div class="card-field card-field-prose">
-              <dt>Merge dropped</dt>
-              <dd>2026-09-19 14:45:00: build failed</dd>
+              <dt>Phase</dt>
+              <dd>cleaning_up</dd>
             </div>
           </dl>
         </div>

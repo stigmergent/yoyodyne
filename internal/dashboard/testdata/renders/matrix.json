@@ -407,6 +407,23 @@
       "report": "closed"
     }
   },
+  "attention-run-dropped-cleanup": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "empty",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "empty",
+      "capacity": "empty",
+      "managers": "empty"
+    },
+    "popups": {
+      "grouping": "ready",
+      "card": "ready",
+      "report": "closed"
+    }
+  },
   "attention-run-dropped": {
     "page": "ready",
     "sections": {

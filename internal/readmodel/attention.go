@@ -149,13 +149,11 @@ func (k AttentionKind) Valid() bool {
 // The machine-facing kind stays unchanged.
 func (a Attention) Label() string {
 	if a.Kind == AttentionOwedStep {
-		if step := a.OwedStep; step != nil && step.PullRequest != nil {
-			if (step.MergeDrop != nil && !step.PullRequest.MergeQueued) || (step.PullRequest.Checks != nil && step.PullRequest.Checks.Red()) {
+		if step := a.OwedStep; step != nil && step.PullRequest != nil && step.PullRequest.MergeQueued {
+			if step.PullRequest.Checks != nil && step.PullRequest.Checks.Red() {
 				return "merge stuck"
 			}
-			if step.PullRequest.MergeQueued {
-				return "merge waiting"
-			}
+			return "merge waiting"
 		}
 		return "run not finished"
 	}
@@ -598,9 +596,8 @@ func (a Attention) What() string {
 				}
 				return what
 			}
-			if step.MergeDrop != nil && step.PullRequest != nil {
-				return fmt.Sprintf("merge of pull request %d for %s was dropped by the forge: %s", step.PullRequest.Number, a.WorkItemID, step.MergeDrop.Reason)
-			}
+			// A dropped merge is a separate publication decision; this entry
+			// describes only the run's remaining cleanup or completion.
 			if step.LandingChecks != nil && !step.LandingChecks.Finished() {
 				return fmt.Sprintf("landing checks for %s ended without a recorded result; their checkout needs cleanup", a.WorkItemID)
 			}
@@ -752,9 +749,6 @@ func (a Attention) Whose() string {
 					return a.Mover.Possessive() + " — `yoyo reconcile` reads the failed checks and withdraws the merge to update its head, wait for a target fix, or return the change for repair"
 				}
 				return a.Mover.Possessive() + " — `yoyo reconcile` confirms the forge's merge and finishes the run's cleanup once it lands"
-			}
-			if step.MergeDrop != nil {
-				return a.Mover.Possessive() + " — `yoyo reconcile` records the dropped merge for the development manager to decide a repair, re-run, or re-arm; the harness carries out her decision"
 			}
 			if step.LandingChecks != nil && !step.LandingChecks.Finished() {
 				return a.Mover.Possessive() + " — `yoyo reconcile` records the interrupted landing as unverified and removes its checkout"

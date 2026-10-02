@@ -357,6 +357,7 @@ const scenarios = pages.concat([
   over("attention-run-steps", "run-steps", { open: [{ grouping: "attention" }] }),
   over("attention-run-queued", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-queued" }] }),
   over("attention-run-cleanup", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-cleanup" }] }),
+  over("attention-run-dropped-cleanup", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-dropped" }] }),
   over("attention-run-dropped", "run-steps", { open: [{ grouping: "attention" }, { entry: "publication:run-dropped" }] }),
   // The pop-ups, each over a page rendered above. A pop-up scenario is that
   // page's scenario with what a reader clicks after it is drawn, and its
@@ -651,10 +652,11 @@ async function main() {
     if (scenario.name.startsWith("attention-run-")) {
       assert(!rendered.html.includes('data-entry="owed-step:run-live"'));
       for (const entry of runSteps.needs_human) {
-        if (scenario.name !== "attention-run-steps" && scenario.name !== "attention-" + entry.id) continue;
-        const cleanup = entry.id === "run-cleanup";
+        const cleanup = entry.kind === "owed-step" && !entry.owed_step.pull_request?.merge_queued;
+        const cardScenario = "attention-" + entry.id + (entry.id === "run-dropped" && cleanup ? "-cleanup" : "");
+        if (scenario.name !== "attention-run-steps" && scenario.name !== cardScenario) continue;
         assert.strictEqual(entry.label, cleanup ? "run not finished" : "merge stuck");
-        assert.strictEqual(entry.mover, entry.id === "run-dropped" ? "development-manager" : "harness");
+        assert.strictEqual(entry.mover, entry.kind === "publication" ? "development-manager" : "harness");
         for (const words of [entry.what, entry.whose, entry.label]) {
           assert(rendered.html.includes(escapeText(words)), `${scenario.name} must carry ${words}`);
         }

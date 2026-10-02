@@ -1388,8 +1388,12 @@ func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
 	queued.PullRequest = &runstate.PullRequest{Number: 700, MergeQueued: true, Checks: &runstate.PullRequestChecks{Failing: []runstate.FailingCheck{{Name: "build", Conclusion: "failure"}}}}
 	dropped := queued
 	dropped.RunID, dropped.WorkItemID = "run-dropped", "dropped"
-	dropped.PullRequest = &runstate.PullRequest{Number: 732}
+	dropped.Phase = runstate.PhaseCleaningUp
+	dropped.PullRequest = &runstate.PullRequest{Number: 732, Checks: queued.PullRequest.Checks}
 	dropped.MergeDrop = &runstate.MergeDrop{At: ended, Reason: "build failed"}
+	if !dropped.Outstanding() {
+		t.Fatal("the dropped local merge must still owe cleanup")
+	}
 	landing := cleanup
 	landing.RunID = "run-live-landing"
 	landing.LandingChecks = &runstate.LandingChecks{StartedAt: ended}
@@ -1397,9 +1401,10 @@ func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
 	superseded.RunID = "run-superseded"
 	superseded.PullRequest = &runstate.PullRequest{Number: 751, Superseded: "pull request 752"}
 	sources := quietSources()
-	sources.Runs = heldRuns{fakeRuns: fakeRuns{outstanding: []runstate.State{live, cleanup, queued, landing, superseded}, recorded: []runstate.State{live, cleanup, queued, dropped, superseded}}, held: map[string]bool{live.RunID: true, landing.RunID: true}}
+	sources.Runs = heldRuns{fakeRuns: fakeRuns{outstanding: []runstate.State{live, cleanup, queued, dropped, landing, superseded}, recorded: []runstate.State{live, cleanup, queued, dropped, superseded}}, held: map[string]bool{live.RunID: true, landing.RunID: true}}
 	standing := ReadStanding(context.Background(), sources)
 	seen := map[string]int{}
+	droppedKinds := map[AttentionKind]int{}
 	for _, entry := range standing.NeedsHuman {
 		seen[entry.ID]++
 		if entry.Mover == MoverOperator {
@@ -1415,15 +1420,23 @@ func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
 				t.Fatalf("queued entry = %+v", entry)
 			}
 		case dropped.RunID:
-			if entry.Mover != MoverDevelopmentManager || entry.Label() != "merge stuck" || !strings.Contains(entry.Whose(), "forge dropped") {
-				t.Fatalf("dropped entry = %+v", entry)
+			droppedKinds[entry.Kind]++
+			if entry.Kind == AttentionOwedStep {
+				if entry.Mover != MoverHarness || entry.Label() != "run not finished" || !strings.Contains(entry.What(), "cleanup of the branch and worktree") || !strings.Contains(entry.Whose(), "finishes the run's cleanup") || strings.Contains(entry.What()+entry.Whose(), "merge") {
+					t.Fatalf("dropped merge's cleanup entry = %+v", entry)
+				}
+			} else if entry.Kind != AttentionPublication || entry.Mover != MoverDevelopmentManager || entry.Label() != "merge stuck" || !strings.Contains(entry.What(), "was dropped by the forge") || !strings.Contains(entry.Whose(), "forge dropped") {
+				t.Fatalf("dropped merge's decision entry = %+v", entry)
 			}
 		default:
 			t.Fatalf("live or superseded run on attention line: %+v", entry)
 		}
 	}
-	if seen[cleanup.RunID] != 1 || seen[queued.RunID] != 2 || seen[dropped.RunID] != 1 {
+	if seen[cleanup.RunID] != 1 || seen[queued.RunID] != 2 || seen[dropped.RunID] != 2 {
 		t.Fatalf("attention entries = %v", seen)
+	}
+	if droppedKinds[AttentionOwedStep] != 1 || droppedKinds[AttentionPublication] != 1 {
+		t.Fatalf("dropped merge must carry one cleanup entry and one decision entry: %v", droppedKinds)
 	}
 	sources.Runs = heldRuns{fakeRuns: fakeRuns{outstanding: []runstate.State{cleanup}}, problem: errors.New("holder unreadable")}
 	standing = ReadStanding(context.Background(), sources)

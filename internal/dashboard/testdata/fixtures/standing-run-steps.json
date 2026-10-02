@@ -72,6 +72,42 @@
       "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it"
     },
     {
+      "kind": "owed-step",
+      "id": "run-dropped",
+      "mover": "harness",
+      "work_item_id": "yoyodyne-ifd.435.1",
+      "label": "run not finished",
+      "owed_step": {
+        "status": "succeeded",
+        "phase": "cleaning_up",
+        "cleanup_failure": "remove worktree: directory busy",
+        "pull_request": {
+          "remote": "origin",
+          "branch": "run-dropped",
+          "number": 732,
+          "url": "https://forge.example/pull/732",
+          "head_commit": "def",
+          "checks": {
+            "head_commit": "abc",
+            "read_at": "2026-09-19T14:50:00Z",
+            "failing": [
+              {
+                "name": "build",
+                "conclusion": "failure"
+              }
+            ]
+          }
+        },
+        "merge_drop": {
+          "at": "2026-09-19T14:45:00Z",
+          "reason": "build failed"
+        },
+        "target_branch": "main"
+      },
+      "what": "cleanup of the branch and worktree for yoyodyne-ifd.435.1 is not finished: remove worktree: directory busy",
+      "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it"
+    },
+    {
       "kind": "publication",
       "id": "run-dropped",
       "mover": "development-manager",

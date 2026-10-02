@@ -928,22 +928,26 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	if !strings.Contains(page("run-steps"), "Checks still running") || strings.Contains(page("attention-run-steps"), "run-live") {
 		t.Error("live checks must be running, absent from attention")
 	}
-	if len(steps.NeedsHuman) != 3 {
-		t.Fatal("expected the three ended-run entries")
+	if len(steps.NeedsHuman) != 4 {
+		t.Fatal("expected cleanup and dropped-merge decisions to be separate entries")
 	}
 	for _, entry := range steps.NeedsHuman {
 		wantMover := readmodel.MoverHarness
 		wantLabel := "merge stuck"
-		if entry.ID == "run-dropped" {
+		if entry.Kind == readmodel.AttentionPublication {
 			wantMover = readmodel.MoverDevelopmentManager
 		}
-		if entry.ID == "run-cleanup" {
+		if entry.Kind == readmodel.AttentionOwedStep && (entry.OwedStep.PullRequest == nil || !entry.OwedStep.PullRequest.MergeQueued) {
 			wantLabel = "run not finished"
 		}
 		if entry.Mover != wantMover || entry.Label() != wantLabel {
 			t.Fatalf("wrong mover or label: %+v", entry)
 		}
-		card := page("attention-" + entry.ID)
+		scenario := "attention-" + entry.ID
+		if entry.ID == "run-dropped" && entry.Kind == readmodel.AttentionOwedStep {
+			scenario += "-cleanup"
+		}
+		card := page(scenario)
 		list := page("attention-run-steps")
 		for _, words := range []string{entry.What(), entry.Whose(), entry.Label()} {
 			if !strings.Contains(card, words) || !strings.Contains(list, words) {

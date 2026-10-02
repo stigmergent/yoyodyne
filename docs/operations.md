@@ -3744,9 +3744,12 @@ forge's last check reading when a merge still needs settlement. Its words say
 which step remains and what moves it: finishing cleanup, recording completion,
 confirming a queued merge, or withdrawing a merge over failed checks. These are
 the harness's steps, under **Waiting on the harness**, and `yoyo reconcile`
-settles them. A dropped merge already handed back is under **Waiting on the
-development manager**, for her to decide a repair, re-run, or re-arm. A
-superseded publication asks for nothing and is absent. Something only a person
+settles them. A dropped merge already handed back is a separate publication
+entry under **Waiting on the development manager**, for her to decide a repair,
+re-run, or re-arm. If the same run still owes cleanup of a local promotion, its
+`owed-step` entry names only that cleanup, with **the harness** as its mover;
+the dropped-merge decision stays on the publication entry. A superseded
+publication asks for nothing and is absent. Something only a person
 can do is named separately, with what that person has to do; a run having ended
 never makes its remaining step the operator's.
 
