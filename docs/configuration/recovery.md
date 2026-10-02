@@ -770,10 +770,11 @@ manager decides what follows.
 
 Restoration writes through opened directory handles, so replacing the checkout
 root with a symlink cannot redirect the files outside it. Git supplies the
-committed objects without creating the checkout. Configured checkout filters
-refuse restoration because committed objects cannot prove those filters' output
-was recovered. Such a refusal leaves the branch and recovery decision available
-for the development manager.
+committed objects without creating the checkout. Existing index and export files
+are replaced with new files, preserving the contents of files hard-linked
+elsewhere. Configured checkout filters refuse restoration because committed
+objects cannot prove those filters' output was recovered. Such a refusal leaves
+the branch and recovery decision available for the development manager.
 
 **What it may hand the run is the grant the development manager already
 recorded**, and it spends nothing of its own. Deciding `repair` is what takes the

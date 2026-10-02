@@ -1,10 +1,148 @@
 package repowrite
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestPinnedReplacementLeavesAnOutsideHardLinkUnchanged(t *testing.T) {
+	t.Parallel()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenPinnedRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	outside := filepath.Join(t.TempDir(), "sentinel")
+	if err := os.WriteFile(outside, []byte("keep this\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(outside, filepath.Join(path, "target")); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := root.FileWriter("target", 0o644, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { writer.Close() })
+	if _, err := writer.Write([]byte("replacement\n")); err != nil {
+		writer.Close()
+		t.Fatal(err)
+	}
+	// Streaming must not expose a partial replacement or change the old inode.
+	if content, err := os.ReadFile(filepath.Join(path, "target")); err != nil || string(content) != "keep this\n" {
+		writer.Close()
+		t.Fatalf("target before close = %q, %v", content, err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("second close = %v", err)
+	}
+	if content, err := os.ReadFile(outside); err != nil || string(content) != "keep this\n" {
+		t.Fatalf("outside sentinel = %q, %v", content, err)
+	}
+	if content, err := os.ReadFile(filepath.Join(path, "target")); err != nil || string(content) != "replacement\n" {
+		t.Fatalf("replacement = %q, %v", content, err)
+	}
+	original, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.Stat(filepath.Join(path, "target"))
+	if err != nil || os.SameFile(original, replacement) {
+		t.Fatalf("replacement still uses the outside inode: %v", err)
+	}
+	if entries, err := os.ReadDir(path); err != nil || len(entries) != 1 {
+		t.Fatalf("temporary files after replacement = %v, %v", entries, err)
+	}
+}
+
+func TestPinnedReplacementPreservesTheOriginalAfterAWriteFailure(t *testing.T) {
+	t.Parallel()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenPinnedRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := os.WriteFile(filepath.Join(path, "target"), []byte("keep this\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := root.FileWriter("target", 0o644, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { writer.Close() })
+	// Simulate a file that cannot accept the stream, before it is published.
+	if err := writer.(*pinnedReplacementWriter).file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("replacement\n")); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("write failure = %v", err)
+	}
+	if err := writer.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("close did not report the failed write: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(path, "target")); err != nil || string(content) != "keep this\n" {
+		t.Fatalf("original after failed write = %q, %v", content, err)
+	}
+	if entries, err := os.ReadDir(path); err != nil || len(entries) != 1 {
+		t.Fatalf("temporary files after failed write = %v, %v", entries, err)
+	}
+}
+
+func TestPinnedReplacementStaysConfinedAfterItsParentIsReplaced(t *testing.T) {
+	t.Parallel()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenPinnedRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := root.WriteFile("nested/target", []byte("original\n"), 0o644, true); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := root.FileWriter("nested/target", 0o644, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { writer.Close() })
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "target"), []byte("keep this\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(path, "nested"), filepath.Join(path, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(path, "nested")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("replacement\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(outside, "target")); err != nil || string(content) != "keep this\n" {
+		t.Fatalf("outside target = %q, %v", content, err)
+	}
+	if content, err := os.ReadFile(filepath.Join(path, "moved/target")); err != nil || string(content) != "replacement\n" {
+		t.Fatalf("pinned replacement = %q, %v", content, err)
+	}
+}
 
 func TestPinnedWritesStayInTheirDirectoryAfterRootReplacement(t *testing.T) {
 	t.Parallel()

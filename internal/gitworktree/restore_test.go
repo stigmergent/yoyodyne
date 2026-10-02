@@ -9,8 +9,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
@@ -154,6 +156,128 @@ func TestRestoreCheckoutRefreshesExportsWithAConfinedIndex(t *testing.T) {
 	}
 	if content := readFile(t, w.Path, exportPath); content != currentExport {
 		t.Fatalf("restored export = %q", content)
+	}
+	if status := gitOutput(t, w.Path, "status", "--porcelain"); status != "" {
+		t.Fatalf("export entered the restored change: %s", status)
+	}
+	if flags := gitOutput(t, w.Path, "ls-files", "-v", "--", exportPath); !strings.HasPrefix(flags, "S ") {
+		t.Fatalf("restored export flags = %q", flags)
+	}
+}
+
+func TestRestoreCheckoutLeavesAnOutsideHardLinkedIndexUnchanged(t *testing.T) {
+	t.Parallel()
+	repository := newRepository(t)
+	m := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	w := preservedWorktree(t, m, "yoyodyne-hard-linked-index")
+	writeFile(t, w.Path, "feature.txt", "committed work\n")
+	w.HarnessCommit = harnessCommit(t, w.Path, "yoyodyne: completed attempt")
+	registration := strings.TrimSpace(gitOutput(t, w.Path, "rev-parse", "--absolute-git-dir"))
+	index := filepath.Join(registration, "index")
+	outside := t.TempDir()
+	writeFile(t, outside, "sentinel", "keep this\n")
+	sentinel := filepath.Join(outside, "sentinel")
+	if err := os.Remove(index); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(sentinel, index); err != nil {
+		t.Fatal(err)
+	}
+	// Preserve the registration, including the hard-linked index, while the
+	// recorded checkout disappears.
+	if err := os.RemoveAll(w.Path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RestoreWorktree(context.Background(), w); err != nil {
+		t.Fatal(err)
+	}
+	if content := readFile(t, outside, "sentinel"); content != "keep this\n" {
+		t.Fatalf("restoration changed the outside index sentinel: %q", content)
+	}
+	original, err := os.Stat(sentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.Stat(index)
+	if err != nil || os.SameFile(original, replacement) {
+		t.Fatalf("restored index still uses the outside inode: %v", err)
+	}
+	if status := gitOutput(t, w.Path, "status", "--porcelain"); status != "" {
+		t.Fatalf("restored index does not describe a clean checkout: %s", status)
+	}
+}
+
+type afterRestorationBlobsRunner struct {
+	delegate execution.ProcessRunner
+	after    func(context.Context) error
+}
+
+func (r *afterRestorationBlobsRunner) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	result, err := r.delegate.Run(ctx, command, observer)
+	if err == nil && result.Status == execution.ProcessSucceeded && command.RawStdout != nil && slices.Contains(command.Args, "cat-file") && r.after != nil {
+		after := r.after
+		r.after = nil
+		err = after(ctx)
+	}
+	return result, err
+}
+
+func TestRestoreCheckoutLeavesAnOutsideHardLinkedExportUnchanged(t *testing.T) {
+	t.Parallel()
+	repository := newExportRepository(t)
+	m := newExportManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	w := preservedWorktree(t, m, "yoyodyne-hard-linked-export")
+	writeFile(t, w.Path, "feature.txt", "committed work\n")
+	w.HarnessCommit = harnessCommit(t, w.Path, "yoyodyne: completed attempt")
+	if _, err := m.RemovePreservedWorktree(context.Background(), w, KeepUncommittedWork); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repository, exportPath, currentExport)
+	outside := t.TempDir()
+	writeFile(t, outside, "sentinel", "keep this\n")
+	export := filepath.Join(w.Path, exportPath)
+	replaced := false
+	m.runner = &afterRestorationBlobsRunner{delegate: m.runner, after: func(ctx context.Context) error {
+		// The blob reader runs beside the process runner. Wait for its complete
+		// export bytes before replacing the name, and before refresh can start.
+		waitCtx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			content, err := os.ReadFile(export)
+			if err == nil && string(content) == committedExport {
+				break
+			}
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			select {
+			case <-waitCtx.Done():
+				return fmt.Errorf("wait for the committed export before linking it: %w", waitCtx.Err())
+			case <-ticker.C:
+			}
+		}
+		if err := os.Remove(export); err != nil {
+			return err
+		}
+		if err := os.Link(filepath.Join(outside, "sentinel"), export); err != nil {
+			return err
+		}
+		replaced = true
+		return nil
+	}}
+	if _, err := m.RestoreWorktree(context.Background(), w); err != nil {
+		t.Fatal(err)
+	}
+	if !replaced {
+		t.Fatal("restoration did not encounter the hard-linked export")
+	}
+	if content := readFile(t, outside, "sentinel"); content != "keep this\n" {
+		t.Fatalf("restoration changed the outside export sentinel: %q", content)
+	}
+	if content := readFile(t, w.Path, exportPath); content != currentExport {
+		t.Fatalf("restored export = %q, want the current export", content)
 	}
 	if status := gitOutput(t, w.Path, "status", "--porcelain"); status != "" {
 		t.Fatalf("export entered the restored change: %s", status)

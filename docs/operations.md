@@ -3032,6 +3032,8 @@ such a refusal.
 
 The restoration writer holds the directories open while creating files and
 registration data; replacing a root with a symlink cannot redirect its writes.
+Existing index and export files are replaced with new files, preserving the
+contents of files hard-linked elsewhere.
 Restoration refuses configured checkout filters because committed objects alone
 cannot prove those filters' output was recovered.
 
