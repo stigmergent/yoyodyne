@@ -376,8 +376,9 @@ func settledAt(state runstate.State) time.Time {
 // AwaitingCarryOut excludes refusals for scheduling; retirement must keep them
 // while the development manager resolves the refusal. An unread record keeps
 // the artifacts too, rather than treating missing evidence as permission. An
-// automatic check continuation also keeps its artifacts until it is superseded,
-// completed, or refused, even when intake or capacity delays it past the tail.
+// automatic check or silent-stall continuation also keeps its artifacts until
+// it is superseded, completed, or refused, even when intake or capacity delays
+// it past the tail.
 func (r Reconciler) recoveryNeedsArtifacts(ctx context.Context, state runstate.State) (string, func()) {
 	noRelease := func() {}
 	if state.ArtifactsRetiredBy != "" {
@@ -393,6 +394,9 @@ func (r Reconciler) recoveryNeedsArtifacts(ctx context.Context, state runstate.S
 	standing := counters.StandingOf(state)
 	if !standing.Decided && state.HarnessContinuesCheckStage() {
 		return "the outstanding automatic check continuation still needs this run's branch and checkout", release
+	}
+	if !standing.Decided && state.HarnessContinuesStall() {
+		return "the outstanding automatic stall continuation still needs this run's branch and checkout", release
 	}
 	if standing.Decided && standing.Spends && (!standing.Repair || standing.GrantOutstanding) {
 		return "the development manager's outstanding recovery decision still needs this run's artifacts", release

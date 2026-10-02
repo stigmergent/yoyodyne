@@ -1914,7 +1914,11 @@ closed in the harness's name, and while it stands `yoyo status` holds the item
 as the harness's move rather than as a decision waiting on anybody. The
 operator's pause and the intake hold stop it exactly as they stop a recorded
 decision's carry-out; a decision she records about the stoppage first is
-carried out instead. It is held to what her repair of a stall is held to: the
+carried out instead. Maintenance keeps its checkout and branch while the
+automatic continuation is outstanding, including when intake or capacity delays
+it beyond the retained tail. An interrupted developer's uncommitted work stays
+in that checkout; recreating committed files from a branch cannot recover it.
+It is held to what her repair of a stall is held to: the
 worktree has to be as the harness left it, and a stall at the checks or the
 review has to still hold the change. One that fails either is written onto the run
 (`stall_continuation_refused`), the item is told, and the stoppage is docketed
@@ -2989,9 +2993,10 @@ next worktree at all — no `make check`, no `go test`, nothing. Settled runs pa
 the most recent few have their checkout unregistered unless a recovery decision
 still needs it. A standing repair or re-run keeps the checkout and branch,
 including when a gate refused to carry the decision out; a stopped integration
-keeps them too. An outstanding automatic check continuation also keeps them,
-including while intake or capacity delays it. A recovery record that cannot be
-read keeps the artifacts rather than granting retirement. Registrations whose
+keeps them too. An outstanding automatic continuation at checks or after a silent
+provider stall also keeps them, including while intake or capacity delays it.
+A recovery record that cannot be read keeps the artifacts rather than granting
+retirement. Registrations whose
 checkout is no longer on disk are pruned, whichever run or person left them
 behind. A registration a killed `git worktree add` never finished filling in is
 cleared on the same pass, and named — see
