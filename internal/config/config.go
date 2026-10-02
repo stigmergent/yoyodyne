@@ -302,14 +302,11 @@ type Execution struct {
 	// UsageLimitMaxPause, so a provider that keeps refusing walks into that bound
 	// rather than polling forever.
 	UsageLimitUnknownResetPause Duration `yaml:"usage_limit_unknown_reset_pause" json:"usage_limit_unknown_reset_pause"`
-	// CheckTimeout is the total budget one configured check gets: the whole time
-	// it may run, not the time it may stay quiet. It scales with the work rather
-	// than with the machine, so it is configured rather than fixed — a suite
-	// grows, and N runs at once multiply its wall clock without multiplying the
-	// cores it runs on, so the budget has to be raised or the runs serialized.
-	// A check killed at this bound is not a check that failed: it is work that
-	// may have been passing the whole time, which is why every check reports
-	// what it spent against this budget rather than only the one that ran out.
+	// CheckTimeout is the configured idle budget for one check's total runtime.
+	// The per-run gate scales it for load by the stage's rule, up to ten times,
+	// and gives the check no more than the stage has left. Check and stage
+	// timeouts share durable count and cumulative time bounds on continuation;
+	// load does not prove why an unfinished check stopped.
 	CheckTimeout Duration `yaml:"check_timeout" json:"check_timeout"`
 	// CheckStageTimeout is the total budget the whole check stage of one run
 	// gets: every configured check together, from the first one starting to the

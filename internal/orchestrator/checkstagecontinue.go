@@ -1,34 +1,12 @@
 package orchestrator
 
-// Continuing a run at its checks after execution.check_stage_timeout stopped
-// the stage.
-//
-// A stage the bound stopped judged nothing. No check failed and nothing was
-// handed back to the developer; the change is on its branch exactly as the
-// developer attempt left it, and what stopped the stage was the machine — the
-// race suites of three runs beside each other, most often. Every verb that could
-// pick such a run up spent something for it: a repair was refused for want of a
-// failure to hand back, a resumption covers only approved changes, and a re-run
-// started the item over from the target branch, redoing the development and
-// spending the item's re-run budget, while the finished change sat on its
-// branch. On 2026-09-26 that was the largest avoidable spend on the line.
-//
-// So the harness continues such a run itself, the way a stall at the checks is
-// continued (yoyodyne-ifd.428.16) but without anybody deciding it: at its checks,
-// on the same branch and in the same worktree, with no developer invoked and no
-// review round, repair grant, or re-run spent. The scheduling pass fires it on a
-// pull where a developer slot is free and the machine's load is below the
-// threshold, because a continuation into the load that stopped the stage would
-// be stopped again. It does so at most runstate.MaxCheckStageContinuations times
-// for one run; past that the stoppage is the development manager's, as it was
-// before.
-//
-// It is held to what a repair is held to before anything is written: the
-// worktree has to be as the harness left it and has to still hold the change,
-// because that change is what the checks judge. A worktree that fails either is
-// a person's to look at, so the refusal is written onto the run, the stoppage is
-// put back on the docket for the development manager, and the harness does not
-// ask again.
+// Continuing a run at its checks after a check or stage time limit stopped it.
+// Load may explain the delay, but does not establish the cause. Both paths
+// share durable count and cumulative time bounds, including decided
+// continuations. A continuation re-runs checks on the preserved change after
+// the load falls, without invoking a developer or spending a repair attempt.
+// Before execution, the worktree must still hold the change as the harness
+// left it. Exhaustion or a worktree refusal goes to the development manager.
 
 import (
 	"context"
@@ -338,7 +316,7 @@ func (c CheckStageContinuer) closeEntry(entry triage.Entry, reason string) error
 		WorkItemID:    entry.WorkItemID,
 		Decision:      continuedChecksDocketDecision,
 		Reason:        singleLine(reason, triage.MaxMessageBytes),
-		DecidedBy:     "the harness, continuing a check stage its bound stopped under load",
+		DecidedBy:     "the harness, continuing unfinished checks within their count and time allowance",
 		ClosedAt:      c.now(),
 	})
 	return err

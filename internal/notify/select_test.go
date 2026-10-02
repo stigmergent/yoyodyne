@@ -1220,7 +1220,7 @@ func TestEachWayARunEndsIsSaidAsItselfWithWhatRemains(t *testing.T) {
 // run record's own sentence, which the docket entry carries too. Once the
 // harness's continuations are spent, the same line names the development
 // manager instead.
-func TestAStageTheBoundStoppedIsSaidAsLoadWithTheHarnessContinuingIt(t *testing.T) {
+func TestAStageTheBoundStoppedIsSaidAsUnresolvedWithTheHarnessContinuingIt(t *testing.T) {
 	before := running()
 	after := endedRun(before, runstate.StatusTimedOut)
 	after.Phase = runstate.PhaseChecking

@@ -4,7 +4,7 @@
   "steps": [
     {
       "name": "interrupted invocation",
-      "error": "verification infrastructure failed: persist check event: state store is unavailable\nsave failed run state: state store is unavailable",
+      "error": "record check time allowance before execution: state store is unavailable\nsave failed run state: state store is unavailable",
       "ending": "failed",
       "outcome": {
         "base_commit": "\u003ccommit-1\u003e",
@@ -14,16 +14,7 @@
           "diff_stat": "feature.txt | 1 +\n 1 file changed, 1 insertion(+)",
           "status": "A feature.txt"
         },
-        "check_stage": {
-          "bound_seconds": 1800,
-          "command": "test -f feature.txt",
-          "configured_seconds": 1800,
-          "elapsed_seconds": "\u003celapsed\u003e",
-          "finished_at": "\u003ctime\u003e",
-          "narrowed": "the whole module (the repository root is not a Go module)",
-          "started_at": "\u003ctime\u003e"
-        },
-        "failure": "verification infrastructure failed: persist check event: state store is unavailable",
+        "failure": "record check time allowance before execution: state store is unavailable",
         "phase": "checking",
         "preservation": {
           "branch": "yoyodyne/yoyodyne-task/01234567",
@@ -126,9 +117,7 @@
     "workflow_instance_id": "run-0123456789abcdef0123456789abcdef-delivery",
     "worktree_path": "\u003cworktrees\u003e/yoyodyne-task-01234567"
   },
-  "events": [
-    "command.started"
-  ],
+  "events": [],
   "work_item": {
     "calls": [
       "claim",
@@ -142,7 +131,7 @@
       [
         "Yoyodyne bootstrap run failed.",
         "Run: run-0123456789abcdef0123456789abcdef",
-        "Failure: verification infrastructure failed: persist check event: state store is unavailable",
+        "Failure: record check time allowance before execution: state store is unavailable",
         "Phase: checking",
         "Branch: yoyodyne/yoyodyne-task/01234567 (checked and there)",
         "Worktree: \u003cworktrees\u003e/yoyodyne-task-01234567 (checked and there)",
@@ -153,8 +142,7 @@
         "A feature.txt",
         "Diff stat when the run ended:",
         "feature.txt | 1 +",
-        " 1 file changed, 1 insertion(+)",
-        "Check stage: \u003celapsed\u003e of the 30m0s execution.check_stage_timeout bound (gate narrowed to: the whole module (the repository root is not a Go module))"
+        " 1 file changed, 1 insertion(+)"
       ]
     ],
     "blocker": [

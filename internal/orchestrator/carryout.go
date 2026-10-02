@@ -724,7 +724,7 @@ func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (Carr
 		RunID:      entry.RunID,
 		DocketKey:  entry.Key,
 		Decision:   DecisionContinueChecks,
-		Reason:     "the check stage bound stopped this run under load, and the harness continues it at its checks",
+		Reason:     "a check time limit stopped this run with its cause unresolved, and the harness continues it within its recorded allowance",
 	}, true, nil
 }
 

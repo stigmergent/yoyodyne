@@ -430,6 +430,9 @@ type CheckStage struct {
 	// reason every other span on the record is: execution.check_stage_timeout
 	// scaled for the machine's load the way a local Git command's budget is.
 	BoundSeconds int64 `json:"bound_seconds"`
+	// LoadScaledSeconds retains the load-scaled limit before the cumulative
+	// allowance caps it. Older records omit it.
+	LoadScaledSeconds int64 `json:"load_scaled_seconds,omitempty"`
 	// ConfiguredSeconds is execution.check_stage_timeout as configured, before
 	// the load scaled it, and Load and Cores are the reading that scaled it: the
 	// largest one-minute load average seen as a check began, and the cores it was
@@ -460,6 +463,7 @@ type CheckStage struct {
 	StoppedAtCheckBound    bool  `json:"stopped_at_check_bound,omitempty"`
 	CheckConfiguredSeconds int64 `json:"check_configured_seconds,omitempty"`
 	CheckBoundSeconds      int64 `json:"check_bound_seconds,omitempty"`
+	CheckScaledSeconds     int64 `json:"check_scaled_seconds,omitempty"`
 	// Content is the worktree revision tested, including uncommitted changes.
 	Content string `json:"content,omitempty"`
 	// AllowanceReservedSeconds is this stage's durable reservation. A crash
@@ -614,6 +618,9 @@ func (c CheckStage) LoadSays() string {
 // alone where the load did not raise it, and where it did, the configured
 // figure and the load that scaled it.
 func (c CheckStage) BoundSays() string {
+	if c.AllowanceLimited {
+		return fmt.Sprintf("%s (%s configured, %s scaled; capped by the cumulative check time allowance)", describeSpan(c.Bound()), describeSpan(c.Configured()), describeSpan(time.Duration(c.LoadScaledSeconds)*time.Second))
+	}
 	if !c.Scaled() {
 		return describeSpan(c.Bound())
 	}
@@ -2142,9 +2149,9 @@ type RepairContinuation struct {
 	Stall bool `json:"stall,omitempty"`
 	// CheckStage says a decided repair continued checks the stage bound stopped.
 	// The developer already finished, so this continuation counts no attempt.
-	CheckStage bool `json:"check_stage,omitempty"`
-	StoppedStage *CheckStage `json:"stopped_stage,omitempty"`
-	CheckReservedSeconds int64 `json:"check_reserved_seconds,omitempty"`
+	CheckStage           bool        `json:"check_stage,omitempty"`
+	StoppedStage         *CheckStage `json:"stopped_stage,omitempty"`
+	CheckReservedSeconds int64       `json:"check_reserved_seconds,omitempty"`
 	// ByHarness says nobody decided this continuation: it is the harness carrying
 	// on a first silent-stream stall itself, which it does at most
 	// MaxHarnessStallContinuations times for one run. It spends no grant, so it
@@ -2156,7 +2163,9 @@ type RepairContinuation struct {
 func (c RepairContinuation) Validate() error {
 	var problems []error
 	if c.StoppedStage != nil {
-		if err := c.StoppedStage.Validate(); err != nil { problems = append(problems, fmt.Errorf("stopped_stage: %w", err)) }
+		if err := c.StoppedStage.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("stopped_stage: %w", err))
+		}
 	}
 	if c.CheckStage && (c.Stall || c.ByHarness) {
 		problems = append(problems, errors.New("a decided check-stage continuation is neither a stall nor a harness grant"))
@@ -2844,7 +2853,7 @@ type State struct {
 	// sweepcontinue.go.
 	SweepContinuations []SweepContinuation `json:"sweep_continuations,omitempty"`
 	// CheckStageContinuations are the times the harness continued this run at
-	// its checks after execution.check_stage_timeout stopped the stage, on the
+	// its checks after a check or stage time limit stopped it, on the
 	// change it already had and with no attempt, round, or grant charged. Absent
 	// is every run the bound never stopped, which is nearly all of them. See
 	// checkstagecontinue.go.

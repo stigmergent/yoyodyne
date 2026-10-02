@@ -4369,7 +4369,7 @@ func (p Pull) paused() (bool, error) {
 // all would be the only thing in the report that could not say what it was doing.
 func carryingOutReason(task CarryOutTask) string {
 	if task.Decision == DecisionContinueChecks {
-		return fmt.Sprintf("the check stage bound stopped run %s under load and the harness is continuing it at its checks", task.RunID)
+		return fmt.Sprintf("a check time limit stopped run %s with its cause unresolved and the harness is continuing it within its recorded allowance", task.RunID)
 	}
 	if task.Decision == DecisionContinueStall {
 		return fmt.Sprintf("the harness stopped run %s for a silent provider stream and is continuing it itself, once, at the phase it stalled in", task.RunID)

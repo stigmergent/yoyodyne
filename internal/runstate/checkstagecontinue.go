@@ -73,7 +73,9 @@ type CheckStageContinuation struct {
 func (c CheckStageContinuation) Validate() error {
 	var problems []error
 	if c.Stage != nil {
-		if err := c.Stage.Validate(); err != nil { problems = append(problems, fmt.Errorf("stage: %w", err)) }
+		if err := c.Stage.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("stage: %w", err))
+		}
 	}
 	if c.ContinuedAt.IsZero() {
 		problems = append(problems, errors.New("continued_at is required"))
@@ -114,7 +116,7 @@ func (s State) validateCheckStageContinuations() []error {
 }
 
 // StoppedAtStageBound reports a run that ended because its check stage reached
-// execution.check_stage_timeout: timed out, at its checks, with the stage on the
+// a check or stage time limit: timed out, at its checks, with the stage on the
 // record saying the bound is what ended it, and nothing promoted. Whatever else
 // the record carries, nothing judged the change this round.
 func (s State) StoppedAtStageBound() bool {
@@ -153,7 +155,7 @@ func (s State) HarnessContinuesCheckStage() bool {
 const CheckStageLoadThreshold = "the machine's one-minute load average below its number of cores"
 
 // CheckStageStopSays is what every surface says about a run the stage bound
-// stopped: that load stopped it rather than the change, and what happens next.
+// stopped: that the check did not finish, its cause is unresolved, and what happens next.
 // It is empty for every other run.
 func (s State) CheckStageStopSays() string {
 	if !s.StoppedAtStageBound() {

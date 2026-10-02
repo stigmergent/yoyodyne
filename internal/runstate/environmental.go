@@ -174,18 +174,11 @@ const (
 	// main and failing two tests its change never touched (yoyodyne-ifd.429.16).
 	// Only the sweep records it, on the resumption it makes.
 	CauseQueuedHeadBehind EnvironmentalCause = "queued-head-behind"
-	// CauseCheckStageBound is a check stage stopped at its bound — the
-	// configured execution.check_stage_timeout already scaled for the machine's
-	// load the way a local Git command's budget is — before the checks reached a
-	// verdict. No check failed and nothing was handed back to the developer: what
-	// ran out was the machine, as on 2026-09-26 when make race was stopped at a
-	// load average of 40 to 55 on 16 cores with the change already passing
-	// (yoyodyne-ifd.429.26). The run keeps its branch, worktree, and developer
-	// session, and the harness continues it at its checks itself.
-	//
-	// Like the usage window it ends the round before anything judged it, so it
-	// is settled without asking the worktree: the change the attempt left is on
-	// the branch for the continuation to check, not a delivery the stop spent.
+	// CauseCheckStageBound covers check and stage timeouts before a verdict.
+	// Both limits scale for load, but load cannot establish why the check did
+	// not finish. The harness preserves the change and continues only within
+	// the shared durable count and cumulative time allowance. Like the usage
+	// window, this ends a round without a judgment and spends no repair attempt.
 	CauseCheckStageBound EnvironmentalCause = "check-stage-bound"
 )
 
@@ -265,7 +258,7 @@ func (c EnvironmentalCause) Title() string {
 	case CauseQueuedHeadBehind:
 		return "its queued merge's head fell behind the target and failed checks on files the change does not touch"
 	case CauseCheckStageBound:
-		return "the check stage reached its bound, already scaled for the machine's load, before the checks judged the change"
+		return "a check or stage time limit ended unfinished checks; load may have contributed, but the cause remains unresolved"
 	default:
 		return string(c)
 	}

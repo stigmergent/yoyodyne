@@ -794,13 +794,13 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	continued := prior
 	continued.RepairContinuations = append(append([]runstate.RepairContinuation{}, prior.RepairContinuations...),
 		runstate.RepairContinuation{
-			GrantedAttempts:   granted.attempts,
-			Reason:            reason,
-			ContinuedAt:       c.now(),
-			SupersededBlocker: prior.Blocker,
-			Stall:             stalled,
-			CheckStage:        prior.StoppedAtStageBound(),
-			StoppedStage:      prior.CheckStage,
+			GrantedAttempts:      granted.attempts,
+			Reason:               reason,
+			ContinuedAt:          c.now(),
+			SupersededBlocker:    prior.Blocker,
+			Stall:                stalled,
+			CheckStage:           prior.StoppedAtStageBound(),
+			StoppedStage:         prior.CheckStage,
 			CheckReservedSeconds: checkAllowanceReserved(prior),
 		})
 	if !stalled && !prior.StoppedAtStageBound() {

@@ -197,6 +197,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		// stage has nothing left for is not started at all: a check given a
 		// budget of nothing would be killed as it began and read as a check that
 		// ran, which is the one thing a stopped stage must not record.
+		stageElapsed = clock.Now().Sub(stageStarted)
 		remaining := stageTimeout - stageElapsed
 		if stageTimeout > 0 && remaining <= 0 {
 			now := clock.Now()

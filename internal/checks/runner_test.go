@@ -37,6 +37,25 @@ func TestRunnerStopsAfterFailedCheck(t *testing.T) {
 	}
 }
 
+func TestScaledCheckBoundKeepsACommandFailureAndRefusesBeforeExecution(t *testing.T) {
+	t.Parallel()
+	request := Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"exit 7", "true"},
+		CheckBound: func(_ string, configured time.Duration) (time.Duration, error) { return 3 * configured, nil },
+	}
+	results, _, err := (Runner{Process: execution.OSProcessRunner{}, Timeout: time.Minute}).Run(context.Background(), request, nil)
+	if err != nil || len(results) != 1 || results[0].Passed || results[0].Process.Status != execution.ProcessFailed || results[0].Process.ExitCode != 7 {
+		t.Fatalf("scaled failing command = %#v, %v", results, err)
+	}
+	clock := &steppingClock{now: time.Now()}
+	process := &advancingRunner{clock: clock, runs: time.Minute}
+	refusal := errors.New("time reservation could not be saved")
+	request.CheckBound = func(_ string, _ time.Duration) (time.Duration, error) { return 0, refusal }
+	results, _, err = (Runner{Process: process, Clock: clock}).Run(context.Background(), request, nil)
+	if !errors.Is(err, refusal) || len(results) != 0 || len(process.budgets) != 0 {
+		t.Fatalf("refused reservation executed checks: %#v, %v, budgets %v", results, err, process.budgets)
+	}
+}
+
 func TestRunnerUsesANonLoginShell(t *testing.T) {
 	t.Parallel()
 

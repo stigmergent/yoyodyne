@@ -1541,7 +1541,7 @@ func TestPipelineReportsElapsedAndBudgetWhenACheckTimesOut(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run() error = nil, want the run stopped at the check budget")
 	}
-	for _, want := range []string{"verification timed out", "sleep 30", "ran for", "100ms execution.check_timeout", "max_concurrent_developers"} {
+	for _, want := range []string{"verification timed out", "sleep 30", "ran for", "100ms execution.check_timeout", "cause remains unresolved"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Run() error = %v, want it to name %q", err, want)
 		}
