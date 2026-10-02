@@ -8,13 +8,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-<<<<<<< HEAD
 // Finished-run entries are dated from the run's ending. The operator's section
 // carries only his entries, never the cleanup the harness still has to finish.
-=======
-// Both waits are dated from the run's ending. Only a publication whose mover
-// is the operator reaches his section; an owed reconcile step is the harness's.
->>>>>>> c007b07d (yoyodyne: yoyodyne-ifd.429.27 The queued-merge check reads the forge's check state without failing on)
 func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T) {
 	t.Parallel()
 
@@ -50,11 +45,7 @@ func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T)
 		}
 	}
 	if strings.Contains(rendered, "run-owed") {
-<<<<<<< HEAD
 		t.Errorf("the harness's cleanup reached the operator: %s", rendered)
-=======
-		t.Errorf("a harness-owned step reached the operator's waits:\n%s", rendered)
->>>>>>> c007b07d (yoyodyne: yoyodyne-ifd.429.27 The queued-merge check reads the forge's check state without failing on)
 	}
 	if strings.Contains(rendered, "not recorded on it") {
 		t.Errorf("an entry was rendered with no moment:\n%s", rendered)
