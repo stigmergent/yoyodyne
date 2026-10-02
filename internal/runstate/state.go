@@ -2898,7 +2898,8 @@ type State struct {
 	// outlives it like the kind does: the developer's model is already on the
 	// record as ProviderModel, but the reviewer's is recorded only once a review
 	// has answered, and a refused review has not.
-	UsageLimitModel string `json:"usage_limit_model,omitempty"`
+	UsageLimitModel       string `json:"usage_limit_model,omitempty"`
+	UsageLimitAccountWide bool   `json:"usage_limit_account_wide,omitempty"`
 	// UsageLimitKind is the provider's own name for the limit that paused the
 	// run, kept as evidence for whoever reads the record afterwards. It outlives
 	// the deadline: what stopped the run is worth knowing even once the run has

@@ -359,6 +359,7 @@ agents:
 | `channel` | Where the event was said: `envelope` for the provider's stream, `stderr` for what its process wrote to stderr, `stdout` for plain text it wrote to stdout before any envelope. Omitted is `envelope`, so a rule that says nothing reads the stream and never a process's prose. |
 | `fields` | Dotted paths into the event payload that must equal the given value. |
 | `kind`, `kind_field` | The provider's own name for the limit, stated or read from the payload. `limit-reached` only. |
+| `account_wide` | Set to `true` on a `limit-reached` rule when the provider identifies a capacity window shared across that account's models. Otherwise the refusal withholds only the requested model. |
 | `reset_field`, `reset_match` | Where the reset time is: a payload path, or a regular expression over the prose with exactly one capturing group. `limit-reached` only. |
 | `reset_format` | `unix-seconds`, `unix-millis`, or `rfc3339`. Required whenever a reset time is read. |
 

@@ -34,7 +34,19 @@ func TestTheClaudeDialectAnswersInTheContractsTerms(t *testing.T) {
 				Payload: json.RawMessage(`{"status":"rejected","rateLimitType":"five_hour","resetsAt":` + unixSeconds(resetsAt) + `}`),
 			},
 			said: true,
-			want: backend.Observation{Answer: backend.AnswerLimitReached, Kind: "five_hour", ResetsAt: resetsAt},
+			want: backend.Observation{Answer: backend.AnswerLimitReached, Kind: "five_hour", ResetsAt: resetsAt, AccountWide: true},
+		},
+		{
+			name:  "a weekly account window spans models",
+			event: backend.ProviderEvent{Type: rateLimitEventType, Payload: json.RawMessage(`{"status":"rejected","rateLimitType":"seven_day"}`)},
+			said:  true,
+			want:  backend.Observation{Answer: backend.AnswerLimitReached, Kind: "seven_day", AccountWide: true},
+		},
+		{
+			name:  "a model-specific weekly window stays on that model",
+			event: backend.ProviderEvent{Type: rateLimitEventType, Payload: json.RawMessage(`{"status":"rejected","rateLimitType":"seven_day_sonnet"}`)},
+			said:  true,
+			want:  backend.Observation{Answer: backend.AnswerLimitReached, Kind: "seven_day_sonnet"},
 		},
 		{
 			// The overage allowance reports this way, and it is unknown rather
@@ -45,7 +57,7 @@ func TestTheClaudeDialectAnswersInTheContractsTerms(t *testing.T) {
 				Payload: json.RawMessage(`{"status":"rejected","rateLimitType":"overage"}`),
 			},
 			said: true,
-			want: backend.Observation{Answer: backend.AnswerLimitReached, Kind: "overage"},
+			want: backend.Observation{Answer: backend.AnswerLimitReached, Kind: "overage", AccountWide: true},
 		},
 		{
 			// A rejected primary limit with overage already in use is still being
@@ -319,7 +331,7 @@ func TestTheClaudeDialectAnswersInTheContractsTerms(t *testing.T) {
 			if !said {
 				return
 			}
-			if observation.Answer != test.want.Answer || observation.Kind != test.want.Kind || observation.Detail != test.want.Detail {
+			if observation.Answer != test.want.Answer || observation.Kind != test.want.Kind || observation.Detail != test.want.Detail || observation.AccountWide != test.want.AccountWide {
 				t.Fatalf("observation = %#v, want %#v", observation, test.want)
 			}
 			if !observation.ResetsAt.Equal(test.want.ResetsAt) {

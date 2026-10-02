@@ -1,0 +1,122 @@
+package cli
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
+)
+
+func TestCapacityProbeUsesReadOnlyAccessAndRecordsSpendAndCapacityEvidence(t *testing.T) {
+	t.Parallel()
+	for _, refused := range []bool{false, true} {
+		t.Run(map[bool]string{false: "served", true: "refused"}[refused], func(t *testing.T) {
+			root := t.TempDir()
+			limits, err := runstate.NewUsageLimitStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			served, err := runstate.NewCapacityServedStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			log, err := runstate.NewSpendStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Config{Product: config.Product{ID: "yoyodyne"}}
+			endpoint := backend.Endpoint{Provider: domain.BackendClaudeCode, AdapterVersion: backend.ClaudeCodeAdapterVersion, AccountAlias: "default", Model: "opus"}
+			result := backend.RunResult{Process: execution.ProcessResult{Status: execution.ProcessSucceeded}, CostReported: true, CostUSD: .01}
+			if refused {
+				result.IsError = true
+				result.UsageLimit = &backend.UsageLimit{Kind: "seven_day", AccountWide: true, ResetsAt: time.Now().Add(time.Hour)}
+			}
+			provider := &capturingBackend{result: result}
+			spent, err := probeProviderCapacityWith(context.Background(), components{config: cfg, stateRoot: root, repository: root, usageLimits: limits, capacityServed: served, spend: log}, endpoint, provider)
+			if (err != nil) != refused {
+				t.Fatalf("probe = %v, refused %t", err, refused)
+			}
+			if provider.request.Role != domain.RoleReviewer || len(provider.request.AllowedTools) != 0 || provider.request.Timeout != 30*time.Second || provider.request.SessionID != "" {
+				t.Fatalf("request = %+v", provider.request)
+			}
+			if spent == nil || spent.CapacityProbeID == "" || spent.RunID != "" || spent.Phase != runstate.SpendPhaseCapacityProbe {
+				t.Fatalf("spend = %+v", spent)
+			}
+			if err := spent.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			lines, err := log.List()
+			if err != nil || len(lines) != 1 || lines[0].CapacityProbeID != spent.CapacityProbeID {
+				t.Fatalf("spend log = %+v, %v", lines, err)
+			}
+			capacity, err := served.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if refused && len(capacity) != 0 {
+				t.Fatal("refused probe recorded served evidence")
+			}
+			if !refused && (len(capacity) != 1 || capacity[0].Provider != endpoint.Provider || capacity[0].Model != endpoint.Model) {
+				t.Fatalf("capacity = %+v", capacity)
+			}
+			if refused {
+				records, err := limits.List()
+				if err != nil || len(records) != 1 || !records[0].AccountWide || records[0].Provider != endpoint.Provider {
+					t.Fatalf("refusal = %+v, %v", records, err)
+				}
+			}
+		})
+	}
+}
+
+func TestDispatchAndReservationUseTheSameMappedModelAndSkipOnlyExhaustedAccounts(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	runs, err := runstate.NewStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits, err := runstate.NewUsageLimitStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reset := poolClock.Add(time.Hour)
+	if err := limits.Record(runstate.UsageLimitExhaustion{SchemaVersion: runstate.UsageLimitSchemaVersion, ProductID: "yoyodyne", At: poolClock.Add(-time.Hour), Waiting: "a developer run", Provider: "claude-code", AccountAlias: "one", Model: "opus", ResetsAt: &reset}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := twoAccounts(config.Account{}, config.Account{})
+	cfg.Execution.DeveloperModels = []config.DeveloperModelRule{{Label: "complex", Model: "opus"}}
+	pool := accountPool{config: cfg, stateRoot: root, runs: runs, usageLimits: limits, now: func() time.Time { return poolClock }}
+	account, err := pool.ChooseAccountForModel("opus")
+	if err != nil || account.Alias != "two" {
+		t.Fatalf("mapped account = %+v, %v", account, err)
+	}
+	account, err = pool.ChooseAccountForModel("sonnet")
+	if err != nil || account.Alias != "one" {
+		t.Fatalf("unaffected account = %+v, %v", account, err)
+	}
+	endpoints, err := dispatchEndpoints(components{config: cfg, stateRoot: root}, beads.WorkItem{Labels: []string{"complex"}})
+	if err != nil || len(endpoints) != 2 {
+		t.Fatalf("endpoints = %+v, %v", endpoints, err)
+	}
+	for _, endpoint := range endpoints {
+		if endpoint.Model != "opus" {
+			t.Fatalf("mapped endpoint = %+v", endpoint)
+		}
+	}
+	if cfg.Agents["developers"].Model != "sonnet" {
+		t.Fatal("choosing a mapped model mutated the shared configuration")
+	}
+	zero := 0.0
+	cfg.Accounts["one"] = config.Account{WeeklyBudgetUSD: &zero}
+	endpoints, err = dispatchEndpoints(components{config: cfg, stateRoot: root, store: runs}, beads.WorkItem{Labels: []string{"complex"}})
+	if err != nil || len(endpoints) != 1 || endpoints[0].AccountAlias != "two" {
+		t.Fatalf("budgeted endpoints = %+v, %v; want the stood-down account excluded from probes", endpoints, err)
+	}
+}

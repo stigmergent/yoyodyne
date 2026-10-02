@@ -96,6 +96,7 @@ func (s *Session) noteCapacityServed(endpoint backend.Endpoint) {
 		return
 	}
 	if err := s.options.CapacityServed.Record(runstate.CapacityServed{
+		Provider:     endpoint.Provider,
 		AccountAlias: endpoint.AccountAlias,
 		Model:        endpoint.Model,
 		At:           s.options.clock().Now(),

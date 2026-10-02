@@ -60,7 +60,8 @@ type UsageLimitExhaustion struct {
 	Waiting string `json:"waiting"`
 	// Kind is the provider's own name for the exhausted limit, carried as
 	// evidence rather than interpreted. Empty where the provider named none.
-	Kind string `json:"kind,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	AccountWide bool   `json:"account_wide,omitempty"`
 	// ResetsAt is when the provider said the limit lifts. It is absent where the
 	// provider named no reset time, which is a different fact from a wait of
 	// unknown length: the harness asks again rather than being told when.
@@ -72,11 +73,8 @@ type UsageLimitExhaustion struct {
 	WorkItemID     string `json:"work_item_id,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
 	// Model is the model selector the refused invocation asked for. It is
-	// optional because most refusals are recorded by processes that have nothing
-	// to do about which model was refused, and it is here because failover does:
-	// a window is a fact about one model rather than about the account, so a
-	// refusal that does not say which model was refused cannot be read back as a
-	// window that has since reopened.
+	// optional for older records. Capacity is scoped to this model unless the
+	// provider explicitly identified an AccountWide window.
 	Model string `json:"model,omitempty"`
 	// AccountAlias is the configured account the refused invocation ran under,
 	// and empty where the process that recorded it did not say — which is every
@@ -89,10 +87,9 @@ type UsageLimitExhaustion struct {
 	// stoppage: the same refusal happened either way, and what an operator needs
 	// to know is whether the work carried on.
 	ServedBy string `json:"served_by,omitempty"`
-	// Provider and ServedByProvider are the providers the two models above were
-	// asked of, and are written only where a substitution crossed from one to the
-	// other. Both are empty on every entry that stayed on one provider, which is
-	// every entry written before an alternate could name a second one.
+	// Provider identifies the refusing endpoint. ServedByProvider identifies a
+	// permitted alternate where one served. Older records named providers only
+	// when a turn crossed between them.
 	//
 	// They are here because a turn that crossed providers is not the same news as
 	// a turn that changed model: the second provider held no session, so its
@@ -199,7 +196,7 @@ func (e UsageLimitExhaustion) Validate() error {
 	// A crossing is stated as a pair or not at all. One provider named without the
 	// other is a record saying a turn moved between one place and nowhere, which
 	// nothing reading it back could act on.
-	crossed := strings.TrimSpace(string(e.Provider)) != "" || strings.TrimSpace(string(e.ServedByProvider)) != ""
+	crossed := strings.TrimSpace(string(e.ServedByProvider)) != "" || (e.Provider != "" && e.Substituted())
 	if crossed {
 		if err := domain.ValidateIdentifier("provider", string(e.Provider)); err != nil {
 			problems = append(problems, err)
@@ -210,11 +207,35 @@ func (e UsageLimitExhaustion) Validate() error {
 		if strings.TrimSpace(e.ServedBy) == "" {
 			problems = append(problems, errors.New("a provider pair names where a turn crossed to and served_by names nothing that took it"))
 		}
-		if e.Provider == e.ServedByProvider {
-			problems = append(problems, errors.New("provider and served_by provider name the same provider; a crossing is a turn served by the provider that did not refuse it"))
-		}
+	}
+	if e.Provider != "" && !e.Provider.Valid() {
+		problems = append(problems, errors.New("provider is not a backend identifier"))
 	}
 	return errors.Join(problems...)
+}
+
+// Refuses matches the capacity scope, keeping other accounts and providers usable.
+// Older records omitted those fields; their model is still useful evidence.
+func (e UsageLimitExhaustion) Refuses(provider domain.Backend, account, model string) bool {
+	if e.Substituted() && e.Reason() == SubstitutedForAvailability {
+		return false
+	}
+	if e.Provider != "" && e.Provider != provider {
+		return false
+	}
+	if e.AccountAlias != "" && account != "" && e.AccountAlias != account {
+		return false
+	}
+	return e.AccountWide || e.Model == "" || strings.TrimSpace(e.Model) == strings.TrimSpace(model)
+}
+
+// CapacityKey is the scope a probe reserves, including all models where the
+// provider identified a shared account window.
+func (e UsageLimitExhaustion) CapacityKey(provider domain.Backend, account, model string) string {
+	if e.AccountWide {
+		model = "*"
+	}
+	return strings.Join([]string{string(provider), account, model}, "\x00")
 }
 
 func (r SubstitutionReason) known() bool {

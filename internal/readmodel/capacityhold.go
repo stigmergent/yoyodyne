@@ -57,13 +57,15 @@ type UsageLimits interface {
 // files, and because a test has to be able to state a project's agents in three
 // lines.
 type AgentEndpoint struct {
-	Name     string
-	Provider domain.Backend
-	Model    string
+	Name         string
+	Provider     domain.Backend
+	Model        string
+	AccountAlias string
 	// Alternate is the model this agent fails over to, and empty for an agent that
 	// fails over to nothing — which is failover off, whatever else its block says.
-	Alternate         string
-	AlternateProvider domain.Backend
+	Alternate             string
+	AlternateProvider     domain.Backend
+	AlternateAccountAlias string
 }
 
 // last is the model an agent's turn ends on: its alternate where it names one,
@@ -80,8 +82,8 @@ func (a AgentEndpoint) last() string {
 // string. Two agents with equal chains are refused together.
 func (a AgentEndpoint) chain() string {
 	return strings.Join([]string{
-		strings.TrimSpace(string(a.Provider)), strings.TrimSpace(a.Model),
-		strings.TrimSpace(string(a.AlternateProvider)), strings.TrimSpace(a.Alternate),
+		strings.TrimSpace(string(a.Provider)), strings.TrimSpace(a.AccountAlias), strings.TrimSpace(a.Model),
+		strings.TrimSpace(string(a.AlternateProvider)), strings.TrimSpace(a.AlternateAccountAlias), strings.TrimSpace(a.Alternate),
 	}, "\x00")
 }
 
@@ -135,8 +137,8 @@ type CapacityHold struct {
 // An agent is held when the model its turn ends on is refused: its alternate
 // where it names one, since the alternate is only asked once its own model has
 // refused, and its own model otherwise. The refusals are matched by model name,
-// as failover matches them — a provider is written on a refusal only where a
-// turn crossed one, so it cannot be relied on to be there.
+// along with the provider and account where those were recorded. An explicitly
+// shared account window covers the account's other models too.
 //
 // A refusal that names no model was written by a process that did not say
 // which model it asked, which is every process before the model was recorded
@@ -171,12 +173,24 @@ func ReadCapacityHold(agents []AgentEndpoint, runs []runstate.State, refusals []
 	// What is standing, by model. An availability substitution names the same
 	// field and means something else: the provider has not got that selector,
 	// which is not a window and must not be read as one.
-	refused := map[string]bool{}
+	var active []runstate.UsageLimitExhaustion
 	var stopped []runstate.UsageLimitExhaustion
-	unnamed := false
 	// The parked runs go first, so that the count of them below is the count of
 	// the standing ones among the first entries rather than a second pass.
 	parked := evidence.Standing(ParkedRunRefusals(runs))
+	// New runs write refusals to the log too. Their parked snapshot is one
+	// projection of an already recorded refusal, rather than an extra invocation.
+	refusals = append([]runstate.UsageLimitExhaustion(nil), refusals...)
+	for parkedIndex, run := range parked {
+		for index, refusal := range refusals {
+			if refusal.Waiting == run.Waiting && refusal.Model == run.Model && refusal.Kind == run.Kind && refusal.AccountWide == run.AccountWide {
+				parked[parkedIndex].Provider = refusal.Provider
+				parked[parkedIndex].AccountAlias = refusal.AccountAlias
+				refusals = append(refusals[:index], refusals[index+1:]...)
+				break
+			}
+		}
+	}
 	parkedStanding := 0
 	for index, refusal := range append(parked, refusals...) {
 		if refusal.Substituted() && refusal.Reason() == runstate.SubstitutedForAvailability {
@@ -185,10 +199,7 @@ func ReadCapacityHold(agents []AgentEndpoint, runs []runstate.State, refusals []
 		if !refusal.WindowClosed(now, unknownResetPause) {
 			continue
 		}
-		model := strings.TrimSpace(refusal.Model)
-		if model != "" {
-			refused[model] = true
-		}
+		active = append(active, refusal)
 		if refusal.Substituted() {
 			continue
 		}
@@ -196,9 +207,7 @@ func ReadCapacityHold(agents []AgentEndpoint, runs []runstate.State, refusals []
 		if index < len(parked) {
 			parkedStanding++
 		}
-		if model == "" {
-			unnamed = true
-		}
+
 	}
 	if len(stopped) == 0 {
 		return CapacityHold{}
@@ -210,17 +219,28 @@ func ReadCapacityHold(agents []AgentEndpoint, runs []runstate.State, refusals []
 			break
 		}
 	}
-	// An unnamed refusal on a shared chain is a refusal of the model that chain
-	// asks for first, and of nothing further along it.
-	if unnamed && shared {
-		if model := strings.TrimSpace(agents[0].Model); model != "" {
-			refused[model] = true
-		}
-	}
 	hold := CapacityHold{Holding: true}
 	models, alternates := map[string]struct{}{}, map[string]struct{}{}
 	for _, agent := range agents {
-		if !refused[agent.last()] {
+		provider := agent.Provider
+		account := agent.AccountAlias
+		if agent.Alternate != "" && agent.AlternateProvider != "" {
+			provider = agent.AlternateProvider
+		}
+		if agent.Alternate != "" && agent.AlternateAccountAlias != "" {
+			account = agent.AlternateAccountAlias
+		}
+		refused := false
+		for _, refusal := range active {
+			if refusal.Model == "" && !refusal.AccountWide && (!shared || agent.last() != strings.TrimSpace(agent.Model)) {
+				continue
+			}
+			if refusal.Refuses(provider, account, agent.last()) {
+				refused = true
+				break
+			}
+		}
+		if !refused {
 			return CapacityHold{}
 		}
 		hold.Agents = append(hold.Agents, agent.Name)
@@ -316,6 +336,7 @@ func parkedRunRefusal(run runstate.State) (runstate.UsageLimitExhaustion, bool) 
 		Kind:          strings.TrimSpace(run.UsageLimitKind),
 		WorkItemID:    run.WorkItemID,
 		Model:         strings.TrimSpace(run.UsageLimitModel),
+		AccountWide:   run.UsageLimitAccountWide,
 		AccountAlias:  strings.TrimSpace(run.AccountAlias),
 	}
 	if run.UsageLimitPausedSince != nil {
@@ -328,7 +349,36 @@ func parkedRunRefusal(run runstate.State) (runstate.UsageLimitExhaustion, bool) 
 	if refusal.Model == "" && run.Phase == runstate.PhaseDeveloping {
 		refusal.Model = strings.TrimSpace(run.ProviderModel)
 	}
+	if run.Phase == runstate.PhaseDeveloping {
+		refusal.Provider = run.Backend
+	}
 	return refusal, true
+}
+
+// EndedRunCapacityRefusals retains the refusals older builds recorded only on
+// terminal runs. Giving the item back to the queue did not reopen its endpoint.
+func EndedRunCapacityRefusals(runs []runstate.State) []runstate.UsageLimitExhaustion {
+	var refusals []runstate.UsageLimitExhaustion
+	for _, run := range latestRunPerItem(runs) {
+		if run.Environmental == nil || run.Environmental.Cause != runstate.CauseUsageWindow {
+			continue
+		}
+		refusal := runstate.UsageLimitExhaustion{At: run.Environmental.RecordedAt, ProductID: run.ProductID,
+			SchemaVersion: runstate.UsageLimitSchemaVersion, Provider: run.Backend, AccountAlias: run.AccountAlias,
+			Waiting: fmt.Sprintf("run %s of %s", run.RunID, run.WorkItemID), WorkItemID: run.WorkItemID,
+			Kind: run.UsageLimitKind, Model: run.UsageLimitModel, AccountWide: run.UsageLimitAccountWide}
+		if refusal.Model == "" {
+			refusal.Model = run.ProviderModel
+		}
+		if run.Phase == runstate.PhaseReviewing {
+			refusal.Provider = ""
+		}
+		if !run.Environmental.ResetUnknown {
+			refusal.ResetsAt = run.Environmental.ResetsAt
+		}
+		refusals = append(refusals, refusal)
+	}
+	return refusals
 }
 
 // Says is the hold as the one sentence every surface states it in. It carries

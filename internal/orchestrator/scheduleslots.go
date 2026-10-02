@@ -20,6 +20,7 @@ package orchestrator
 // what it may do.
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
@@ -60,6 +61,7 @@ const (
 // the pull, the queue as it was read, what this session has tried, what is in
 // flight, and where a passover is recorded.
 type eligibilityReading struct {
+	ctx      context.Context
 	pull     Pull
 	read     pulled
 	tried    map[string]attempt
@@ -144,6 +146,11 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		// is one line in the report rather than one per poll.
 		reading.passOver(entry.ID, "an unresolved directive pauses it: "+pausing[0].Summary())
 		poll.pass(entry.ID, runstate.PassedOverPausedByDirective, "")
+		return passedOver, nil
+	}
+	if reason, waiting := s.dispatchCapacity(reading.ctx, schedule, pull, read.items[entry.ID]); waiting {
+		reading.passOver(entry.ID, reason)
+		poll.passWindow(entry.ID, reason)
 		return passedOver, nil
 	}
 	// The last question asked before a slot is spent, and the only one that

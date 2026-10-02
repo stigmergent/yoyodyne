@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -259,7 +260,8 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		// where the review actually failed: a limit reported beside a verdict
 		// the provider still gave stopped nothing.
 		refusal = recordUsageLimit(b.UsageLimits, b.Config.Product.ID, b.clock().Now(),
-			fmt.Sprintf("the independent review %s of %s", reviewID, change.Branch), result.UsageLimit)
+			fmt.Sprintf("the independent review %s of %s", reviewID, change.Branch),
+			backend.Endpoint{Provider: b.spendAttribution(reviewID).Backend, AccountAlias: account.Alias, Model: result.RequestedModel}, result.UsageLimit)
 	}
 	// The record is written whichever way the review went, because "this branch
 	// has been independently reviewed" is answered from it, and a review that

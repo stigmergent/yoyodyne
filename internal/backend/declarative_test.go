@@ -30,6 +30,7 @@ func TestASecondProviderIsAddedWithoutChangingHarnessCode(t *testing.T) {
 			Type:        "quota",
 			Fields:      map[string]string{"state": "exceeded"},
 			KindField:   "window",
+			AccountWide: true,
 			ResetField:  "resets_at",
 			ResetFormat: ResetFormatUnixSeconds,
 		},
@@ -52,7 +53,7 @@ func TestASecondProviderIsAddedWithoutChangingHarnessCode(t *testing.T) {
 	if !said || exhausted.Answer != AnswerLimitReached {
 		t.Fatalf("observation = %#v, said = %t, want an exhausted limit", exhausted, said)
 	}
-	if exhausted.Kind != "daily" {
+	if exhausted.Kind != "daily" || !exhausted.AccountWide {
 		t.Fatalf("Kind = %q, want the provider's own name for the window", exhausted.Kind)
 	}
 	if want := time.Unix(1787000000, 0).UTC(); !exhausted.ResetsAt.Equal(want) {
@@ -155,6 +156,11 @@ func TestADialectThatWouldSilentlyDoNothingIsRefused(t *testing.T) {
 		{
 			name: "a reset time on an answer that carries none",
 			rule: DialectRule{Answer: AnswerUnavailable, Type: "quota", ResetField: "resets_at", ResetFormat: ResetFormatUnixSeconds},
+			want: "only \"limit-reached\" carries",
+		},
+		{
+			name: "shared capacity on an answer that carries no limit",
+			rule: DialectRule{Answer: AnswerServed, Type: "quota", AccountWide: true},
 			want: "only \"limit-reached\" carries",
 		},
 		{

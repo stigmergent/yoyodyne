@@ -43,6 +43,7 @@ const maxCapacityServedWhatBytes = 1 << 10
 // CapacityServed is the latest moment the provider served one account and
 // model.
 type CapacityServed struct {
+	Provider domain.Backend `json:"provider,omitempty"`
 	// AccountAlias is the configured account the invocation ran under, and empty
 	// where the process that served it did not know — in which case it lifts the
 	// model's refusals on every account, as a refusal that names no account is
@@ -61,11 +62,14 @@ type CapacityServed struct {
 }
 
 func (c CapacityServed) key() string {
-	return strings.TrimSpace(c.AccountAlias) + "\x00" + strings.TrimSpace(c.Model)
+	return string(c.Provider) + "\x00" + strings.TrimSpace(c.AccountAlias) + "\x00" + strings.TrimSpace(c.Model)
 }
 
 func (c CapacityServed) Validate() error {
 	var problems []error
+	if c.Provider != "" && !c.Provider.Valid() {
+		problems = append(problems, errors.New("provider is not a backend identifier"))
+	}
 	if strings.TrimSpace(c.Model) == "" {
 		problems = append(problems, errors.New("model is required: a served invocation that names no model lifts no window"))
 	}
@@ -94,7 +98,10 @@ func (c CapacityServed) Lifts(refusal UsageLimitExhaustion) bool {
 	if !c.At.After(refusal.At) {
 		return false
 	}
-	if model := strings.TrimSpace(refusal.Model); model != "" && model != strings.TrimSpace(c.Model) {
+	if c.Provider != "" && refusal.Provider != "" && c.Provider != refusal.Provider {
+		return false
+	}
+	if model := strings.TrimSpace(refusal.Model); !refusal.AccountWide && model != "" && model != strings.TrimSpace(c.Model) {
 		return false
 	}
 	account, served := strings.TrimSpace(refusal.AccountAlias), strings.TrimSpace(c.AccountAlias)

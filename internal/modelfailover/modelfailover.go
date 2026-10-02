@@ -682,6 +682,7 @@ func record(policy Policy, named, alternate string, refused backend.UsageLimit, 
 		At:             policy.now(),
 		Waiting:        policy.Waiting,
 		Kind:           refused.Kind,
+		AccountWide:    refused.AccountWide,
 		ConversationID: policy.ConversationID,
 		WorkItemID:     policy.WorkItemID,
 		Model:          named,
@@ -689,7 +690,7 @@ func record(policy Policy, named, alternate string, refused backend.UsageLimit, 
 		ServedBy:       alternate,
 		Substitution:   runstate.SubstitutedForCapacity,
 	}
-	if moved.CrossedProviders() {
+	if moved.RefusedEndpoint.Provider != "" && moved.Endpoint.Provider != "" {
 		exhaustion.Provider = moved.RefusedEndpoint.Provider
 		exhaustion.ServedByProvider = moved.Endpoint.Provider
 	}

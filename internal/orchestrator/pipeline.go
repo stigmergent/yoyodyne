@@ -404,6 +404,8 @@ type Pipeline struct {
 	// run wired without one runs exactly as it would have, and every refusal then
 	// stands until its quoted reset.
 	CapacityServed CapacityServedRecorder
+	// UsageLimits preserves capacity refusals even when the run cannot wait.
+	UsageLimits UsageLimitRecorder
 	// DivergedTargets is the product's record of the target branches the harness
 	// will not catch up to the remote's, written by the run whose promotion is
 	// refused on one and lifted by the convergence sweep that finds the branches
@@ -567,7 +569,20 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	if selection, stated := p.Selection.Stamped(now); stated {
 		state.Selection = &selection
 	}
-	account, err := p.chooseAccount()
+	model := p.developer().Model
+	if choice := config.ResolveDeveloperModel(p.Config.Execution.DeveloperModels, state.WorkItemLabels, model); choice.Chosen() {
+		state.DeveloperModel, state.DeveloperModelReason = choice.Model, choice.Reason
+		model = choice.Model
+	}
+	var account config.AccountEndpoint
+	var err error
+	if chooser, ok := p.Accounts.(interface {
+		ChooseAccountForModel(string) (config.AccountEndpoint, error)
+	}); ok {
+		account, err = chooser.ChooseAccountForModel(model)
+	} else {
+		account, err = p.chooseAccount()
+	}
 	if err != nil {
 		return state, nil, fmt.Errorf("choose the provider account for this run: %w", err)
 	}
@@ -579,9 +594,6 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	// record rather than resolving it again. A project that configured no mapping
 	// chooses nothing and records nothing, and its runs ask for the developer's
 	// configured model exactly as they always did.
-	if choice := config.ResolveDeveloperModel(p.Config.Execution.DeveloperModels, state.WorkItemLabels, p.developer().Model); choice.Chosen() {
-		state.DeveloperModel, state.DeveloperModelReason = choice.Model, choice.Reason
-	}
 	// The effort level is settled beside the model, from the developer agent's
 	// configuration, so an edit to it reaches the next run and never one already
 	// in flight. A mapped model keeps the agent's level: the mapping chooses the
@@ -3644,7 +3656,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		// the invocation asked for is still what served it.
 		if servedCleanly(providerResult, err) {
 			what := fmt.Sprintf("a developer attempt of run %s of %s", a.state.RunID, a.state.WorkItemID)
-			if servedErr := a.pipeline.noticeCapacityServed(a.state.AccountAlias, a.state.ProviderModel, what); servedErr != nil {
+			if servedErr := a.pipeline.noticeCapacityServed(a.pipeline.developer().Backend, a.state.AccountAlias, a.state.ProviderModel, what); servedErr != nil {
 				a.outcome.CapacityServedProblem = appendProblem(a.outcome.CapacityServedProblem, servedErr.Error())
 			}
 		}
@@ -4206,11 +4218,31 @@ const releaseCheckInterval = 5 * time.Second
 // than become a pause nobody can honor.
 func (a *activeRun) pauseForUsageLimit(ctx context.Context, limit backend.UsageLimit) error {
 	p := a.pipeline
+	if p.UsageLimits != nil {
+		provider := p.developer().Backend
+		if a.state.Phase == runstate.PhaseReviewing {
+			provider = p.reviewer().Backend
+		}
+		refusal := runstate.UsageLimitExhaustion{
+			SchemaVersion: runstate.UsageLimitSchemaVersion, ProductID: a.state.ProductID,
+			At: p.clock().Now(), Waiting: fmt.Sprintf("run %s of %s", a.state.RunID, a.state.WorkItemID),
+			WorkItemID: a.state.WorkItemID, Provider: provider, AccountAlias: a.state.AccountAlias,
+			Model: a.refusedModel(), Kind: limit.Kind, AccountWide: limit.AccountWide,
+		}
+		if !limit.ResetsAt.IsZero() {
+			reset := limit.ResetsAt.UTC()
+			refusal.ResetsAt = &reset
+		}
+		if err := p.UsageLimits.Record(refusal); err != nil {
+			return fmt.Errorf("preserve the provider capacity refusal: %w", err)
+		}
+	}
 	a.state.UsageLimitKind = limit.Kind
 	a.outcome.UsageLimitKind = limit.Kind
 	// Which model was refused is written with the kind, so the park reads back
 	// as a refusal of that model wherever the refusals outside a run are read.
 	a.state.UsageLimitModel = a.refusedModel()
+	a.state.UsageLimitAccountWide = limit.AccountWide
 	a.state.PauseCause = runstate.PauseUsageLimit
 	a.outcome.PauseCause = runstate.PauseUsageLimit
 	// A limit is the account's state rather than an outage, so a channel left
@@ -7135,7 +7167,7 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// by attemptReview — rather than the configuration.
 		if err == nil && reported.servedCleanly {
 			what := fmt.Sprintf("a review of run %s of %s", a.state.RunID, a.state.WorkItemID)
-			if servedErr := a.pipeline.noticeCapacityServed(a.state.AccountAlias, a.state.ReviewModel, what); servedErr != nil {
+			if servedErr := a.pipeline.noticeCapacityServed(a.pipeline.reviewer().Backend, a.state.AccountAlias, a.state.ReviewModel, what); servedErr != nil {
 				a.outcome.CapacityServedProblem = appendProblem(a.outcome.CapacityServedProblem, servedErr.Error())
 			}
 		}

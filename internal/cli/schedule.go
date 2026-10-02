@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/config"
@@ -680,6 +681,14 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 	// schedules nothing gets neither, and its brake is decided by the cooldown's
 	// probe rather than by a summons.
 	recurring := recurringTrigger(parts, configPath, stderr)
+	probes, err := runstate.NewCapacityProbeStore(parts.stateRoot, parts.config.Product.ID)
+	if err != nil {
+		return orchestrator.Pull{}, err
+	}
+	recorded, err := parts.store.Recorded()
+	if err != nil {
+		return orchestrator.Pull{}, fmt.Errorf("read recorded provider capacity refusals: %w", err)
+	}
 	var summons orchestrator.ScheduleSummons
 	if trigger, scheduled := recurring.(*orchestrator.Trigger); scheduled {
 		summons = trigger
@@ -756,7 +765,13 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// The usage windows the harness has recorded, read at every pull against
 		// every endpoint a developer's turn can end on, so a session started inside
 		// a window the record already holds chooses nothing from its first poll.
-		UsageLimits: parts.usageLimits,
+		UsageLimits:       parts.usageLimits,
+		CapacityHistory:   readmodel.EndedRunCapacityRefusals(recorded),
+		CapacityProbes:    probes,
+		DispatchEndpoints: func(item beads.WorkItem) ([]backend.Endpoint, error) { return dispatchEndpoints(parts, item) },
+		ProbeCapacity: func(ctx context.Context, endpoint backend.Endpoint) (*runstate.Spend, error) {
+			return probeProviderCapacity(ctx, parts, endpoint)
+		},
 		// A target branch the harness will not catch up to the remote's, recorded
 		// by the run that met it, holds the choosing until a sweep finds the
 		// branches converged.

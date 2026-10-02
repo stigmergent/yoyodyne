@@ -143,6 +143,8 @@ type UsageLimit struct {
 	// Kind is the provider's own name for the exhausted limit, carried as
 	// evidence rather than interpreted by the harness.
 	Kind string
+	// AccountWide says the provider identified a window shared across models.
+	AccountWide bool
 	// ResetsAt is when the provider said the limit resets. It is zero when the
 	// provider named no usable reset time, which is not a wait a caller may
 	// guess at.

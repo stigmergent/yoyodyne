@@ -3913,6 +3913,24 @@ on the work item.
 
 ## Waiting out a provider that refuses
 
+Fresh dispatch also reads recorded capacity refusals before claiming work. A
+refusal with a future reset withholds the affected provider, account, and model
+until that reset or later evidence that the provider served it. When the provider
+identifies an account window shared across models, that window withholds all of
+that account's models. Other configured accounts and mapped developer models
+remain usable, under the same role permissions and account budgets.
+
+While waiting, fresh work stays in the backlog while the
+harness makes a bounded capacity probe, at most once per
+`usage_limit_unknown_reset_pause` interval for that capacity scope. Each probe
+has a 30-second limit, uses read-only provider access, and records its spend as
+`capacity-probe`. Probe reservations and refusals survive supervisor restarts;
+an interrupted or refused probe releases no work. A successfully served probe
+records the evidence that makes dispatch eligible again. Waiting items retain
+their backlog priority, and the scheduler names the reset or next probe time.
+Without a usable reset, only a successfully served probe or invocation releases
+dispatch; merely reaching the next probe time starts no developer run.
+
 When the provider reports that a usage limit is exhausted, the run pauses rather
 than failing: nothing is cleaned up, the Beads item stays claimed, the worktree
 and branch survive, and the developer session is kept so the reissued attempt

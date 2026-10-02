@@ -40,6 +40,9 @@ import (
 // said by the run parking, which is the run's own state and needs nothing else;
 // everywhere else records one, because there is no run record to cross.
 var providerInvocations = map[string]string{
+	"internal/cli/dispatchcapacity.go": "a bounded capacity probe: probeProviderCapacityWith records an exhausted " +
+		"limit in UsageLimitStore, and TestCapacityProbeUsesReadOnlyAccessAndRecordsSpendAndCapacityEvidence " +
+		"checks the durable refusal and its scope alongside spend and successful-capacity evidence",
 	"internal/orchestrator/pipeline.go": "a run: pauseForUsageLimit records the limit and the deadline in durable run " +
 		"state before it waits, and notify.FromRun says the park at warning severity",
 	"internal/review/reviewer.go": "a review: the refusal travels back on review.Result, and whoever asked for the " +

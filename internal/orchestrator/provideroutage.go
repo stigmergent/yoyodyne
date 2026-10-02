@@ -134,11 +134,12 @@ func servedCleanly(result backend.RunResult, err error) bool {
 // having lifted for every refusal of that account and model recorded before it.
 // Like the outage it is asked after every served invocation, and it reports
 // only what went wrong: a run the provider served is not failed over a record.
-func (p Pipeline) noticeCapacityServed(account, model, what string) error {
+func (p Pipeline) noticeCapacityServed(provider domain.Backend, account, model, what string) error {
 	if p.CapacityServed == nil || strings.TrimSpace(model) == "" {
 		return nil
 	}
 	if err := p.CapacityServed.Record(runstate.CapacityServed{
+		Provider:     provider,
 		AccountAlias: account,
 		Model:        model,
 		At:           p.clock().Now(),

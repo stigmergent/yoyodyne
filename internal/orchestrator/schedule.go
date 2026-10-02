@@ -258,10 +258,9 @@ const (
 	// watch waits it out instead; a drain is a command somebody is waiting on the
 	// return of, and one that slept through a login would be one that hung.
 	ScheduleProviderAway = "the provider is answering nobody, so nothing more was chosen"
-	// ScheduleProviderWindow reports a drain that stopped because a recorded
-	// usage limit covers every model a developer's turn could end on, and the
-	// provider named a reset that has not come. A watch waits it out instead.
-	ScheduleProviderWindow = "the provider's usage window is closed for every developer model, so nothing more was chosen"
+	// ScheduleProviderWindow reports a drain whose ready work is waiting for
+	// provider capacity. A watch waits and makes paced, bounded probes instead.
+	ScheduleProviderWindow = "ready work is waiting for provider capacity, so nothing more was chosen"
 	// ScheduleDivergedTarget reports a drain that stopped because a target branch
 	// stands recorded as one the harness will not catch up to the remote's. A
 	// watch waits it out instead, until the convergence sweep finds the branches
@@ -723,8 +722,17 @@ type Pull struct {
 	// end on. Both optional; see usageWindow. A pull wired without them learns a
 	// window only from a run that came back parked on one, which is what a session
 	// restarted inside a window never has.
-	UsageLimits readmodel.UsageLimits
-	Developers  []readmodel.AgentEndpoint
+	UsageLimits     readmodel.UsageLimits
+	Developers      []readmodel.AgentEndpoint
+	CapacityHistory []runstate.UsageLimitExhaustion
+	// DispatchEndpoints resolves the endpoints this item's developer can use.
+	// The resolver narrows the configured pool; it grants no new role permission.
+	DispatchEndpoints func(beads.WorkItem) ([]backend.Endpoint, error)
+	CapacityProbes    interface {
+		Next() (map[string]time.Time, error)
+		Claim(context.Context, string, time.Time, time.Duration) (time.Time, bool, error)
+	}
+	ProbeCapacity func(context.Context, backend.Endpoint) (*runstate.Spend, error)
 	// CapacityServed and Conversations are what the refusals above are read
 	// against before they hold anything: a refusal the provider has since served
 	// its account and model through, or a refusal of a conversation its role has
@@ -1132,8 +1140,9 @@ type Schedule struct {
 	// this pass's last pull lifts, nil once no recorded window holds it.
 	// UsageWindowProblem names a record that could not be read, which the pull
 	// read past as though no window stood.
-	UsageWindowResetsAt *time.Time `json:"usage_window_resets_at,omitempty"`
-	UsageWindowProblem  string     `json:"usage_window_problem,omitempty"`
+	UsageWindowResetsAt *time.Time                   `json:"usage_window_resets_at,omitempty"`
+	UsageWindowProblem  string                       `json:"usage_window_problem,omitempty"`
+	ProviderCapacity    []readmodel.EndpointCapacity `json:"provider_capacity,omitempty"`
 	// ReleasedClaims is the claims this pass audited against the runs the harness
 	// has, found nothing alive behind, and gave back to the queue. It is on the
 	// schedule for the reason the started runs are: a pass that freed work somebody
@@ -2090,7 +2099,7 @@ pulling:
 		// restarted over and over inside a seven_day window pulled fresh items into
 		// the same refusal each time, and one limit became twelve failed runs. It
 		// lifts at the reset the provider named, with nothing to release.
-		if closed, standing := s.usageWindow(&schedule, pull); standing {
+		if closed, standing := s.usageWindow(&schedule, pull); standing && pull.ProbeCapacity == nil {
 			if !s.Watching {
 				schedule.Stopped = ScheduleProviderWindow
 				break
@@ -2616,11 +2625,13 @@ pulling:
 		// repository and a pull with one free slot has no business reading the tree
 		// for forty items to fill it.
 		decided := make(map[string]eligibility)
+		schedule.ProviderCapacity = nil
 		eligible := func(entry backlog.Entry) (eligibility, error) {
 			if answer, asked := decided[entry.ID]; asked {
 				return answer, nil
 			}
 			answer, err := s.eligibility(entry, eligibilityReading{
+				ctx:  ctx,
 				pull: pull, read: read, tried: tried, occupied: occupied, waiting: waitingRuns,
 				schedule: &schedule, poll: &poll, passOver: passOver,
 			})
@@ -2635,6 +2646,9 @@ pulling:
 		started := 0
 		startedNow := make(map[string]bool)
 		start := func(entry backlog.Entry, slot developerslot.Slot, into pulledInto) bool {
+			if s.Budget > 0 && (schedule.SpentUSD >= s.Budget || schedule.SpendProblem != "") {
+				return false
+			}
 			delete(deferred, entry.ID)
 			// The exclusion is made as the start is, and says what it is for from the
 			// first poll that meets it. A start in flight is the one state here nobody
@@ -2690,6 +2704,9 @@ pulling:
 		// slot still empty. The highest-priority decision goes first, and the
 		// docket's order between two at one priority.
 		firePending := func(priority int, any bool) (string, bool) {
+			if s.Budget > 0 && (schedule.SpentUSD >= s.Budget || schedule.SpendProblem != "") {
+				return "", false
+			}
 			chosen := -1
 			for index, pending := range pendingCarryOuts {
 				if (any || pending.priority <= priority) && (chosen < 0 || pending.priority < pendingCarryOuts[chosen].priority) {
@@ -2916,8 +2933,19 @@ pulling:
 		// them finishing changes the answer — it frees a slot, and it may close the
 		// item something else was waiting on — so the pass waits rather than
 		// concluding the queue is empty.
+		if s.Budget > 0 && schedule.SpendProblem != "" {
+			schedule.Stopped = ScheduleSpendUnreadable
+			break
+		}
+		if s.Budget > 0 && schedule.SpentUSD >= s.Budget {
+			schedule.Stopped = ScheduleBudgetSpent
+			break
+		}
 		if running == 0 && !s.Watching {
 			schedule.Stopped = ScheduleDrained
+			if len(schedule.ProviderCapacity) > 0 {
+				schedule.Stopped = ScheduleProviderWindow
+			}
 			break
 		}
 		// What this poll actually found, rather than the bare fact that it started
@@ -3677,8 +3705,8 @@ type recordedWindow struct {
 // It is the same reading the capacity hold takes of the same two records — the
 // usage-limit log and the runs parked on a limit — narrowed to the developer's
 // endpoints, and narrowed to refusals the provider named a reset for: a limit
-// with no reset is the unknown-reset probe's business, and a dispatch is how
-// that one is asked about. An endpoint whose turn can end on a model the record
+// with no reset is the bounded capacity probe's business. An endpoint whose
+// configured model the record
 // does not refuse is one a run could be served on, so a single such endpoint
 // holds nothing.
 //
@@ -3688,6 +3716,7 @@ type recordedWindow struct {
 // not open one file would be a worse failure than dispatching into a refusal.
 func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, bool) {
 	schedule.UsageWindowResetsAt = nil
+	schedule.ProviderCapacity = nil
 	if pull.UsageLimits == nil || len(pull.Developers) == 0 {
 		return recordedWindow{}, false
 	}
@@ -3702,45 +3731,30 @@ func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, b
 			runs = incomplete
 		}
 	}
-	// Only refusals of a model a developer's turn can end on, or of no model
-	// named, are read: the reset said is the latest of these, and a refusal of
-	// some other role's model would otherwise lend the window its later reset.
-	developerModels := map[string]bool{}
-	for _, endpoint := range pull.Developers {
-		developerModels[strings.TrimSpace(endpoint.Model)] = true
-		developerModels[strings.TrimSpace(endpoint.Alternate)] = true
-	}
-	relevant := func(all []runstate.UsageLimitExhaustion) []runstate.UsageLimitExhaustion {
-		var kept []runstate.UsageLimitExhaustion
-		for _, refusal := range all {
-			if model := strings.TrimSpace(refusal.Model); model == "" || developerModels[model] {
-				kept = append(kept, refusal)
-			}
-		}
-		return kept
-	}
-	parked := relevant(readmodel.ParkedRunRefusals(runs))
+	refusals = readmodel.MergeCapacityRefusals(refusals, append(readmodel.ParkedRunRefusals(runs), pull.CapacityHistory...))
 	now := s.now()
-	// The refusals are read against the same evidence every surface reads them
-	// against, so intake is never held on a window a served turn has disproved.
-	// Evidence that could not be read clears nothing, and holding on is the
-	// direction that costs only time.
 	evidence, _ := readmodel.ReadCapacityEvidence(pull.CapacityServed, pull.Conversations)
-	// No unknown-reset pause: only a reset the provider named makes a refusal
-	// stand here.
-	hold := readmodel.ReadCapacityHold(pull.Developers, nil, append(parked, relevant(refusals)...), now, 0, evidence)
-	if !hold.Holding || hold.ResetsAt.IsZero() || !now.Before(hold.ResetsAt) {
-		return recordedWindow{}, false
+	var resetsAt time.Time
+	var kind string
+	var models []string
+	for _, agent := range pull.Developers {
+		endpoint := backend.Endpoint{Provider: agent.Provider, AccountAlias: agent.AccountAlias, Model: agent.Model}
+		closed := readmodel.ReadEndpointCapacity(endpoint, refusals, evidence, now, pull.OutageProbe, nil)
+		if !closed.Waiting || closed.ResetsAt == nil {
+			return recordedWindow{}, false
+		}
+		if closed.ResetsAt.After(resetsAt) {
+			resetsAt, kind = *closed.ResetsAt, closed.Refusal.Kind
+		}
+		models = append(models, agent.Model)
+		schedule.ProviderCapacity = append(schedule.ProviderCapacity, closed)
 	}
-	resetsAt := hold.ResetsAt.UTC()
+	resetsAt = resetsAt.UTC()
 	schedule.UsageWindowResetsAt = &resetsAt
+
 	limit := "a usage limit"
-	if hold.Kind != "" {
-		limit = "the " + hold.Kind + " usage limit"
-	}
-	models := hold.Models
-	if len(hold.Alternates) > 0 {
-		models = hold.Alternates
+	if kind != "" {
+		limit = "the " + kind + " usage limit"
 	}
 	return recordedWindow{
 		window: providerWindow{waiting: true, resetsAt: resetsAt},

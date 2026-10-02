@@ -412,7 +412,7 @@ var passedOverClauses = map[runstate.PassedOverClass]string{
 	runstate.PassedOverSequencedBehindWork:   "sequenced behind work in flight that they would race",
 	runstate.PassedOverPrerequisiteUnmet:     "asking for something the tree does not have",
 	runstate.PassedOverLeftForAnotherSlot:    "left for a developer slot with no preference, because every free slot pulled its preferred label's work ahead of them",
-	runstate.PassedOverWaitingOnUsageWindow:  "refused by the provider's usage window and waiting for it to reset",
+	runstate.PassedOverWaitingOnUsageWindow:  "waiting for provider capacity until its reset or a successful bounded probe",
 }
 
 // Whose is whose move it is, and what settles it. It is the other half of what a
@@ -465,5 +465,5 @@ var passedOverMoves = map[runstate.PassedOverClass]string{
 	runstate.PassedOverSequencedBehindWork:   "nobody's — each is pulled at the first pull where the run it would have raced has ended",
 	runstate.PassedOverPrerequisiteUnmet:     "the development manager's — the item asks for something the tree does not have, and it is docketed rather than dispatched",
 	runstate.PassedOverLeftForAnotherSlot:    "nobody's — a developer slot with no preference takes them in the Lead Product Manager's order, and a preferring slot falls back to them once its label's work is exhausted",
-	runstate.PassedOverWaitingOnUsageWindow:  "nobody's — the window lifts on the provider's clock, and the session pulls each of them again once its reset has passed",
+	runstate.PassedOverWaitingOnUsageWindow:  "nobody's — the session keeps their priority and pulls them when the provider's reset passes or a bounded probe establishes capacity",
 }
