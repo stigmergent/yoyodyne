@@ -315,6 +315,81 @@ func TestAPermanentRefusalIsDeliveredAfterTheOriginalStoppageWasAlreadyShown(t *
 	}
 }
 
+func TestAPermanentUndocketedRefusalIsDeliveredFromAFoldedEarlierEntry(t *testing.T) {
+	t.Parallel()
+	for _, stoppedFirst := range []bool{true, false} {
+		name := "stopped entry first"
+		if !stoppedFirst {
+			name = "escalation entry first"
+		}
+		t.Run(name, func(t *testing.T) {
+			state := reviewStoppedState(docketedRunID, docketedItem)
+			state.LandingOutcome = runstate.LandingEscalate
+			judge := &standingJudge{judgment: Judgment{ConversationID: "chat-abc"}}
+			escalator := escalatorOver(t, []runstate.State{state}, judge, nil)
+			clock := &movingClock{now: escalationNow}
+			escalator.Clock = clock
+			docket := escalator.Docket.(*memoryDocket)
+			raised := stoppedEntry(state)
+			raised.Key = triage.Key(triage.ClassEscalation, state.RunID)
+			raised.Class = triage.ClassEscalation
+			raised.RecordedAt = raised.RecordedAt.Add(time.Minute)
+			raised.Blocker = ""
+			raised.Escalation = &triage.Escalation{RaisedBy: "developer", Reason: "the item cannot be met as written"}
+			if _, err := docket.RecordOnce(raised); err != nil {
+				t.Fatal(err)
+			}
+			if !stoppedFirst {
+				docket.entries[0], docket.entries[1] = docket.entries[1], docket.entries[0]
+			}
+			// The original stopped run was already shown beneath this newer
+			// escalation, whose key therefore carries its prior delivery.
+			if sweep, err := escalator.Escalate(context.Background()); err != nil || len(sweep.Escalated) != 1 || sweep.Escalated[0].DocketKey != raised.Key {
+				t.Fatalf("original folded stopped-run delivery = %+v, %v", sweep, err)
+			}
+			store, err := runstate.NewTriageStore(t.TempDir(), "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			const undocketedRun = undocketedRunID
+			decided := escalationNow.Add(time.Minute)
+			if _, err := store.GrantRepair(context.Background(), docketedItem,
+				triageDecided(runstate.TriageDecisionRepair, undocketedRun), 1, decided, continueCaps); err != nil {
+				t.Fatal(err)
+			}
+			refused := decided.Add(time.Minute)
+			const refusal = "the repair needs a docketed stoppage that the harness does not hold"
+			if _, err := store.RecordCarryOutRefusal(context.Background(), docketedItem, runstate.TriageCarryOut{
+				RunID: undocketedRun, Decision: runstate.TriageDecisionRepair, DecidedAt: decided,
+				Cause: triage.CarryOutStoppageMissing, Gate: runstate.TriageGateHarness,
+				Refusal: refusal, Clears: "the development manager records a re-run or an escalation",
+			}, refused); err != nil {
+				t.Fatal(err)
+			}
+			escalator.Decisions = store
+			clock.now = refused.Add(time.Minute)
+			if sweep, err := escalator.Escalate(context.Background()); err != nil || len(sweep.Escalated) != 1 || !sweep.Escalated[0].Delivered || len(judge.shown) != 2 {
+				t.Fatalf("folded permanent refusal delivery = %+v, %v; shown %d, want one new delivery", sweep, err, len(judge.shown))
+			}
+			shown := judge.shown[1]
+			if shown.Class != triage.ClassEscalation || len(shown.Earlier) != 1 {
+				t.Fatalf("shown = %+v; want the newer escalation with the stopped run folded beneath it", shown)
+			}
+			for _, want := range []string{undocketedRun, refusal, "re-run or an escalation"} {
+				if rendered := shown.Render(); !strings.Contains(rendered, want) {
+					t.Fatalf("delivery lacks %q: %s", want, rendered)
+				}
+			}
+			for _, after := range []time.Duration{time.Hour, 24 * time.Hour, 7 * 24 * time.Hour} {
+				clock.now = refused.Add(after)
+				if sweep, err := escalator.Escalate(context.Background()); err != nil || len(sweep.Escalated) != 0 || len(judge.shown) != 2 {
+					t.Fatalf("later delivery = %+v, %v; shown %d, want no duplicate", sweep, err, len(judge.shown))
+				}
+			}
+		})
+	}
+}
+
 // Old budgets held the spend without recording the decision. Model that read
 // while keeping the ordinary durable refusal writer and the real actions.
 type legacyCarryDecisions struct{ *runstate.TriageStore }

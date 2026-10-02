@@ -526,13 +526,19 @@ func (e Escalator) perRun(entries []triage.Entry) []triage.Entry {
 // one — the latest, which is the one the docket lists it by, where that is owed
 // one — and she is shown the whole run, every entry folded beneath it.
 func (e Escalator) runStandingOf(run triage.Entry) (escalationStanding, triage.Entry, error) {
-	if permanentRefusal(run) {
-		standing, err := e.standingOf(run)
-		return standing, run, err
-	}
 	head := run
 	head.Earlier = nil
 	members := append([]triage.Entry{head}, run.Earlier...)
+	// A permanent refusal is a new event even when folding leaves it beneath
+	// a newer entry whose original stoppage was already delivered. Ask about
+	// that event first, under the key of the entry carrying it, so the original
+	// delivery cannot suppress it and a later fold cannot deliver it again.
+	for _, member := range members {
+		if permanentRefusal(member) {
+			standing, err := e.standingOf(member)
+			return standing, member, err
+		}
+	}
 	var awaiting *triage.Entry
 	cooling, abandoned := false, false
 	var problems []error
