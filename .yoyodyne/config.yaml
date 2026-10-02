@@ -100,7 +100,7 @@ services:
     token: file
 
 execution:
-  max_concurrent_developers: 2  # lowered 3->2 on 2026-09-27 at the operator's direction, to slow things down for now; the reliability slot stays
+  max_concurrent_developers: 3  # temporary extra slot, operator 2026-10-02; return to 2 after recovery of run-7d92c67b (yoyodyne-9j7)
   # One developer slot prefers the reliability label, per the operator's
   # direction of 2026-09-19: bugs, anything that keeps the system from
   # stalling, and anything that keeps the system from making mistakes. The
@@ -112,7 +112,7 @@ execution:
   # change: it selects what a slot pulls first, and never what it may do.
   developer_slots:
     - prefer: [reliability]   # slot 1 pulls reliability-labelled work first
-    # slot 2 is not named, so it prefers nothing
+    # slots 2 and 3 are not named, so they prefer nothing
   repair_attempts_before_replan: 2
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
@@ -332,7 +332,7 @@ agents:
     backend: codex
     model: gpt-6.1-sol
     # One instance per configured developer slot.
-    instances: 2
+    instances: 3
     persona:
       version: v2
       path: personas/developer.md
