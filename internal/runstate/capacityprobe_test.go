@@ -82,6 +82,7 @@ func TestUnreadableProbePacingIsNeitherSpentThroughNorOverwritten(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	encoded = append(encoded, '\n')
 	if err := os.WriteFile(store.Path(), encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}

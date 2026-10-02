@@ -1,7 +1,9 @@
 package runstate
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // CapacityProbeStore reserves paced probes before they spend. The reservation
@@ -19,9 +22,10 @@ type CapacityProbeStore struct {
 }
 
 type capacityProbeRecord struct {
-	SchemaVersion int                  `json:"schema_version"`
-	ProductID     domain.ProductID     `json:"product_id"`
-	Next          map[string]time.Time `json:"next"`
+	SchemaVersion int              `json:"schema_version"`
+	ProductID     domain.ProductID `json:"product_id"`
+	Scope         string           `json:"scope"`
+	Next          time.Time        `json:"next"`
 }
 
 func NewCapacityProbeStore(root string, productID domain.ProductID) (*CapacityProbeStore, error) {
@@ -31,32 +35,62 @@ func NewCapacityProbeStore(root string, productID domain.ProductID) (*CapacityPr
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
-	return &CapacityProbeStore{root: filepath.Join(root, "products", string(productID)), productID: productID}, nil
+	return &CapacityProbeStore{root: root, productID: productID}, nil
 }
 
-func (s *CapacityProbeStore) Path() string { return filepath.Join(s.root, "capacity-probes.json") }
+func (s *CapacityProbeStore) directory() string {
+	return filepath.Join("products", string(s.productID))
+}
+func (s *CapacityProbeStore) relativePath() string {
+	return filepath.Join(s.directory(), "capacity-probes.jsonl")
+}
+func (s *CapacityProbeStore) Path() string { return filepath.Join(s.root, s.relativePath()) }
 
 func (s *CapacityProbeStore) Next() (map[string]time.Time, error) {
-	encoded, err := os.ReadFile(s.Path())
+	confined, err := repowrite.OpenPinnedRoot(s.root)
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]time.Time{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var record capacityProbeRecord
-	if err := decodeStrictly(encoded, &record); err != nil {
-		return nil, err
+	defer confined.Close()
+	next, _, err := s.next(confined)
+	return next, err
+}
+
+// next ignores only an incomplete last append. Claim removes that tail under
+// the lock before recording a new reservation. A complete invalid record fails
+// the gate rather than silently losing pacing information.
+func (s *CapacityProbeStore) next(confined *repowrite.PinnedRoot) (map[string]time.Time, int64, error) {
+	encoded, err := confined.ReadFile(s.relativePath())
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]time.Time{}, 0, nil
 	}
-	if record.SchemaVersion != 1 || record.ProductID != s.productID {
-		return nil, errors.New("capacity probe record has the wrong schema or product")
+	if err != nil {
+		return nil, 0, err
 	}
-	for key, next := range record.Next {
-		if key == "" || next.IsZero() {
-			return nil, errors.New("capacity probe reservation names no scope or time")
+	complete := bytes.LastIndexByte(encoded, '\n') + 1
+	next := map[string]time.Time{}
+	for _, line := range bytes.Split(encoded[:complete], []byte{'\n'}) {
+		if len(line) == 0 {
+			continue
+		}
+		var record capacityProbeRecord
+		if err := decodeStrictly(line, &record); err != nil {
+			return nil, 0, err
+		}
+		if record.SchemaVersion != 1 || record.ProductID != s.productID {
+			return nil, 0, errors.New("capacity probe record has the wrong schema or product")
+		}
+		if record.Scope == "" || record.Next.IsZero() {
+			return nil, 0, errors.New("capacity probe reservation names no scope or time")
+		}
+		if record.Next.After(next[record.Scope]) {
+			next[record.Scope] = record.Next
 		}
 	}
-	return record.Next, nil
+	return next, int64(complete), nil
 }
 
 // Claim moves the next probe time atomically before the invocation. Failed and
@@ -65,10 +99,15 @@ func (s *CapacityProbeStore) Claim(ctx context.Context, key string, now time.Tim
 	if key == "" || now.IsZero() || interval <= 0 {
 		return time.Time{}, false, errors.New("capacity probe requires a scope, time, and positive interval")
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
+	confined, err := repowrite.OpenPinnedRoot(s.root)
+	if err != nil {
 		return time.Time{}, false, err
 	}
-	file, err := os.OpenFile(s.Path()+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	defer confined.Close()
+	if err := confined.MakeDirectory(s.directory(), 0o700); err != nil {
+		return time.Time{}, false, err
+	}
+	file, err := confined.OpenLock(s.relativePath() + ".lock")
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -79,39 +118,20 @@ func (s *CapacityProbeStore) Claim(ctx context.Context, key string, now time.Tim
 		return time.Time{}, false, err
 	}
 	defer releaseStateFile(file)
-	next, err := s.Next()
+	next, complete, err := s.next(confined)
 	if err != nil {
 		return time.Time{}, false, err
 	}
 	if now.Before(next[key]) {
 		return next[key], false, nil
 	}
-	if next == nil {
-		next = map[string]time.Time{}
-	}
 	deadline := now.Add(interval).UTC()
-	next[key] = deadline
-	temporary, err := os.CreateTemp(s.root, ".capacity-probes-*.tmp")
+	encoded, err := json.Marshal(capacityProbeRecord{1, s.productID, key, deadline})
 	if err != nil {
 		return time.Time{}, false, err
 	}
-	defer os.Remove(temporary.Name())
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return time.Time{}, false, err
-	}
-	if err := writeJSONFile(temporary, "capacity probe record", capacityProbeRecord{1, s.productID, next}); err != nil {
-		temporary.Close()
-		return time.Time{}, false, err
-	}
-	if err := temporary.Close(); err != nil {
-		return time.Time{}, false, err
-	}
-	if err := os.Rename(temporary.Name(), s.Path()); err != nil {
-		return time.Time{}, false, err
-	}
-	if err := syncDirectory(s.root); err != nil {
-		return time.Time{}, false, fmt.Errorf("sync capacity probe reservation: %w", err)
+	if err := confined.AppendRecord(s.relativePath(), append(encoded, '\n'), complete); err != nil {
+		return time.Time{}, false, fmt.Errorf("preserve capacity probe reservation: %w", err)
 	}
 	return deadline, true, nil
 }
