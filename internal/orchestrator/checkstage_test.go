@@ -203,121 +203,148 @@ func TestTheCheckStageBoundScalesWithLoadAndAStopUnderItCountsTowardNothing(t *t
 // with the run's and the item's counters exactly where the stop left them.
 func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(t *testing.T) {
 	t.Parallel()
-
-	repository, worktreeRoot, store := restartableFixture(t)
-	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
-		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
-	}, approveVerdict)
-	commands := []string{"make fmtcheck", "make test", "make race", "make vet"}
-	clock := &steppingClock{now: time.Now().UTC().Add(time.Hour)}
-	docket := &memoryDocket{}
-	build := func(takes map[string]time.Duration) (Pipeline, *timedChecks) {
-		pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, commands), provider)
-		checked := &timedChecks{clock: clock, takes: takes}
-		pipeline.Checks = checks.Runner{Process: checked, Clock: clock, Timeout: 2 * time.Hour, StageTimeout: 30 * time.Minute}
-		pipeline.Docket = docketerOverStore(docket, store, pipeline.Config)
-		return pipeline, checked
-	}
-
-	// Loaded: make race would run for ninety minutes, and the stage's bound
-	// stops it at thirty.
-	loaded, _ := build(map[string]time.Duration{"make fmtcheck": time.Minute, "make test": time.Minute, "make race": 90 * time.Minute})
-	outcome, runErr := loaded.Run(context.Background(), tracker.Item.ID)
-	if runErr == nil || !strings.Contains(runErr.Error(), "check_stage_timeout bound during make race") {
-		t.Fatalf("Run() error = %v, want the run stopped at the stage bound", runErr)
-	}
-	stopped, err := store.Load(outcome.RunID)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if !stopped.StoppedAtStageBound() || !stopped.HarnessContinuesCheckStage() {
-		t.Fatalf("stopped run = %#v, want one the stage bound stopped that the harness continues", stopped)
-	}
-	// The stoppage is on the docket, saying load stopped it and that the harness
-	// is the one to move.
-	if len(docket.entries) != 1 || !docket.entries[0].HarnessContinuesChecks {
-		t.Fatalf("docket = %#v, want the stoppage docketed as one the harness continues (run error %v)", docket.entries, runErr)
-	}
-	rendered := docket.entries[0].Render()
-	for _, want := range []string{"Check stage stopped by load", "not by the change", "the harness continues it itself", "Next mover: the harness", "make race"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("docket entry does not say %q:\n%s", want, rendered)
+	for _, missing := range []bool{false, true} {
+		name := "checkout retained"
+		if missing {
+			name = "checkout missing"
 		}
-	}
-	runs, err := store.Triage().Counters(tracker.Item.ID)
-	if err != nil {
-		t.Fatalf("Counters() error = %v", err)
-	}
+		t.Run(name, func(t *testing.T) {
+			repository, worktreeRoot, store := restartableFixture(t)
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+			provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+				return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+			}, approveVerdict)
+			commands := []string{"make fmtcheck", "make test", "make race", "make vet"}
+			clock := &steppingClock{now: time.Now().UTC().Add(time.Hour)}
+			docket := &memoryDocket{}
+			build := func(takes map[string]time.Duration) (Pipeline, *timedChecks) {
+				pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, commands), provider)
+				checked := &timedChecks{clock: clock, takes: takes}
+				pipeline.Checks = checks.Runner{Process: checked, Clock: clock, Timeout: 2 * time.Hour, StageTimeout: 30 * time.Minute}
+				pipeline.Docket = docketerOverStore(docket, store, pipeline.Config)
+				return pipeline, checked
+			}
 
-	// Load stays high: just as for fresh work, it does not prevent offering
-	// and continuing the preserved change.
-	calm, checked := build(map[string]time.Duration{"make fmtcheck": time.Minute, "make test": time.Minute, "make race": 5 * time.Minute, "make vet": time.Minute})
-	load := 120.0
-	intake := newIntakeHoldStore(t)
-	continuer := CheckStageContinuer{
-		Docket: docket, Redocket: calm.Docket, Runs: store, Intake: intake, Items: tracker, Worktrees: calm.Worktrees.(*gitworktree.Manager),
-		Load:     func() (float64, int, bool) { return load, 8, true },
-		Capacity: calm.Config.Execution.MaxConcurrentDevelopers,
-		Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
-			return calm.Continue(ctx, workItemID, runID)
-		},
-	}
-	carrying := CarryOut{Docket: docket, Decisions: store.Triage(), Reruns: store.Reruns(), Runs: store, CheckStages: continuer}
-	tasks, err := carrying.Outstanding()
-	if err != nil || len(tasks) != 1 || tasks[0].Decision != DecisionContinueChecks || tasks[0].RunID != outcome.RunID {
-		t.Fatalf("Outstanding() = %#v, %v; want the harness's continuation of the stopped stage", tasks, err)
-	}
-	carried, continued, err := carrying.Carry(context.Background(), tasks[0])
-	if err != nil {
-		t.Fatalf("Carry() error = %v", err)
-	}
-	if !carried.Carried || continued.Status != runstate.StatusSucceeded || continued.Integration == nil {
-		t.Fatalf("carried = %#v, outcome status %s; want the continued run checked, reviewed, and promoted", carried, continued.Status)
-	}
-	// The checks ran again, every one of them, on the change the developer
-	// attempt left; the developer was not invoked again.
-	if len(checked.ran) != len(commands) {
-		t.Fatalf("checks run on the continuation = %v, want all of %v", checked.ran, commands)
-	}
-	for _, dir := range checked.dirs {
-		if dir != stopped.WorktreePath {
-			t.Fatalf("a check ran in %s, want the preserved worktree %s", dir, stopped.WorktreePath)
-		}
-	}
-	if developer := provider.RequestsForRole(domain.RoleDeveloper); len(developer) != 1 {
-		t.Fatalf("developer invocations = %d, want only the first attempt", len(developer))
-	}
-	if integrated := gitLine(t, repository, "show", "main:feature.txt"); integrated != "implemented" {
-		t.Fatalf("integrated feature.txt = %q, want the change the first attempt made", integrated)
-	}
-	final, err := store.Load(outcome.RunID)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if final.RunID != outcome.RunID || final.RepairAttempts != stopped.RepairAttempts || final.IntegrationRetries != 0 || len(final.CheckStageContinuations) != 1 {
-		t.Fatalf("final run = %s, attempts %d, retries %d, continuations %d; want the same run with no attempt charged and one continuation",
-			final.RunID, final.RepairAttempts, final.IntegrationRetries, len(final.CheckStageContinuations))
-	}
-	after, err := store.Triage().Counters(tracker.Item.ID)
-	if err != nil {
-		t.Fatalf("Counters() error = %v", err)
-	}
-	// Every budget the record keeps is where the stop left it. What the review
-	// that followed the checks wrote about itself — which verdict it last judged,
-	// and when — is its own bookmark and spends nothing, so it is set aside.
-	after.LastJudged, after.UpdatedAt = runs.LastJudged, runs.UpdatedAt
-	if !reflect.DeepEqual(after, runs) {
-		t.Fatalf("the item's triage budgets moved across the continuation:\nstopped   %#v\ncontinued %#v", runs, after)
-	}
-	if claimed, _ := store.Reruns().Claimed(tracker.Item.ID); len(claimed) != 0 {
-		t.Fatalf("re-runs claimed = %#v, want none", claimed)
-	}
-	if !strings.Contains(tracker.Notes, "Continued at its checks") {
-		t.Fatalf("item notes do not record the continuation:\n%s", tracker.Notes)
-	}
-	if closure, closed := docket.closed[docket.entries[0].Key]; !closed || closure.Decision != continuedChecksDocketDecision {
-		t.Fatalf("docket closure = %#v, %t; want the entry closed as continued", closure, closed)
+			// Loaded: make race would run for ninety minutes, and the stage's bound
+			// stops it at thirty.
+			loaded, _ := build(map[string]time.Duration{"make fmtcheck": time.Minute, "make test": time.Minute, "make race": 90 * time.Minute})
+			outcome, runErr := loaded.Run(context.Background(), tracker.Item.ID)
+			if runErr == nil || !strings.Contains(runErr.Error(), "check_stage_timeout bound during make race") {
+				t.Fatalf("Run() error = %v, want the run stopped at the stage bound", runErr)
+			}
+			stopped, err := store.Load(outcome.RunID)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if !stopped.StoppedAtStageBound() || !stopped.HarnessContinuesCheckStage() {
+				t.Fatalf("stopped run = %#v, want one the stage bound stopped that the harness continues", stopped)
+			}
+			// The stoppage is on the docket, saying load stopped it and that the harness
+			// is the one to move.
+			if len(docket.entries) != 1 || !docket.entries[0].HarnessContinuesChecks {
+				t.Fatalf("docket = %#v, want the stoppage docketed as one the harness continues (run error %v)", docket.entries, runErr)
+			}
+			rendered := docket.entries[0].Render()
+			for _, want := range []string{"Check stage stopped by load", "not by the change", "the harness continues it itself", "Next mover: the harness", "make race"} {
+				if !strings.Contains(rendered, want) {
+					t.Fatalf("docket entry does not say %q:\n%s", want, rendered)
+				}
+			}
+			runs, err := store.Triage().Counters(tracker.Item.ID)
+			if err != nil {
+				t.Fatalf("Counters() error = %v", err)
+			}
+
+			if missing {
+				manager := loaded.Worktrees.(*gitworktree.Manager)
+				removed, err := manager.RemovePreservedWorktree(context.Background(), worktreeOf(stopped), gitworktree.KeepUncommittedWork)
+				if err != nil || !removed.Removed {
+					t.Fatalf("remove the fixture checkout = %#v, %v", removed, err)
+				}
+				stopped.WorktreeRemoved = true
+				stopped.WorktreeSweptAt = &stopped.UpdatedAt
+				if err := store.Save(stopped); err != nil {
+					t.Fatal(err)
+				}
+				// A docket recorded by the older implementation may advertise no
+				// continuation once cleanup marked the directory gone. Selection must
+				// re-read the standing obligation from the run.
+				docket.entries[0].HarnessContinuesChecks = false
+			}
+
+			// Load stays high: just as for fresh work, it does not prevent offering
+			// and continuing the preserved change.
+			calm, checked := build(map[string]time.Duration{"make fmtcheck": time.Minute, "make test": time.Minute, "make race": 5 * time.Minute, "make vet": time.Minute})
+			load := 120.0
+			intake := newIntakeHoldStore(t)
+			continuer := CheckStageContinuer{
+				Docket: docket, Redocket: calm.Docket, Runs: store, Intake: intake, Items: tracker, Worktrees: calm.Worktrees.(*gitworktree.Manager),
+				Load:     func() (float64, int, bool) { return load, 8, true },
+				Capacity: calm.Config.Execution.MaxConcurrentDevelopers,
+				Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+					return calm.Continue(ctx, workItemID, runID)
+				},
+			}
+			carrying := CarryOut{Docket: docket, Decisions: store.Triage(), Reruns: store.Reruns(), Runs: store, CheckStages: continuer}
+			tasks, err := carrying.Outstanding()
+			if err != nil || len(tasks) != 1 || tasks[0].Decision != DecisionContinueChecks || tasks[0].RunID != outcome.RunID {
+				t.Fatalf("Outstanding() = %#v, %v; want the harness's continuation of the stopped stage", tasks, err)
+			}
+			carried, continued, err := carrying.Carry(context.Background(), tasks[0])
+			if err != nil {
+				t.Fatalf("Carry() error = %v", err)
+			}
+			if !carried.Carried || continued.Status != runstate.StatusSucceeded || continued.Integration == nil {
+				t.Fatalf("carried = %#v, outcome status %s; want the continued run checked, reviewed, and promoted", carried, continued.Status)
+			}
+			// The checks ran again, every one of them, on the change the developer
+			// attempt left; the developer was not invoked again.
+			if len(checked.ran) != len(commands) {
+				t.Fatalf("checks run on the continuation = %v, want all of %v", checked.ran, commands)
+			}
+			for _, dir := range checked.dirs {
+				if dir != stopped.WorktreePath {
+					t.Fatalf("a check ran in %s, want the preserved worktree %s", dir, stopped.WorktreePath)
+				}
+			}
+			if developer := provider.RequestsForRole(domain.RoleDeveloper); len(developer) != 1 {
+				t.Fatalf("developer invocations = %d, want only the first attempt", len(developer))
+			}
+			if integrated := gitLine(t, repository, "show", "main:feature.txt"); integrated != "implemented" {
+				t.Fatalf("integrated feature.txt = %q, want the change the first attempt made", integrated)
+			}
+			final, err := store.Load(outcome.RunID)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if final.RunID != outcome.RunID || final.ProviderSessionID != stopped.ProviderSessionID || final.RepairAttempts != stopped.RepairAttempts || final.ReviewRounds != stopped.ReviewRounds || final.IntegrationRetries != 0 || len(final.CheckStageContinuations) != 1 {
+				t.Fatalf("final run = %s, attempts %d, retries %d, continuations %d; want the same run with no attempt charged and one continuation",
+					final.RunID, final.RepairAttempts, final.IntegrationRetries, len(final.CheckStageContinuations))
+			}
+			after, err := store.Triage().Counters(tracker.Item.ID)
+			if err != nil {
+				t.Fatalf("Counters() error = %v", err)
+			}
+			// Every budget the record keeps is where the stop left it. What the review
+			// that followed the checks wrote about itself — which verdict it last judged,
+			// and when — is its own bookmark and spends nothing, so it is set aside.
+			after.LastJudged, after.UpdatedAt = runs.LastJudged, runs.UpdatedAt
+			if !reflect.DeepEqual(after, runs) {
+				t.Fatalf("the item's triage budgets moved across the continuation:\nstopped   %#v\ncontinued %#v", runs, after)
+			}
+			if claimed, _ := store.Reruns().Claimed(tracker.Item.ID); len(claimed) != 0 {
+				t.Fatalf("re-runs claimed = %#v, want none", claimed)
+			}
+			if missing && !strings.Contains(final.CheckStageContinuations[0].Reason, "missing checkout was restored") {
+				t.Fatalf("restored continuation = %#v", final.CheckStageContinuations)
+			}
+			if !strings.Contains(tracker.Notes, "Continued at its checks") {
+				t.Fatalf("item notes do not record the continuation:\n%s", tracker.Notes)
+			}
+			if closure, closed := docket.closed[docket.entries[0].Key]; !closed || closure.Decision != continuedChecksDocketDecision {
+				t.Fatalf("docket closure = %#v, %t; want the entry closed as continued", closure, closed)
+			}
+		})
 	}
 }
 

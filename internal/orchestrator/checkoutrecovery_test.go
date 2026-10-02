@@ -17,6 +17,7 @@ type recoveryCheckout struct {
 	branch        bool
 	restores      int
 	restoreErr    error
+	surviveErr    error
 	dirty         bool
 	beforeRestore func()
 }
@@ -26,7 +27,7 @@ func (w *recoveryCheckout) Inspect(_ context.Context, tree gitworktree.Worktree)
 }
 
 func (w *recoveryCheckout) Survives(context.Context, gitworktree.Worktree) (gitworktree.Survival, error) {
-	return gitworktree.Survival{WorktreePresent: w.present, BranchExists: w.branch}, nil
+	return gitworktree.Survival{WorktreePresent: w.present, BranchExists: w.branch}, w.surviveErr
 }
 
 func (w *recoveryCheckout) RestoreWorktree(_ context.Context, tree gitworktree.Worktree) (gitworktree.Worktree, error) {

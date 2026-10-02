@@ -23,12 +23,12 @@ package orchestrator
 // for one run; past that the stoppage is the development manager's, as it was
 // before.
 //
-// It is held to what a repair is held to before anything is written: the
-// worktree has to be as the harness left it and has to still hold the change,
-// because that change is what the checks judge. A worktree that fails either is
-// a person's to look at, so the refusal is written onto the run, the stoppage is
-// put back on the docket for the development manager, and the harness does not
-// ask again.
+// It is held to what a repair is held to: the worktree has to be as the harness
+// left it and still hold the change, because that change is what the checks
+// judge. A missing checkout can be restored from the verified recorded branch,
+// clearing verification credit before writing and preserving consumed budgets.
+// A checkout that cannot be verified or restored is refused on the run and put
+// back on the docket for the development manager; the harness does not ask again.
 
 import (
 	"context"
@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -96,9 +97,10 @@ type CheckStageContinueResult struct {
 	RunID      string `json:"run_id"`
 	DocketKey  string `json:"docket_key"`
 	// Command is the check the bound stopped the stage during.
-	Command   string `json:"command,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	Continued bool   `json:"continued"`
+	Command          string `json:"command,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	Continued        bool   `json:"continued"`
+	WorktreeRestored bool   `json:"worktree_restored,omitempty"`
 	// SupersededFailure is what the stopped run ended on.
 	SupersededFailure string `json:"superseded_failure,omitempty"`
 	// IntakeHeld and CapacityFull are waits, and the next pull asks again.
@@ -145,9 +147,9 @@ func (c CheckStageContinuer) Due(runID string) (bool, error) {
 // Continue continues one run the stage bound stopped, at its checks.
 //
 // The order is the one the resumption of an approved change keeps, for the same
-// reasons: everything that can refuse is asked before anything is written, the
-// item is put back before the run is made live, and the docket entry is closed
-// last.
+// reasons: intake and capacity are asked before restoring a missing checkout,
+// the item is put back before the run is made live, and the docket entry is
+// closed last.
 func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageContinueRequest) (CheckStageContinueResult, error) {
 	if err := c.validate(); err != nil {
 		return CheckStageContinueResult{}, err
@@ -207,8 +209,32 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 		result.CapacityFull = &full
 		return result, nil
 	}
-	// The worktree last, on the repair's two conditions. Either failing is a
-	// person's to look at, so it is written down and the harness stops asking.
+	// Repository facts, rather than removal flags, decide whether the recorded
+	// checkout needs restoring. Intake and capacity waits leave it untouched.
+	remains, _ := c.Worktrees.(readmodel.Remains)
+	found := readmodel.LookFor(ctx, remains, prior)
+	recovery := checkoutRecovery{Runs: c.Runs, Worktrees: c.Worktrees, Clock: c.Clock}
+	if found.Unknown || !found.BranchThere || (!found.WorktreeThere && !found.Looked()) {
+		return c.refuse(ctx, result, prior, fmt.Errorf("run %s's recorded branch and checkout could not be verified: %s; available artifacts are kept", prior.RunID, found.Describe()))
+	}
+	if !found.WorktreeThere {
+		if prior.HarnessCommit == "" || prior.PreservedWorkRef != "" {
+			return c.refuse(ctx, result, prior, fmt.Errorf("run %s's missing checkout has no verified completed commit or has separately captured uncommitted work; branch-only restoration cannot recover it, and missing uncommitted work is not claimed recovered", prior.RunID))
+		}
+		prior, err = recovery.restoreCheckout(ctx, prior)
+		if err != nil {
+			return c.refuse(ctx, result, prior, err)
+		}
+		result.WorktreeRestored = true
+	} else if prior.CheckoutRestorePending {
+		prior, err = recovery.recordRestoredCheckout(ctx, prior)
+		if err != nil {
+			return c.refuse(ctx, result, prior, err)
+		}
+		result.WorktreeRestored = true
+	}
+	// Verify ownership and the preserved change before spending a continuation.
+	// A refusal is recorded for the development manager, with artifacts kept.
 	if err := c.Worktrees.VerifyOwnedHead(ctx, worktreeOf(prior)); err != nil {
 		return c.refuse(ctx, result, prior, WorktreeSurgeryError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err})
 	}
@@ -217,6 +243,9 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 	}
 
 	result.Reason = checkStageContinueReason(prior)
+	if result.WorktreeRestored {
+		result.Reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
+	}
 	if _, err := c.Items.RecordOutcome(ctx, entry.WorkItemID, result.Reason); err != nil {
 		return result, fmt.Errorf("record the continuation on %s: %w", entry.WorkItemID, err)
 	}
@@ -266,6 +295,10 @@ func continuedAtChecks(prior runstate.State, reason string, now time.Time) runst
 	continued.CompletedAt = nil
 	continued.SettledQuietSince = nil
 	continued.CheckStageContinuationWaitNoted = ""
+	continued.WorktreeRemoved = false
+	continued.WorktreeSweptAt = nil
+	continued.BranchRemoved = false
+	continued.BranchSweptAt = nil
 	continued.UpdatedAt = now
 	return continued
 }

@@ -422,6 +422,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if err := continuableRepair(prior, found); err != nil {
 		return result, err
 	}
+	recovery := checkoutRecovery{Runs: c.Runs, Worktrees: c.Worktrees, Clock: c.Clock}
 	result.RepairAttempts = prior.RepairAttempts
 	result.SupersededBlocker = prior.Blocker
 	// Whether this is a stall being carried on rather than a change being
@@ -438,7 +439,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 			return result, WorktreeSurgeryError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
 		}
 		if prior.CheckoutRestorePending {
-			if err := c.verifyRestoredCheckout(ctx, prior); err != nil {
+			if err := recovery.verifyRestoredCheckout(ctx, prior); err != nil {
 				return result, err
 			}
 		}
@@ -506,7 +507,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 		return result, nil
 	}
 	if !found.WorktreeThere {
-		prior, err = c.restoreCheckout(ctx, prior)
+		prior, err = recovery.restoreCheckout(ctx, prior)
 		if err != nil {
 			return result, err
 		}
@@ -516,7 +517,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 			return result, MissingPreservedChangeError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
 		}
 	} else if prior.CheckoutRestorePending {
-		prior, err = c.recordRestoredCheckout(ctx, prior)
+		prior, err = recovery.recordRestoredCheckout(ctx, prior)
 		if err != nil {
 			return result, err
 		}
@@ -819,68 +820,6 @@ func (c RepairContinuer) supersedeOnItem(ctx context.Context, workItemID, reason
 		return fmt.Errorf("validate the work item put back for its repair: %w", err)
 	}
 	return nil
-}
-
-// Clear verification credit durably before touching the filesystem. If the
-// process dies after Git restores the directory, a later carry-out sees the
-// same stopped run and decision, with no old checks it can accidentally reuse.
-func (c RepairContinuer) restoreCheckout(ctx context.Context, prior runstate.State) (runstate.State, error) {
-	worktrees, ok := c.Worktrees.(RestorableWorktrees)
-	if !ok {
-		return prior, fmt.Errorf("run %s's checkout is missing and no harness restoration is wired; the standing decision and surviving artifacts are kept", prior.RunID)
-	}
-	prior.ChecksPassed = nil
-	prior.CheckoutRestorePending = true
-	if prior.ReviewDecision == runstate.ReviewApprove {
-		prior.ReviewDecision = ""
-		prior.ReviewApproves = ""
-		prior.ReviewSummary = ""
-	}
-	if prior.Phase == runstate.PhaseReviewing {
-		prior.Phase = runstate.PhaseChecking
-	}
-	prior.UpdatedAt = c.now()
-	if err := c.Runs.Save(prior); err != nil {
-		return prior, fmt.Errorf("invalidate verification before restoring run %s's checkout: %w", prior.RunID, err)
-	}
-	if _, err := worktrees.RestoreWorktree(ctx, worktreeOf(prior)); err != nil {
-		return prior, fmt.Errorf("restore the checkout of run %s from its recorded branch %s: %w; the recovery decision stands and no continuation was spent", prior.RunID, prior.Branch, err)
-	}
-	return c.recordRestoredCheckout(ctx, prior)
-}
-
-func (c RepairContinuer) verifyRestoredCheckout(ctx context.Context, prior runstate.State) error {
-	worktrees, ok := c.Worktrees.(RestorableWorktrees)
-	if !ok {
-		return fmt.Errorf("run %s has an unfinished checkout restoration and no harness restoration is wired", prior.RunID)
-	}
-	if err := c.Worktrees.VerifyOwnedHead(ctx, worktreeOf(prior)); err != nil {
-		return WorktreeSurgeryError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
-	}
-	inspection, err := worktrees.Inspect(ctx, worktreeOf(prior))
-	if err != nil {
-		return fmt.Errorf("verify the complete restored checkout of run %s: %w", prior.RunID, err)
-	}
-	if !inspection.Registered || inspection.Branch != prior.Branch || inspection.Dirty {
-		return fmt.Errorf("run %s's checkout restoration is unfinished or has uncommitted changes; the decision stands, and missing work is not claimed recovered", prior.RunID)
-	}
-	return nil
-}
-
-func (c RepairContinuer) recordRestoredCheckout(ctx context.Context, prior runstate.State) (runstate.State, error) {
-	if err := c.verifyRestoredCheckout(ctx, prior); err != nil {
-		return prior, err
-	}
-	prior.CheckoutRestorePending = false
-	prior.WorktreeRemoved = false
-	prior.WorktreeSweptAt = nil
-	prior.BranchRemoved = false
-	prior.BranchSweptAt = nil
-	prior.UpdatedAt = c.now()
-	if err := c.Runs.Save(prior); err != nil {
-		return prior, fmt.Errorf("record the restored checkout of run %s: %w", prior.RunID, err)
-	}
-	return prior, nil
 }
 
 // supersedeOnRun makes the stopped run live again under its grant, and reports

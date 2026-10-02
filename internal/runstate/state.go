@@ -2495,8 +2495,9 @@ type State struct {
 	// apart is what lets an interrupted cleanup be resumed and what keeps a
 	// preserved-artifact claim truthful.
 	WorktreeRemoved bool `json:"worktree_removed,omitempty"`
-	// CheckoutRestorePending is written before a repair restores a missing
-	// checkout and cleared only after the whole checkout has been verified.
+	// CheckoutRestorePending is written before a repair or automatic check
+	// continuation restores a missing checkout and cleared only after the whole
+	// checkout has been verified.
 	// A process interrupted during Git's add cannot pass a partial directory
 	// off as the preserved worktree on its next invocation.
 	CheckoutRestorePending bool `json:"checkout_restore_pending,omitempty"`
