@@ -89,6 +89,7 @@ func TestTheSlackEndingStatesPreservationFromTheRepositoryWhenFlagsDisagree(t *t
 		harness.feed.Standing = &readmodel.Sources{Remains: survival{BranchExists: there, WorktreePresent: there}}
 		state := harness.run(t, runstate.StatusFailed)
 		state.Branch, state.WorktreePath = "yoyodyne/task/abc", "/state/worktrees/task"
+		state.BaseCommit = strings.Repeat("a", 40)
 		state.BranchRemoved, state.WorktreeRemoved = there, there
 		if there {
 			state.ArtifactsRetiredBy = "run-" + strings.Repeat("f", 32)
