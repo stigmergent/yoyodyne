@@ -1782,7 +1782,16 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention, amendme
 				}
 			}
 			if state.PullRequest != nil && (state.PullRequest.Superseded != "" || state.PullRequest.HandedBack != nil) {
-				continue
+				// The obsolete publication owes no merge, but it may still owe
+				// landing settlement or local cleanup. Ask the same outstanding
+				// predicate with only that merge obligation removed.
+				remaining := state
+				pr := *state.PullRequest
+				pr.MergeQueued = false
+				remaining.PullRequest = &pr
+				if !remaining.Outstanding() {
+					continue
+				}
 			}
 			attention = append(attention, owedStepAttention(state))
 		}

@@ -1399,7 +1399,8 @@ func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
 	landing.LandingChecks = &runstate.LandingChecks{StartedAt: ended}
 	superseded := dropped
 	superseded.RunID = "run-superseded"
-	superseded.PullRequest = &runstate.PullRequest{Number: 751, Superseded: "pull request 752"}
+	superseded.Phase = runstate.PhaseComplete
+	superseded.PullRequest = &runstate.PullRequest{Number: 751, MergeQueued: true, Superseded: "pull request 752"}
 	sources := quietSources()
 	sources.Runs = heldRuns{fakeRuns: fakeRuns{outstanding: []runstate.State{live, cleanup, queued, dropped, landing, superseded}, recorded: []runstate.State{live, cleanup, queued, dropped, superseded}}, held: map[string]bool{live.RunID: true, landing.RunID: true}}
 	standing := ReadStanding(context.Background(), sources)
@@ -1442,6 +1443,56 @@ func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
 	standing = ReadStanding(context.Background(), sources)
 	if len(standing.NeedsHuman) != 0 || !strings.Contains(standing.NeedsHumanProblem, "holder unreadable") {
 		t.Fatalf("unreadable holder was treated as dead: %+v", standing)
+	}
+}
+
+func TestObsoletePublicationsKeepIndependentRunSteps(t *testing.T) {
+	t.Parallel()
+	for _, marker := range []string{"superseded", "handed back"} {
+		for _, obligation := range []string{"cleanup", "landing", "none"} {
+			t.Run(marker+"/"+obligation, func(t *testing.T) {
+				pr := &runstate.PullRequest{Number: 751, MergeQueued: true}
+				if marker == "superseded" {
+					pr.Superseded = "pull request 752"
+				} else {
+					pr.HandedBack = &runstate.PublicationHandBack{At: moment}
+				}
+				state := runstate.State{RunID: "run-obsolete", WorkItemID: "item", Status: runstate.StatusSucceeded, Phase: runstate.PhaseComplete, CompletedAt: &moment, Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: pr}
+				wantWhat, wantWhose := "", ""
+				switch obligation {
+				case "cleanup":
+					state.Phase = runstate.PhaseCleaningUp
+					state.CleanupFailure = "directory busy"
+					wantWhat, wantWhose = "cleanup of the branch and worktree", "finishes the run's cleanup"
+				case "landing":
+					state.Integration.ThroughPullRequest = true
+					state.LandingChecks = &runstate.LandingChecks{StartedAt: moment}
+					wantWhat, wantWhose = "landing checks", "records the interrupted landing as unverified"
+				}
+				if !state.Outstanding() {
+					t.Fatal("fixture must be included by Outstanding, even when only an obsolete queue flag remains")
+				}
+				sources := quietSources()
+				sources.Runs = heldRuns{fakeRuns: fakeRuns{outstanding: []runstate.State{state}, recorded: []runstate.State{state}}}
+				standing := ReadStanding(context.Background(), sources)
+				if obligation == "none" {
+					if len(standing.NeedsHuman) != 0 {
+						t.Fatalf("obsolete merge is still awaited: %+v", standing.NeedsHuman)
+					}
+					return
+				}
+				if len(standing.NeedsHuman) != 1 {
+					t.Fatalf("want only the independent run step: %+v", standing.NeedsHuman)
+				}
+				entry := standing.NeedsHuman[0]
+				if entry.Kind != AttentionOwedStep || entry.ID != state.RunID || entry.Mover != MoverHarness || entry.Label() != "run not finished" || !strings.Contains(entry.What(), wantWhat) || !strings.Contains(entry.Whose(), wantWhose) || strings.Contains(entry.What()+entry.Whose(), "merge") {
+					t.Fatalf("wrong remaining step: %+v; what %q; whose %q", entry, entry.What(), entry.Whose())
+				}
+				if !pr.MergeQueued || entry.OwedStep.PullRequest != pr {
+					t.Fatal("projection must retain the original publication record")
+				}
+			})
+		}
 	}
 }
 

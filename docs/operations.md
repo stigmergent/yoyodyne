@@ -3742,15 +3742,22 @@ appears as an ended run here. The entry carries the recorded ending and phase,
 the cleanup failure or unfinished landing checks, and the pull request with the
 forge's last check reading when a merge still needs settlement. Its words say
 which step remains and what moves it: finishing cleanup, recording completion,
-confirming a queued merge, or withdrawing a merge over failed checks. These are
+confirming a queued merge, rerunning jobs the forge ended, waiting for a rerun
+already requested, or withdrawing a merge over failed checks. A job cancelled,
+timed out, or never started is rerun within the head's two-rerun limit, with the
+merge left queued; a reading still awaiting that rerun spends nothing more,
+even at the limit. Withdrawal follows a refusal, an exhausted limit, or a step
+that failed, as [merge recovery](#recovering-interrupted-runs) describes. These are
 the harness's steps, under **Waiting on the harness**, and `yoyo reconcile`
 settles them. A dropped merge already handed back is a separate publication
 entry under **Waiting on the development manager**, for her to decide a repair,
 re-run, or re-arm. If the same run still owes cleanup of a local promotion, its
 `owed-step` entry names only that cleanup, with **the harness** as its mover;
 the dropped-merge decision stays on the publication entry. A superseded
-publication asks for nothing and is absent. Something only a person
-can do is named separately, with what that person has to do; a run having ended
+publication or one handed back for a fresh run asks for nothing and is absent,
+but its run's unfinished landing checks or local cleanup still appear as the
+harness's steps. Something only a person can do is named separately, with what
+that person has to do; a run having ended
 never makes its remaining step the operator's.
 
 The dashboard list's grey tag and the card's heading and kind field all read

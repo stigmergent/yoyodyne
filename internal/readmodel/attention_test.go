@@ -387,6 +387,46 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 	}
 }
 
+func TestQueuedMergeAttentionNamesJobRerunsBeforeWithdrawal(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		conclusion string
+		reruns     int
+		asked      bool
+		want       string
+		withdraw   bool
+	}{
+		{name: "cancelled job", conclusion: "cancelled", want: "asks the forge to run the jobs", withdraw: true},
+		{name: "timed out job", conclusion: "timed_out", reruns: 1, want: "2 of 2 reruns", withdraw: true},
+		{name: "job never started", conclusion: "startup_failure", want: "leaving the merge queued", withdraw: true},
+		{name: "awaiting first rerun", conclusion: "cancelled", reruns: 1, asked: true, want: "without spending another rerun"},
+		{name: "awaiting last rerun", conclusion: "timed_out", reruns: runstate.MaxCheckReruns, asked: true, want: "has not yet started the job rerun"},
+		{name: "reruns spent", conclusion: "cancelled", reruns: runstate.MaxCheckReruns, want: "job rerun limit on this head is spent", withdraw: true},
+		{name: "step failed", conclusion: "failure", want: "reads the failed checks and withdraws the merge", withdraw: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			checks := &runstate.PullRequestChecks{Failing: []runstate.FailingCheck{{Name: "build", Conclusion: tc.conclusion, CheckRun: 123}}, Reruns: tc.reruns}
+			if tc.asked {
+				checks.RerunChecks = []int64{123}
+			}
+			state := runstate.State{RunID: "run-queued", WorkItemID: "item", Status: runstate.StatusSucceeded, Phase: runstate.PhaseComplete, Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 700, MergeQueued: true, Checks: checks}}
+			for _, entry := range []Attention{owedStepAttention(state), awaitingForgeAttention(state)} {
+				whose := entry.Whose()
+				if entry.Mover != MoverHarness || !strings.Contains(entry.What(), "build") || !strings.Contains(whose, tc.want) || strings.Contains(whose, "withdraws") != tc.withdraw {
+					t.Fatalf("%s: mover %s; what %q; whose %q", entry.Kind, entry.Mover, entry.What(), whose)
+				}
+				if tc.asked && !strings.Contains(whose, "leaves the merge queued") {
+					t.Fatalf("%s must retain the queued merge: %q", entry.Kind, whose)
+				}
+				if checks.FailedInTheJob() && !tc.asked && tc.reruns < runstate.MaxCheckReruns && !strings.Contains(whose, "if the forge refuses") {
+					t.Fatalf("%s must make withdrawal conditional on refusal: %q", entry.Kind, whose)
+				}
+			}
+		})
+	}
+}
+
 // The JSON carries the fields and, beside them, the two sentences computed
 // from the fields; reading it back yields the same entry, and a document whose
 // sentence disagrees with its fields is refused rather than believed.

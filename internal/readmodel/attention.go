@@ -149,8 +149,8 @@ func (k AttentionKind) Valid() bool {
 // The machine-facing kind stays unchanged.
 func (a Attention) Label() string {
 	if a.Kind == AttentionOwedStep {
-		if step := a.OwedStep; step != nil && step.PullRequest != nil && step.PullRequest.MergeQueued {
-			if step.PullRequest.Checks != nil && step.PullRequest.Checks.Red() {
+		if pr := a.OwedStep.queuedMerge(); pr != nil {
+			if pr.Checks != nil && pr.Checks.Red() {
 				return "merge stuck"
 			}
 			return "merge waiting"
@@ -498,6 +498,15 @@ type OwedStep struct {
 	CompletionRecordingFailure string                  `json:"completion_recording_failure,omitempty"`
 }
 
+// queuedMerge excludes an obsolete publication without discarding the run's
+// independent landing or cleanup obligations or the publication's history.
+func (s *OwedStep) queuedMerge() *runstate.PullRequest {
+	if s == nil || s.PullRequest == nil || !s.PullRequest.MergeQueued || s.PullRequest.Superseded != "" || s.PullRequest.HandedBack != nil {
+		return nil
+	}
+	return s.PullRequest
+}
+
 // Publication is a promotion the forge has not published: where it was
 // promoted to, the branch that carries it, the pull request the forge holds
 // for it where the record holds one, and the drop where the forge dropped its
@@ -586,7 +595,7 @@ func (a Attention) What() string {
 		}
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
-			if pr := step.PullRequest; pr != nil && pr.MergeQueued {
+			if pr := step.queuedMerge(); pr != nil {
 				what := fmt.Sprintf("merge of pull request %d for %s is queued", pr.Number, a.WorkItemID)
 				if pr.Merged {
 					what = fmt.Sprintf("merge of pull request %d for %s needs confirmation", pr.Number, a.WorkItemID)
@@ -744,8 +753,18 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — nothing reaches the document until they or the operator decide it"
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
-			if pr := step.PullRequest; pr != nil && pr.MergeQueued {
+			if pr := step.queuedMerge(); pr != nil {
 				if pr.Checks != nil && pr.Checks.Red() {
+					checks := pr.Checks
+					if checks.AwaitingRerun() {
+						return a.Mover.Possessive() + " — the forge has not yet started the job rerun the harness requested; `yoyo reconcile` leaves the merge queued and reads the jobs again, without spending another rerun"
+					}
+					if checks.FailedInTheJob() && checks.Reruns < runstate.MaxCheckReruns {
+						return fmt.Sprintf("%s — `yoyo reconcile` asks the forge to run the jobs it cancelled, timed out, or could not start again (%d of %d reruns on this head), leaving the merge queued; if the forge refuses, the harness withdraws the merge to update its head or return it for repair", a.Mover.Possessive(), checks.Reruns+1, runstate.MaxCheckReruns)
+					}
+					if checks.FailedInTheJob() {
+						return a.Mover.Possessive() + " — the job rerun limit on this head is spent; `yoyo reconcile` withdraws the merge to update a head behind its target or return the change to the development manager"
+					}
 					return a.Mover.Possessive() + " — `yoyo reconcile` reads the failed checks and withdraws the merge to update its head, wait for a target fix, or return the change for repair"
 				}
 				return a.Mover.Possessive() + " — `yoyo reconcile` confirms the forge's merge and finishes the run's cleanup once it lands"
