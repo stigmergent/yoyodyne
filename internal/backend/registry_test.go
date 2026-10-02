@@ -80,7 +80,7 @@ func TestAPluginIsRefusedForAnUnsupportedRoleAsABuiltInIs(t *testing.T) {
 	}{
 		{name: "the default backend serves every role", backend: domain.BackendClaudeCode, role: domain.RoleArchitect, want: true},
 		{name: "codex serves the roles inside a run", backend: domain.BackendCodex, role: domain.RoleDeveloper, want: true},
-		{name: "codex does not serve the management roles", backend: domain.BackendCodex, role: domain.RoleProductManager},
+		{name: "codex serves management roles", backend: domain.BackendCodex, role: domain.RoleProductManager, want: true},
 		{name: "a plugin serves what it declared", backend: "my-harness", role: domain.RoleReviewer, want: true},
 		{name: "a plugin refuses what it did not", backend: "my-harness", role: domain.RoleArchitect},
 		// The set of roles is fixed in the harness, so no backend serves a name
@@ -129,28 +129,16 @@ func TestAPluginIsRefusedForAnUnsupportedPosture(t *testing.T) {
 	}
 }
 
-// A built-in's claim is held to the same standard, and Codex's read-only claim
-// did not meet it: its read-only sandbox stops writes and network and still lets
-// the agent read the machine, which is the one thing the posture exists to
-// prevent. The descriptor claims what Codex can be held to, so a reviewer
-// configured on it is refused rather than run under a sandbox that does not hold
-// the posture — and the role stays served, so the refusal names the posture
-// instead of sending the operator after a role Codex does serve.
-func TestCodexClaimsOnlyThePostureItsSandboxHolds(t *testing.T) {
+func TestCodexClaimsThePostureEachRoleRequires(t *testing.T) {
 	t.Parallel()
-
 	codex, known := BuiltInDescriptor(domain.BackendCodex)
 	if !known {
-		t.Fatal("BuiltInDescriptor() found no codex")
+		t.Fatal("Codex descriptor missing")
 	}
-	if codex.SupportsPosture(PostureReadOnly) {
-		t.Error("codex claims a read-only posture its sandbox does not enforce")
-	}
-	if !codex.SupportsPosture(PostureFor(domain.RoleDeveloper)) {
-		t.Error("codex refuses the developer posture its sandbox does hold")
-	}
-	if !codex.SupportsRole(domain.RoleReviewer) {
-		t.Error("codex stopped serving the reviewer, so a reviewer on codex is refused for the wrong reason")
+	for _, role := range domain.Roles() {
+		if !codex.SupportsRole(role) || !codex.SupportsPosture(PostureFor(role)) {
+			t.Errorf("Codex cannot serve %q", role)
+		}
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 // Both of the providers this build's vocabulary names are expressed as
 // endpoints, each carrying the compiled adapter that reaches it. They are still
 // different endpoints: what a role may be served on is decided by the postures a
-// provider can be held to, and Codex can be held to one of the two.
+// provider can be held to.
 //
 // This is where the second runnable endpoint is actually asserted. Until
 // yoyodyne-ifd.347 there was none — the adapter written under yoyodyne-ifd.6 sat
@@ -47,14 +47,8 @@ func TestBothBuiltInProvidersAreExpressedAsEndpoints(t *testing.T) {
 	if codex.Same(claude) {
 		t.Fatalf("the two built-in endpoints share a key: %q", codex.Key())
 	}
-	// Codex is developer-only by capability: its sandbox scopes writes to a
-	// directory, which is the developer's posture, and has no setting for the
-	// read-only posture the reviewer requires. That is unaffected by there being
-	// an adapter — the posture is a fact about the provider's sandbox, and it is
-	// decided at configuration load rather than at dispatch.
-	reviewer := registry.EligibleFor(codex, domain.RoleReviewer)
-	if reviewer == nil || !strings.Contains(reviewer.Error(), `cannot hold the "read-only" tool access`) {
-		t.Fatalf("the reviewer on Codex = %v, want a refusal naming the posture", reviewer)
+	if err := registry.EligibleFor(codex, domain.RoleReviewer); err != nil {
+		t.Fatalf("reviewer on Codex: %v", err)
 	}
 	// The developer's posture Codex can hold, and this build can now launch it, so
 	// nothing refuses that endpoint at all.
@@ -63,12 +57,8 @@ func TestBothBuiltInProvidersAreExpressedAsEndpoints(t *testing.T) {
 	}
 }
 
-// Codex is developer-only by capability, whatever this build can launch. Serves
-// is what configuration validation reads, and it says the developer may be
-// served on Codex and the reviewer may not — which held before the adapter
-// landed and holds after it, because the posture is a fact about the provider's
-// sandbox rather than about what this build carries.
-func TestCodexIsDeveloperOnlyByCapabilityWhateverThisBuildCanLaunch(t *testing.T) {
+// Registry eligibility agrees with the roles the native sandbox can serve.
+func TestCodexServesEveryRoleByCapability(t *testing.T) {
 	t.Parallel()
 
 	registry, err := NewRegistry(nil)
@@ -78,9 +68,10 @@ func TestCodexIsDeveloperOnlyByCapabilityWhateverThisBuildCanLaunch(t *testing.T
 	if err := registry.Serves(domain.BackendCodex, domain.RoleDeveloper); err != nil {
 		t.Fatalf("Serves(codex, developer) = %v, want the role Codex's sandbox can be held to", err)
 	}
-	refusal := registry.Serves(domain.BackendCodex, domain.RoleReviewer)
-	if refusal == nil || !strings.Contains(refusal.Error(), `cannot hold the "read-only" tool access`) {
-		t.Fatalf("Serves(codex, reviewer) = %v, want a refusal naming the posture", refusal)
+	for _, role := range domain.Roles() {
+		if err := registry.Serves(domain.BackendCodex, role); err != nil {
+			t.Errorf("Serves(codex, %q): %v", role, err)
+		}
 	}
 
 	// And the description this build actually ships is that one: an adapter named
@@ -105,8 +96,8 @@ func TestCodexIsDeveloperOnlyByCapabilityWhateverThisBuildCanLaunch(t *testing.T
 	if refusal := landed.RoleRefusal(domain.RoleDeveloper); refusal != "" {
 		t.Fatalf("RoleRefusal(developer) = %q, want the role Codex serves", refusal)
 	}
-	if refusal := landed.RoleRefusal(domain.RoleReviewer); refusal == "" {
-		t.Fatal("RoleRefusal(reviewer) permitted the reviewer on a worktree-write-only provider")
+	if refusal := landed.RoleRefusal(domain.RoleReviewer); refusal != "" {
+		t.Fatalf("RoleRefusal(reviewer) = %q", refusal)
 	}
 }
 
@@ -312,6 +303,8 @@ func TestTheRoleRefusalIsWhatConfigurationValidationReads(t *testing.T) {
 	if refusal := descriptor.RoleRefusal(domain.RoleDeveloper); refusal != "" {
 		t.Fatalf("RoleRefusal(developer) = %q, want the role Codex serves", refusal)
 	}
+	// A declaration that omits read-only is still refused for that posture.
+	descriptor.Postures = []Posture{PostureWorktreeWrite}
 	refusal := descriptor.RoleRefusal(domain.RoleReviewer)
 	if !strings.Contains(refusal, `cannot hold the "read-only" tool access`) {
 		t.Fatalf("RoleRefusal(reviewer) = %q, want the posture named", refusal)

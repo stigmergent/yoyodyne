@@ -19,9 +19,12 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,29 +50,17 @@ const (
 	defaultAfterReplyTimeout = 5 * time.Minute
 )
 
-// The Codex sandbox settings this adapter will ask for. `danger-full-access` is
+// The Codex sandbox setting this adapter will ask for. `danger-full-access` is
 // deliberately absent: it is the one setting that would let an agent write
 // anywhere on the machine, and nothing in the harness has a reason to ask for
 // it, so it is unreachable from here rather than merely unused.
 const (
-	sandboxReadOnly       = "read-only"
 	sandboxWorkspaceWrite = "workspace-write"
+	sandboxReadOnly       = "read-only"
 )
 
-// sandboxForPosture is what a role's tool posture means to this provider.
-//
-// The worktree-write posture maps cleanly: `workspace-write` is Codex confining
-// its edits to the directory it was started in, which is the worktree.
-//
-// The read-only posture does not map cleanly, and the built-in Codex descriptor
-// says so by claiming only the posture above: the harness's read-only posture is
-// an agent that reaches outside its evidence for nothing, and Codex's
-// `read-only` sandbox stops every write and every network call while still
-// letting the agent read the machine. So no built-in invocation reaches the
-// branch below. It is here for the provider a project declares for itself on
-// this adapter and claims the read-only posture for: a declared posture is a
-// claim nothing later checks again, and an adapter that had no sandbox to hold
-// it to would honour that claim by running the agent writable.
+// sandboxForPosture maps role-derived access onto the native sandbox. Read-only
+// permits repository inspection but does not isolate reads to that repository.
 func sandboxForPosture(posture backend.Posture) string {
 	switch posture {
 	case backend.PostureReadOnly:
@@ -92,7 +83,8 @@ func sandboxForPosture(posture backend.Posture) string {
 // and silently widening a role meant to have none is the failure this guard
 // exists to prevent.
 func sandboxFor(role domain.AgentRole) (string, error) {
-	sandbox := sandboxForPosture(backend.PostureFor(role))
+	posture := backend.PostureFor(role)
+	sandbox := sandboxForPosture(posture)
 	if sandbox == "" {
 		return "", fmt.Errorf("Codex backend does not support role %q", role)
 	}
@@ -158,6 +150,108 @@ func environmentFor(configDir string) []string {
 		return environment
 	}
 	return append(environment, ProviderHomeVariable+"="+configDir)
+}
+
+// readOnlyEnvironment keeps provider authentication but drops inherited Codex
+// control channels and settings. The developer's environment remains unchanged.
+func readOnlyEnvironment(configDir string) []string {
+	environment := execution.ExplicitEnvironment(nil)
+	kept := environment[:0]
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "SSH_AUTH_SOCK=") {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	if strings.TrimSpace(configDir) == "" {
+		configDir = os.Getenv(ProviderHomeVariable)
+	}
+	if configDir != "" {
+		kept = append(kept, ProviderHomeVariable+"="+configDir)
+	}
+	return kept
+}
+
+// readOnlyArgs fixes the native sandbox's companion policy on every turn,
+// including resume. User settings and exec rules cannot enable integrations or
+// escalation. The directory is an empty launch directory outside the repository,
+// so repository configuration cannot inject MCP servers or other integrations.
+// Native reads remain available, and are not limited to the repository.
+func readOnlyArgs(directory string) []string {
+	path, _ := json.Marshal(directory)
+	args := []string{"--ignore-user-config", "--ignore-rules", "--strict-config"}
+	for _, setting := range []string{
+		`approval_policy="never"`,
+		`web_search="disabled"`,
+		`orchestrator.mcp.enabled=false`,
+		`cloud.skills.enabled=false`,
+		`agents.enabled=false`,
+		`allow_login_shell=false`,
+		`notify=[]`,
+		`project_doc_max_bytes=0`,
+		`tools.experimental_request_user_input.enabled=false`,
+		`projects={` + string(path) + `={trust_level="untrusted"}}`,
+	} {
+		args = append(args, "--config", setting)
+	}
+	for _, feature := range []string{
+		"apps", "plugins", "remote_plugin", "hooks", "browser_use",
+		"browser_use_external", "browser_use_full_cdp_access", "computer_use",
+		"in_app_browser", "image_generation", "workspace_dependencies", "skill_search",
+		"skill_mcp_dependency_install", "goals", "shell_snapshot", "multi_agent", "multi_agent_v2",
+	} {
+		args = append(args, "--disable", feature)
+	}
+	return args
+}
+
+// prepareReadOnlyLaunch resolves the repository before changing directories.
+// The CLI discovers project configuration from its cwd, so read-only roles run
+// from an empty directory and inspect the repository by its absolute path.
+func prepareReadOnlyLaunch(directory string) (repository, launch string, err error) {
+	repository, err = filepath.Abs(directory)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve read-only repository: %w", err)
+	}
+	repository, err = filepath.EvalSymlinks(repository)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve read-only repository: %w", err)
+	}
+	info, err := os.Stat(repository)
+	if err != nil {
+		return "", "", fmt.Errorf("stat read-only repository: %w", err)
+	}
+	if !info.IsDir() {
+		return "", "", errors.New("read-only repository must be a directory")
+	}
+	temporary, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		return "", "", fmt.Errorf("resolve temporary directory: %w", err)
+	}
+	relative, relErr := filepath.Rel(repository, temporary)
+	if relErr != nil || relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
+		return "", "", errors.New("read-only launch directory must be outside the repository; configure a temporary directory outside it")
+	}
+	// A sibling of a nested inspection directory can still be inside the same
+	// Git checkout. Check the temporary directory's ancestors before creating
+	// anything, including linked worktrees whose .git is a file.
+	for ancestor := temporary; ; ancestor = filepath.Dir(ancestor) {
+		for _, name := range []string{".git", ".codex"} {
+			if _, err := os.Stat(filepath.Join(ancestor, name)); err == nil {
+				return "", "", fmt.Errorf("temporary directory has a %s ancestor; configure a temporary directory outside project configuration", name)
+			} else if !os.IsNotExist(err) {
+				return "", "", fmt.Errorf("inspect temporary directory ancestors: %w", err)
+			}
+		}
+		if filepath.Dir(ancestor) == ancestor {
+			break
+		}
+	}
+	launch, err = os.MkdirTemp(temporary, "yoyodyne-codex-readonly-")
+	if err != nil {
+		return "", "", fmt.Errorf("create read-only launch directory: %w", err)
+	}
+	return repository, launch, nil
 }
 
 // dialect is what reads this invocation's stream: whatever the caller resolved
@@ -289,6 +383,10 @@ func (Backend) Capabilities() backend.Capabilities {
 // conformance_test.go checks every invocation against it.
 func invocationArgs(request backend.RunRequest, sandbox string) []string {
 	args := []string{"exec", "--sandbox", sandbox}
+	if sandbox == sandboxReadOnly {
+		args = append(args, readOnlyArgs(request.WorkingDirectory)...)
+		args = append(args, "--cd", request.WorkingDirectory)
+	}
 	// Resuming continues the provider's own session, which is an acceleration
 	// and never the record: what the harness knows about this work is in its own
 	// durable state, and a session the provider has forgotten costs context
@@ -312,7 +410,7 @@ func invocationArgs(request backend.RunRequest, sandbox string) []string {
 	return append(args, "-")
 }
 
-func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
+func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned backend.RunResult, runErr error) {
 	if b.Runner == nil {
 		return backend.RunResult{}, errors.New("Codex process runner is required")
 	}
@@ -347,7 +445,21 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		return backend.RunResult{}, fmt.Errorf("Codex runs cannot be given effort level %q; this provider accepts no effort level", request.Effort)
 	}
 
-	args := invocationArgs(request, sandbox)
+	invocation := request
+	if sandbox == sandboxReadOnly {
+		repository, launch, err := prepareReadOnlyLaunch(request.WorkingDirectory)
+		if err != nil {
+			return backend.RunResult{}, err
+		}
+		defer func() {
+			if err := os.RemoveAll(launch); err != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("remove read-only launch directory: %w", err))
+			}
+		}()
+		request.WorkingDirectory = repository
+		invocation.WorkingDirectory = launch
+	}
+	args := invocationArgs(invocation, sandbox)
 
 	timeout := request.Timeout
 	if timeout == 0 {
@@ -377,10 +489,26 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if strings.TrimSpace(configDir) == "" {
 		configDir = b.ConfigDir
 	}
+	environment := environmentFor(configDir)
+	if sandbox == sandboxReadOnly {
+		// Relative provider homes previously resolved from the repository. Keep
+		// that account mapping when the CLI runs from the isolated directory.
+		if strings.TrimSpace(configDir) == "" {
+			configDir = os.Getenv(ProviderHomeVariable)
+		}
+		if configDir != "" && !filepath.IsAbs(configDir) {
+			configDir = filepath.Join(request.WorkingDirectory, configDir)
+		}
+		environment = readOnlyEnvironment(configDir)
+	}
+	environment = execution.WithAgentRole(environment, request.Role)
+	if sandbox == sandboxWorkspaceWrite {
+		environment = execution.WithGoBuildCache(environment, request.WorkingDirectory)
+	}
 	processResult, err := b.Runner.Run(ctx, execution.Command{
 		Name: b.binary(),
 		Args: args,
-		Dir:  request.WorkingDirectory,
+		Dir:  invocation.WorkingDirectory,
 		// Beside the account, the invocation carries the Go build cache pointed
 		// somewhere this run may write. A developer's first act is to execute the
 		// project's checks, and the default cache is under the user's home, which
@@ -389,7 +517,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		// the role it is made for, so the verbs that record a person's decision
 		// -- pause, resume, release, approve -- can refuse a shell this agent
 		// opens.
-		Env:   execution.WithGoBuildCache(execution.WithAgentRole(environmentFor(configDir), request.Role), request.WorkingDirectory),
+		Env:   environment,
 		Stdin: strings.NewReader(composePrompt(request)),
 		// The stream this invocation is asked for is the liveness signal: every
 		// line the process writes is an event, so the gap between lines is
@@ -527,8 +655,13 @@ func (b Backend) installedVersion(ctx context.Context, configDir string) string 
 // so evidence that tried to talk its way past the contract is arguing with text
 // in the same message rather than with something above it.
 func composePrompt(request backend.RunRequest) string {
-	if strings.TrimSpace(request.SystemPrompt) == "" {
-		return request.Prompt
+	prompt := request.Prompt
+	if strings.TrimSpace(request.SystemPrompt) != "" {
+		prompt = request.SystemPrompt + "\n\n" + prompt
 	}
-	return request.SystemPrompt + "\n\n" + request.Prompt
+	if backend.PostureFor(request.Role) == backend.PostureReadOnly {
+		directory, _ := json.Marshal(request.WorkingDirectory)
+		prompt = "Repository available for read-only inspection: " + string(directory) + ".\nThe current directory is an empty launch directory, not the repository. Inspect and plan only; do not implement changes or request escalation.\n\n" + prompt
+	}
+	return prompt
 }

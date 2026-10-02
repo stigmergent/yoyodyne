@@ -89,7 +89,7 @@ states:
       unrunnable: abandoned
   review:
     action: candidate.review
-    summary: obtain one independent verdict on the change from a reviewer with no tools
+    summary: obtain one independent verdict on the change from a reviewer with read-only access
     on:
       approved: integrate
       changes-requested: develop

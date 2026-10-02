@@ -116,11 +116,11 @@ func TestACrossingOntoAnIneligibleProviderIsRefusedAndTheTurnStays(t *testing.T)
 		return request, nil
 	})
 	policy.AlternateProvider = crossed
-	// The reviewer reasons over bounded evidence with no tools at all, and the
-	// alternate provider scopes writes to a worktree and can express nothing
-	// narrower than that.
+	// This declared alternate offers writes but cannot enforce read-only access.
 	policy.Role = domain.RoleReviewer
-	policy.Eligibility = twoProviderRegistry(t)
+	policy.Eligibility = writesOnlyRegistry(t)
+	policy.AlternateEndpoint.Provider = "writes-only"
+	policy.AlternateEndpoint.AdapterVersion = backend.ClaudeCodeAdapterVersion
 	policy.RecordFailure = func(err error) { reported = append(reported, err) }
 
 	_, served, err := Serve(context.Background(), refusing, backend.RunRequest{Model: "fable", SessionID: "claude-session-1"}, policy)
@@ -300,9 +300,8 @@ func crossingPolicy(t *testing.T, windows Windows, rebuild func(backend.RunReque
 }
 
 // twoProviderRegistry is a project naming the two built-in providers, which is
-// the arrangement a crossing is configured for: Claude Code serves every role,
-// and Codex serves the developer only because its sandbox cannot express no
-// tools at all.
+// the arrangement a crossing is configured for: both serve every role while
+// their adapters enforce the corresponding access policy.
 func twoProviderRegistry(t *testing.T) *backend.Registry {
 	t.Helper()
 
@@ -438,6 +437,9 @@ func TestServesElsewhereAnswersForTheMoveThePolicyWouldMakeUnasked(t *testing.T)
 	// prepared for it.
 	ineligible := crossingPolicy(t, closed, passThrough)
 	ineligible.Role = domain.RoleReviewer
+	ineligible.Eligibility = writesOnlyRegistry(t)
+	ineligible.AlternateEndpoint.Provider = "writes-only"
+	ineligible.AlternateEndpoint.AdapterVersion = backend.ClaudeCodeAdapterVersion
 	if ineligible.ServesElsewhere("fable") {
 		t.Fatal("a policy whose alternate cannot hold the role's posture says it will move the turn")
 	}

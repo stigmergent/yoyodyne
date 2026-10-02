@@ -55,7 +55,8 @@ const ClaudeCodeAdapterVersion = "claude-code/1"
 // newer vocabulary's reply, usage, and ending — an agent_message item, and
 // turn.completed or turn.failed — where codex/1 read none of them and failed
 // every such stream as unreadable, so a record says which of the two read it.
-const CodexAdapterVersion = "codex/2"
+// "codex/3" adds native read-only invocations for reviewers and management roles.
+const CodexAdapterVersion = "codex/3"
 
 // Endpoint is one execution endpoint: which provider, read by which compiled
 // adapter, under which account, asking which model.

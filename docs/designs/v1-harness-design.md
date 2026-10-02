@@ -6,6 +6,10 @@ supports:
     - v1-goals
 status: active
 revisions:
+    - action: amended
+      by: architect
+      at: 2026-10-02T03:00:00Z
+      reason: "Operator-approved Codex read-only inspection replaces the universal no-tools description for reviewers; integration authority remains with the harness."
     - action: created
       by: architect
       at: 2026-08-18T00:00:00Z
@@ -139,7 +143,7 @@ The most recent implementation of this system is described here: https://github.
 
 ## Summary
 
-Yoyodyne is a local, single-operator harness that coordinates configurable AI agent roles to turn a product brief into goals, designs, implementation work, reviewed changes, and an integrated codebase. It aims to run development nearly autonomously: the human's routine interface is the product manager agent, and directing any other agent is an override rather than part of the loop. Claude Code is the default execution backend. Codex is a thinner optional backend for developer and reviewer agents. The managed project may be written in any language; Yoyodyne's own implementation language is not imposed on it.
+Yoyodyne is a local, single-operator harness that coordinates configurable AI agent roles to turn a product brief into goals, designs, implementation work, reviewed changes, and an integrated codebase. It aims to run development nearly autonomously: the human's routine interface is the product manager agent, and directing any other agent is an override rather than part of the loop. Claude Code is the default execution backend. Codex is an optional backend for all six roles under the adapter-owned tool-access policy. The managed project may be written in any language; Yoyodyne's own implementation language is not imposed on it.
 
 V1 supports one product and one Git repository at a time. Its identifiers, configuration, and storage boundaries must allow later support for multiple products, repositories, and remote workers without changing the core domain model.
 
@@ -285,7 +289,7 @@ The local Claude Code or Codex process is not the agent's durable identity. Each
 - Asks the product manager for everything outside its lane in one digest per pass, and never gates an admission.
 - Writes no code, decides no triage, mints no evidence.
 
-The management bundles' contents — what the development manager and product manager may do rather than only record — are owned by [configurable-workflows](configurable-workflows.md)' authority-model section. The set of roles is fixed in the harness, and is six since the program manager was added by a change to it. What a project configures is which agents fill those roles, how many, and each one's backend, model selector, and persona. Role authority and which tools each role may use — including the reviewer running with no tools — are derived from the role in code and are not configurable: authority a project could declare is authority a project could widen, and the ownership model rests on it. Adding or redefining a role is a change to the harness, not to a configuration file. How that fixture becomes capability-based - authority semantics staying in Go while composition becomes protected operator-activated configuration after behavioral parity - is governed by [authority-by-capability](../decisions/authority-by-capability.md) and the [configurable-workflows](configurable-workflows.md) design. Role and backend combinations are validated against the effective configuration before work is claimed, and an unknown role name must be refused at load. The `Capabilities` negotiation in the backend boundary is untouched by this: what a backend can do is a genuinely varying fact.
+The management bundles' contents — what the development manager and product manager may do rather than only record — are owned by [configurable-workflows](configurable-workflows.md)' authority-model section. The set of roles is fixed in the harness, and is six since the program manager was added by a change to it. What a project configures is which agents fill those roles, how many, and each one's backend, model selector, and persona. Role authority and which tools each role may use — including the reviewer running with read-only access — are derived from the role in code and are not configurable: authority a project could declare is authority a project could widen, and the ownership model rests on it. Adding or redefining a role is a change to the harness, not to a configuration file. How that fixture becomes capability-based - authority semantics staying in Go while composition becomes protected operator-activated configuration after behavioral parity - is governed by [authority-by-capability](../decisions/authority-by-capability.md) and the [configurable-workflows](configurable-workflows.md) design. Role and backend combinations are validated against the effective configuration before work is claimed, and an unknown role name must be refused at load. The `Capabilities` negotiation in the backend boundary is untouched by this: what a backend can do is a genuinely varying fact.
 
 ### Management and supervision
 
@@ -406,7 +410,7 @@ Claude Code is the default backend for every v1 role. The adapter uses its non-i
 
 ### Codex
 
-Codex remains designed and parked at priority 4 off the V1 critical path, per [claude-only-v1-execution](../decisions/claude-only-v1-execution.md); the adapter description below is the design it re-enters through. Codex is a thin optional v1 backend for developer and reviewer roles. Its adapter uses `codex exec`, JSONL events, resumable sessions when available, structured final output where useful, and explicit sandbox settings. Codex is not required to match every Claude Code feature. Unsupported role/backend or policy combinations fail validation before work is assigned.
+The original [Claude-only V1 decision](../decisions/claude-only-v1-execution.md) deferred Codex. The current [provider adapter contract](provider-adapters-and-endpoints.md) admits it for all six roles. Its adapter uses `codex exec`, JSONL events, native resumable sessions, and explicit sandbox settings: worktree-write for developers and read-only inspection for other roles. Codex is not required to match every Claude Code feature. Unsupported role/backend or policy combinations fail validation before work is assigned.
 
 Codex authentication is delegated to the locally installed CLI. It may use ChatGPT subscription authentication or an API key; the harness reports the active/missing state but never manages account credentials.
 
@@ -477,7 +481,7 @@ The distinction matters, because "the harness never asks an agent to do this" an
 
 **Enforced in code.** A run's worktree may only be at the HEAD durable state recorded: the base commit it was created at, or the exact commit the harness itself made. Anything else fails the ownership check that review, integration, and publishing all go through, and the run stops there. That check is a comparison against a recorded hash rather than a judgement about what a commit looks like — a developer has a shell in its worktree and the harness's commit identity is a constant in this repository, so an imitated commit is easy to produce and worth nothing, because it is not the hash run state already named. The rest of the gate is enforced the same way: promotion requires passing checks, an approving verdict, two demonstrably independent provider invocations, and a fast-forward from the recorded base.
 
-**Enforced for the reviewer specifically.** The reviewer runs with no tools at all — an empty tool list and a read-only permission mode — so the role whose verdict authorizes the merge has no way to perform one. That is what makes "the reviewer decides, the harness merges" a boundary rather than an arrangement.
+**Enforced for the reviewer specifically.** The reviewer runs with adapter-enforced read-only access. Claude Code refuses every tool; Codex permits repository inspection under its native read-only sandbox with tool network access, escalation, and external integrations disabled. Codex reads are not confined to the repository. The reviewer supplies its verdict and the harness performs integration; the provider-specific enforcement is described in [provider-adapters-and-endpoints](provider-adapters-and-endpoints.md).
 
 **Enforced for the developer's diff.** A developer's diff that touches a configured artifact home — `docs/product`, `docs/designs`, or `docs/decisions`, as configured — or the project's `.yoyodyne` directory is refused deterministically, before any check runs and before any reviewer sees it, unless the work item's own text grants the path. This is the ownership boundary holding against an editor in a worktree, not only against writes through the artifact store: a developer that edits a document it does not own no longer depends on its contract or the reviewer to be caught, because the gate refuses the diff outright. The paragraph below is unchanged by this — it is about pushing and merging, and the gate grants no credential and removes none.
 

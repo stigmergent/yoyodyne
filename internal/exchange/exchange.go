@@ -12,8 +12,8 @@
 // no side conversations: two roles cannot say anything to each other that
 // nobody else can see afterwards.
 //
-// It is judgment-only. Both halves are toolless conversations, so an ask moves
-// opinion and never evidence. An answer that carries any harness block at all is
+// It is judgment-only. Both halves have read-only access, and an answer is
+// advice rather than an independently validated result. An answer that carries any harness block at all is
 // refused rather than acted on, and work that needs something verified is
 // commissioned as developer work exactly as it was before.
 //

@@ -276,8 +276,11 @@ answers at its next pass.
 the table itself.
 
 `backend` is `claude-code` or `codex` unless your project declares one of its
-own — and `codex` only for a `developer` agent, since its sandbox cannot hold
-the tool access every other role requires. A project running a fork, a proxy, or
+own. Both built-ins serve all six roles. Codex uses worktree-write access for
+developers and native read-only inspection for reviewers and management roles,
+with tool network access, escalation, and external integrations disabled.
+[Provider plugins](provider-plugins.md#capability-validation) describes the boundary
+and its limits. A project running a fork, a proxy, or
 a variant of a provider yoyo already speaks can describe it under a top-level `providers:` key and name it here: which
 compiled adapter launches it, which executable that adapter runs, which roles it
 serves, which kinds of tool access it can hold them to, and how to read what it says
@@ -3693,10 +3696,10 @@ With both on, a run works like this:
    does.
 
 `gh` is invoked by the harness and never by a developer or reviewer: no role is
-given a credential, a tool, or a request to push or merge. For the reviewer that
-is a hard boundary — it runs with no tools at all, so the role whose verdict
-authorizes a merge has no way to perform one, and cannot be talked into merging
-something the checks would have refused.
+given a publishing credential, tool, or request to push or merge. For the reviewer that
+is enforced by its adapter: Claude Code refuses every tool, while Codex permits
+read-only inspection with tool network access and external integrations disabled.
+The reviewer returns a verdict; the harness performs publication and merging.
 
 For the developer it is not. A developer has a shell in its worktree and runs
 under your account, so it could in principle reach a `gh` you have
@@ -4192,7 +4195,7 @@ What happens on a refused turn:
 - The endpoint the turn would move onto is checked against the tool access the
   role requires before it is moved. A substitution can never put a role on a
   provider whose sandbox cannot hold that tool access — a reviewer needs a provider
-  that can refuse every tool, and a developer one that can scope writes to a
+  that enforces read-only access, and a developer one that can scope writes to a
   worktree — and a substitution that would is refused with the tool access named,
   leaving the turn to take the refusal it would have taken anyway.
 - **A crossing rebuilds rather than resumes.** Every turn but the first resumes a
@@ -4681,8 +4684,9 @@ Roles can put a question to each other through the harness — the Lead Product 
 asking the architect what a goal costs before it orders the backlog, the
 architect asking the Lead Product Manager whether a trade-off is one a user would
 accept before it settles a design. Every exchange is recorded where you can read
-it with `yoyo exchange`, both halves are toolless so an ask moves opinion and
-never evidence, and no authority moves through one. What is configurable is how
+it with `yoyo exchange`. Both halves retain their backend-enforced read-only
+access, including repository inspection where supported. Their replies are
+advice, not validation results or authority to act. What is configurable is how
 long a single exchange may go on:
 
 ```yaml
@@ -5878,15 +5882,13 @@ These are all errors, reported before any work is claimed:
 - a `role` that is not one of the harness's six, which is how a typo in an
   agents block is caught: the message names what was written and lists what could
   have been meant. Adding a role is a change to the harness, not to this file;
-- a role and backend combination the backend does not support, such as an
-  architect on the Codex backend — and the same refusal for a provider your
-  project declared itself, including one asked to hold a kind of tool access it never
-  claimed, such as a developer on a provider that declared only `read-only`;
-- a role and backend combination the backend serves and cannot hold to the tool
-  access the role requires, such as a reviewer on the Codex backend: Codex
-  declares `worktree-write` and not `read-only`, so it is the developer's
-  backend and no other role's, and the refusal names the tool access rather than the
-  role. [Provider plugins](provider-plugins.md#capability-validation) is why;
+- a role and backend combination the provider does not support, including a
+  project-declared provider asked to serve a role it did not declare;
+- a provider asked to hold tool access it did not declare, such as a developer on
+  a provider that declared only `read-only`, or a reviewer on one that declared
+  only `worktree-write`. Both built-ins declare both kinds of access.
+  [Provider plugins](provider-plugins.md#capability-validation) describes how
+  their adapters enforce read-only roles;
 - a `providers:` entry that names no adapter or one this build ships none for,
   serves no role, holds no tool access, names a role or kind of tool access the harness does
   not have, reads nothing its provider says, or tries to replace a backend this
@@ -6227,8 +6229,10 @@ mapping reads — rather than as a gate an act passes through.
 **What keeps an agent out of the goals is two enforcements that do not depend on
 the signature.** (The one item the harness admits on its own account — the bug
 a [red landing](#where-the-whole-suite-runs) files — is the harness's act and
-not an agent's, and it reaches the queue and never the goals.) A conversation runs with no tools at all, so the roles that
-could argue for a goal cannot run a command; and a run's change is compared
+not an agent's, and it reaches the queue and never the goals.) A conversation
+runs under adapter-enforced read-only access: Claude Code refuses tools, and
+Codex permits inspection while denying writes, tool network access, and external
+integrations. A run's change is compared
 against the [protected paths](#protected-paths-in-a-developers-change) before any
 check runs and before any reviewer sees it, so an approval a developer wrote is
 refused with the rest of the diff and never reaches the repository the goals are

@@ -69,7 +69,11 @@ type RunRequest struct {
 	// agent's, and a substitution moves the model rather than how hard the model
 	// is asked to think. The one exception is a failover that crosses onto a
 	// provider accepting no level, which is asked with none. See effort.go.
-	Effort       string
+	Effort string
+	// AllowedTools narrows tools where the adapter supports a named tool list.
+	// An empty list disables tools on Claude Code; Codex uses the role-derived
+	// sandbox instead and refuses any nonempty list. Empty is not a portable
+	// request for a tool-free session.
 	AllowedTools []string
 	// AccountAlias is the provider account this invocation is made under, and
 	// AccountConfigDir is where that account's authentication lives on this

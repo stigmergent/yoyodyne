@@ -2,8 +2,8 @@ package chat
 
 // Reading the repository at a recorded commit, on a management role's behalf.
 //
-// The role has no filesystem and gets none. What it has is the same arrangement
-// it has with the work tracker and with research: it names what it wants, the
+// This works even for a backend that supplies no inspection tools. As with
+// the work tracker and research: it names what it wants, the
 // harness performs it, records it, tells the operator, and hands back what came
 // of it. Nothing here lets the role choose what runs or where a path resolves —
 // every path is resolved by the harness's own Git inside the tree of one commit,

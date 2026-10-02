@@ -186,7 +186,7 @@ func TestACrossingOntoAProviderThatCannotHoldTheRolesPostureIsRefused(t *testing
 	limits := newTestUsageLimits(t)
 	options := crossingOptions(t, held, crossed)
 	options.UsageLimits = limits
-	// The product manager reasons over evidence with no tools at all, and the
+	// The product manager requires read-only access, and the
 	// alternate provider scopes writes to a worktree and can express nothing
 	// narrower.
 	options.Providers = writesOnlySecondProvider(t)
@@ -256,9 +256,8 @@ func secondProviderRegistry(t *testing.T, postures []backendapi.Posture) *backen
 }
 
 // writesOnlySecondProvider is the same second provider, able to scope writes to a
-// worktree and unable to refuse every tool — which is the shape of a real
-// provider rather than an invented one, and the shape a management role's posture
-// exists to refuse.
+// worktree but unable to enforce read-only access, which a management role
+// requires.
 func writesOnlySecondProvider(t *testing.T) *backendapi.Registry {
 	t.Helper()
 

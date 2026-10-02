@@ -50,10 +50,9 @@ package chat
 // it is not asserted in a prompt — it is the two things the harness already
 // enforces deterministically.
 //
-// The roles that reach this file have no tools at all: a conversation is run
-// with an empty tool list and a read-only permission mode, so the product
-// manager cannot run a command, let alone that one. The roles that do have a
-// shell work inside a run's worktree, and a run's change is compared against the
+// Conversation roles cannot write files: their adapter either disables tools
+// or enforces read-only execution without escalation. Developer roles can write
+// inside a run's worktree, and a run's change is compared against the
 // protected paths before any check runs and before any reviewer sees it — the
 // goals live in one of those homes, so an approval a developer wrote is refused
 // with the rest of the diff and never reaches the repository the goals are read
