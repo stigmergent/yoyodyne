@@ -93,7 +93,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		AttentionAmendmentQueue: {amendmentQueueAttention(amendment.Queue{Proposed: 5, Undecided: 4, Oldest: moment.Add(-20 * 24 * time.Hour), OldestAge: 20 * 24 * time.Hour, Owners: []domain.AgentRole{domain.RoleArchitect}}),
 			"4 of 5 proposed change(s) are undecided, the oldest raised 20d ago, against the architect's documents"},
 		AttentionOwedStep: {owedStepAttention(owed),
-			"run run-owed of yoyodyne-ifd.410 ended still owing a step"},
+			"cleanup of the branch and worktree for yoyodyne-ifd.410 is not finished"},
 		AttentionPublication: {awaitingForgeAttention(published),
 			"run run-queued promoted yoyodyne-ifd.411 into main and the forge has not published it: pull request #567 https://forge.example/pr/567"},
 		AttentionDegradedService: {degradedServiceAttention(child),
@@ -170,6 +170,9 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		}
 		if !entry.Mover.Valid() {
 			t.Errorf("%s: mover %q is outside the vocabulary", kind, entry.Mover)
+		}
+		if entry.Label() == "" || entry.Label() == string(entry.Kind) {
+			t.Errorf("%s: no plain-words label: %q", kind, entry.Label())
 		}
 		if got := entry.What(); got != fixture.what {
 			t.Errorf("%s: what = %q, want %q", kind, got, fixture.what)
@@ -313,10 +316,11 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		state runstate.State
 		mover Mover
 	}{
-		"unrecorded":            {runstate.State{RunID: "run-1", Branch: "b"}, MoverHarness},
-		"queued":                {runstate.State{RunID: "run-2", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}}, MoverForge},
-		"re-armed after a drop": {runstate.State{RunID: "run-3", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}, MergeDrop: &dropped}, MoverForge},
-		"dropped":               {runstate.State{RunID: "run-4", PullRequest: &runstate.PullRequest{Number: 1}, MergeDrop: &dropped}, MoverDevelopmentManager},
+		"unrecorded":                 {runstate.State{RunID: "run-1", Branch: "b"}, MoverHarness},
+		"queued":                     {runstate.State{RunID: "run-2", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}}, MoverForge},
+		"queued with failing checks": {runstate.State{RunID: "run-red", PullRequest: &runstate.PullRequest{Number: 700, MergeQueued: true, Checks: &runstate.PullRequestChecks{Failing: []runstate.FailingCheck{{Name: "build"}}}}}, MoverHarness},
+		"re-armed after a drop":      {runstate.State{RunID: "run-3", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}, MergeDrop: &dropped}, MoverForge},
+		"dropped":                    {runstate.State{RunID: "run-4", PullRequest: &runstate.PullRequest{Number: 1}, MergeDrop: &dropped}, MoverDevelopmentManager},
 		// A request nothing ever asked the forge to merge is the development
 		// manager's to decide rather than a person's to merge by hand
 		// (yoyodyne-ifd.429.31).
@@ -397,7 +401,7 @@ func TestAttentionJSONCarriesTheRecordAndTheDerivedSentences(t *testing.T) {
 		if err := json.Unmarshal(encoded, &wire); err != nil {
 			t.Fatalf("%s: %v", kind, err)
 		}
-		if wire["what"] != fixture.entry.What() || wire["whose"] != fixture.entry.Whose() || wire["kind"] != string(fixture.entry.Kind) || wire["mover"] != string(fixture.entry.Mover) {
+		if wire["label"] != fixture.entry.Label() || wire["what"] != fixture.entry.What() || wire["whose"] != fixture.entry.Whose() || wire["kind"] != string(fixture.entry.Kind) || wire["mover"] != string(fixture.entry.Mover) {
 			t.Errorf("%s: JSON = %s, want the kind, the mover, and both sentences", kind, encoded)
 		}
 		var decoded Attention
@@ -422,6 +426,10 @@ func TestAttentionJSONCarriesTheRecordAndTheDerivedSentences(t *testing.T) {
 	disagreeing := strings.Replace(string(mustMarshal(t, entry)), `"what":"directive directive-1 is unresolved: which?"`, `"what":"directive-2 is unresolved: which?"`, 1)
 	if err := json.Unmarshal([]byte(disagreeing), &decoded); err == nil || !strings.Contains(err.Error(), "disagrees with its record") {
 		t.Fatalf("a sentence disagreeing with its fields was accepted: %v", err)
+	}
+	wrongLabel := strings.Replace(string(mustMarshal(t, entry)), `"label":"direction unresolved"`, `"label":"merge stuck"`, 1)
+	if err := json.Unmarshal([]byte(wrongLabel), &decoded); err == nil {
+		t.Fatal("a label disagreeing with its record was accepted")
 	}
 	if err := json.Unmarshal([]byte(`{"kind":"directive","mover":"operator","surprise":1}`), &decoded); err == nil {
 		t.Fatal("a field the model does not carry was accepted")

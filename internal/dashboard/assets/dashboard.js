@@ -411,41 +411,6 @@
     return rank;
   }
 
-  // kinds is the read model's own vocabulary for what sort of thing an entry
-  // on the attention line is about, in the model's order, each with the plain
-  // words its card is headed by. A test holds this list to the model's.
-  var kinds = [
-    { attention: "amendment", title: "A change proposed to a document" },
-    { attention: "conversation-carried-item", title: "A work item carried by a conversation" },
-    { attention: "report", title: "The pile of collected reports" },
-    { attention: "amendment-queue", title: "The queue of proposed changes" },
-    { attention: "owed-step", title: "A run that still owes a step" },
-    { attention: "publication", title: "A promotion the forge has not published" },
-    { attention: "degraded-service", title: "A part of the product left down" },
-    { attention: "failing-task", title: "A recurring task failing before its first turn" },
-    { attention: "hold", title: "A hold over the harness" },
-    { attention: "directive", title: "An unresolved directive" },
-    { attention: "outage", title: "The provider answering nobody" },
-    { attention: "stall", title: "A queue nothing is pulling from" },
-    { attention: "held-work", title: "Admitted work held back" },
-    { attention: "operator-action", title: "A finding only the operator can act on" },
-    { attention: "product-decision", title: "A product decision about a run in flight" },
-    { attention: "human-gate", title: "A step reserved for a person" },
-    { attention: "untraced-pass", title: "A pass that left no trace of what it found" },
-    { attention: "factory-stall", title: "A factory that has pulled nothing and completed no pass" },
-    { attention: "tracker-unanswered", title: "The tracker not answering listings" }
-  ];
-
-  function kindTitle(kind) {
-    var found = null;
-    kinds.forEach(function (named) {
-      if (named.attention === kind) {
-        found = named;
-      }
-    });
-    return found ? found.title : String(kind);
-  }
-
   // asksAgain says when a reading is asked for next: on its ordinary clock, or
   // later while the page is backing off from slow or failed answers.
   function asksAgain(name) {
@@ -1484,7 +1449,7 @@
     return listing("What is waiting, and on whom", "what waits on the operator first, then what waits on each role, the harness, and the forge, each with its kind and who it is waiting on; each opens its card",
       standing.needs_human_problem, whatToDoAboutTheStanding(), "Nothing waits on the operator or anybody else.",
       entries.map(function (each) {
-        return { entry: entryKey(each.entry), kind: each.entry.kind, title: saidWhat(each.entry), detail: saidWhose(each.entry) };
+        return { entry: entryKey(each.entry), label: each.entry.label, title: saidWhat(each.entry), detail: saidWhose(each.entry) };
       }), "thing");
   }
 
@@ -1524,7 +1489,7 @@
         entry.appendChild(el("span", "grouping-title grouping-day", item.title));
       } else if (item.entry) {
         entry.appendChild(entryOpener(item.entry, item.title, "grouping-title"));
-        entry.appendChild(el("span", "item-id", item.kind));
+        entry.appendChild(el("span", "item-id", item.label));
       } else {
         entry.appendChild(itemOpener(item.id, item.title || item.id, "grouping-title"));
         entry.appendChild(el("span", "item-id", item.id));
@@ -1702,7 +1667,7 @@
     };
     add("What", saidWhat(entry), "card-field-prose");
     add("Waiting on", saidWhose(entry), "card-field-prose");
-    add("Kind", entry.kind);
+    add("Kind", entry.label);
     add("Mover", moverLabel(entry.mover));
     switch (entry.kind) {
       case "amendment":
@@ -1927,14 +1892,14 @@
     var found = standing.needs_human.filter(function (entry) { return entryKey(entry) === openEntry; });
     if (found.length === 0) {
       heading.textContent = "What is waiting, and on whom";
-      note.textContent = openEntry;
+      note.textContent = "read " + clock(standing.observed_at);
       clear(document.getElementById("card-fields"));
-      section("card", "empty", "Nothing under " + openEntry + " is waiting any more: it was settled since the page last read where the harness stands, at " + clock(standing.observed_at) + ".");
+      section("card", "empty", "This entry is no longer waiting: it was settled since the page last read where the harness stands, at " + clock(standing.observed_at) + ".");
       return;
     }
     var entry = found[0];
-    heading.textContent = kindTitle(entry.kind);
-    note.textContent = entryKey(entry) + " · read " + clock(standing.observed_at);
+    heading.textContent = entry.label;
+    note.textContent = (entry.id || entry.work_item_id || entry.label) + " · read " + clock(standing.observed_at);
     entryFields(entry);
     section("card", "ready");
   }

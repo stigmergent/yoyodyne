@@ -1351,12 +1351,12 @@ func TestPausingIsWhatHoldsOneItem(t *testing.T) {
 
 // A run that ended still owing a step waits forever without somebody running the
 // sweep, so it is named with the command that settles it.
-func TestAnOutstandingRunNeedsAHuman(t *testing.T) {
+func TestAnEndedRunOwingCleanupWaitsOnTheHarness(t *testing.T) {
 	t.Parallel()
 	sources := quietSources()
 	sources.Runs = fakeRuns{
 		prices:      map[string]runstate.ItemPrice{},
-		outstanding: []runstate.State{{RunID: "run-a", WorkItemID: "item-1"}},
+		outstanding: []runstate.State{{RunID: "run-a", WorkItemID: "item-1", Status: runstate.StatusSucceeded, Phase: runstate.PhaseCleaningUp}},
 	}
 	standing := ReadStanding(context.Background(), sources)
 	if len(standing.NeedsHuman) != 1 {
@@ -1364,6 +1364,71 @@ func TestAnOutstandingRunNeedsAHuman(t *testing.T) {
 	}
 	if !strings.Contains(standing.NeedsHuman[0].Whose(), "yoyo reconcile") {
 		t.Fatalf("whose = %q, want the command that settles it", standing.NeedsHuman[0].Whose())
+	}
+	if standing.NeedsHuman[0].Mover != MoverHarness {
+		t.Fatal("cleanup must be the harness's")
+	}
+}
+
+type heldRuns struct {
+	fakeRuns
+	held    map[string]bool
+	problem error
+}
+
+func (f heldRuns) Held(id string) (bool, error) { return f.held[id], f.problem }
+
+func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
+	t.Parallel()
+	ended := moment.Add(-time.Hour)
+	live := runstate.State{RunID: "run-live", WorkItemID: "checks", Status: runstate.StatusRunning, Phase: runstate.PhaseChecking}
+	cleanup := runstate.State{RunID: "run-cleanup", WorkItemID: "cleanup", Status: runstate.StatusSucceeded, Phase: runstate.PhaseCleaningUp, CompletedAt: &ended, Integration: &runstate.Integration{TargetBranch: "main"}, CleanupFailure: "remove worktree: directory busy"}
+	queued := cleanup
+	queued.RunID, queued.WorkItemID, queued.Phase = "run-queued", "queued", runstate.PhaseComplete
+	queued.PullRequest = &runstate.PullRequest{Number: 700, MergeQueued: true, Checks: &runstate.PullRequestChecks{Failing: []runstate.FailingCheck{{Name: "build", Conclusion: "failure"}}}}
+	dropped := queued
+	dropped.RunID, dropped.WorkItemID = "run-dropped", "dropped"
+	dropped.PullRequest = &runstate.PullRequest{Number: 732}
+	dropped.MergeDrop = &runstate.MergeDrop{At: ended, Reason: "build failed"}
+	landing := cleanup
+	landing.RunID = "run-live-landing"
+	landing.LandingChecks = &runstate.LandingChecks{StartedAt: ended}
+	superseded := dropped
+	superseded.RunID = "run-superseded"
+	superseded.PullRequest = &runstate.PullRequest{Number: 751, Superseded: "pull request 752"}
+	sources := quietSources()
+	sources.Runs = heldRuns{fakeRuns: fakeRuns{outstanding: []runstate.State{live, cleanup, queued, landing, superseded}, recorded: []runstate.State{live, cleanup, queued, dropped, superseded}}, held: map[string]bool{live.RunID: true, landing.RunID: true}}
+	standing := ReadStanding(context.Background(), sources)
+	seen := map[string]int{}
+	for _, entry := range standing.NeedsHuman {
+		seen[entry.ID]++
+		if entry.Mover == MoverOperator {
+			t.Fatalf("harness work reached the operator: %+v", entry)
+		}
+		switch entry.ID {
+		case cleanup.RunID:
+			if entry.Mover != MoverHarness || entry.Label() != "run not finished" || !strings.Contains(entry.What(), "cleanup of the branch and worktree") || !strings.Contains(entry.What(), "directory busy") || !strings.Contains(entry.Whose(), "finishes the run's cleanup") {
+				t.Fatalf("cleanup entry = %+v", entry)
+			}
+		case queued.RunID:
+			if entry.Mover != MoverHarness || entry.Label() != "merge stuck" || !strings.Contains(entry.What(), "build") || !strings.Contains(entry.Whose(), "withdraws the merge") {
+				t.Fatalf("queued entry = %+v", entry)
+			}
+		case dropped.RunID:
+			if entry.Mover != MoverDevelopmentManager || entry.Label() != "merge stuck" || !strings.Contains(entry.Whose(), "forge dropped") {
+				t.Fatalf("dropped entry = %+v", entry)
+			}
+		default:
+			t.Fatalf("live or superseded run on attention line: %+v", entry)
+		}
+	}
+	if seen[cleanup.RunID] != 1 || seen[queued.RunID] != 2 || seen[dropped.RunID] != 1 {
+		t.Fatalf("attention entries = %v", seen)
+	}
+	sources.Runs = heldRuns{fakeRuns: fakeRuns{outstanding: []runstate.State{cleanup}}, problem: errors.New("holder unreadable")}
+	standing = ReadStanding(context.Background(), sources)
+	if len(standing.NeedsHuman) != 0 || !strings.Contains(standing.NeedsHumanProblem, "holder unreadable") {
+		t.Fatalf("unreadable holder was treated as dead: %+v", standing)
 	}
 }
 
@@ -1418,14 +1483,14 @@ func TestAPromotionAwaitingTheForgeNeedsAHuman(t *testing.T) {
 	for _, want := range []struct {
 		run, mover, what string
 	}{
-		{"run-dropped", "the development manager's", "pull request #"},
+		{"run-dropped", "the development manager's", "merge of pull request 401"},
 		{"run-queued", "the forge's", "pull request #"},
 		{"run-unasked", "the operator's", "pull request #"},
 		{"run-unrecorded", "the harness's", "holds no pull request for branch yoyodyne/item/unrecorded"},
 	} {
 		found := false
 		for _, attention := range standing.NeedsHuman {
-			if !strings.Contains(attention.What(), want.run) {
+			if attention.ID != want.run {
 				continue
 			}
 			found = true

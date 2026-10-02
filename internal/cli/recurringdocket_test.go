@@ -262,7 +262,7 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 			},
 		},
 		{
-			Kind: readmodel.AttentionOwedStep, ID: "run-owed", Mover: readmodel.MoverOperator, WorkItemID: "yoyodyne-ifd.400",
+			Kind: readmodel.AttentionOwedStep, ID: "run-owed", Mover: readmodel.MoverHarness, WorkItemID: "yoyodyne-ifd.400",
 			OwedStep: &readmodel.OwedStep{Status: runstate.StatusSucceeded, EndedAt: owedEnded},
 		},
 		{
@@ -313,13 +313,12 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 	for _, want := range []string{
 		"## Triage docket",
 		"## Waiting on the operator",
-		"5 entries on the needs-a-human line are the operator's",
+		"4 entries on the needs-a-human line are the operator's",
 		"- [operator-action run:run-escalated, item yoyodyne-ifd.272] yoyodyne-ifd.272 needs your hand: the target branch diverged from the forge",
 		"since " + local(escalated) + ", 3 hours ago",
 		"- [degraded-service dashboard] the dashboard service is degraded: died 6 times within 2m0s of being started — since " + local(died) + ", 2 days ago",
 		"- [failing-task report-triage] the recurring task report-triage has failed before its first turn 2 times in a row",
 		"since " + local(failing) + ", 20 minutes ago",
-		"- [owed-step run-owed, item yoyodyne-ifd.400] run run-owed of yoyodyne-ifd.400 ended still owing a step — since " + local(owedEnded) + ", 5 hours ago",
 		"- [publication run-published, item yoyodyne-ifd.401] run run-published promoted yoyodyne-ifd.401 into main and the forge has not published it",
 		"since " + local(publishedEnded) + ", 26 hours ago",
 		"file a defect with the Lead Product Manager saying why it reached him",
@@ -329,7 +328,7 @@ func TestAScheduledSweepCarriesTheOperatorsEntriesWithTheirAges(t *testing.T) {
 			t.Errorf("the wake message does not carry %q:\n%s", want, message)
 		}
 	}
-	if strings.Contains(message, "admitted items await the development manager's decision") {
+	if strings.Contains(message, "run-owed") || strings.Contains(message, "admitted items await the development manager's decision") {
 		t.Errorf("an entry the development manager moves was carried as the operator's:\n%s", message)
 	}
 	// Beside the docket, and ahead of the task that asks her to check them.

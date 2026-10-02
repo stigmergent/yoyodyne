@@ -3910,9 +3910,9 @@ func (s State) AwaitingForge() bool {
 	if s.PullRequest == nil {
 		return s.PublicationUnrecorded()
 	}
-	// A publication handed back for a fresh run is not awaited: the change is
-	// the fresh run's to land, and nothing is waiting on this request.
-	if s.PullRequest.HandedBack != nil {
+	// A publication handed back for a fresh run, or already superseded by its
+	// landing, is not awaited: nothing is waiting on this request.
+	if s.PullRequest.HandedBack != nil || s.PullRequest.Superseded != "" {
 		return false
 	}
 	return !s.PullRequest.Merged

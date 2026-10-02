@@ -56,6 +56,23 @@ type RunPresence struct {
 	LastMoved time.Time `json:"last_moved,omitempty"`
 }
 
+// Held observes the process holding a run, including a finished run whose
+// landing checks are still executing. It never takes the run's lease.
+func (s *Store) Held(runID string) (bool, error) {
+	path, err := s.holderPath(runID)
+	if err != nil {
+		return false, err
+	}
+	holder, err := readRunHolder(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return processIsRunning(holder.PID)
+}
+
 // Presence reports whether a process can be found behind a run, and takes
 // nothing to answer it.
 //
