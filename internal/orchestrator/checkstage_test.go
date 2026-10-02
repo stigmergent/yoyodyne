@@ -282,6 +282,15 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 				Load:     func() (float64, int, bool) { return load, 8, true },
 				Capacity: calm.Config.Execution.MaxConcurrentDevelopers,
 				Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+					// Restoration and continuation preserve the recorded counts.
+					// The independent review that follows will add its own verdict.
+					resumed, err := store.Load(runID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if resumed.RunID != stopped.RunID || resumed.ProviderSessionID != stopped.ProviderSessionID || resumed.RepairAttempts != stopped.RepairAttempts || resumed.ReviewRounds != stopped.ReviewRounds || resumed.IntegrationRetries != stopped.IntegrationRetries {
+						t.Fatalf("continuation changed identity or consumed counts before checks: %#v", resumed)
+					}
 					return calm.Continue(ctx, workItemID, runID)
 				},
 			}
@@ -310,6 +319,9 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 			if developer := provider.RequestsForRole(domain.RoleDeveloper); len(developer) != 1 {
 				t.Fatalf("developer invocations = %d, want only the first attempt", len(developer))
 			}
+			if reviewer := provider.RequestsForRole(domain.RoleReviewer); len(reviewer) != 1 {
+				t.Fatalf("reviewer invocations = %d, want one independent review after the checks", len(reviewer))
+			}
 			if integrated := gitLine(t, repository, "show", "main:feature.txt"); integrated != "implemented" {
 				t.Fatalf("integrated feature.txt = %q, want the change the first attempt made", integrated)
 			}
@@ -317,9 +329,11 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if final.RunID != outcome.RunID || final.ProviderSessionID != stopped.ProviderSessionID || final.RepairAttempts != stopped.RepairAttempts || final.ReviewRounds != stopped.ReviewRounds || final.IntegrationRetries != 0 || len(final.CheckStageContinuations) != 1 {
-				t.Fatalf("final run = %s, attempts %d, retries %d, continuations %d; want the same run with no attempt charged and one continuation",
-					final.RunID, final.RepairAttempts, final.IntegrationRetries, len(final.CheckStageContinuations))
+			// ReviewRounds counts every verdict this run obtained, including an
+			// approval. The approving review charges no triage budget, checked below.
+			if final.RunID != outcome.RunID || final.ProviderSessionID != stopped.ProviderSessionID || final.RepairAttempts != stopped.RepairAttempts || final.ReviewRounds != stopped.ReviewRounds+1 || final.IntegrationRetries != 0 || len(final.CheckStageContinuations) != 1 {
+				t.Fatalf("final run = %s, session %q, attempts %d, reviews %d, retries %d, continuations %d; want the same run and session, no attempt charged, one recorded approval and one continuation",
+					final.RunID, final.ProviderSessionID, final.RepairAttempts, final.ReviewRounds, final.IntegrationRetries, len(final.CheckStageContinuations))
 			}
 			after, err := store.Triage().Counters(tracker.Item.ID)
 			if err != nil {
