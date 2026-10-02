@@ -121,6 +121,10 @@ type Escalation struct {
 	// the accounting in force when it was written rather than a record that is
 	// wrong.
 	DocketedAt time.Time `json:"docketed_at,omitempty"`
+	// CarryOutRefusedAt identifies a permanent carry-out refusal delivered as a
+	// new event on this stoppage, even if its original delivery predates the
+	// DocketedAt field. The same refusal is delivered only once.
+	CarryOutRefusedAt time.Time `json:"carry_out_refused_at,omitempty"`
 	// Attempts counts the deliveries begun and not given back, including the one
 	// in progress. It is what the bound above is read against, and it counts an
 	// attempt whatever became of it: a delivery that may have reached her is spent
@@ -171,6 +175,15 @@ func (e Escalation) About(docketedAt time.Time) bool {
 		return true
 	}
 	return !e.DocketedAt.Before(docketedAt)
+}
+
+// AboutEvent distinguishes a permanent carry-out refusal from the stoppage
+// that was originally delivered, including records whose date was not kept.
+func (e Escalation) AboutEvent(docketedAt, refusedAt time.Time) bool {
+	if !refusedAt.IsZero() {
+		return e.CarryOutRefusedAt.Equal(refusedAt)
+	}
+	return e.About(docketedAt)
 }
 
 // Delivered reports the development manager having been asked. It is the
@@ -398,7 +411,7 @@ func (s *EscalationStore) Attempt(ctx context.Context, escalation Escalation) (E
 	// delivery starts over — attempts, pacing, and what came back — and the record
 	// is about the stoppage that is actually on the docket from here on. One record
 	// per key is kept, because a reader of the records asks what a key stands at.
-	if found && !attempted.About(escalation.DocketedAt) {
+	if found && !attempted.AboutEvent(escalation.DocketedAt, escalation.CarryOutRefusedAt) {
 		found = false
 	}
 	if found {

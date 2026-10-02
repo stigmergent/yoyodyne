@@ -729,6 +729,7 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		// The same per-item record her conversation writes the decision to, so what
 		// authorizes the firing and what is read to fire it are one record.
 		Decisions: parts.store.Triage(),
+		Notes:     parts.tracker(),
 		// What has already been carried out of those decisions, in the two shapes it
 		// takes: a claimed re-run, and a continuation recorded on one of the item's
 		// own runs.

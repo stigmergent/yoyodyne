@@ -824,14 +824,14 @@ func (r Rerunner) decided(entry triage.Entry) (decided runstate.TriageCounters, 
 		// case where the budget says decided and the record says nothing, and it is
 		// worth naming: the decision has to be recorded again, which spends a
 		// further re-run, and past the cap that is an operator's override to permit.
-		return runstate.TriageCounters{}, 0, runstate.TriageDecision{}, fmt.Errorf(
+		return runstate.TriageCounters{}, 0, runstate.TriageDecision{}, permanentCarryOut(triage.CarryOutDecisionMissing, fmt.Errorf(
 			"the development manager has recorded no triage decision about the stoppage of run %s, so there is nothing here to carry out: a re-run carries the decision the record holds rather than words given to this command, and the decision is recorded where it is made, in the development manager's own conversation. Recording it there spends a further re-run of %s, which the cap may refuse — `yoyo triage override` is what permits that",
-			entry.RunID, workItemID)
+			entry.RunID, workItemID))
 	}
 	if recorded.Decision != runstate.TriageDecisionRerun {
-		return runstate.TriageCounters{}, 0, runstate.TriageDecision{}, fmt.Errorf(
+		return runstate.TriageCounters{}, 0, runstate.TriageDecision{}, permanentCarryOut(triage.CarryOutDecisionSuperseded, fmt.Errorf(
 			"the decision standing about the stoppage of run %s is %q rather than a re-run, %s: carrying this out would attribute a fresh run to a decision nobody made",
-			entry.RunID, recorded.Decision, recorded.Cite())
+			entry.RunID, recorded.Decision, recorded.Cite()))
 	}
 	if counters.Reruns < 1 {
 		return runstate.TriageCounters{}, 0, runstate.TriageDecision{}, fmt.Errorf(

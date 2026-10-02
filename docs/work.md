@@ -1027,7 +1027,8 @@ stop saying the item is held, and it becomes pullable without anybody having
 edited its status. The first and the third are a person's. The second is the
 pass's own: a repair, a re-run, or a merge re-arm she recorded is fired at the
 next pull, under the gates the carry-out paragraph further down names, and the hold goes with it
-— so an item awaiting carry-out waits on an interval rather than on anybody. The fourth is
+— so an item awaiting carry-out waits on an interval, unless a permanent
+refusal requires her to record a new decision. The fourth is
 [`yoyo reconcile`](operations.md#recovering-interrupted-runs)'s: every sweep
 asks the remote again whether it carries a publication the record says is
 unfinished, and where it does — a merge that landed among others, a dropped merge
@@ -1587,7 +1588,20 @@ its granted rounds were judged, so a repaired run that stops again is hers to
 decide about too. A gate shut for
 one item — a directive, work it waits on, a worktree somebody has been in — is
 retried at a paced interval rather than every poll, so one decision that cannot
-fire does not starve the ones behind it; a gate shut for everything at once —
+fire does not starve the ones behind it. **A refusal whose cause will not clear
+on its own is recorded once and is not retried until the development manager
+changes the decision.** A retired or missing worktree, a deleted branch, a HEAD
+that moved from the harness's recorded commit, a superseded or missing decision,
+a missing stoppage record, and a publication no re-arm can make are these
+permanent causes. The item and her docket carry the refusal's own words and the
+ways forward: a re-run or an escalation, or recording a missing decision again
+with an override where the budget requires it. The refusal is delivered to her
+as a new stoppage even when the original stoppage was already delivered; later
+pulls neither attempt it nor deliver the same gate again. A new decision,
+including a newly recorded decision of the same kind, is attempted at the next
+eligible pull. A failed reading of a branch or worktree proves neither gone and
+keeps its paced retry. [The run-stop inventory](run-stops.md#permanent-carry-out-refusals)
+names the causes. A gate shut for everything at once —
 your pause, your intake hold, a full harness — is attempted once while it
 stands and again on the first pull after it opens. Before this, thirty-three
 decided items stood unfired for days because the only executor was a person

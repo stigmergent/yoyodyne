@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // carryOutRefused is one finding as the record requires it: the stoppage, what
@@ -169,5 +171,25 @@ func TestAFindingDescribesTheGateAndTheRemedy(t *testing.T) {
 		if !strings.Contains(described, want) {
 			t.Fatalf("described %q is missing %q", described, want)
 		}
+	}
+}
+
+func TestAPermanentRefusalBlocksOnlyTheDecisionThatWasAttempted(t *testing.T) {
+	t.Parallel()
+	decided := time.Now()
+	refusal := TriageCarryOut{Decision: TriageDecisionRepair, DecidedAt: decided,
+		Cause: triage.CarryOutWorktreeGone, RefusedAt: decided.Add(time.Minute)}
+	later := decided.Add(7 * 24 * time.Hour)
+	if !refusal.BlocksDecision(TriageDecisionRepair, decided, later) {
+		t.Fatal("a permanent refusal cooled into another attempt")
+	}
+	if refusal.BlocksDecision(TriageDecisionRerun, decided, later) ||
+		refusal.BlocksDecision(TriageDecisionRepair, decided.Add(time.Second), later) {
+		t.Fatal("a refusal about an earlier decision blocked a new decision")
+	}
+	refusal.Cause = ""
+	if !refusal.BlocksDecision(TriageDecisionRepair, decided, decided.Add(2*time.Minute)) ||
+		refusal.BlocksDecision(TriageDecisionRepair, decided, later) {
+		t.Fatal("a temporary gate lost its paced retry")
 	}
 }

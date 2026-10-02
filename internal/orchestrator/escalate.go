@@ -258,6 +258,9 @@ func undeliveredAndWaiting(entry triage.Entry, judgeErr error, delay time.Durati
 // operator told the second in the words of the first would go looking for a
 // failure nobody had.
 func putToHer(entry triage.Entry) string {
+	if permanentRefusal(entry) {
+		return "a carry-out refused by a gate that will not clear on its own"
+	}
 	if entry.Class == triage.ClassEscalation {
 		return "the escalation raised by run " + entry.RunID
 	}
@@ -388,6 +391,33 @@ func (e Escalator) Escalate(ctx context.Context) (EscalationSweep, error) {
 	}
 	var sweep EscalationSweep
 	var problems []error
+	// A permanent carry-out refusal is a new question even if this stoppage
+	// was already delivered and decided. Join the live record before deciding
+	// whether the entry's closure still settles it.
+	var live []triage.Entry
+	docketedRuns := docketedRunsOf(entries)
+	attached := make(map[string]bool)
+	for _, entry := range entries {
+		counters, readErr := e.Decisions.Counters(entry.WorkItemID)
+		if readErr != nil {
+			problems = append(problems, fmt.Errorf("read what triage has already decided about %s and any carry-out refusals: %w", entry.WorkItemID, readErr))
+			continue
+		}
+		if refusal, found := counters.RefusedCarryOut(entry.RunID); found && refusal.Cause != "" {
+			entry.CarryOut = docketedCarryOut(entry, counters)
+		} else if latest := undocketedCarryOut(entry, counters, docketedRuns); latest != nil && latest.Cause != "" && !attached[entry.WorkItemID] {
+			// A finding about a run without a docket entry is shown on the item's
+			// other entries, just as it is on the manager's docket.
+			if decision, found := counters.LatestDecision(); found {
+				if refusal, refused := counters.RefusedCarryOut(decision.RunID); refused && refusal.Cause != "" {
+					entry.CarryOut = latest
+					attached[entry.WorkItemID] = true
+				}
+			}
+		}
+		live = append(live, entry)
+	}
+	entries = live
 	// delivering is this pass still having its one delivery to make. It goes false
 	// as soon as one is made, and on a store that would not record one: the
 	// delivery this pass would make next is the one the next pass makes, and a
@@ -477,7 +507,7 @@ func (e Escalator) perRun(entries []triage.Entry) []triage.Entry {
 	now := e.now()
 	open := make([]triage.Entry, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Closed != nil && entry.Closed.Holds(now) {
+		if entry.Closed != nil && entry.Closed.Holds(now) && !permanentRefusal(entry) {
 			continue
 		}
 		open = append(open, entry)
@@ -496,6 +526,10 @@ func (e Escalator) perRun(entries []triage.Entry) []triage.Entry {
 // one — the latest, which is the one the docket lists it by, where that is owed
 // one — and she is shown the whole run, every entry folded beneath it.
 func (e Escalator) runStandingOf(run triage.Entry) (escalationStanding, triage.Entry, error) {
+	if permanentRefusal(run) {
+		standing, err := e.standingOf(run)
+		return standing, run, err
+	}
 	head := run
 	head.Earlier = nil
 	members := append([]triage.Entry{head}, run.Earlier...)
@@ -546,7 +580,7 @@ func (e Escalator) runStandingOf(run triage.Entry) (escalationStanding, triage.E
 // decides whether this is the 2-of-2 stoppage is what the run recorded about how
 // it ended.
 func (e Escalator) standingOf(entry triage.Entry) (escalationStanding, error) {
-	if entry.Class != triage.ClassStoppedRun && entry.Class != triage.ClassEscalation {
+	if entry.Class != triage.ClassStoppedRun && entry.Class != triage.ClassEscalation && !permanentRefusal(entry) {
 		return standingSettled, nil
 	}
 	// A decided entry is settled whatever the decision was, which is the half
@@ -554,7 +588,7 @@ func (e Escalator) standingOf(entry triage.Entry) (escalationStanding, error) {
 	// counter, so a stoppage settled that way used to be delivered again the next
 	// time a pass reached it. The closure is what says somebody looked — for as
 	// long as it holds, which on a decision to wait is until the moment it names.
-	if entry.Closed != nil && entry.Closed.Holds(e.now()) {
+	if entry.Closed != nil && entry.Closed.Holds(e.now()) && !permanentRefusal(entry) {
 		return standingSettled, nil
 	}
 	recorded, found, err := e.Records.Find(entry.Key)
@@ -566,28 +600,30 @@ func (e Escalator) standingOf(entry triage.Entry) (escalationStanding, error) {
 	// repaired run that dies again is docketed afresh under it — so what was
 	// delivered and decided last time is the last stoppage's, and this one is
 	// still owed its delivery.
-	if found && !recorded.About(entry.RecordedAt) {
+	if found && !recorded.AboutEvent(deliveryMoment(entry), carryOutRefusedAt(entry)) {
 		found = false
 	}
 	if found && recorded.Delivered() {
 		return standingDelivered, nil
 	}
-	state, err := e.Runs.Load(entry.RunID)
-	if err != nil {
-		return standingSettled, fmt.Errorf("read the run the docket entry is about: %w", err)
-	}
-	if !deliveredToTheManager(entry.Class, state) {
-		return standingSettled, nil
-	}
-	// Asked before the record's own state, so a stoppage she has since judged
-	// stops being this pass's business whether the harness delivered it, gave up
-	// delivering it, or never reached it at all.
-	judged, err := e.alreadyJudged(entry)
-	if err != nil {
-		return standingSettled, err
-	}
-	if judged {
-		return standingSettled, nil
+	if !permanentRefusal(entry) {
+		state, err := e.Runs.Load(entry.RunID)
+		if err != nil {
+			return standingSettled, fmt.Errorf("read the run the docket entry is about: %w", err)
+		}
+		if !deliveredToTheManager(entry.Class, state) {
+			return standingSettled, nil
+		}
+		// Asked before the record's own state, so a stoppage she has since judged
+		// stops being this pass's business whether the harness delivered it, gave up
+		// delivering it, or never reached it at all.
+		judged, err := e.alreadyJudged(entry)
+		if err != nil {
+			return standingSettled, err
+		}
+		if judged {
+			return standingSettled, nil
+		}
 	}
 	switch {
 	case found && recorded.Spent():
@@ -597,6 +633,27 @@ func (e Escalator) standingOf(entry triage.Entry) (escalationStanding, error) {
 	default:
 		return standingAwaiting, nil
 	}
+}
+
+// A refusal is delivered once as its own event, under the existing stoppage's
+// key. Its time distinguishes it from the original stoppage's delivery and
+// from a later decision refused on the same run.
+func permanentRefusal(entry triage.Entry) bool {
+	return entry.CarryOut != nil && entry.CarryOut.Cause != ""
+}
+
+func deliveryMoment(entry triage.Entry) time.Time {
+	if permanentRefusal(entry) {
+		return entry.CarryOut.RefusedAt
+	}
+	return entry.RecordedAt
+}
+
+func carryOutRefusedAt(entry triage.Entry) time.Time {
+	if permanentRefusal(entry) {
+		return entry.CarryOut.RefusedAt
+	}
+	return time.Time{}
 }
 
 // alreadyJudged reports a stoppage the development manager has settled, whether
@@ -702,8 +759,9 @@ func (e Escalator) deliver(ctx context.Context, entry, run triage.Entry) (Escala
 		// Which stoppage under this key is being delivered, so a record left by an
 		// earlier one — delivered, decided, and the work then stopped again — starts
 		// a fresh delivery rather than refusing this one as already made.
-		DocketedAt:       entry.RecordedAt,
-		FirstAttemptedAt: e.now(),
+		DocketedAt:        deliveryMoment(entry),
+		CarryOutRefusedAt: carryOutRefusedAt(entry),
+		FirstAttemptedAt:  e.now(),
 	})
 	if err != nil {
 		// An entry another process claimed between the reading above and this one

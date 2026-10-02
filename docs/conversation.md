@@ -2354,9 +2354,11 @@ change back for a fresh run; once it is carried out the prior run's publication
 is marked handed back and nothing names it as waiting any more. A request the
 forge has closed unmerged is offered the re-run alone. A watching `yoyo work` session carries the re-arm
 out itself on its next pull, and a refusal is written onto the item naming the
-gate, comes back to you on the docket, and is asked again only once it has
-cooled. A re-arm of a run that never promoted its change cannot be made, so it
-is refused naming the re-run as the decision to record instead; a re-arm never
+gate and comes back to you on the docket. A temporary refusal is asked again
+only once it has cooled. A permanent refusal is delivered once as a new stoppage
+and is not retried until you record a new decision. A re-arm of a run that never
+promoted its change cannot be made, so it is recorded as a permanent refusal
+naming the re-run or an escalation as the decision to record instead; a re-arm never
 brings a head up to date, so a head behind or in conflict with its target is a
 re-run too. `yoyo triage rearm` makes it now
 rather than at the next pull. Before yoyodyne-ifd.429.31 nothing armed this
