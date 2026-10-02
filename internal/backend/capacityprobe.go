@@ -10,7 +10,8 @@ const CapacityProbePrompt = "Reply with OK to confirm this endpoint can serve a 
 
 // RestrictCapacityProbe applies the probe contract inside each compiled adapter,
 // before any process starts. Ordinary requests keep their role's posture; a
-// probe gets a fixed prompt and bound, no tools, and no continuing session.
+// probe gets a fixed prompt and bound, no tool grants, and no continuing session.
+// Claude Code disables tools; Codex holds its native read-only sandbox.
 func (r RunRequest) RestrictCapacityProbe() (RunRequest, error) {
 	if !r.CapacityProbe {
 		return r, nil

@@ -662,6 +662,9 @@ func (b Backend) installedVersion(ctx context.Context, configDir string) string 
 // so evidence that tried to talk its way past the contract is arguing with text
 // in the same message rather than with something above it.
 func composePrompt(request backend.RunRequest) string {
+	if request.CapacityProbe {
+		return backend.CapacityProbePrompt
+	}
 	prompt := request.Prompt
 	if strings.TrimSpace(request.SystemPrompt) != "" {
 		prompt = request.SystemPrompt + "\n\n" + prompt

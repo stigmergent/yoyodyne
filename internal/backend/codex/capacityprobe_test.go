@@ -33,7 +33,7 @@ func TestDeveloperCapacityProbeCannotUseDeveloperAccess(t *testing.T) {
 			t.Errorf("probe args missing %q: %v", required, command.Args)
 		}
 	}
-	if strings.Contains(joined, "resume") || !strings.Contains(runner.prompts[0], backendapi.CapacityProbePrompt) || strings.Contains(runner.prompts[0], "do developer work") || strings.Contains(runner.prompts[0], "unbounded instructions") || command.Timeout != backendapi.CapacityProbeTimeout || command.IdleTimeout != backendapi.CapacityProbeTimeout {
+	if strings.Contains(joined, "resume") || runner.prompts[0] != backendapi.CapacityProbePrompt || command.Timeout != backendapi.CapacityProbeTimeout || command.IdleTimeout != backendapi.CapacityProbeTimeout {
 		t.Fatalf("probe acquired a session, task, or longer bound: %v, %q", command.Args, runner.prompts[0])
 	}
 	for _, request := range []backendapi.RunRequest{

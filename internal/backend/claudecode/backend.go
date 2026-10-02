@@ -60,7 +60,8 @@ var developerTools = []string{"Bash", "Read", "Edit(/**)", "Write(/**)", "Glob",
 // The session mode a role's invocation runs under, one per posture. Which mode
 // a role gets is settled here and nowhere else: the request carries no mode, so
 // there is no caller who can name one and no path by which a role receives a
-// session somebody else chose for it.
+// session somebody else chose for it. Capacity probes are separate bounded
+// inspections and always use the mode that grants nothing.
 //
 // Neither is "plan", and that is the point of them. Plan mode is the
 // interactive layer's workflow rather than a permission: Claude Code puts its
