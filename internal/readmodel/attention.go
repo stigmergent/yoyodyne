@@ -502,9 +502,6 @@ func (a Attention) What() string {
 	case AttentionFailingTask:
 		if a.FailingTask != nil {
 			return a.FailingTask.Says()
-			if a.Publication.MergeDrop != nil {
-				entry.Publication.MergeDropReason = a.Publication.MergeDrop.Reason
-			}
 		}
 	case AttentionHeldWork:
 		if a.HeldWork != nil {
