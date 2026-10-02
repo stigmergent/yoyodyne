@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,14 +33,6 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 		t.Skipf("native resume requires an installed Codex CLI: %v", err)
 	}
 	home := t.TempDir()
-	preflight, err := (execution.OSProcessRunner{}).Run(context.Background(), execution.Command{
-		Name: binary, Args: []string{"sandbox", "--config", `sandbox_mode="read-only"`, "--", "sh", "-c", "true"},
-		Dir: home, Env: readOnlyEnvironment(home), Timeout: 10 * time.Second,
-	}, nil)
-	if err != nil || preflight.Status != execution.ProcessSucceeded {
-		t.Fatalf("native sandbox could not execute the probe: %v\n%s", err, preflight.Stderr)
-	}
-
 	oldRepository, oldWorktree := sandboxRepository(t, true)
 	newRepository, newWorktree := sandboxRepository(t, true)
 	oldPaths := nativeProbeDirectories(t, oldRepository, oldWorktree)
@@ -50,13 +43,20 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := &sandboxResponses{}
-	server := httptest.NewServer(model)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("local scripted Responses server unavailable: %v", err)
+	}
+	server := &httptest.Server{Listener: listener, Config: &http.Server{
+		Handler: model, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second,
+	}}
+	server.Start()
 	defer server.Close()
 	provider := Backend{Binary: binary, Runner: sandboxCLIRunner{home: home, url: server.URL}}
 	request := backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: oldWorktree,
 		RepositoryRoot: oldRepository, AccountConfigDir: home, Model: "gpt-5",
-		Prompt: "Execute the supplied sandbox probe, then finish.", Timeout: time.Minute, IdleTimeout: 20 * time.Second,
+		Prompt: "Execute the supplied sandbox probe, then finish.", Timeout: time.Minute, IdleTimeout: time.Minute,
 	}
 	denied := []string{outside, otherScratch, filepath.Join(oldRepository, ".git"), filepath.Join(newRepository, ".git")}
 	model.begin(nativeProbeCommand(t, oldWorktree, oldPaths, append(denied, append(newPaths, newWorktree)...)))
@@ -122,6 +122,7 @@ if [ "$mode" = developer ]; then
   mkdir -p "$GOTMPDIR"
   go test ./... > "$scratch/check.log" 2>&1
   test -s "$scratch/check.log"
+  printf allowed > "$cache/allowed"
   printf allowed > "$worktree/allowed"
 else
   test "$(pwd -P)" != "$worktree"
@@ -157,7 +158,9 @@ func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunReque
 			return result
 		}
 	}
-	t.Fatalf("the CLI did not report a successful confinement command:\n%s\n%s", result.Process.Stdout, result.Process.Stderr)
+	// Keep checking subsequent native resumes when the CLI saved the session,
+	// even if this turn's sandbox refused to execute. The test remains failed.
+	t.Errorf("the CLI did not report a successful confinement command:\n%s\n%s", result.Process.Stdout, result.Process.Stderr)
 	return result
 }
 
@@ -182,6 +185,7 @@ type sandboxResponses struct {
 	mu      sync.Mutex
 	command []string
 	calls   int
+	turn    int
 	err     error
 }
 
@@ -189,6 +193,7 @@ func (s *sandboxResponses) begin(command []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.command, s.calls, s.err = command, 0, nil
+	s.turn++
 }
 
 func (s *sandboxResponses) requireTurn(t *testing.T) {
@@ -204,7 +209,7 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var request struct {
-		Tools []struct{ Name string } `json:"tools"`
+		Tools []sandboxTool `json:"tools"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&request); err != nil {
 		s.err = err
@@ -212,21 +217,20 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.calls++
+	responseID := fmt.Sprintf("resp_probe_%d_%d", s.turn, s.calls)
 	var item map[string]any
 	if s.calls == 1 {
-		name := ""
+		name, namespace := sandboxShellTool(request.Tools, "")
 		var arguments any
-		for _, tool := range request.Tools {
-			switch tool.Name {
-			case "shell":
-				name, arguments = tool.Name, map[string]any{"command": s.command, "timeout_ms": 45000}
-			case "shell_command":
-				words := make([]string, len(s.command))
-				for i, word := range s.command {
-					words[i] = "'" + strings.ReplaceAll(word, "'", "'\"'\"'") + "'"
-				}
-				name, arguments = tool.Name, map[string]any{"command": strings.Join(words, " "), "timeout_ms": 45000}
+		switch name {
+		case "shell":
+			arguments = map[string]any{"command": s.command, "timeout_ms": 45000}
+		case "shell_command":
+			words := make([]string, len(s.command))
+			for i, word := range s.command {
+				words[i] = "'" + strings.ReplaceAll(word, "'", "'\"'\"'") + "'"
 			}
+			arguments = map[string]any{"command": strings.Join(words, " "), "timeout_ms": 45000}
 		}
 		if name == "" {
 			s.err = fmt.Errorf("the CLI advertised no supported foreground shell tool: %v", request.Tools)
@@ -234,9 +238,13 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		encoded, _ := json.Marshal(arguments)
-		item = map[string]any{"type": "function_call", "id": "fc_probe", "call_id": "call_probe", "name": name, "arguments": string(encoded)}
+		item = map[string]any{"type": "function_call", "id": fmt.Sprintf("fc_probe_%d", s.turn),
+			"call_id": fmt.Sprintf("call_probe_%d", s.turn), "name": name, "arguments": string(encoded)}
+		if namespace != "" {
+			item["namespace"] = namespace
+		}
 	} else if s.calls == 2 {
-		item = map[string]any{"type": "message", "id": "msg_probe", "role": "assistant", "status": "completed",
+		item = map[string]any{"type": "message", "id": fmt.Sprintf("msg_probe_%d", s.turn), "role": "assistant", "status": "completed",
 			"content": []any{map[string]any{"type": "output_text", "text": "probe complete", "annotations": []any{}}}}
 	} else {
 		s.err = fmt.Errorf("unexpected third request in a bounded probe turn")
@@ -245,13 +253,31 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	for _, event := range []any{
-		map[string]any{"type": "response.created", "response": map[string]any{"id": "resp_probe"}},
-		map[string]any{"type": "response.output_item.added", "output_index": 0, "item": item},
+		map[string]any{"type": "response.created", "response": map[string]any{"id": responseID}},
 		map[string]any{"type": "response.output_item.done", "output_index": 0, "item": item},
-		map[string]any{"type": "response.completed", "response": map[string]any{"id": "resp_probe", "output": []any{item},
+		map[string]any{"type": "response.completed", "response": map[string]any{"id": responseID, "output": []any{item},
 			"usage": map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}},
 	} {
 		encoded, _ := json.Marshal(event)
 		fmt.Fprintf(w, "data: %s\n\n", encoded)
 	}
+}
+
+type sandboxTool struct {
+	Type  string        `json:"type"`
+	Name  string        `json:"name"`
+	Tools []sandboxTool `json:"tools"`
+}
+
+func sandboxShellTool(tools []sandboxTool, namespace string) (string, string) {
+	for _, tool := range tools {
+		if tool.Type == "namespace" {
+			if name, space := sandboxShellTool(tool.Tools, tool.Name); name != "" {
+				return name, space
+			}
+		} else if tool.Name == "shell" || tool.Name == "shell_command" {
+			return tool.Name, namespace
+		}
+	}
+	return "", ""
 }

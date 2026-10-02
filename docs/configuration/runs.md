@@ -229,19 +229,32 @@ The adapter disables approvals and sandbox network access.
 
 The installed `codex-cli 0.159.2` lists `--add-dir` on `exec`, but not on
 `exec resume`. The adapter therefore passes the writable-root configuration and
-`--cd` before `resume`, alongside `--sandbox`, on every invocation. Native resume
-receives the current run's directory policy rather than depending on a saved
-session's permissions. Read-only roles receive no developer directory grants.
-The recorded CLI help and the installed CLI's help are checked in the adapter
-tests. The following check additionally exercises native allowed and denied
-writes without invoking a model:
+`--cd` before `resume`, alongside `--sandbox`, on every invocation. These arguments
+request the current run's directory policy; argument and CLI-help checks alone
+do not prove that native resume replaces a saved session's permissions or cwd.
+Read-only roles receive no developer directory grants.
+
+The following regression check launches the real CLI with a local scripted
+Responses server, saves a native session, resumes it with different cache,
+scratch, and worktree paths, and resumes that same session under reviewer
+restrictions. It requires successful Go compilation and scratch log writes,
+denied writes to unrelated and previously granted paths, and read-only
+restrictions after restoring a writable session. It checks the CLI's command
+exit and output, rather than the scripted provider's final reply. No provider
+credentials or paid model calls are needed:
 
 ```sh
-YOYODYNE_CODEX_SANDBOX_CONFORMANCE=1 go test ./internal/backend/codex -run TestLocalSandboxConfinesDeveloperAndReadOnlyWrites
+go test ./internal/backend/codex -run TestNativeResumeReplacesSavedDirectoryGrants -count=1
 ```
 
-An outer sandbox may refuse this nested sandbox, which is reported as a failed check rather than
-worked around with unrestricted access.
+This test runs by default when Codex is installed; only an absent CLI skips it.
+Refusal to start the local server or execute the native sandbox fails the check.
+The developer environment for this change refused both loopback listening and
+native sandbox execution (`sandbox-exec: sandbox_apply: Operation not permitted`)
+before any writes could be exercised. The scripted CLI flow and effective native
+resume permissions therefore remain unverified. A successful run on a host that
+permits the local server and supports the native sandbox is still required;
+unrestricted filesystem access does not substitute for that evidence.
 
 A provider invocation is given the same list with one thing more:
 `YOYODYNE_AGENT_ROLE`, naming the role the process was launched for —
