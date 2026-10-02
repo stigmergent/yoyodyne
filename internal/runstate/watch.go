@@ -143,12 +143,13 @@ const (
 	// operator whether the gap is a decision or its execution.
 	PassedOverAwaitingDecision PassedOverClass = "awaiting a decision"
 	PassedOverAwaitingCarryOut PassedOverClass = "awaiting carry-out of a decision"
-	// PassedOverWaitingOnAPerson is an item holding a step only a person can take
-	// and nobody has recorded taking. It is its own class rather than one of the
-	// two above because its next mover is neither the development manager nor the
-	// harness: nothing machinery does passes it, an item's closure included, and
-	// the act that does is the operator's own.
-	PassedOverWaitingOnAPerson    PassedOverClass = "waiting on a person"
+	// PassedOverWaitingOnAPerson is the legacy class that did not distinguish
+	// valid gates from unreadable declarations. New polls name them separately.
+	PassedOverWaitingOnAPerson PassedOverClass = "waiting on a person"
+	// PassedOverValidHumanGate is a readable gate whose act remains unrecorded.
+	PassedOverValidHumanGate PassedOverClass = "waiting on a valid human gate"
+	// PassedOverUnreadableGate needs a declaration correction, not a human act.
+	PassedOverUnreadableGate      PassedOverClass = "waiting on a gate declaration"
 	PassedOverWaitingOnOtherWork  PassedOverClass = "waiting on other work"
 	PassedOverAlreadyTried        PassedOverClass = "already tried this session"
 	PassedOverAlreadyInFlight     PassedOverClass = "already in flight"
@@ -184,6 +185,8 @@ func PassedOverClasses() []PassedOverClass {
 		PassedOverAwaitingDecision,
 		PassedOverAwaitingCarryOut,
 		PassedOverWaitingOnAPerson,
+		PassedOverValidHumanGate,
+		PassedOverUnreadableGate,
 		PassedOverWaitingOnOtherWork,
 		PassedOverAlreadyTried,
 		PassedOverAlreadyInFlight,

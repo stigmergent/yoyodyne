@@ -200,3 +200,110 @@ func TestAGatedItemIsTheOperatorsOwnGroup(t *testing.T) {
 		t.Fatalf("for the operator = %q", sentence)
 	}
 }
+
+// Malformed declarations are corrections, not acts the operator can record.
+// A mixed item carries both obligations, without changing the item count.
+func TestGateDeclarationsAgreeAcrossIndividualEntriesAndGroups(t *testing.T) {
+	t.Parallel()
+	valid := humangate.DeclareMarker + " sign-off — review the release"
+	another := humangate.DeclareMarker + " release-signed — sign the release"
+	unreadable := humangate.DeclareMarker
+	mixed := humangate.Read(valid, another, unreadable)
+	for _, fixture := range []struct {
+		name              string
+		reading           humangate.Reading
+		acts, corrections int
+	}{
+		{"valid only", humangate.Read(valid), 1, 0},
+		{"unreadable only", humangate.Read(unreadable), 0, 1},
+		{"conflicting statements only", humangate.Read(valid, humangate.DeclareMarker+" sign-off — a different act", valid), 0, 1},
+		{"valid gate beside conflicting statements", humangate.Read(valid, humangate.DeclareMarker+" sign-off — a different act", another), 1, 1},
+		{"mixed declarations", mixed, 2, 1},
+		{"mixed after every act was recorded", mixed.Pending([]string{"sign-off", "release-signed"}), 0, 1},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			entry := backlog.Entry{ID: "gated-item", Title: "release", HumanGates: fixture.reading}
+			if kind := entry.HoldKind(); kind != backlog.HeldForAGate {
+				t.Fatalf("HoldKind() = %q, want the human-gate hold", kind)
+			}
+			attention := Gated(backlog.Queue{Entries: []backlog.Entry{entry}})
+			acts, corrections := 0, 0
+			for _, waiting := range attention {
+				if waiting.Mover.IsOperator() {
+					acts++
+					if waiting.OwnerReason != ownership.ReasonHumanGate || waiting.HumanGate.Gate == "" || waiting.Capability != "yoyo gate record" {
+						t.Fatalf("operator entry = %+v, want a recordable act with its reason", waiting)
+					}
+				} else {
+					corrections++
+					if waiting.Mover != MoverProductManager || waiting.OwnerReason != "" || waiting.HumanGate.Unreadable == "" || !strings.Contains(waiting.Remedy, "correct the declaration") {
+						t.Fatalf("correction entry = %+v, want the Lead Product Manager's", waiting)
+					}
+				}
+			}
+			if acts != fixture.acts || corrections != fixture.corrections {
+				t.Fatalf("attention has %d acts and %d corrections, want %d and %d", acts, corrections, fixture.acts, fixture.corrections)
+			}
+			groups := newWaitGroups(Stall{}, switches{})
+			groups.add(entry, entry.HoldKind())
+			listed := groups.list()
+			owners := map[Mover]WaitGroup{}
+			for _, group := range listed {
+				if group.Count != 1 || len(group.Items) != 1 || group.Items[0].WorkItemID != entry.ID {
+					t.Fatalf("group = %+v, want the item counted once per obligation", group)
+				}
+				owners[group.Mover] = group
+			}
+			if fixture.acts > 0 {
+				group, found := owners[ownership.Operator]
+				if !found || group.OwnerReason != ownership.ReasonHumanGate || group.Capability != "yoyo gate record" || !strings.Contains(group.Next, "records each act") || !strings.Contains(group.WaitsOn, "step only a person") {
+					t.Fatalf("operator group = %+v, want only recordable acts", group)
+				}
+				delete(owners, ownership.Operator)
+			}
+			if fixture.corrections > 0 {
+				group, found := owners[MoverProductManager]
+				want := ownership.Resolve(ownership.Entry{Kind: ownership.KindHumanGate, GateUnreadable: true})
+				if !found || group.OwnerReason != want.Reason || group.Next != want.Remedy || group.Capability != want.Capability || !strings.Contains(group.WaitsOn, "correction of an unreadable") {
+					t.Fatalf("correction group = %+v, want the same answer as the individual declaration %+v", group, want)
+				}
+				delete(owners, MoverProductManager)
+			}
+			if len(owners) > 0 {
+				t.Fatalf("unexpected owners: %+v", owners)
+			}
+			forOperator := ForOperator(listed)
+			if fixture.acts > 0 {
+				if !strings.HasPrefix(forOperator, "1 item here is the operator's") || strings.Contains(forOperator, "unreadable") {
+					t.Fatalf("ForOperator() = %q, want one item with a recordable act", forOperator)
+				}
+			} else if !strings.HasPrefix(forOperator, "nothing here is the operator's") {
+				t.Fatalf("ForOperator() = %q, want no operator obligation", forOperator)
+			}
+			standing := Standing{Admitted: 1, NeedsHuman: attention,
+				NotStartable:       []Refused{{WorkItemID: entry.ID, Kind: backlog.HeldForAGate}},
+				NotStartableGroups: listed, NotStartableForOperator: forOperator}
+			for _, rendered := range []string{standing.Render(), standing.RenderBrief()} {
+				if !strings.Contains(rendered, "Not startable (1 of 1 admitted item") || !strings.Contains(rendered, forOperator) {
+					t.Fatalf("rendered does not count the refused item once or project ForOperator:\n%s", rendered)
+				}
+				for _, group := range listed {
+					if !strings.Contains(rendered, group.Says()) {
+						t.Fatalf("rendered does not project group %q:\n%s", group.Says(), rendered)
+					}
+				}
+			}
+			encoded, err := json.Marshal(standing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded Standing
+			if err := json.Unmarshal(encoded, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if len(decoded.NotStartable) != 1 || len(decoded.NotStartableGroups) != len(listed) || ForOperator(decoded.NotStartableGroups) != forOperator {
+				t.Fatalf("JSON lost the obligations or changed the item count: %s", encoded)
+			}
+		})
+	}
+}

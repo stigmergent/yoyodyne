@@ -144,12 +144,15 @@ func heldFixtures() []Entry {
 		{Kind: KindHeldWork},
 	}
 	for _, group := range []backlog.HoldKind{backlog.HeldForAPerson, backlog.HeldByDirective, backlog.HeldForAGate, backlog.HeldWaitingOn, backlog.HeldParked, backlog.HeldCovered, backlog.HeldUnread} {
-		entries = append(entries, Entry{Kind: KindHeldWork, HeldIn: group, Held: HeldAwaitingDecision})
+		entries = append(entries, Entry{Kind: KindHeldWork, HeldIn: group, Held: HeldAwaitingDecision, Gate: "sign-off"})
 	}
 	return append(entries,
 		Entry{Kind: KindHeldWork, HeldIn: backlog.HeldByConversation, Role: domain.RoleArchitect},
 		Entry{Kind: KindHeldWork, HeldIn: backlog.HeldByStall, StallReason: StallSessionIdle},
 		Entry{Kind: KindHeldWork, HeldIn: backlog.HeldByStall, StallReason: StallDivergedTarget},
+		Entry{Kind: KindHeldWork, HeldIn: backlog.HeldForAGate, GateUnreadable: true},
+		Entry{Kind: KindHeldWork, HeldIn: backlog.HeldForAGate, Gate: "sign-off", GateUnreadable: true},
+		Entry{Kind: KindHeldWork, HeldIn: backlog.HeldForAGate},
 	)
 }
 
@@ -206,7 +209,7 @@ func TestTheOperatorsEntriesAreTheOnesTheDesignNames(t *testing.T) {
 	}
 	stall := stallFixtures()
 	for index, entry := range passedOverFixtures() {
-		if entry.PassedOver == runstate.PassedOverWaitingOnAPerson {
+		if entry.PassedOver == runstate.PassedOverValidHumanGate {
 			his[key{KindPassedOver, index}] = ReasonHumanGate
 		}
 	}
@@ -350,5 +353,26 @@ func TestOperatorReasonsStayOnTheClosedList(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("reason %d = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestHeldGateOwnershipRequiresAValidDeclaration(t *testing.T) {
+	for _, fixture := range []struct {
+		name       string
+		gate       string
+		unreadable bool
+		owner      Mover
+	}{
+		{"valid gate", "sign-off", false, Operator},
+		{"unreadable declaration", "", true, ProductManager},
+		{"mixed declarations need separate groups", "sign-off", true, ProductManager},
+		{"no declaration", "", false, ProductManager},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			answer := Resolve(Entry{Kind: KindHeldWork, HeldIn: backlog.HeldForAGate, Gate: fixture.gate, GateUnreadable: fixture.unreadable})
+			if answer.Owner != fixture.owner || (answer.Owner.IsOperator() && answer.Reason != ReasonHumanGate) || (!answer.Owner.IsOperator() && answer.Reason != "") {
+				t.Fatalf("answer = %+v, want owner %s with only the operator's human-gate reason", answer, fixture.owner)
+			}
+		})
 	}
 }

@@ -28,7 +28,9 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/humangate"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readiness"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -6594,5 +6596,35 @@ func TestARedeployWaitGoesOnFiringTheCadence(t *testing.T) {
 	}
 	if len(tasks.misses) != 0 {
 		t.Errorf("misses = %+v, want nothing missed by a session that went on firing: %s", tasks.misses, schedule.Render())
+	}
+}
+
+func TestUnreadableGatesArePassedOverForACorrection(t *testing.T) {
+	t.Parallel()
+	valid := humangate.DeclareMarker + " sign-off — review the release"
+	unreadable := humangate.DeclareMarker
+	for _, fixture := range []struct {
+		name    string
+		reading humangate.Reading
+		class   runstate.PassedOverClass
+		owner   ownership.Mover
+	}{
+		{"valid", humangate.Read(valid), runstate.PassedOverValidHumanGate, ownership.Operator},
+		{"unreadable", humangate.Read(unreadable), runstate.PassedOverUnreadableGate, ownership.ProductManager},
+		{"mixed", humangate.Read(valid, unreadable), runstate.PassedOverUnreadableGate, ownership.ProductManager},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			entry := backlog.Entry{ID: "gated-item", HumanGates: fixture.reading}
+			class := unreadyClass(entry)
+			if class != fixture.class {
+				t.Fatalf("class = %q, want %q", class, fixture.class)
+			}
+			account := readmodel.GroupPassedOver([]readmodel.PassedOverItem{{ID: entry.ID, Class: class}}, 1)
+			poll := runstate.WatchTransition{State: runstate.WatchIdle, SessionID: "watch-gate", At: time.Now(), PassedOver: account}
+			cause, found := readmodel.WhyThePollStartedNothing([]runstate.WatchTransition{poll}, time.Time{}, poll.At)
+			if !found || cause.Mover != fixture.owner || (!cause.Mover.IsOperator() && cause.OwnerReason != "") {
+				t.Fatalf("cause = %+v, found = %v, want %s", cause, found, fixture.owner)
+			}
+		})
 	}
 }

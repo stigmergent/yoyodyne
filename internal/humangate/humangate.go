@@ -148,6 +148,7 @@ func Of(item beads.WorkItem) Reading {
 func Read(texts ...string) Reading {
 	var reading Reading
 	statements := make(map[string]string)
+	ambiguous := make(map[string]bool)
 	for _, parsed := range parse(texts...) {
 		if parsed.problem != nil {
 			reading.Unreadable = appendUniqueString(reading.Unreadable, parsed.problem.Error())
@@ -157,12 +158,25 @@ func Read(texts ...string) Reading {
 		// two gates: an operator recording it would not be saying which of the two
 		// they did, and one recorded act would pass both.
 		if existing, declared := statements[parsed.Name]; declared && existing != parsed.Statement {
+			ambiguous[parsed.Name] = true
 			reading.Unreadable = appendUniqueString(reading.Unreadable, fmt.Sprintf(
 				"the gate %q is declared twice and says two different things; one name is one act, and an operator recording it would not say which they did", parsed.Name))
 			continue
 		}
 		statements[parsed.Name] = parsed.Statement
 		reading.Gates = appendUnique(reading.Gates, parsed.Gate)
+	}
+	// A conflicting name has no unambiguous act to record. Keep its correction
+	// outstanding without also presenting the first statement as a valid gate.
+	gates := reading.Gates[:0]
+	for _, gate := range reading.Gates {
+		if !ambiguous[gate.Name] {
+			gates = append(gates, gate)
+		}
+	}
+	reading.Gates = gates
+	if len(reading.Gates) == 0 {
+		reading.Gates = nil
 	}
 	sort.Slice(reading.Gates, func(i, j int) bool { return reading.Gates[i].Name < reading.Gates[j].Name })
 	sort.Strings(reading.Unreadable)

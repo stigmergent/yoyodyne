@@ -443,7 +443,13 @@ func heldWorkRule(e Entry) (Resolution, bool) {
 	case backlog.HeldByDirective:
 		return owned(ProductManager, "the Lead Product Manager ends it or carries it into a document or an item, `yoyo directive resolve` settles it, and the work it pauses is pulled", "yoyo directive resolve")
 	case backlog.HeldForAGate:
-		return operators(ReasonHumanGate, "the operator records each act with `yoyo gate record <name> --for <item>`, and closing an item never passes one; a declaration nothing could read waits on its author correcting it", "yoyo gate record")
+		if e.GateUnreadable {
+			return humanGateRule(e)
+		}
+		if e.Gate == "" {
+			return Resolution{}, false
+		}
+		return operators(ReasonHumanGate, "the operator records each act with `yoyo gate record <name> --for <item>`, and closing an item never passes one", "yoyo gate record")
 	case backlog.HeldByStall:
 		answer, classified := stallRule(e)
 		if classified && e.Recovery != "" {
@@ -503,7 +509,7 @@ func operatorActionRule(e Entry) (Resolution, bool) {
 		if !e.Role.Valid() {
 			return Resolution{}, false
 		}
-		return owned(MoverOf(e.Role), "the owning role has argued them, and `yoyo amendment` records each decision, which needs the operator's hand until owning roles decide amendments themselves (yoyodyne-ifd.437.14)"+ends, "yoyo amendment")
+		return owned(MoverOf(e.Role), "the owning role has argued them, and `yoyo amendment` records each decision, which needs the operator's hand until the work on owning roles deciding amendments (yoyodyne-ifd.437.14) lands"+ends, "yoyo amendment")
 	}
 	return Resolution{}, false
 }

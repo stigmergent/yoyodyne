@@ -4709,8 +4709,10 @@ func unreadyClass(entry backlog.Entry) runstate.PassedOverClass {
 		return runstate.PassedOverAwaitingCarryOut
 	case entry.Awaiting != "" && !entry.AwaitingLanding:
 		return runstate.PassedOverAwaitingDecision
+	case len(entry.HumanGates.Unreadable) > 0:
+		return runstate.PassedOverUnreadableGate
 	case entry.HumanGates.Holds():
-		return runstate.PassedOverWaitingOnAPerson
+		return runstate.PassedOverValidHumanGate
 	default:
 		// A child waiting on its parent's change to land is waiting on other work,
 		// exactly as one waiting on a dependency is: it clears by itself.

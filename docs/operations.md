@@ -780,8 +780,8 @@ Manager's: a handling is hers to settle, route to the role that owns it, or
 handle again naming the reason, and an escalation is hers as the role above
 the development manager. A critical report nobody has handled is hers. An
 owning role's batch of recommendations is that role's, and still needs your
-hand to type `yoyo amendment` until owning roles decide amendments themselves
-(yoyodyne-ifd.437.14). Four things raise one:
+hand to type `yoyo amendment` until the work on owning roles deciding amendments
+(yoyodyne-ifd.437.14) lands. Four things raise one:
 
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
   `"needs": "operator"` for a report whose answer is a change only you can make,
@@ -3601,20 +3601,19 @@ has the rule.
   per group, each saying how many, what they wait on, the next step, and whose
   move that is: the development manager's decision about a stopped run (hers);
   the harness carrying out a decision already recorded (the harness's); an
-  unresolved directive (the operator's, by `yoyo directive resolve` — or the
-  Lead Product Manager's, where she has carried it into a document or an item
-  and [resolves it into that](conversation.md#directives-and-the-work-they-pause)
-  from her conversation, which ends it and lifts the pause); a step
-  only a person can take (the operator's, by `yoyo gate record`); ready work
+  unresolved directive (the Lead Product Manager's, by `yoyo directive resolve`);
+  a valid step only a person can take (the operator's, by `yoyo gate record`);
+  an unreadable gate declaration (the Lead Product Manager's, to correct on the
+  item); ready work
   a switch or a missing session stops (whoever the reason names — the operator
-  for his hold or a session that is not running, the development manager or the
-  harness for a hold the brake placed, nobody for a usage window); other items
+  for his own hold, the harness for a missing watch session, the development
+  manager or the harness for a hold the brake placed, nobody for a usage window); other items
   (the harness's, as they land); a role's conversation, one group per role (that
   role's); parked by the Lead Product Manager (hers); covered by other work, its
   own unfinished children (the harness's); and not offered by the tracker for a
   reason nothing here can read. **The last `-` line says in one sentence whether
-  anything on the line is the operator's** — under his rule of 2026-09-26 only a
-  change to the fundamental goals is — naming what is where something is, and
+  anything on the line is the operator's** — each with a reason from the
+  ownership registry's closed list — naming what is where something is, and
   saying `nothing here is the operator's` where nothing is. The items themselves
   follow, as before. The brief rendering the channel's hourly message carries
   keeps every `-` line with the heading, because who moves the work is what an
@@ -3623,7 +3622,16 @@ has the rule.
   `awaiting` for the two held waits, `count`, `waits_on`, `next`, `mover`, and
   its `items` — the sentence as `standing.not_startable_for_operator`, and the
   slot wait as `standing.waiting_for_slot`, with `ready`, `slots`, `in_flight`,
-  its `items`, and the line it `says`.
+  its `items`, and the line it `says`. An item with both a valid gate and an
+  unreadable declaration appears once in each owner's group: the operator's
+  pending act and the Lead Product Manager's correction. The heading counts
+  that refused item once, so the group counts can overlap. The idle poll's
+  passed-over account names the declaration correction first when an item
+  contains both; recording a valid act still leaves that correction outstanding.
+  Older idle records whose class only says "waiting on a person" cannot establish
+  a valid gate, so the registry assigns them to the Lead Product Manager with
+  the remedy "classify this entry". A gate name declared with conflicting
+  statements is unreadable and cannot be presented as a valid act until corrected.
 
   One of the queue's own accounts is an item **held**, which is the third and
   fourth not-startable lines in the example above: a run stopped on it and its

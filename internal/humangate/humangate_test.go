@@ -88,6 +88,9 @@ func TestADeclarationNobodyCanReadHoldsTheWork(t *testing.T) {
 			if !reading.Holds() {
 				t.Fatalf("Read(%q) = %#v, want the unreadable declaration to hold the work", testCase.text, reading)
 			}
+			if len(reading.Gates) != 0 {
+				t.Fatalf("unreadable declarations still expose recordable gates: %#v", reading.Gates)
+			}
 			if len(reading.Unreadable) == 0 {
 				t.Fatalf("Read(%q) = %#v, want the declaration reported as unreadable", testCase.text, reading)
 			}

@@ -469,3 +469,12 @@ func TestAReasonIsBoundedWhereTheAccountIsMade(t *testing.T) {
 		t.Fatalf("IdleLine() = %q, want it to say it was cut", line[len(line)-40:])
 	}
 }
+
+func TestALegacyGateClassCannotEstablishAnOperatorAct(t *testing.T) {
+	t.Parallel()
+	account := GroupPassedOver([]PassedOverItem{{ID: "legacy-item", Class: runstate.PassedOverWaitingOnAPerson}}, 1)
+	cause, found := WhyThePollStartedNothing([]runstate.WatchTransition{polled(moment, account)}, time.Time{}, moment)
+	if !found || cause.Mover != MoverProductManager || cause.OwnerReason != "" || cause.Remedy != "classify this entry" {
+		t.Fatalf("legacy cause = %+v, found = %v, want classification rather than an unproven operator act", cause, found)
+	}
+}

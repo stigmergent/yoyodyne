@@ -175,7 +175,7 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 	rendered := standing.Render()
 	for _, want := range []string{
 		"the architect's batch of 2 proposed changes was raised for the operator's hand: decide " + first.ID + " approve;",
-		"— the architect's — the owning role has argued them, and `yoyo amendment` records each decision, which needs the operator's hand until owning roles decide amendments themselves (yoyodyne-ifd.437.14); " + amendmentBatchEnds,
+		"— the architect's — the owning role has argued them, and `yoyo amendment` records each decision, which needs the operator's hand until the work on owning roles deciding amendments (yoyodyne-ifd.437.14) lands; " + amendmentBatchEnds,
 		"a change to v1-design is proposed and undecided (" + first.ID + ") — the architect's",
 		"a change to v1-design is proposed and undecided (" + unargued.ID + ") — the architect's",
 	} {

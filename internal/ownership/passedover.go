@@ -25,7 +25,12 @@ func passedOverRule(e Entry) (Resolution, bool) {
 		return owned(DevelopmentManager, "nothing pulls a stopped item until she decides what happens to it", "yoyo triage")
 	case runstate.PassedOverAwaitingCarryOut:
 		return owned(Harness, "the decisions are recorded, and what is outstanding is the harness acting on them", "yoyo triage")
+	case runstate.PassedOverUnreadableGate:
+		return humanGateRule(Entry{GateUnreadable: true})
 	case runstate.PassedOverWaitingOnAPerson:
+		// An old class alone cannot establish that any act can be recorded.
+		return Unclassified(), true
+	case runstate.PassedOverValidHumanGate:
 		return operators(ReasonHumanGate, "the item declares a human gate, and `yoyo gate record` is the only thing that passes it", "yoyo gate record")
 	case runstate.PassedOverWaitingOnOtherWork:
 		return owned(Nobody, "the work they wait on lands or does not, and the queue is read again either way", "")

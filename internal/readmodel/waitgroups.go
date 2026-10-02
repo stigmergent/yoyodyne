@@ -144,6 +144,17 @@ func newWaitGroups(stall Stall, held switches) *waitGroups {
 // held entry's wait and a conversation entry's role are read off it rather
 // than off the refusal's sentence.
 func (w *waitGroups) add(entry backlog.Entry, kind backlog.HoldKind) {
+	// A mixed declaration has two outstanding remedies. Count the item once
+	// in each owner's group; the overall refused-item count remains unchanged.
+	if kind == backlog.HeldForAGate && len(entry.HumanGates.Gates) > 0 && len(entry.HumanGates.Unreadable) > 0 {
+		correction := entry
+		correction.HumanGates.Gates = nil
+		w.add(correction, kind)
+		acts := entry
+		acts.HumanGates.Unreadable = nil
+		w.add(acts, kind)
+		return
+	}
 	group := w.shape(entry, kind)
 	key := string(group.Kind) + "\x00" + string(group.Awaiting) + "\x00" + string(group.Mover)
 	existing, ok := w.groups[key]
@@ -170,13 +181,17 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 // conversation group names, and the stall a stalled one stands behind.
 func (w *waitGroups) ownershipEntry(entry backlog.Entry, group WaitGroup) ownership.Entry {
 	held := ownership.Entry{
-		Kind:        ownership.KindHeldWork,
-		HeldIn:      group.Kind,
-		Held:        group.Awaiting,
-		Role:        entry.Executor.Role(),
-		StallReason: w.stall.Reason,
-		OutageCause: w.stall.OutageCause,
-		Recovery:    w.stall.Clears,
+		Kind:           ownership.KindHeldWork,
+		HeldIn:         group.Kind,
+		Held:           group.Awaiting,
+		Role:           entry.Executor.Role(),
+		StallReason:    w.stall.Reason,
+		OutageCause:    w.stall.OutageCause,
+		Recovery:       w.stall.Clears,
+		GateUnreadable: len(entry.HumanGates.Unreadable) > 0,
+	}
+	if len(entry.HumanGates.Gates) > 0 {
+		held.Gate = entry.HumanGates.Gates[0].Name
 	}
 	if w.held.intakeHeld {
 		intake := w.held.intake
@@ -199,6 +214,10 @@ func (w *waitGroups) said(entry backlog.Entry, kind backlog.HoldKind) WaitGroup 
 		return WaitGroup{Kind: kind,
 			WaitsOn: "wait on an unresolved directive"}
 	case backlog.HeldForAGate:
+		if len(entry.HumanGates.Unreadable) > 0 {
+			return WaitGroup{Kind: kind,
+				WaitsOn: "wait on the correction of an unreadable human-gate declaration"}
+		}
 		return WaitGroup{Kind: kind,
 			WaitsOn: "wait on a step only a person can take"}
 	case backlog.HeldByStall:
