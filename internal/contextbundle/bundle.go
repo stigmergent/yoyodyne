@@ -150,23 +150,43 @@ type Bundle struct {
 var markdownReferencePattern = regexp.MustCompile(`[A-Za-z0-9._/-]+\.md`)
 
 var fileReferencePattern = regexp.MustCompile(`[A-Za-z0-9._/-]+\.[A-Za-z][A-Za-z0-9]*`)
+var repositoryPathPattern = regexp.MustCompile(`[A-Za-z0-9._/-]+`)
 
 // ExtractFileReferences names repository-relative files cited by the item,
-// including source and data files. Base-revision Markdown references remain
-// separate from this whole-file evidence at the candidate's HEAD.
-func ExtractFileReferences(item beads.WorkItem) []string {
+// including extensionless files resolved against the reviewed commit's listing.
+// Filename references with extensions are retained even where they do not
+// resolve, so their unavailable content can be stated. Base-revision Markdown
+// references remain separate from this whole-file evidence at the candidate's HEAD.
+func ExtractFileReferences(item beads.WorkItem, repositoryFiles []string) []string {
 	var references []string
 	seen := make(map[string]bool)
+	committed := make(map[string]bool, len(repositoryFiles))
+	for _, file := range repositoryFiles {
+		committed[file] = true
+	}
 	// Acceptance sources have first claim on a bounded review's content budget;
 	// old run notes must not displace the sources needed to judge the criteria.
 	for _, text := range []string{item.AcceptanceCriteria, item.Description, item.Design, item.Notes} {
 		var candidates []string
-		for _, candidate := range fileReferencePattern.FindAllString(text, -1) {
+		add := func(candidate string) {
 			clean := filepath.Clean(candidate)
 			if filepath.IsAbs(candidate) || clean == ".." || strings.HasPrefix(clean, "../") {
-				continue
+				return
 			}
 			candidates = append(candidates, filepath.ToSlash(clean))
+		}
+		for _, candidate := range fileReferencePattern.FindAllString(text, -1) {
+			add(candidate)
+		}
+		for _, candidate := range repositoryPathPattern.FindAllString(text, -1) {
+			clean := filepath.ToSlash(filepath.Clean(candidate))
+			if committed[clean] {
+				add(candidate)
+			} else if withoutPeriod := strings.TrimRight(candidate, "."); committed[filepath.ToSlash(filepath.Clean(withoutPeriod))] {
+				// A sentence-ending period is punctuation unless the committed
+				// filename itself includes it.
+				add(withoutPeriod)
+			}
 		}
 		for _, candidate := range uniqueSorted(candidates) {
 			if !seen[candidate] {

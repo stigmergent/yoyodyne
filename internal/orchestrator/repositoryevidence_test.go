@@ -15,13 +15,20 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/review"
 )
 
-func TestReviewerGetsUnchangedBinaryPresenceAndLiteralContentAtHead(t *testing.T) {
+func TestReviewerGetsUnchangedExtensionlessSourcesAndBinaryPresenceAtHead(t *testing.T) {
 	t.Parallel()
 	repository := pipelineRepository(t)
+	if err := os.MkdirAll(filepath.Join(repository, "scripts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for path, content := range map[string]string{
 		"docs/guide.md":  "# Guide\n\nliteral literal literal\n",
 		"docs/count.txt": "unchanged unchanged unchanged unchanged\n",
 		"docs/icon.bin":  "\x00already in the repository\n",
+		"Makefile":       "check:\n\t./scripts/check\n",
+		"Dockerfile":     "FROM scratch\n",
+		"LICENSE":        "Permission to use this fixture.\n",
+		"scripts/check":  "#!/bin/sh\nexit 0\n",
 	} {
 		if err := os.WriteFile(filepath.Join(repository, path), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -32,7 +39,7 @@ func TestReviewerGetsUnchangedBinaryPresenceAndLiteralContentAtHead(t *testing.T
 	base := gitLine(t, repository, "rev-parse", "HEAD")
 	tracker := newOutcomeTracker()
 	tracker.Item.Description = "Edit docs/guide.md while preserving docs/icon.bin."
-	tracker.Item.AcceptanceCriteria = "docs/guide.md contains literal four times; docs/count.txt contains unchanged four times."
+	tracker.Item.AcceptanceCriteria = "docs/guide.md contains literal four times; docs/count.txt contains unchanged four times. Compare unchanged Makefile, Dockerfile, LICENSE and ./scripts//check."
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "docs", "guide.md"), []byte("# Guide\n\nliteral literal literal literal\n"), 0o600)
 	}, approveVerdict)
@@ -56,6 +63,14 @@ func TestReviewerGetsUnchangedBinaryPresenceAndLiteralContentAtHead(t *testing.T
 		"literal literal literal literal\n",
 		"unchanged unchanged unchanged unchanged\n",
 		"File at reviewed commit " + outcome.ReviewHeadCommit + ": docs/count.txt",
+		"File at reviewed commit " + outcome.ReviewHeadCommit + ": Makefile",
+		"check:\n\t./scripts/check\n",
+		"File at reviewed commit " + outcome.ReviewHeadCommit + ": Dockerfile",
+		"FROM scratch\n",
+		"File at reviewed commit " + outcome.ReviewHeadCommit + ": LICENSE",
+		"Permission to use this fixture.\n",
+		"File at reviewed commit " + outcome.ReviewHeadCommit + ": scripts/check",
+		"#!/bin/sh\nexit 0\n",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("reviewer evidence omitted %q:\n%s", want, prompt)
@@ -85,14 +100,14 @@ func TestReviewerGetsTheBlockersOwnReasonAndTrackerState(t *testing.T) {
 func TestCitedHeadContentThatOutgrowsTheBudgetIsExplicit(t *testing.T) {
 	t.Parallel()
 	repository := pipelineRepository(t)
-	if err := os.WriteFile(filepath.Join(repository, "docs", "large.txt"), []byte(strings.Repeat("x", maxRepositoryContentBytes+1)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repository, "Makefile"), []byte(strings.Repeat("x", maxRepositoryContentBytes+1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runPipelineGit(t, repository, "add", ".")
 	runPipelineGit(t, repository, "commit", "-m", "an oversized cited source")
 	pipeline, _ := newAutomaticPipeline(t, repository, newOutcomeTracker(), orchestratortest.RoleBackend(writeFeature, approveVerdict), []string{"exit 0"})
-	evidence := reviewedRepository(context.Background(), pipeline.Worktrees, gitLine(t, repository, "rev-parse", "HEAD"), beads.WorkItem{AcceptanceCriteria: "Compare against docs/large.txt"}, gitworktree.ChangeDiff{})
-	if len(evidence.Contents) != 1 || evidence.Contents[0].Content != "" || !strings.Contains(evidence.Contents[0].Unavailable, "content budget") {
+	evidence := reviewedRepository(context.Background(), pipeline.Worktrees, gitLine(t, repository, "rev-parse", "HEAD"), beads.WorkItem{AcceptanceCriteria: "Compare against Makefile."}, gitworktree.ChangeDiff{})
+	if len(evidence.Contents) != 1 || evidence.Contents[0].Path != "Makefile" || evidence.Contents[0].Content != "" || !strings.Contains(evidence.Contents[0].Unavailable, "content budget") {
 		t.Fatalf("oversized cited content was not stated as unavailable: %#v", evidence)
 	}
 }

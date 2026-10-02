@@ -96,8 +96,23 @@ func TestFileReferencesPrioritizeCriteriaAndNormalizePaths(t *testing.T) {
 		Description:        "Modify internal/feature.go using README.md.",
 		Notes:              "Earlier work named old/source.json and yoyodyne-ifd.148.",
 	}
-	got := ExtractFileReferences(item)
+	got := ExtractFileReferences(item, nil)
 	want := []string{"README.md", "docs/source.txt", "internal/feature.go", "old/source.json"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("ExtractFileReferences() = %v, want %v", got, want)
+	}
+}
+
+func TestFileReferencesResolveExtensionlessSourcesAgainstTheListing(t *testing.T) {
+	t.Parallel()
+	item := beads.WorkItem{
+		AcceptanceCriteria: "Compare `Makefile`, Dockerfile, LICENSE and ./scripts//check. Also compare README.md.",
+		Description:        "Use scripts/check and config. Ignore Makefile.old, /private/secret and https://example.com/scripts/check.",
+		Notes:              "Earlier work named tools/build.",
+	}
+	files := []string{"Dockerfile", "LICENSE", "Makefile", "README.md", "scripts/check", "config", "tools/build", "private/secret", "unused"}
+	got := ExtractFileReferences(item, files)
+	want := []string{"Dockerfile", "LICENSE", "Makefile", "README.md", "scripts/check", "Makefile.old", "config", "tools/build"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("ExtractFileReferences() = %v, want %v", got, want)
 	}

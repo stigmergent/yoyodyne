@@ -31,7 +31,7 @@ func reviewedRepository(ctx context.Context, reader repositoryReader, commit str
 	evidence := review.RepositoryEvidence{Listing: listing}
 	// Cited sources go first. They may be unchanged (and therefore invisible in
 	// the patch), or newly created (and therefore absent from base references).
-	paths := contextbundle.ExtractFileReferences(item)
+	paths := contextbundle.ExtractFileReferences(item, listing.Files)
 	seen := make(map[string]bool)
 	for _, path := range paths {
 		seen[path] = true

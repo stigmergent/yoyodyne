@@ -222,7 +222,9 @@ the contract requires it for absence claims written in a finding's prose.
 Whole text at the reviewed commit is supplied separately from references at the
 base commit, for literal counts and content claims that a patch cannot settle.
 Files cited by the acceptance criteria come first, followed by other item
-references, then other changed files. Up to 32 files share a 64 KiB content
+references, then other changed files. Citations are matched against the committed
+listing, so unchanged extensionless sources such as `Makefile`, `Dockerfile`,
+`LICENSE`, and `scripts/check` are included too. Up to 32 files share a 64 KiB content
 budget. Each supplied file is whole and labelled with its commit; unreadable,
 binary, oversized, and excluded content is stated as unavailable. The total
 review input bound can shorten this evidence further, with those losses stated
