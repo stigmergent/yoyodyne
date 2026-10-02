@@ -200,8 +200,8 @@ func (s *Session) reportBlockRefusals(out io.Writer, reply Reply) {
 // Each occurrence starts at its opening line; disregard that line's trailing
 // text, or read JSON placed directly after the opener, without requiring a
 // closing fence or EOF.
-// Malformed framing or another entry's invalid field type must not conceal a
-// known action the role may not take.
+// Malformed framing, invalid field types, and repeated fields must not conceal
+// a known action the role may not take.
 func blockAuthority(role domain.AgentRole, fence, block string) error {
 	if fence != trackerFence && fence != artifact.WriteFence {
 		return nil
@@ -211,47 +211,104 @@ func blockAuthority(role domain.AgentRole, fence, block string) error {
 		payload = block[lineEnd(block):]
 	}
 	decoder := json.NewDecoder(strings.NewReader(payload))
+	decoder.UseNumber()
+	document, _ := readReplyValue(decoder, 0)
+	fields := document.fields
 	authority, _ := AuthorityFor(role)
 	if fence == trackerFence {
-		var document struct {
-			Actions []json.RawMessage `json:"actions"`
-		}
-		if decoder.Decode(&document) != nil {
-			return nil
-		}
-		for _, entry := range document.Actions {
-			var action struct {
-				Action string `json:"action"`
+		for _, value := range fields["actions"] {
+			for _, entry := range value.entries {
+				for _, value := range entry.fields["action"] {
+					action := value.text
+					if _, known := trackerCapabilities[action]; known && !authority.MayAct(action) {
+						return &AuthorityError{Role: role, Refused: fmt.Sprintf("the %q tracker action", action),
+							Reason: "this role may ask for " + renderActions(authority.TrackerActions)}
+					}
+				}
 			}
-			if json.Unmarshal(entry, &action) != nil {
+		}
+		return nil
+	}
+	for _, value := range fields["documents"] {
+		for _, entry := range value.entries {
+			fields := entry.fields
+			create := false
+			for _, value := range fields["action"] {
+				if artifact.WriteAction(value.text) == artifact.WriteCreate {
+					create = true
+					break
+				}
+			}
+			if !create {
 				continue
 			}
-			if _, known := trackerCapabilities[action.Action]; known && !authority.MayAct(action.Action) {
-				return &AuthorityError{Role: role, Refused: fmt.Sprintf("the %q tracker action", action.Action),
-					Reason: "this role may ask for " + renderActions(authority.TrackerActions)}
-			}
-		}
-		return nil
-	}
-	var document struct {
-		Documents []json.RawMessage `json:"documents"`
-	}
-	if decoder.Decode(&document) != nil {
-		return nil
-	}
-	for _, entry := range document.Documents {
-		var write struct {
-			Action artifact.WriteAction `json:"action"`
-			Kind   artifact.Kind        `json:"kind"`
-		}
-		if json.Unmarshal(entry, &write) != nil {
-			continue
-		}
-		if write.Action == artifact.WriteCreate && write.Kind.Valid() {
-			if err := (artifact.Write{Action: write.Action, Kind: write.Kind}).Authorize(role); err != nil {
-				return &AuthorityError{Role: role, Refused: "a document to be written", Reason: err.Error()}
+			for _, value := range fields["kind"] {
+				kind := artifact.Kind(value.text)
+				if !kind.Valid() {
+					continue
+				}
+				if err := (artifact.Write{Action: artifact.WriteCreate, Kind: kind}).Authorize(role); err != nil {
+					return &AuthorityError{Role: role, Refused: "a document to be written", Reason: err.Error()}
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// Keep every occurrence rather than overwriting repeated fields, including
+// the fields read before a syntax error. This is inspection, not validation.
+type replyJSONValue struct {
+	fields  map[string][]replyJSONValue
+	entries []replyJSONValue
+	text    string
+}
+
+func readReplyValue(decoder *json.Decoder, depth int) (replyJSONValue, error) {
+	var value replyJSONValue
+	if depth > 10000 {
+		return value, fmt.Errorf("JSON nesting exceeds 10000 levels")
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return value, err
+	}
+	switch token {
+	case json.Delim('{'):
+		value.fields = make(map[string][]replyJSONValue)
+		for decoder.More() {
+			token, err := decoder.Token()
+			if err != nil {
+				return value, err
+			}
+			key, ok := token.(string)
+			if !ok {
+				return value, fmt.Errorf("expected a JSON object key")
+			}
+			for _, name := range []string{"actions", "documents", "action", "kind"} {
+				if strings.EqualFold(key, name) {
+					key = name
+					break
+				}
+			}
+			field, err := readReplyValue(decoder, depth+1)
+			value.fields[key] = append(value.fields[key], field)
+			if err != nil {
+				return value, err
+			}
+		}
+		_, err = decoder.Token()
+	case json.Delim('['):
+		for decoder.More() {
+			entry, err := readReplyValue(decoder, depth+1)
+			value.entries = append(value.entries, entry)
+			if err != nil {
+				return value, err
+			}
+		}
+		_, err = decoder.Token()
+	default:
+		value.text, _ = token.(string)
+	}
+	return value, err
 }

@@ -214,7 +214,7 @@ func TestMalformedBlocksCannotHideUnauthorizedActions(t *testing.T) {
 	}
 }
 
-func TestInvalidSiblingCannotHideUnauthorizedActions(t *testing.T) {
+func TestInvalidFieldsCannotHideUnauthorizedActions(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name, fence, collection, forbidden, invalid, wantReason string
@@ -233,13 +233,39 @@ func TestInvalidSiblingCannotHideUnauthorizedActions(t *testing.T) {
 			forbidden: `{"action":"create","kind":"design"}`, invalid: `{"action":"create","kind":5}`, wantReason: "design",
 		},
 	} {
-		for _, order := range []string{"invalid first", "invalid last"} {
-			t.Run(test.name+"/"+order, func(t *testing.T) {
-				first, second := test.invalid, test.forbidden
-				if order == "invalid last" {
-					first, second = second, first
+		payloads := map[string]string{
+			"invalid sibling first": `{"` + test.collection + `":[` + test.invalid + `,` + test.forbidden + `]}`,
+			"invalid sibling last":  `{"` + test.collection + `":[` + test.forbidden + `,` + test.invalid + `]}`,
+			"unclosed entry":        `{"` + test.collection + `":[` + strings.TrimSuffix(test.forbidden, "}"),
+			"broken sibling syntax": `{"` + test.collection + `":[` + test.forbidden + `,{"action":`,
+		}
+		for _, key := range []string{test.collection, strings.ToUpper(test.collection)} {
+			for _, replacement := range []string{`5`, `1e1000`, `[]`} {
+				payloads[key+" first "+replacement] = `{"` + key + `":` + replacement + `,"` + test.collection + `":[` + test.forbidden + `]}`
+				payloads[key+" last "+replacement] = `{"` + test.collection + `":[` + test.forbidden + `],"` + key + `":` + replacement + `}`
+			}
+		}
+		for _, field := range []string{"action", "kind"} {
+			if field == "kind" && test.fence == trackerFence {
+				continue
+			}
+			permitted := `"read"`
+			if test.fence == artifact.WriteFence {
+				permitted = `"revise"`
+				if field == "kind" {
+					permitted = `"goals"`
 				}
-				block := test.fence + "\n{\"" + test.collection + "\":[" + first + "," + second + "]}\n```\n"
+			}
+			for _, key := range []string{field, strings.ToUpper(field)} {
+				for _, replacement := range []string{`5`, `1e1000`, permitted} {
+					payloads[key+" first "+replacement] = `{"` + test.collection + `":[{"` + key + `":` + replacement + `,` + strings.TrimPrefix(test.forbidden, "{") + `]}`
+					payloads[key+" last "+replacement] = `{"` + test.collection + `":[` + strings.TrimSuffix(test.forbidden, "}") + `,"` + key + `":` + replacement + `}]}`
+				}
+			}
+		}
+		for name, payload := range payloads {
+			t.Run(test.name+"/"+name, func(t *testing.T) {
+				block := test.fence + "\n" + payload + "\n```\n"
 				provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: block +
 					memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`)}}}
 				options, _ := documentOptions(t, provider)
@@ -266,6 +292,25 @@ func TestInvalidSiblingCannotHideUnauthorizedActions(t *testing.T) {
 					t.Fatalf("memory store = %v, %v, %v; want no memory written", all, problems, err)
 				}
 			})
+		}
+	}
+}
+
+func TestRepeatedFieldsWithInvalidTypesStillFailValidation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct{ fence, payload string }{
+		{trackerFence, `{"actions":[{"action":"read","ACTION":5}]}`},
+		{trackerFence, `{"actions":[{"action":"read"}],"ACTIONS":5}`},
+		{artifact.WriteFence, `{"documents":[{"action":"create","kind":"goals","KIND":5}]}`},
+		{artifact.WriteFence, `{"documents":[{"action":"create","kind":"goals"}],"DOCUMENTS":5}`},
+		{trackerFence, `{"actions":[{"action":"read","nested":{"action":"reprioritize"}}]}`},
+		{artifact.WriteFence, `{"documents":[{"action":"create","kind":"goals","nested":{"kind":"design"}}]}`},
+	} {
+		parsed, err := splitReply(domain.RoleProductManager, test.fence+"\n"+test.payload+"\n```\n"+
+			memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`))
+		if parsed.AuthorityProblem != nil || (err == nil && len(parsed.Refusals) == 0) ||
+			len(parsed.Actions) != 0 || len(parsed.Writes) != 0 || len(parsed.Memories) != 1 {
+			t.Fatalf("validation lost a block or widened authority: %+v, %v", parsed, err)
 		}
 	}
 }
