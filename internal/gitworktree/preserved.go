@@ -27,9 +27,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // UncommittedWork says what a retirement may do about a checkout that still
@@ -275,6 +277,47 @@ func (m *Manager) RestoreWorktree(ctx context.Context, worktree Worktree) (Workt
 	if err := m.ValidateReady(ctx); err != nil {
 		return Worktree{}, err
 	}
+	ctx, lease, err := m.leaseRegistry(ctx)
+	if err != nil {
+		return Worktree{}, err
+	}
+	defer func() { _ = lease.release() }()
+	// Resolve the root through the same confinement primitive as other writes.
+	// A replaced root is a refusal, never a checkout written through a symlink.
+	root, err := repowrite.OpenPinnedRoot(m.worktreeRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		// The entire checkout root may have gone with the missing checkout.
+		// Recreate it through the shared writer, rooted at its existing parent.
+		resolved, resolveErr := canonicalizeFuturePath(m.worktreeRoot)
+		if resolveErr != nil || resolved != m.worktreeRoot {
+			return Worktree{}, errors.New("the missing worktree root no longer resolves to its recorded location")
+		}
+		parent := filepath.Dir(m.worktreeRoot)
+		for {
+			_, statErr := os.Lstat(parent)
+			if !errors.Is(statErr, os.ErrNotExist) {
+				break
+			}
+			parent = filepath.Dir(parent)
+		}
+		writer, parentErr := repowrite.OpenPinnedRoot(parent)
+		if parentErr != nil {
+			return Worktree{}, parentErr
+		}
+		defer writer.Close()
+		relative, relativeErr := filepath.Rel(parent, m.worktreeRoot)
+		if relativeErr != nil {
+			return Worktree{}, relativeErr
+		}
+		if err := writer.MakeDirectory(filepath.ToSlash(relative), 0o700); err != nil {
+			return Worktree{}, err
+		}
+		root, err = writer.OpenDirectory(relative)
+	}
+	if err != nil {
+		return Worktree{}, fmt.Errorf("resolve the restoration root: %w", err)
+	}
+	defer root.Close()
 	head, err := m.resolveBranchCommit(ctx, worktree.Branch)
 	if err != nil {
 		return Worktree{}, fmt.Errorf("resolve the retired worktree's branch: %w", err)
@@ -282,37 +325,32 @@ func (m *Manager) RestoreWorktree(ctx context.Context, worktree Worktree) (Workt
 	if head != worktree.HarnessCommit {
 		return Worktree{}, fmt.Errorf("branch %s is at %s, not at the commit the harness recorded (%s); what is on it is not the change that was reviewed", worktree.Branch, head, worktree.HarnessCommit)
 	}
+	if err := m.verifyHarnessHistory(ctx, m.repositoryRoot, worktree.BaseCommit, head); err != nil {
+		return Worktree{}, err
+	}
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 		if err == nil {
 			return Worktree{}, fmt.Errorf("worktree path already exists: %s", path)
 		}
 		return Worktree{}, fmt.Errorf("inspect worktree path: %w", err)
 	}
-	registered, _, err := m.registeredWorktree(ctx, path)
+	registered, branch, err := m.registeredWorktree(ctx, path)
 	if err != nil {
 		return Worktree{}, err
 	}
 	if registered {
-		return Worktree{}, fmt.Errorf("worktree %s is still registered although its directory is gone; `git worktree prune` is what settles that", path)
+		if branch != worktree.Branch {
+			return Worktree{}, fmt.Errorf("missing worktree %s is registered on %s rather than %s", path, branch, worktree.Branch)
+		}
 	}
-	if err := os.MkdirAll(m.worktreeRoot, 0o700); err != nil {
-		return Worktree{}, fmt.Errorf("create worktree root: %w", err)
-	}
-	ctx, lease, err := m.leaseRegistry(ctx)
-	if err != nil {
+	if err := m.restoreCheckout(ctx, worktree, root, registered); err != nil {
 		return Worktree{}, err
-	}
-	defer func() { _ = lease.release() }()
-
-	result, err := m.run(ctx, "-C", m.repositoryRoot, "worktree", "add", path, worktree.Branch)
-	if err != nil {
-		return Worktree{}, err
-	}
-	if result.Status != execution.ProcessSucceeded {
-		return Worktree{}, fmt.Errorf("restore worktree failed with exit code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	restored := worktree
 	restored.Path = path
+	if err := m.VerifyOwnedHead(ctx, restored); err != nil {
+		return restored, fmt.Errorf("verify restored revision: %w", err)
+	}
 	inspection, err := m.Inspect(ctx, restored)
 	if err != nil {
 		return restored, fmt.Errorf("verify restored worktree: %w", err)

@@ -742,7 +742,7 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 // only an entry nobody decided anything about is taken. Machine load does not
 // withhold it, just as it does not withhold fresh work.
 func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (CarryOutTask, bool, error) {
-	if c.CheckStages == nil || !entry.HarnessContinuesChecks {
+	if c.CheckStages == nil || (!entry.HarnessContinuesChecks && strings.TrimSpace(entry.CheckStageStop) == "") {
 		return CarryOutTask{}, false, nil
 	}
 	// A stop or a decision to let the run finish was made about the run in
@@ -750,6 +750,8 @@ func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (Carr
 	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() {
 		return CarryOutTask{}, false, nil
 	}
+	// The run's current obligation is authoritative. An old docket entry may
+	// have recorded removal flags before checkout restoration was supported.
 	due, err := c.CheckStages.Due(entry.RunID)
 	if err != nil || !due {
 		return CarryOutTask{}, false, err

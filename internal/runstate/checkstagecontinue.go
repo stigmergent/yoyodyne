@@ -102,11 +102,13 @@ func (s State) StoppedAtStageBound() bool {
 }
 
 // HarnessContinuesCheckStage reports a run the stage bound stopped that the
-// harness will continue at its checks by itself: its branch and worktree are
-// still there, the developer attempt that made the change is on the record,
+// harness will continue at its checks by itself: its branch, checkout and
+// developer session are recorded and its artifacts have not been superseded,
 // the harness has not already continued it MaxCheckStageContinuations times,
-// and no earlier continuation was refused for something only a person can
-// settle. Whether it may go now — a free slot and the
+// and no earlier continuation was refused for the development manager to
+// decide. Repository checks at continuation verify the artifacts and may restore
+// a missing checkout; removal flags alone cannot cancel the obligation.
+// Whether it may go now — a free slot and the
 // operator's switches — is the moment's to answer rather than the record's.
 func (s State) HarnessContinuesCheckStage() bool {
 	if !s.StoppedAtStageBound() {
@@ -115,7 +117,7 @@ func (s State) HarnessContinuesCheckStage() bool {
 	if s.WorktreePath == "" || s.Branch == "" || s.BaseCommit == "" || s.TargetBranch == "" {
 		return false
 	}
-	if s.WorktreeRemoved || s.BranchRemoved || strings.TrimSpace(s.ProviderSessionID) == "" {
+	if s.ArtifactsRetiredBy != "" || strings.TrimSpace(s.ProviderSessionID) == "" {
 		return false
 	}
 	if strings.TrimSpace(s.CheckStageContinuationRefused) != "" {
@@ -143,5 +145,5 @@ func (s State) CheckStageStopSays() string {
 	if len(s.CheckStageContinuations) >= MaxCheckStageContinuations {
 		return fmt.Sprintf("%s; the harness has already continued it at its checks %d times, which is its bound, so what happens to it next is the development manager's decision", stopped, len(s.CheckStageContinuations))
 	}
-	return stopped + "; its branch or worktree is gone, so the harness cannot continue it, and what happens to it next is the development manager's decision"
+	return stopped + "; its recorded branch, checkout, or developer session is unavailable, or its work has been superseded, so what happens to it next is the development manager's decision"
 }

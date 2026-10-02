@@ -85,6 +85,8 @@ type ReconcilePullRequests interface {
 // AdoptRun is what keeps a reconciled run singular: a run a live process still
 // holds is left to that process rather than decided about from outside.
 type ReconcileStore interface {
+	// Triage reads the decisions whose recovery still needs a stopped checkout.
+	Triage() *runstate.TriageStore
 	Outstanding() ([]runstate.State, error)
 	AdoptRun(ctx context.Context, runID string) (runstate.State, *runstate.Lease, error)
 	Save(state runstate.State) error

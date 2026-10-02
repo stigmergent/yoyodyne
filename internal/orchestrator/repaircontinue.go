@@ -59,8 +59,9 @@ package orchestrator
 // hypothetical in shape: the first exercised triage re-run asked the item's
 // status past the claim that bounded it, and the next attempt was then refused
 // by the once-only guard for a run that had never happened. So everything that
-// can refuse is asked first, and the two writes that carry the grant out are the
-// last things to happen.
+// can refuse without a checkout is asked first. A missing checkout is restored
+// only after the decision, hold and capacity pass, with verification credit
+// cleared durably first. The writes that carry the grant out remain last.
 //
 // # Why the blocker is superseded rather than left standing
 //
@@ -158,6 +159,13 @@ type RepairWorktrees interface {
 	PreservedChanges
 }
 
+// RestorableWorktrees is needed only when the repository verified a checkout
+// missing. Restoration checks out the recorded branch; it creates no run.
+type RestorableWorktrees interface {
+	RestoreWorktree(ctx context.Context, worktree gitworktree.Worktree) (gitworktree.Worktree, error)
+	Inspect(ctx context.Context, worktree gitworktree.Worktree) (gitworktree.Inspection, error)
+}
+
 // PreservedChanges reads what a preserved worktree holds. It is the whole of
 // what proving a handback carries its change needs, and it is stated apart from
 // the gate above so the pipeline's own worktree manager satisfies it too: what
@@ -251,9 +259,10 @@ type RepairContinueResult struct {
 	Truncated bool `json:"truncated,omitempty"`
 	// RepairBudget is what the continued run may now spend in total, and
 	// RepairAttempts what it had already spent when it stopped.
-	RepairBudget   int  `json:"repair_budget,omitempty"`
-	RepairAttempts int  `json:"repair_attempts,omitempty"`
-	Continued      bool `json:"continued"`
+	RepairBudget     int  `json:"repair_budget,omitempty"`
+	RepairAttempts   int  `json:"repair_attempts,omitempty"`
+	Continued        bool `json:"continued"`
+	WorktreeRestored bool `json:"worktree_restored,omitempty"`
 	// Stall says what was carried out was a stalled attempt being carried on
 	// rather than a change being repaired: the harness stopped this run's
 	// provider before anything was returned to its developer, so the
@@ -413,6 +422,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if err := continuableRepair(prior, found); err != nil {
 		return result, err
 	}
+	recovery := checkoutRecovery{Runs: c.Runs, Worktrees: c.Worktrees, Clock: c.Clock}
 	result.RepairAttempts = prior.RepairAttempts
 	result.SupersededBlocker = prior.Blocker
 	// Whether this is a stall being carried on rather than a change being
@@ -424,26 +434,33 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	result.ResumesAt = continuedPhase(prior, result.Stall)
 	// The architect's condition, asked before anything is written: the change a
 	// continued developer is handed back is whatever is in that worktree.
-	if err := c.Worktrees.VerifyOwnedHead(ctx, worktreeOf(prior)); err != nil {
-		return result, WorktreeSurgeryError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
-	}
-	// And that the change is in it, which the gate above does not ask: a worktree
-	// exactly as the harness left it and holding nothing passes that one. The
-	// resumed run asks this again where it would invoke a developer, which is the
-	// enforcement; asking it here is what keeps a handback that cannot work from
-	// spending the item's grant to find out.
-	//
-	// A stall mid-attempt is the exception, and it is the same exception the
-	// resumed run makes: nothing was handed back, so there is no change this
-	// continuation is about, and an empty worktree is exactly what the attempt it
-	// is owed starts from. Asking here for a change a stalled first attempt may
-	// never have written would refuse the decision this action exists to carry
-	// out. A stall at the checks or the review is not excepted: those steps judge
-	// the change the attempt left, so it has to be there exactly as a repair's
-	// does.
-	if !result.Stall || resumesAnExistingChange(prior) {
-		if err := preservedChangeHeld(ctx, c.Worktrees, prior); err != nil {
-			return result, MissingPreservedChangeError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
+	if found.WorktreeThere {
+		if err := c.Worktrees.VerifyOwnedHead(ctx, worktreeOf(prior)); err != nil {
+			return result, WorktreeSurgeryError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
+		}
+		if prior.CheckoutRestorePending {
+			if err := recovery.verifyRestoredCheckout(ctx, prior); err != nil {
+				return result, err
+			}
+		}
+		// And that the change is in it, which the gate above does not ask: a worktree
+		// exactly as the harness left it and holding nothing passes that one. The
+		// resumed run asks this again where it would invoke a developer, which is the
+		// enforcement; asking it here is what keeps a handback that cannot work from
+		// spending the item's grant to find out.
+		//
+		// A stall mid-attempt is the exception, and it is the same exception the
+		// resumed run makes: nothing was handed back, so there is no change this
+		// continuation is about, and an empty worktree is exactly what the attempt it
+		// is owed starts from. Asking here for a change a stalled first attempt may
+		// never have written would refuse the decision this action exists to carry
+		// out. A stall at the checks or the review is not excepted: those steps judge
+		// the change the attempt left, so it has to be there exactly as a repair's
+		// does.
+		if !result.Stall || resumesAnExistingChange(prior) {
+			if err := preservedChangeHeld(ctx, c.Worktrees, prior); err != nil {
+				return result, MissingPreservedChangeError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
+			}
 		}
 	}
 	if err := noRunInFlight(c.Runs, entry.WorkItemID); err != nil {
@@ -489,8 +506,28 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 		result.CapacityFull = &full
 		return result, nil
 	}
+	if !found.WorktreeThere {
+		prior, err = recovery.restoreCheckout(ctx, prior)
+		if err != nil {
+			return result, err
+		}
+		result.WorktreeRestored = true
+		result.ResumesAt = continuedPhase(prior, result.Stall)
+		if err := preservedChangeHeld(ctx, c.Worktrees, prior); err != nil {
+			return result, MissingPreservedChangeError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
+		}
+	} else if prior.CheckoutRestorePending {
+		prior, err = recovery.recordRestoredCheckout(ctx, prior)
+		if err != nil {
+			return result, err
+		}
+		result.WorktreeRestored = true
+	}
 
 	result.Reason = continueReason(entry, granted, result.Stall, result.Checks, result.ResumesAt)
+	if result.WorktreeRestored {
+		result.Reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
+	}
 
 	// The item is put back first, because a run made live behind an item that
 	// still says it is blocked is a run nothing can resume and nothing will
@@ -686,7 +723,7 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 	if prior.WorktreePath == "" || prior.Branch == "" || prior.BaseCommit == "" || prior.TargetBranch == "" {
 		return permanentCarryOut(triage.CarryOutWorktreeGone, fmt.Errorf("run %s recorded no preserved worktree to continue in, so there is no change to repair; a fresh run of the item is what it needs", prior.RunID))
 	}
-	if found.Unknown || !found.WorktreeThere || !found.BranchThere {
+	if found.Unknown || !found.BranchThere || (!found.WorktreeThere && !found.Looked()) {
 		err := fmt.Errorf("there is no verified branch and checkout of run %s to continue: %s", prior.RunID, found.Describe())
 		if found.Unknown {
 			return err
@@ -695,6 +732,14 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 			return permanentCarryOut(triage.CarryOutBranchGone, err)
 		}
 		return permanentCarryOut(triage.CarryOutWorktreeGone, err)
+	}
+	if !found.WorktreeThere {
+		if prior.ArtifactsRetiredBy != "" {
+			return permanentCarryOut(triage.CarryOutWorktreeGone, fmt.Errorf("run %s's artifacts were retired by run %s; the development manager must decide recovery of the superseded work before its checkout can be restored", prior.RunID, prior.ArtifactsRetiredBy))
+		}
+		if prior.HarnessCommit == "" || prior.PreservedWorkRef != "" || prior.Phase == runstate.PhaseDeveloping {
+			return permanentCarryOut(triage.CarryOutWorktreeGone, fmt.Errorf("run %s's missing checkout cannot be recovered from its branch: the run has no recorded completed commit, captured work remains at %q, or an interrupted developer may have left uncommitted work; missing uncommitted work is not recovered by checking out a branch, so the development manager must decide what follows", prior.RunID, prior.PreservedWorkRef))
+		}
 	}
 	if prior.ProviderSessionID == "" {
 		return fmt.Errorf("run %s recorded no developer session, so a continuation could not be the same developer carrying on with the change it made", prior.RunID)
@@ -800,6 +845,17 @@ func (c RepairContinuer) supersedeOnItem(ctx context.Context, workItemID, reason
 // once and a second is a second decision.
 func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGrant, reason string, stalled bool) (runstate.State, error) {
 	continued := prior
+	// Also correct stale flags when a process restored and verified the checkout
+	// but died before its final save. Captured work still keeps its ref and sweep
+	// record; restoration from that ref is deliberately outside this action.
+	if prior.PreservedWorkRef == "" && prior.ArtifactsRetiredBy == "" {
+		continued.WorktreeRemoved = false
+		continued.WorktreeSweptAt = nil
+	}
+	if prior.ArtifactsRetiredBy == "" {
+		continued.BranchRemoved = false
+		continued.BranchSweptAt = nil
+	}
 	continued.RepairContinuations = append(append([]runstate.RepairContinuation{}, prior.RepairContinuations...),
 		runstate.RepairContinuation{
 			GrantedAttempts:   granted.attempts,
@@ -964,6 +1020,9 @@ func (result RepairContinueResult) Render() string {
 			result.WorkItemID, result.CapacityFull.Active, result.CapacityFull.Limit)
 		fmt.Fprintf(&rendered, "%s keeps its repair grant and the decision still stands, so asking again once a slot frees carries out the same one\n", result.WorkItemID)
 		return rendered.String()
+	}
+	if result.WorktreeRestored {
+		fmt.Fprintln(&rendered, "restored the recorded checkout from its branch; the run and developer session are unchanged, and checks must pass again")
 	}
 	switch {
 	case result.Checks:

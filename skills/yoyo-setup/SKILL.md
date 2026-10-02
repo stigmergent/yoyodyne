@@ -40,7 +40,7 @@ in this task requires writing code.
    that is before the first command.
 2. **Check the binary.** `yoyo version` prints a bare version. If the command is
    not found, offer one of the two installs and wait for an answer:
-   `go install github.com/mason-bryant/yoyodyne/cmd/yoyo@latest` with Go 1.24 or
+   `go install github.com/mason-bryant/yoyodyne/cmd/yoyo@latest` with Go 1.25 or
    newer, followed by `export PATH="$PATH:$(go env GOPATH)/bin"` in their shell
    profile; or a per-platform binary from
    <https://github.com/mason-bryant/yoyodyne/releases>.

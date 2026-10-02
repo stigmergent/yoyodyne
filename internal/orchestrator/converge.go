@@ -372,6 +372,38 @@ func settledAt(state runstate.State) time.Time {
 	return state.UpdatedAt
 }
 
+// A failed carry-out still needs the artifacts its standing decision names.
+// AwaitingCarryOut excludes refusals for scheduling; retirement must keep them
+// while the development manager resolves the refusal. An unread record keeps
+// the artifacts too, rather than treating missing evidence as permission. An
+// automatic check or silent-stall continuation also keeps its artifacts until
+// it is superseded, completed, or refused, even when intake or capacity delays
+// it past the tail.
+func (r Reconciler) recoveryNeedsArtifacts(ctx context.Context, state runstate.State) (string, func()) {
+	noRelease := func() {}
+	if state.ArtifactsRetiredBy != "" {
+		return "", noRelease
+	}
+	if state.IntegrationStop != nil {
+		return "the stopped integration still needs its recorded branch and checkout", noRelease
+	}
+	counters, release, err := r.Store.Triage().LockCounters(ctx, state.WorkItemID)
+	if err != nil {
+		return fmt.Sprintf("the recovery decision could not be read, so the artifacts are kept: %v", err), noRelease
+	}
+	standing := counters.StandingOf(state)
+	if !standing.Decided && state.HarnessContinuesCheckStage() {
+		return "the outstanding automatic check continuation still needs this run's branch and checkout", release
+	}
+	if !standing.Decided && state.HarnessContinuesStall() {
+		return "the outstanding automatic stall continuation still needs this run's branch and checkout", release
+	}
+	if standing.Decided && standing.Spends && (!standing.Repair || standing.GrantOutstanding) {
+		return "the development manager's outstanding recovery decision still needs this run's artifacts", release
+	}
+	return "", release
+}
+
 // sweepWorktree retires one settled run's checkout, and reports whether an
 // operator has anything to read about it.
 //
@@ -418,6 +450,12 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 	// started with.
 	if state.Outstanding() || state.WorktreePath == "" || state.WorktreeRemoved {
 		return WorktreeSweep{}, false
+	}
+	kept, releaseDecision := r.recoveryNeedsArtifacts(ctx, state)
+	defer releaseDecision()
+	if kept != "" {
+		sweep.Kept = kept
+		return sweep, true
 	}
 	// The work in the checkout is captured rather than kept, because "keep
 	// anything dirty" is not a bound: a stopped run is the population most likely
@@ -612,6 +650,12 @@ func (r Reconciler) sweepBranch(ctx context.Context, recorded runstate.State, re
 		WorkItemID:   state.WorkItemID,
 		Branch:       state.Branch,
 		TargetBranch: state.TargetBranch,
+	}
+	kept, releaseDecision := r.recoveryNeedsArtifacts(ctx, state)
+	defer releaseDecision()
+	if kept != "" {
+		sweep.Kept = kept
+		return sweep, true
 	}
 	removal, err := r.Worktrees.RemoveMergedBranch(ctx, state.Branch, state.TargetBranch)
 	if err != nil {

@@ -1914,7 +1914,11 @@ closed in the harness's name, and while it stands `yoyo status` holds the item
 as the harness's move rather than as a decision waiting on anybody. The
 operator's pause and the intake hold stop it exactly as they stop a recorded
 decision's carry-out; a decision she records about the stoppage first is
-carried out instead. It is held to what her repair of a stall is held to: the
+carried out instead. Maintenance keeps its checkout and branch while the
+automatic continuation is outstanding, including when intake or capacity delays
+it beyond the retained tail. An interrupted developer's uncommitted work stays
+in that checkout; recreating committed files from a branch cannot recover it.
+It is held to what her repair of a stall is held to: the
 worktree has to be as the harness left it, and a stall at the checks or the
 review has to still hold the change. One that fails either is written onto the run
 (`stall_continuation_refused`), the item is told, and the stoppage is docketed
@@ -2065,6 +2069,18 @@ record of the run ending, any remaining gate and what clears it are noted on
 the item. Restarting the watcher does not reset that wait or repeat the same
 note. Intake holds, the spending pause, capacity, item eligibility, and the
 worktree checks still apply; elapsed waiting never counts a check as passed.
+
+The checkout and branch are kept for that outstanding continuation, even after
+the run falls outside the maintenance sweep's retained tail. If the checkout
+is already missing, continuation can restore it from the surviving recorded
+branch at the completed commit the harness recorded. Ownership and the recovered
+revision are verified; verification credit is cleared durably before writing.
+The same run, developer session, and consumed budgets continue at the checks.
+A restart verifies an unfinished restoration before continuing it. Conflicting
+paths, missing or changed branches, unverifiable state, and separately captured
+uncommitted work refuse restoration and return the stoppage to the development
+manager without spending a continuation. Missing uncommitted work is never
+claimed recovered.
 
 The docket entry and the run's line in the channel say it in one sentence:
 
@@ -2969,12 +2985,18 @@ sweep's. A re-run closes the same request itself at the moment its fresh run
 integrates, so the forge's open list stays honest between sweeps.
 
 The same sweep retires the leftover checkouts, which is what makes the worktree
-registrations a machine carries live runs plus a bounded tail rather than
+registrations a machine carries live runs, outstanding recovery, and a bounded tail rather than
 something that grows with the harness's history. That growth is not cosmetic: an
 agent's sandbox profile denies every registered worktree path on every command it
 spawns, so a machine that keeps them all eventually cannot spawn a command in its
 next worktree at all — no `make check`, no `go test`, nothing. Settled runs past
-the most recent few have their checkout unregistered, and registrations whose
+the most recent few have their checkout unregistered unless a recovery decision
+still needs it. A standing repair or re-run keeps the checkout and branch,
+including when a gate refused to carry the decision out; a stopped integration
+keeps them too. An outstanding automatic continuation at checks or after a silent
+provider stall also keeps them, including while intake or capacity delays it.
+A recovery record that cannot be read keeps the artifacts rather than granting
+retirement. Registrations whose
 checkout is no longer on disk are pruned, whichever run or person left them
 behind. A registration a killed `git worktree add` never finished filling in is
 cleared on the same pass, and named — see
@@ -3028,9 +3050,22 @@ managing and a registration on a branch its run never recorded. Those are
 anomalies rather than a category: a `yoyo reconcile` printing one is telling you
 about something that should not be there.
 
-The one thing the sweep costs is `/continue` on a stoppage past the tail, which
-needs the checkout it was going to hand back. The branch is still there and so is
-the preserved work, so replanning or re-running the item is not affected.
+A recorded repair can restore a missing checkout from a surviving branch at the
+exact commit the harness recorded. It continues the same run and developer
+session, with consumed budgets retained and check approval cleared before the
+checkout is restored. A conflicting path, a missing or changed branch, or an
+unfinished developer attempt refuses restoration and leaves the decision
+standing. Captured uncommitted work remains on its recorded ref; checking out
+the branch does not recover it. The development manager decides what follows
+such a refusal.
+
+The restoration writer holds the directories open while creating files and
+registration data; replacing a root with a symlink cannot redirect its writes.
+Existing index and export files are replaced with new files, preserving the
+contents of files hard-linked elsewhere.
+Restoration refuses checkout filters selected by the recorded tree's attributes
+because committed objects alone cannot prove those filters' output was recovered;
+unused filter definitions do not refuse restoration.
 
 The last reading the sweep takes — after every settlement above and before the
 runs it continues, below — is whether anything is happening at all. When

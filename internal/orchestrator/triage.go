@@ -399,6 +399,10 @@ func (d Docketer) lookAt(entry *triage.Entry, byID map[string]runstate.State) {
 	}
 	found := d.look(state)
 	entry.Artifacts.Found = &found
+	if entry.Class == triage.ClassStoppedRun {
+		entry.HarnessContinuesChecks = state.HarnessContinuesCheckStage()
+		entry.CheckStageStop = singleLine(state.CheckStageStopSays(), triage.MaxMessageBytes)
+	}
 }
 
 // look is what the repository holds of one run's change, asked now.
