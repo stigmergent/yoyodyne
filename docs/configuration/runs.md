@@ -135,10 +135,10 @@ Two things are asked, and only the first is universal.
 What belongs in the `detail` of anything but a pass is the message the command
 itself printed, rather than a paraphrase of it, because a tool that refuses
 often says how to stop refusing and that sentence is the whole value of the
-record. The class this was written for is already closed from the other side:
-the Go build cache defaults under the user's home, which a run's sandbox does
-not grant, and the harness points `GOCACHE` at `.git/yoyodyne/go-build` for
-every run it makes — the developer's own probe included, as
+record. The Go build cache defaults under the user's home, which a run's sandbox
+does not grant. The harness points `GOCACHE` at `.git/yoyodyne/go-build` and
+explicitly admits that path for Codex developers — the developer's own probe
+included, as
 [the environment a check runs in](#the-environment-a-check-runs-in) describes.
 An environment the harness did not make is the project's own to warn about, and
 this repository's `make` targets refuse with the redirect named; a developer
@@ -216,6 +216,32 @@ user's home, which a developer run's sandbox does not grant: without the
 redirect the first Go command in a run fails at setup with `operation not
 permitted`, which reads as a broken toolchain. A project whose checks are not Go
 is unaffected by a variable its tools never read.
+
+For a Codex developer, redirecting the environment alone does not grant a write.
+The adapter uses `workspace-write` with an explicit
+`sandbox_workspace_write.writable_roots` override naming only the shared cache
+and the scratch directory assigned to this run. It resolves those paths against
+the harness's checkout, refuses escaping worktree pointers and redirected cache
+or scratch paths, creates both directories through the confined writer, and sets
+`GOCACHE` to the same resolved cache path. It does not
+grant the whole Git directory, another run's scratch, or an inherited cache path.
+The adapter disables approvals and sandbox network access.
+
+The installed `codex-cli 0.159.2` lists `--add-dir` on `exec`, but not on
+`exec resume`. The adapter therefore passes the writable-root configuration and
+`--cd` before `resume`, alongside `--sandbox`, on every invocation. Native resume
+receives the current run's directory policy rather than depending on a saved
+session's permissions. Read-only roles receive no developer directory grants.
+The recorded CLI help and the installed CLI's help are checked in the adapter
+tests. The following check additionally exercises native allowed and denied
+writes without invoking a model:
+
+```sh
+YOYODYNE_CODEX_SANDBOX_CONFORMANCE=1 go test ./internal/backend/codex -run TestLocalSandboxConfinesDeveloperAndReadOnlyWrites
+```
+
+An outer sandbox may refuse this nested sandbox, which is reported as a failed check rather than
+worked around with unrestricted access.
 
 A provider invocation is given the same list with one thing more:
 `YOYODYNE_AGENT_ROLE`, naming the role the process was launched for —
