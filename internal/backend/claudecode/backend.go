@@ -363,8 +363,7 @@ func (Backend) Capabilities() backend.Capabilities {
 }
 
 func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
-	request, err := request.RestrictCapacityProbe()
-	if err != nil {
+	if err := request.RestrictCapacityProbe(); err != nil {
 		return backend.RunResult{}, err
 	}
 	if b.Runner == nil {

@@ -411,8 +411,7 @@ func invocationArgs(request backend.RunRequest, sandbox string) []string {
 }
 
 func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned backend.RunResult, runErr error) {
-	request, err := request.RestrictCapacityProbe()
-	if err != nil {
+	if err := request.RestrictCapacityProbe(); err != nil {
 		return backend.RunResult{}, err
 	}
 	if b.Runner == nil {
