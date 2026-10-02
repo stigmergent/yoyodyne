@@ -17,9 +17,9 @@ package orchestrator
 // continued (yoyodyne-ifd.428.16) but without anybody deciding it: at its checks,
 // on the same branch and in the same worktree, with no developer invoked and no
 // review round, repair grant, or re-run spent. The scheduling pass fires it on a
-// pull where a developer slot is free and the machine's load is below the
-// threshold, because a continuation into the load that stopped the stage would
-// be stopped again. It does so at most runstate.MaxCheckStageContinuations times
+// pull where a developer slot is free, ahead of fresh work at equal or lower
+// priority. Like fresh work, it is not held on machine load. It does so at most
+// runstate.MaxCheckStageContinuations times
 // for one run; past that the stoppage is the development manager's, as it was
 // before.
 //
@@ -73,8 +73,8 @@ type CheckStageContinuer struct {
 	// Worktrees proves the worktree is as the harness left it and still holds
 	// the change. Required: what the checks judge is whatever is in it.
 	Worktrees RepairWorktrees
-	// Load is the machine's load. Optional: a platform that cannot report it is
-	// read as below the threshold, as a Git command's budget reads it as idle.
+	// Load is retained for callers that supply a machine reading. Continuing
+	// checks has no load gate, just as starting fresh work has none.
 	Load MachineLoad
 	// Capacity is execution.max_concurrent_developers. Required: the continued
 	// run holds a slot for exactly as long as any run does.
@@ -89,8 +89,8 @@ type CheckStageContinueRequest struct {
 }
 
 // CheckStageContinueResult is what the action did, and just as carefully what
-// it did not: an intake hold, a full harness, a loaded machine, and a refusal
-// are four different things for somebody to know about.
+// it did not: an intake hold, a full harness, and a refusal are different
+// things for somebody to know about.
 type CheckStageContinueResult struct {
 	WorkItemID string `json:"work_item_id"`
 	RunID      string `json:"run_id"`
@@ -101,11 +101,9 @@ type CheckStageContinueResult struct {
 	Continued bool   `json:"continued"`
 	// SupersededFailure is what the stopped run ended on.
 	SupersededFailure string `json:"superseded_failure,omitempty"`
-	// IntakeHeld, CapacityFull, and LoadHigh are the three waits. Nothing was
-	// written for any of them, and the next pull asks again.
+	// IntakeHeld and CapacityFull are waits, and the next pull asks again.
 	IntakeHeld   *runstate.IntakeHold    `json:"intake_held,omitempty"`
 	CapacityFull *runstate.CapacityError `json:"capacity_full,omitempty"`
-	LoadHigh     string                  `json:"load_high,omitempty"`
 	// Refused is why the harness will not continue this run, written onto it,
 	// where what refused is something only a person settles.
 	Refused string  `json:"refused,omitempty"`
@@ -126,8 +124,8 @@ var ErrNotContinuableAtChecks = errors.New("the stopped run is not one the harne
 const continuedChecksDocketDecision = "continued at its checks"
 
 // Due reports a run the harness would continue at its checks now, as far as its
-// record and the machine's load can say: it is one the stage bound stopped with
-// continuations left, and the load is below the threshold. It writes nothing.
+// record can say: it is one the stage bound stopped with continuations left.
+// It writes nothing. Machine load does not withhold it from selection.
 // What the moment also has to allow — a free slot, the operator's switches —
 // is asked by Continue, where a refusal is reported.
 func (c CheckStageContinuer) Due(runID string) (bool, error) {
@@ -141,8 +139,7 @@ func (c CheckStageContinuer) Due(runID string) (bool, error) {
 	if !state.Status.Terminal() || !state.HarnessContinuesCheckStage() {
 		return false, nil
 	}
-	_, high := c.loadHigh()
-	return !high, nil
+	return true, nil
 }
 
 // Continue continues one run the stage bound stopped, at its checks.
@@ -200,12 +197,6 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 	}
 	if held {
 		result.IntakeHeld = &hold
-		return result, nil
-	}
-	// The load before the slot, because it is the condition that stopped the
-	// stage: a continuation into the same load would be stopped the same way.
-	if reading, high := c.loadHigh(); high {
-		result.LoadHigh = reading
 		return result, nil
 	}
 	full, free, err := slotIsFree(c.Runs, c.Capacity)
@@ -274,6 +265,7 @@ func continuedAtChecks(prior runstate.State, reason string, now time.Time) runst
 	continued.Phase = runstate.PhaseChecking
 	continued.CompletedAt = nil
 	continued.SettledQuietSince = nil
+	continued.CheckStageContinuationWaitNoted = ""
 	continued.UpdatedAt = now
 	return continued
 }
@@ -310,17 +302,29 @@ func (c CheckStageContinuer) refuse(ctx context.Context, result CheckStageContin
 	return result, cause
 }
 
-// loadHigh reports the machine's load at or above the threshold, with the
-// reading in words. A load nobody could read is not high.
-func (c CheckStageContinuer) loadHigh() (string, bool) {
-	if c.Load == nil {
-		return "", false
+// NoteWaiting records a remaining gate after thirty minutes of durable
+// eligibility. The completed run supplies the starting time, so neither a
+// watcher restart nor a note changes the deadline. The last note is held on
+// the run to avoid repeating it on every poll, including after a restart.
+func (c CheckStageContinuer) NoteWaiting(ctx context.Context, runID, why, clears string) error {
+	prior, lease, err := c.Runs.AdoptRun(ctx, runID)
+	if err != nil {
+		return err
 	}
-	load, cores, ok := c.Load()
-	if !ok || cores < 1 || load < float64(cores) {
-		return "", false
+	defer lease.Release()
+	if !prior.HarnessContinuesCheckStage() || prior.CompletedAt == nil || c.now().Before(prior.CompletedAt.Add(runstate.CheckStageContinuationWait)) {
+		return nil
 	}
-	return fmt.Sprintf("the machine's one-minute load average is %.1f on %d cores, and the harness waits for %s", load, cores, runstate.CheckStageLoadThreshold), true
+	note := singleLine(fmt.Sprintf("The check-stage continuation of run %s has waited at least 30 minutes since it became eligible. Remaining gate: %s. What clears it: %s. No check has been counted as passed by waiting.", runID, why, clears), runstate.MaxBlockerBytes)
+	if prior.CheckStageContinuationWaitNoted == note {
+		return nil
+	}
+	if _, err := c.Items.RecordOutcome(ctx, prior.WorkItemID, note); err != nil {
+		return fmt.Errorf("note why the check-stage continuation still waits on %s: %w", prior.WorkItemID, err)
+	}
+	prior.CheckStageContinuationWaitNoted = note
+	prior.UpdatedAt = c.now()
+	return c.Runs.Save(prior)
 }
 
 // closeEntry takes the stoppage off the docket in the harness's own name, for a

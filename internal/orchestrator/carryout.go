@@ -152,6 +152,13 @@ type CarryOutCheckStages interface {
 	Continue(ctx context.Context, request CheckStageContinueRequest) (CheckStageContinueResult, error)
 }
 
+// checkStageWaitNoter writes an overdue continuation's remaining gate onto
+// its item. It is separate from the action interface so other continuers need
+// not own durable wait accounting.
+type checkStageWaitNoter interface {
+	NoteWaiting(ctx context.Context, runID, why, clears string) error
+}
+
 // DecisionContinueChecks is the task a carry-out fires for a check stage the
 // bound stopped. It is not a word from the development manager's vocabulary and
 // is never written onto an item's triage record: no refusal of it is recorded
@@ -398,7 +405,7 @@ func (c CarryOut) read() (carryOutReading, error) {
 		if running, busy := inFlight[entry.WorkItemID]; busy {
 			// A repair continues the run it was granted for, so that run going again
 			// is the decision being carried out rather than something keeping it back.
-			if running == entry.RunID || harnessOwnTask(task.Decision) {
+			if running == entry.RunID || task.Decision == DecisionContinueStall {
 				return
 			}
 			reading.held = append(reading.held, heldDecision{
@@ -510,7 +517,7 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 			task:   task,
 			gate:   runstate.TriageGateCapacity,
 			why:    why,
-			clears: "a pass with a developer slot to give it, which needs nobody; the decision still stands",
+			clears: "the condition named above clearing so a pass can give it a developer slot; the continuation or decision still stands",
 		})
 	}
 	now := c.now()
@@ -522,6 +529,12 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	}
 	for _, held := range candidates {
 		task := held.task
+		if task.Decision == DecisionContinueChecks {
+			if err := c.noteCheckStageWait(ctx, task.RunID, held.why, held.clears); err != nil {
+				problems = append(problems, err)
+			}
+			continue
+		}
 		if harnessOwnTask(task.Decision) || task.DecidedAt.IsZero() || now.Sub(task.DecidedAt) < poll {
 			continue
 		}
@@ -702,10 +715,8 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 // checkStageTask reports a stoppage the check stage bound made that the harness
 // continues itself now, and whether there is one. A decision the development
 // manager recorded about the stoppage is hers to have carried out instead, so
-// only an entry nobody decided anything about is taken; and it is taken only
-// while the machine's load is below the threshold, because a pull that took a
-// slot for it under load would be refused inside and take the slot again on the
-// next poll.
+// only an entry nobody decided anything about is taken. Machine load does not
+// withhold it, just as it does not withhold fresh work.
 func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (CarryOutTask, bool, error) {
 	if c.CheckStages == nil || !entry.HarnessContinuesChecks {
 		return CarryOutTask{}, false, nil
@@ -911,11 +922,26 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 }
 
 // continueChecks continues a run the check stage bound stopped, at its checks.
-// Nothing it meets is written onto the item's triage record, because nobody's
-// decision is waiting on it: a wait is said on the pass and asked again at the
-// next pull, and a refusal is written onto the run by the action itself, which
-// hands the stoppage to the development manager.
-func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried CarriedOut) (CarriedOut, Outcome, error) {
+// A wait is said on the pass and, after thirty minutes, on the item. A refusal
+// is written onto the run by the action itself, which hands the stoppage to
+// the development manager.
+func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried CarriedOut) (account CarriedOut, outcome Outcome, err error) {
+	defer func() {
+		if !account.Carried && account.Problem != "" {
+			clears := "the named gate being resolved; the next pull attempts the same preserved run"
+			switch account.Gate {
+			case runstate.TriageGateIntakeHold:
+				clears = "`yoyo release` lifting the intake hold"
+			case runstate.TriageGateSpendingPause:
+				clears = "the spending pause being lifted"
+			case runstate.TriageGateCapacity:
+				clears = "a developer slot becoming free"
+			}
+			if noteErr := c.noteCheckStageWait(ctx, task.RunID, account.Problem, clears); noteErr != nil {
+				account.RecordProblem = strings.TrimSpace(account.RecordProblem + " " + noteErr.Error())
+			}
+		}
+	}()
 	waiting := func(gate, what string) (CarriedOut, Outcome, error) {
 		carried.Gate = gate
 		carried.Waiting = true
@@ -943,8 +969,6 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 		return waiting(runstate.TriageGateIntakeHold, fmt.Sprintf("the operator has held what the harness chooses, since %s", result.IntakeHeld.HeldAt.UTC().Format(time.RFC3339)))
 	case result.CapacityFull != nil:
 		return waiting(runstate.TriageGateCapacity, fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit))
-	case result.LoadHigh != "":
-		return waiting("the machine's load", result.LoadHigh)
 	case !result.Continued:
 		carried.Gate = runstate.TriageGateHarness
 		carried.Problem = fmt.Sprintf("the harness did not continue the check stage the bound stopped on run %s: %s", task.RunID, strings.TrimSpace(refusalText(runErr)))
@@ -953,6 +977,13 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	carried.Carried = true
 	carried.Reason = result.Reason
 	return carried, result.Outcome, runErr
+}
+
+func (c CarryOut) noteCheckStageWait(ctx context.Context, runID, why, clears string) error {
+	if noter, ok := c.CheckStages.(checkStageWaitNoter); ok {
+		return noter.NoteWaiting(ctx, runID, why, clears)
+	}
+	return nil
 }
 
 // continueStall continues a run the harness stopped for a silent provider

@@ -2316,7 +2316,7 @@ pulling:
 		var early *pulled
 		earlyAsked := false
 		outranked := func(task CarryOutTask) (outrankedCarryOut, bool) {
-			if held || paused || harnessOwnTask(task.Decision) {
+			if held || paused || task.Decision == DecisionContinueStall {
 				return outrankedCarryOut{}, false
 			}
 			if !earlyAsked {
@@ -4174,6 +4174,9 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 			continue
 		}
 		if gate, stopped := waitingOn[task.WorkItemID]; stopped && closed.stillShut(gate) {
+			if task.Decision == DecisionContinueChecks {
+				passed[task.RunID] = fmt.Sprintf("the continuation is still waiting on %s; lifting that gate lets the next pull attempt it", gate)
+			}
 			continue
 		}
 		if len(chosen) >= slots {

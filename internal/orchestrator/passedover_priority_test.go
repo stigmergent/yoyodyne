@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -198,5 +199,42 @@ func TestAPriorityZeroItemPassedOverOnItsProseNamesTheSentenceItRead(t *testing.
 	}
 	if !strings.Contains(entries[0].Render(), sentence) {
 		t.Fatalf("rendered docket entry does not quote the sentence:\n%s", entries[0].Render())
+	}
+}
+
+func TestCheckStageContinuationsTakeAFreeSlotAheadOfEqualOrLowerPriorityFreshWork(t *testing.T) {
+	t.Parallel()
+	for _, decision := range []string{DecisionContinueChecks, runstate.TriageDecisionRepair} {
+		for _, freshPriority := range []int{0, 1, 2} {
+			t.Run(fmt.Sprintf("%s-%d", decision, freshPriority), func(t *testing.T) {
+				h := newScheduleHarness(
+					beads.WorkItem{ID: "yoyodyne-continuation", Title: "Continue the stopped checks", Status: "blocked", Priority: 1},
+					beads.WorkItem{ID: "yoyodyne-fresh", Title: "Fresh work", Status: "open", Priority: freshPriority},
+				)
+				h.ready["yoyodyne-continuation"] = false
+				fired := map[string]bool{}
+				task := decidedTask("yoyodyne-continuation")
+				task.Decision = decision
+				h.outstanding = outstandingUntilFired(fired, task)
+				h.carry = carriedWhenASlotIsFree(fired)
+				schedule, err := (Scheduler{Open: h.open}).Schedule(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				var order []string
+				for _, started := range schedule.Started {
+					if started.Declined == "" {
+						order = append(order, started.WorkItemID)
+					}
+				}
+				want := "yoyodyne-continuation,yoyodyne-fresh"
+				if freshPriority < 1 {
+					want = "yoyodyne-fresh,yoyodyne-continuation"
+				}
+				if strings.Join(order, ",") != want {
+					t.Fatalf("order = %v, want %s", order, want)
+				}
+			})
+		}
 	}
 }

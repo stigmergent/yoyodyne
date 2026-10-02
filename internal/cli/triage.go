@@ -263,8 +263,8 @@ func checkStageContinuerFrom(parts components) orchestrator.CheckStageContinuer 
 		Intake:    parts.intake,
 		Items:     parts.tracker(),
 		Worktrees: parts.worktrees,
-		// The load a local Git command's budget is scaled by: what stopped the
-		// stage, and what the continuation waits to fall.
+		// Supplied for compatibility; continuations, like fresh work, do not
+		// wait for machine load to fall.
 		Load:     gitworktree.MachineLoad,
 		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
 		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {

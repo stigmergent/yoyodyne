@@ -2553,8 +2553,8 @@ session; and it counts toward nothing — not the
 rounds, repair grant, or re-run. Because a stage the bound stopped judged
 nothing, the harness [continues it at its checks by
 itself](operations.md#what-a-check-stage-may-cost-and-where-the-whole-suite-runs)
-— on the change the run already has, at a pull with a slot free and the
-machine's load below its cores, at most twice per run, spending nothing —
+— on the change the run already has, at a pull with a slot free, ahead of
+fresh work at equal or lower priority, at most twice per run, spending nothing —
 rather than leaving it to a re-run that redoes the development.
 
 **The bound is visible while the checks run, not only when it stops them.**
