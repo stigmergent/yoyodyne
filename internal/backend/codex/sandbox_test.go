@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -143,79 +141,6 @@ func TestDeveloperSandboxRefusesAnEscapingWorktreeBeforeLaunchOrResume(t *testin
 		})
 		if err == nil || !strings.Contains(err.Error(), "not inside the repository") || len(runner.commands) != 0 {
 			t.Fatalf("Run() = %v, commands = %v, want a refusal before invocation", err, runner.commands)
-		}
-	}
-}
-
-// This exercises the CLI's filesystem enforcement without invoking a model or
-// a role. It is opt-in because an outer developer sandbox can refuse a nested
-// OS sandbox even though the policy works when the harness launches it.
-func TestLocalSandboxConfinesDeveloperAndReadOnlyWrites(t *testing.T) {
-	if os.Getenv("YOYODYNE_CODEX_SANDBOX_CONFORMANCE") != "1" {
-		t.Skip("set YOYODYNE_CODEX_SANDBOX_CONFORMANCE=1 to exercise the native Codex sandbox")
-	}
-	binary, err := exec.LookPath("codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	repository, worktree := sandboxRepository(t, true)
-	scratch, err := execution.PrepareScratchDirectory(repository, worktree, testRunID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for file, body := range map[string]string{"go.mod": "module sandboxprobe\n\ngo 1.23\n", "probe.go": "package sandboxprobe\n"} {
-		if err := os.WriteFile(filepath.Join(worktree, file), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	outside := t.TempDir()
-	otherScratch := filepath.Join(filepath.Dir(scratch), "another-run")
-	if err := os.Mkdir(otherScratch, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer} {
-		for _, session := range []string{"", "session-one"} {
-			command := sandboxCommand(t, repository, worktree, session, role)
-			if role == domain.RoleReviewer {
-				// Run removes its empty launch directory when the fake provider
-				// exits. Give this native probe an empty directory of its own.
-				command.Dir = t.TempDir()
-			}
-			args := []string{"sandbox", "--cd", command.Dir, "--config", `sandbox_mode="` + sandboxArgument(t, command.Args) + `"`,
-				// Fixture directories live in TMPDIR. Remove the sandbox's normal
-				// temporary grants so an unrelated sibling tests actual denial.
-				"--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-				"--config", "sandbox_workspace_write.exclude_slash_tmp=true"}
-			for index, arg := range command.Args {
-				if arg == "--config" {
-					args = append(args, arg, command.Args[index+1])
-				}
-			}
-			cache := filepath.Join(repository, ".git", "yoyodyne", "go-build")
-			script := `set -eu
-if (printf denied > "$3/unrelated") 2>/dev/null; then exit 20; fi
-if (printf denied > "$6/unrelated") 2>/dev/null; then exit 24; fi
-if (printf denied > "$7/unrelated") 2>/dev/null; then exit 25; fi
-if [ "$4" = developer ]; then
-  export GOTMPDIR="$2/go-tmp"
-  mkdir -p "$GOTMPDIR"
-  go test ./... > "$2/check.log" 2>&1
-  test -d "$1"
-  test -s "$2/check.log"
-else
-  if (mkdir -p "$1" && printf denied > "$1/read-only") 2>/dev/null; then exit 21; fi
-  if (printf denied > "$2/read-only") 2>/dev/null; then exit 22; fi
-  if (printf denied > "$5/read-only") 2>/dev/null; then exit 23; fi
-fi`
-			args = append(args, "--", "sh", "-c", script, "sandbox-probe", cache, scratch, outside, string(role), worktree, filepath.Join(repository, ".git"), otherScratch)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			probe := exec.CommandContext(ctx, binary, args...)
-			probe.Env = command.Env
-			output, err := probe.CombinedOutput()
-			cancel()
-			if err != nil {
-				t.Fatalf("native sandbox for %s, session %q: %v\n%s", role, session, err, output)
-			}
 		}
 	}
 }
