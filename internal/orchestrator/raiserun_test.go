@@ -235,16 +235,16 @@ func TestOnlyARaiseIsLiftedIntoItsRerun(t *testing.T) {
 	t.Parallel()
 
 	stopped := stoppedState()
-	if lift := liftOf(stopped, preservedOf(stopped)); lift != nil {
+	if lift := liftOf(stopped, preservedOf(stopped, triage.Found{BranchThere: true, WorktreeThere: true})); lift != nil {
 		t.Fatalf("lift = %#v, want a stopped run's re-run started from the target", lift)
 	}
 	raised := escalatedState(docketedRunID, docketedItem)
-	lift := liftOf(raised, preservedOf(raised))
+	lift := liftOf(raised, preservedOf(raised, triage.Found{BranchThere: !raised.BranchRemoved, WorktreeThere: !raised.WorktreeRemoved}))
 	if lift == nil || lift.Branch != raised.Branch || lift.RunID != raised.RunID {
 		t.Fatalf("lift = %#v, want the raise's branch %s", lift, raised.Branch)
 	}
 	raised.BranchRemoved = true
-	if lift := liftOf(raised, preservedOf(raised)); lift != nil {
+	if lift := liftOf(raised, preservedOf(raised, triage.Found{BranchThere: !raised.BranchRemoved, WorktreeThere: !raised.WorktreeRemoved})); lift != nil {
 		t.Fatalf("lift = %#v, want nothing lifted from a branch the record says is gone", lift)
 	}
 }

@@ -948,7 +948,7 @@ func TestEveryRefusalIsAskedBeforeTheGrantIsSpent(t *testing.T) {
 				state.ArtifactsRetiredBy = "run-11112222333344445555666677778888"
 				h.save(t, state)
 			},
-			want: "already been retired",
+			want: "no verified branch and checkout",
 		},
 		{
 			// An item somebody closed is not one a stopped run may be continued
@@ -1362,5 +1362,52 @@ func TestARepairOfARunMadeForAnotherItemIsRefusedNamingIt(t *testing.T) {
 	}
 	if len(harness.started) != 0 || harness.tracker.Claimed || harness.tracker.Notes != "" {
 		t.Fatalf("started = %#v, claimed = %t, notes = %q, want nothing continued or written", harness.started, harness.tracker.Claimed, harness.tracker.Notes)
+	}
+}
+
+func TestRepairChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
+	t.Parallel()
+	for _, there := range []bool{true, false} {
+		state := continuableState()
+		state.BranchRemoved, state.WorktreeRemoved = there, there
+		if !there {
+			state.ArtifactsRetiredBy = ""
+		} else {
+			state.ArtifactsRetiredBy = priorRunID
+		}
+		harness := newContinueHarness(t, state)
+		continuer := harness.continuer()
+		continuer.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		result, err := continuer.Continue(context.Background(), continueRequest())
+		if (err == nil) != there || result.Continued != there || (len(harness.started) > 0) != there {
+			t.Fatalf("Continue() = %#v, %v, want continued %t", result, err, there)
+		}
+		if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
+			t.Fatalf("refusal does not name the branch and checkout: %v", err)
+		}
+	}
+}
+
+// The ownership registry's first build stopped here, with no blocker or
+// failing check. A decided repair must reach the existing change's checks.
+func TestRepairOfAStageTimeoutContinuesItsChecksOnThePreservedChange(t *testing.T) {
+	t.Parallel()
+	state := continuableState()
+	state.Status, state.Phase = runstate.StatusTimedOut, runstate.PhaseChecking
+	state.Blocker = ""
+	state.Failure = "check stage reached its 30m0s execution.check_stage_timeout bound during make race"
+	state.ReviewFindingDetails, state.CheckFailure = nil, nil
+	state.ReviewFindings, state.ReviewDecision, state.ReviewSummary = 0, "", ""
+	state.CheckStage = &runstate.CheckStage{StartedAt: state.StartedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true}
+	harness := newContinueHarness(t, state)
+	continuer := harness.continuer()
+	continuer.Remains = &looked{survival: gitworktree.Survival{BranchExists: true, WorktreePresent: true}}
+	result, err := continuer.Continue(context.Background(), continueRequest())
+	if err != nil || !result.Continued || !result.Checks || result.ResumesAt != runstate.PhaseChecking || len(harness.started) != 1 {
+		t.Fatalf("Continue() = %#v, %v", result, err)
+	}
+	continued := harness.reload(t)
+	if continued.Phase != runstate.PhaseChecking || continued.RepairAttempts != state.RepairAttempts || continued.ReviewRounds != state.ReviewRounds || !continued.RepairContinuations[0].CheckStage {
+		t.Fatalf("continued = %#v, want checks continued without a developer attempt or review round", continued)
 	}
 }

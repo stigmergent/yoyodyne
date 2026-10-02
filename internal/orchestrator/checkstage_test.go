@@ -334,6 +334,96 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 	}
 }
 
+// A decided repair of a first-attempt timeout also goes directly to the checks.
+// Its continuation records no developer repair attempt, so adoption must read
+// the decision's check-stage continuation rather than the attempt counter.
+func TestADecidedCheckStageContinuationWithNoRepairAttemptsReachesTheChecks(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	commands := []string{"make fmtcheck", "make test", "make race", "make vet"}
+	clock := &steppingClock{now: time.Now().UTC().Add(time.Hour)}
+	docket := &memoryDocket{}
+	build := func(race time.Duration) (Pipeline, *timedChecks) {
+		pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, commands), provider)
+		checked := &timedChecks{clock: clock, takes: map[string]time.Duration{
+			"make fmtcheck": time.Minute, "make test": time.Minute, "make race": race, "make vet": time.Minute,
+		}}
+		pipeline.Checks = checks.Runner{Process: checked, Clock: clock, Timeout: 2 * time.Hour, StageTimeout: 30 * time.Minute}
+		pipeline.Docket = docketerOverStore(docket, store, pipeline.Config)
+		return pipeline, checked
+	}
+	loaded, _ := build(90 * time.Minute)
+	outcome, err := loaded.Run(ctx, tracker.Item.ID)
+	if err == nil || !strings.Contains(err.Error(), "check_stage_timeout bound during make race") {
+		t.Fatalf("Run() error = %v, want a check-stage timeout", err)
+	}
+	stopped, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !stopped.StoppedAtStageBound() || stopped.RepairAttempts != 0 {
+		t.Fatalf("stopped run = %#v, want a first-attempt check-stage timeout", stopped)
+	}
+	if _, err := store.Triage().GrantRepair(ctx, tracker.Item.ID, triageDecided(runstate.TriageDecisionRepair, stopped.RunID), 2, docketedNow, handbackCaps); err != nil {
+		t.Fatalf("GrantRepair() error = %v", err)
+	}
+	calm, checked := build(5 * time.Minute)
+	continuer := repairContinuerOver(t, calm, store, docket, tracker)
+	continuer.Remains = calm.Worktrees.(*gitworktree.Manager)
+	result, err := continuer.Continue(ctx, RepairContinueRequest{Run: stopped.RunID})
+	if err != nil || !result.Continued || !result.Checks || result.Outcome.Status != runstate.StatusSucceeded || result.Outcome.Integration == nil {
+		t.Fatalf("Continue() = %#v, %v; want checks, review, and integration completed", result, err)
+	}
+	if !reflect.DeepEqual(checked.ran, commands) {
+		t.Fatalf("continued checks = %v, want %v", checked.ran, commands)
+	}
+	for _, dir := range checked.dirs {
+		if dir != stopped.WorktreePath {
+			t.Fatalf("check directory = %s, want %s", dir, stopped.WorktreePath)
+		}
+	}
+	if developer := provider.RequestsForRole(domain.RoleDeveloper); len(developer) != 1 {
+		t.Fatalf("developer invocations = %d, want only the original attempt", len(developer))
+	}
+	final, err := store.Load(stopped.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if final.RepairAttempts != 0 || len(final.CheckStageContinuations) != 0 || !final.ContinuedCheckStage() {
+		t.Fatalf("final run = %#v, want only the decided check-stage continuation and no repair attempt", final)
+	}
+	if integrated := gitLine(t, repository, "show", "main:feature.txt"); integrated != "implemented" {
+		t.Fatalf("integrated feature = %q, want the first attempt's change", integrated)
+	}
+}
+
+func TestADecidedCheckStageContinuationDoesNotAdoptAnUnrecordedOrDifferentStep(t *testing.T) {
+	t.Parallel()
+	state := continuableState()
+	state.Status, state.Phase, state.RepairAttempts = runstate.StatusRunning, runstate.PhaseChecking, 0
+	if continuedAtCheckStage(state) {
+		t.Fatal("a run with no check-stage continuation was adopted")
+	}
+	state.RepairContinuations = []runstate.RepairContinuation{{CheckStage: true}}
+	if !continuedAtCheckStage(state) {
+		t.Fatal("a decided check-stage continuation was not adopted")
+	}
+	state.Phase = runstate.PhaseDeveloping
+	if continuedAtCheckStage(state) {
+		t.Fatal("a check-stage continuation adopted a developer attempt")
+	}
+	state.Phase = runstate.PhaseChecking
+	state.RepairContinuations = append(state.RepairContinuations, runstate.RepairContinuation{})
+	if continuedAtCheckStage(state) {
+		t.Fatal("an earlier check-stage continuation adopted a later repair")
+	}
+}
+
 // A worktree somebody has been in since the bound stopped the stage is not one
 // the harness continues on its own: what the checks would judge is no longer the
 // change the attempt left. The refusal is written onto the run so the harness

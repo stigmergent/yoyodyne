@@ -1901,7 +1901,7 @@ func TestAStallAtTheReviewIsHeldToTheRepairsContentCheck(t *testing.T) {
 		if continuableStall(repairing) || stallResumesPastTheAttempt(repairing) || continuedPhase(repairing, continuableStall(repairing)) != runstate.PhaseDeveloping {
 			t.Fatalf("a %s-phase run carrying the reviewer's findings was admitted as a stall rather than a repair", phase)
 		}
-		if err := continuableRepair(repairing, triage.Found{}); err != nil {
+		if err := continuableRepair(repairing, triage.Found{BranchThere: true, WorktreeThere: true}); err != nil {
 			t.Fatalf("continuableRepair() = %v, want a repair-loop run still carried out as a repair", err)
 		}
 	}

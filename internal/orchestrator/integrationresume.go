@@ -73,6 +73,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -131,6 +132,8 @@ type IntegrationResumer struct {
 	// Worktrees proves the checkout and the preserved worktree are what a
 	// promotion needs. Required: what is promoted is whatever is in the worktree.
 	Worktrees ResumeWorktrees
+	// Remains asks the same repository as the docket and the hold.
+	Remains readmodel.Remains
 	// Capacity is execution.max_concurrent_developers as this carry-out read it.
 	// Required: re-entry makes a terminal run live again, and a promotion holds a
 	// slot for exactly as long as any run does.
@@ -244,10 +247,11 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	}
 	defer lease.Release()
 
-	if err := stoppageIsOver(prior); err != nil {
+	found := readmodel.LookFor(ctx, r.Remains, prior)
+	if err := stoppageIsOver(prior, found); err != nil {
 		return result, err
 	}
-	if err := resumableStop(prior); err != nil {
+	if err := resumableStop(prior, found); err != nil {
 		return result, err
 	}
 	result.Cause = prior.IntegrationStop.Cause
@@ -303,7 +307,7 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	// thing here that writes before the re-entry: a held intake or a full harness
 	// must leave the run exactly as it stopped, and a restore made and then waited
 	// on would not.
-	if prior.WorktreeRemoved {
+	if !found.WorktreeThere {
 		restored, err := r.restoreWorktree(ctx, prior)
 		if err != nil {
 			return result, err
@@ -462,7 +466,7 @@ func (r IntegrationResumer) causeCleared(ctx context.Context, prior runstate.Sta
 // environment stopped, on a branch and in a worktree that are still there. It
 // says what is missing where the record does not say that, because each of the
 // things it can be missing sends a reader somewhere different.
-func resumableStop(prior runstate.State) error {
+func resumableStop(prior runstate.State, found triage.Found) error {
 	if prior.WorktreePath == "" || prior.Branch == "" || prior.BaseCommit == "" || prior.TargetBranch == "" {
 		return fmt.Errorf("%w: run %s recorded no preserved worktree, so there is no approved change to promote", ErrNotResumable, prior.RunID)
 	}
@@ -471,10 +475,10 @@ func resumableStop(prior runstate.State) error {
 	// something the branch does not hold, and a restore that left it on the ref
 	// would promote a checkout missing what the developer left: that is a
 	// person's to look at rather than something to resume past.
-	if prior.BranchRemoved {
-		return fmt.Errorf("%w: the branch run %s preserved has been deleted, so the approved change is gone from everywhere a promotion could be made from", ErrNotResumable, prior.RunID)
+	if found.Unknown || !found.BranchThere {
+		return fmt.Errorf("%w: the branch run %s preserved is not verified as present, so there is no approved branch to promote: %s", ErrNotResumable, prior.RunID, found.Describe())
 	}
-	if prior.WorktreeRemoved && strings.TrimSpace(prior.PreservedWorkRef) != "" {
+	if !found.WorktreeThere && strings.TrimSpace(prior.PreservedWorkRef) != "" {
 		return fmt.Errorf("%w: the sweep that retired run %s's worktree captured uncommitted work on %s, which the branch does not hold, so what a restored checkout would promote is not what the developer left; a person decides what becomes of that work", ErrNotResumable, prior.RunID, prior.PreservedWorkRef)
 	}
 	if prior.ProviderSessionID == "" {
@@ -506,7 +510,9 @@ func resumableStop(prior runstate.State) error {
 	if prior.IntegrationStop == nil {
 		return fmt.Errorf("%w: run %s stopped after its approval for something the environment does not answer for — %s — so it is a person's to decide about", ErrNotResumable, prior.RunID, singleLine(nonEmpty(prior.Failure, prior.Blocker, "the record names no failure"), 240))
 	}
-	if !prior.ResumableIntegration() {
+	// Presence was checked above. The record-only predicate also reads the
+	// removal flag, which cannot decide whether the branch still exists.
+	if !prior.ApprovedAwaitingIntegration() {
 		return fmt.Errorf("%w: run %s is not one this can resume", ErrNotResumable, prior.RunID)
 	}
 	return nil

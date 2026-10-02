@@ -2,12 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -544,5 +547,65 @@ func TestCostNamesThePricesItCouldNotRecord(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "yoyodyne-ifd.42 was priced but not recorded: bd update failed") {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestCostReadsPreservationFromTheRepositoryForTextAndJSON(t *testing.T) {
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	repository := gitProject(t)
+	git(t, repository, "config", "user.name", "Yoyodyne Test")
+	git(t, repository, "config", "user.email", "yoyodyne@example.invalid")
+	commit(t, repository, "base")
+	configPath := writeConfig(t, strings.Replace(validConfig, "repository: .", "repository: "+repository, 1))
+	parts, err := buildComponents(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := recordedRun(t, parts.store, runstate.StatusFailed, "yoyodyne-ifd.428.47", time.Now().Add(-time.Hour))
+	worktree, err := parts.worktrees.Create(context.Background(), gitworktree.CreateRequest{RunID: state.RunID, WorkItemID: state.WorkItemID, BaseRef: "HEAD", TargetBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, repository, "worktree", "remove", "--force", worktree.Path)
+	state.Branch, state.WorktreePath, state.BaseCommit, state.TargetBranch = worktree.Branch, worktree.Path, worktree.BaseCommit, worktree.TargetBranch
+	for _, there := range []bool{true, false} {
+		state.BranchRemoved, state.WorktreeRemoved = there, there
+		state.ArtifactsRetiredBy = ""
+		if there {
+			state.ArtifactsRetiredBy = "run-" + strings.Repeat("f", 32)
+		} else {
+			git(t, repository, "branch", "-D", state.Branch)
+		}
+		saveRun(t, parts.store, state)
+		want := "work removed, checked"
+		if there {
+			want = "work preserved, checked"
+		}
+		stdout, stderr, code := runCLI(t, "cost", "--config", configPath, state.WorkItemID)
+		if code != 0 || !strings.Contains(stdout, want) {
+			t.Fatalf("cost returned %d: %s %s, want %s", code, stdout, stderr, want)
+		}
+		if !strings.Contains(stdout, state.Branch) || !strings.Contains(stdout, state.WorktreePath) {
+			t.Fatalf("cost does not name what was checked: %s", stdout)
+		}
+		stdout, stderr, code = runCLI(t, "cost", "--config", configPath, "--json", state.WorkItemID)
+		if code != 0 {
+			t.Fatalf("cost returned %d: %s", code, stderr)
+		}
+		var output costOutput
+		if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+			t.Fatal(err)
+		}
+		run := output.Prices[0].Runs[0]
+		if run.Remains != want || run.Found == nil || !run.Found.Looked() || run.Found.BranchThere != there {
+			t.Fatalf("priced run = %#v, want %s", run, want)
+		}
+		conversationPrice, err := newConversationWork(parts).Price(context.Background(), state.WorkItemID)
+		if err != nil || len(conversationPrice.Runs) != 1 || conversationPrice.Runs[0].Remains != want {
+			t.Fatalf("conversation price = %#v, %v, want %s", conversationPrice, err, want)
+		}
+	}
+	if _, err := os.Stat(worktree.Path); !os.IsNotExist(err) {
+		t.Fatalf("retired checkout = %v", err)
 	}
 }

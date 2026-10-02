@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -76,6 +77,7 @@ func reportCosts(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	if err != nil {
 		return reportCostFailure(stdout, stderr, *jsonOutput, err)
 	}
+	readmodel.LookForPrices(ctx, parts.worktrees, parts.store, prices)
 	output := costOutput{Prices: prices}
 	// What the roles spent asking each other is read alongside the runs whenever
 	// the whole ledger is. Naming an item asks what that item's runs cost, and an
@@ -392,6 +394,9 @@ func printPriceBreakdown(writer io.Writer, price runstate.ItemPrice) {
 	}
 	for _, run := range price.Runs {
 		fmt.Fprintf(writer, "  %s started %s [%s] %s\n", run.RunID, run.StartedAt.UTC().Format(time.RFC3339), renderRunOutcome(run), renderRunPrice(run))
+		if run.Found != nil && run.Status.Terminal() {
+			fmt.Fprintf(writer, "    %s\n", run.Found.Describe())
+		}
 		// A run nothing survives to price has no split to show, but it still
 		// waited for as long as it waited: that came from the run's own record
 		// rather than from the log that is gone.
@@ -658,6 +663,9 @@ func renderRunOutcome(run runstate.RunPrice) string {
 	}
 	if run.Integrated {
 		outcome += ", integrated"
+	}
+	if run.Status.Terminal() && run.Remains != "" {
+		outcome += ", " + run.Remains
 	}
 	return outcome
 }

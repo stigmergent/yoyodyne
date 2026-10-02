@@ -9,12 +9,28 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // The moment the fixtures below are read at: the reset the parked run is
 // waiting out is still an hour off, and the conversation's refusal still
 // stands.
 var capacityReadAt = time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
+
+func TestCapacityPreservationFollowsTheRepositoryRatherThanRemovalFlags(t *testing.T) {
+	t.Parallel()
+	for _, there := range []bool{true, false} {
+		run := blockedRun("run-1111aaaa", "yoyodyne-ifd.150")
+		run.BranchRemoved, run.WorktreeRemoved = there, there
+		look := func(run runstate.State) triage.Found {
+			return triage.Found{Branch: run.Branch, WorktreePath: run.WorktreePath, BranchThere: there}
+		}
+		blocked := ReadCapacityBlocked([]runstate.State{run}, nil, capacityReadAt, 30*time.Minute, CapacityEvidence{}, look)
+		if len(blocked.Runs) != 1 || blocked.Runs[0].Preserved != there {
+			t.Fatalf("capacity-blocked runs = %#v, want preserved %t", blocked.Runs, there)
+		}
+	}
+}
 
 // parkedRun is a run asleep on a reset the provider named, as the pipeline
 // leaves one: in flight, the deadline durable, the cause beside it, and the

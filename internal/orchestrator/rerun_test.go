@@ -416,11 +416,11 @@ func TestARerunIsRefusedWhileAnythingOfTheStoppedRunIsStillLive(t *testing.T) {
 			want: "resumable",
 		},
 		{
-			// A run whose blocker was lifted stopped for a reason nobody has to
-			// decide about any more.
-			name: "the blocker no longer stands",
+			// Neither the blocker nor the run's change still stands.
+			name: "the blocker and change no longer stand",
 			state: func(state runstate.State) runstate.State {
 				state.Blocker = ""
+				state.Branch, state.WorktreePath, state.BaseCommit, state.TargetBranch = "", "", "", ""
 				return state
 			},
 			want: "no durable blocker",
@@ -2165,5 +2165,34 @@ func (h *rerunHarness) merged(number int) {
 		HeadCommit: strings.Repeat("c", 40),
 		State:      "MERGED",
 		Merged:     true,
+	}
+}
+
+func TestRerunChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
+	t.Parallel()
+	for _, there := range []bool{true, false} {
+		harness := newRerunHarness(t, stoppedState())
+		state, err := harness.runs.Load(docketedRunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state.Blocker = ""
+		state.Failure = "the provider ended after writing the change"
+		state.BranchRemoved, state.WorktreeRemoved = there, there
+		if there {
+			state.ArtifactsRetiredBy = priorRunID
+		}
+		if err := harness.runs.Save(state); err != nil {
+			t.Fatal(err)
+		}
+		rerunner := harness.rerunner()
+		rerunner.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		result, err := rerunner.Rerun(context.Background(), rerunRequest())
+		if (err == nil) != there || (len(harness.started) > 0) != there {
+			t.Fatalf("Rerun() = %#v, %v, want started %t", result, err, there)
+		}
+		if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
+			t.Fatalf("refusal does not name what was checked: %v", err)
+		}
 	}
 }

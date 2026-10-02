@@ -463,10 +463,9 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	// publication fields taken here: it is the same derivation the attention line
 	// of `yoyo status` lists, so a count said here is a count that line names.
 	inFlight, awaitingForge := 0, len(readmodel.AwaitingForge(states))
-	// Whether an approved change the environment stopped can still be resumed is
-	// asked of the repository the standing reading already holds, by the look the
-	// docket and the pull's hold take, so the line a stop ends on names the verb
-	// they name. A feed without one answers from the run's record and says so.
+	// Every ending's preservation, and whether an approved change can still be
+	// resumed, is asked of the repository by the look the docket and the hold
+	// take. A feed without one says that nothing looked.
 	var remains readmodel.Remains
 	if f.Standing != nil {
 		remains = f.Standing.Remains
