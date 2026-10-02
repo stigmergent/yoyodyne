@@ -1220,7 +1220,7 @@ func TestEachWayARunEndsIsSaidAsItselfWithWhatRemains(t *testing.T) {
 // run record's own sentence, which the docket entry carries too. Once the
 // harness's continuations are spent, the same line names the development
 // manager instead.
-func TestAStageTheBoundStoppedIsSaidAsUnresolvedWithTheHarnessContinuingIt(t *testing.T) {
+func TestAStageTheBoundStoppedIsSaidAsLoadWithTheHarnessContinuingIt(t *testing.T) {
 	before := running()
 	after := endedRun(before, runstate.StatusTimedOut)
 	after.Phase = runstate.PhaseChecking
@@ -1241,7 +1241,7 @@ func TestAStageTheBoundStoppedIsSaidAsUnresolvedWithTheHarnessContinuingIt(t *te
 		t.Fatalf("fixture = %#v, want a run the harness continues at its checks", after)
 	}
 	body := say(after)
-	for _, want := range []string{"the harness's", "did not finish", "cause remains unresolved", "the harness continues it itself"} {
+	for _, want := range []string{"the harness's", "stopped by load", "not by the change", "the harness continues it itself"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the ending is said as %q, which does not say %q", body, want)
 		}

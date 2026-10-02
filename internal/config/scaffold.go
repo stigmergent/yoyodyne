@@ -263,10 +263,11 @@ execution:
   # again. It spends the same maximum above, so an overload that never lifts
   # reaches that bound rather than reissuing forever.
   server_overload_pause: %s
-  # The idle total runtime budget for each check. The gate scales it with
-  # machine load, up to ten times, and caps it at the stage's remaining time.
-  # Check and stage timeouts share finite durable continuation allowances;
-  # a timeout leaves the check unfinished, with its cause unresolved.
+  # The total budget one check below gets: the whole time it may run, not the
+  # time it may stay quiet. Raise it as the suite grows, and raise it again for
+  # concurrency -- N runs at once multiply the wall clock of every suite without
+  # multiplying the cores it runs on, so either this scales with
+  # max_concurrent_developers or the checks are left to serialize themselves.
   check_timeout: %s
   # The budget the whole check stage of one run gets -- every check below
   # together, from the first starting to the last ending. A stage that reaches

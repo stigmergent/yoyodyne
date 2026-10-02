@@ -1113,8 +1113,8 @@ type Entry struct {
 	// that worktree gone with it.
 	SessionResumable bool `json:"session_resumable,omitempty"`
 	// CheckStageStop is the run's own account of a stoppage made by the check
-	// or stage reaching its time limit: its cause is unresolved, and what
-	// happens to it next. It is the sentence the
+	// stage reaching execution.check_stage_timeout: that load stopped it rather
+	// than the change, and what happens to it next. It is the sentence the
 	// channel says too, so the two cannot come to say different things about one
 	// run. Empty on every other stoppage.
 	CheckStageStop string `json:"check_stage_stop,omitempty"`
@@ -1773,7 +1773,7 @@ func (e Entry) Render() string {
 	}
 	rendered.WriteString(e.renderStopRequested())
 	if e.CheckStageStop != "" {
-		rendered.WriteString(indented("Check stage did not finish", e.CheckStageStop))
+		rendered.WriteString(indented("Check stage stopped by load", e.CheckStageStop))
 		if e.CheckStageFailure != "" {
 			rendered.WriteString(indented("Where the bound stopped it", e.CheckStageFailure))
 		}
@@ -2115,7 +2115,7 @@ func (e Entry) renderNextMover() string {
 	// after a recorded decision, because a decision she made about it is what the
 	// harness carries out instead.
 	if e.HarnessContinuesChecks {
-		return "      Next mover: the harness — the check did not finish within its time limit and its cause remains unresolved, so the harness re-runs the checks within the recorded count and time allowance at the next pull with a slot free and the load low enough.\n"
+		return "      Next mover: the harness — load stopped this run's check stage rather than the change, so the harness re-runs the checks on the change it already has at the next pull with a slot free and the load low enough; nothing here needs a decision unless you want it to go some other way.\n"
 	}
 	// A first silent-stream stall is continued by the harness itself, once, with
 	// nobody deciding anything; a second is the development manager's, below.

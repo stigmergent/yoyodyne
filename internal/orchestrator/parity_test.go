@@ -83,9 +83,6 @@ type parityScenario struct {
 	// reaches none, and names the state it was left standing in instead.
 	terminal string
 	standing string
-	// A check action can stop before its command starts when the durable time
-	// reservation cannot be saved. Standing alone is not command evidence.
-	standingCheckStarted bool
 	// unexpressible is why no definition walks this path at all, for the paths
 	// that stop before the first state. A scenario carrying it has no transcript,
 	// and the trace is held to having no run behind it.
@@ -930,9 +927,10 @@ func witnessTranscript(t *testing.T, scenario parityScenario, trace parityTrace)
 		}
 		previous = step.state
 	}
-	// A command in an action whose outcome was never recorded counts only if
-	// the transcript says it started; entering the action alone proves nothing.
-	if scenario.standing == parityCheck && scenario.standingCheckStarted {
+	// A step the process died inside performed its action and never recorded an
+	// outcome, so what it did is evidenced in the trace and absent from the tally
+	// above.
+	if scenario.standing == parityCheck {
 		commanded++
 	}
 

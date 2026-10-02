@@ -1,12 +1,34 @@
 package orchestrator
 
-// Continuing a run at its checks after a check or stage time limit stopped it.
-// Load may explain the delay, but does not establish the cause. Both paths
-// share durable count and cumulative time bounds, including decided
-// continuations. A continuation re-runs checks on the preserved change after
-// the load falls, without invoking a developer or spending a repair attempt.
-// Before execution, the worktree must still hold the change as the harness
-// left it. Exhaustion or a worktree refusal goes to the development manager.
+// Continuing a run at its checks after execution.check_stage_timeout stopped
+// the stage.
+//
+// A stage the bound stopped judged nothing. No check failed and nothing was
+// handed back to the developer; the change is on its branch exactly as the
+// developer attempt left it, and what stopped the stage was the machine — the
+// race suites of three runs beside each other, most often. Every verb that could
+// pick such a run up spent something for it: a repair was refused for want of a
+// failure to hand back, a resumption covers only approved changes, and a re-run
+// started the item over from the target branch, redoing the development and
+// spending the item's re-run budget, while the finished change sat on its
+// branch. On 2026-09-26 that was the largest avoidable spend on the line.
+//
+// So the harness continues such a run itself, the way a stall at the checks is
+// continued (yoyodyne-ifd.428.16) but without anybody deciding it: at its checks,
+// on the same branch and in the same worktree, with no developer invoked and no
+// review round, repair grant, or re-run spent. The scheduling pass fires it on a
+// pull where a developer slot is free and the machine's load is below the
+// threshold, because a continuation into the load that stopped the stage would
+// be stopped again. It does so at most runstate.MaxCheckStageContinuations times
+// for one run; past that the stoppage is the development manager's, as it was
+// before.
+//
+// It is held to what a repair is held to before anything is written: the
+// worktree has to be as the harness left it and has to still hold the change,
+// because that change is what the checks judge. A worktree that fails either is
+// a person's to look at, so the refusal is written onto the run, the stoppage is
+// put back on the docket for the development manager, and the harness does not
+// ask again.
 
 import (
 	"context"
@@ -242,16 +264,12 @@ func continuedAtChecks(prior runstate.State, reason string, now time.Time) runst
 	}
 	continued.CheckStageContinuations = append(append([]runstate.CheckStageContinuation{}, prior.CheckStageContinuations...),
 		runstate.CheckStageContinuation{
-			Stage:             prior.CheckStage,
-			ReservedSeconds:   checkAllowanceReserved(prior),
 			Command:           command,
 			ContinuedAt:       now,
 			Reason:            reason,
 			SupersededFailure: prior.Failure,
 		})
 	continued.Failure = ""
-	continued.Environmental = nil
-	continued.StopClass = ""
 	continued.Status = runstate.StatusRunning
 	continued.Phase = runstate.PhaseChecking
 	continued.CompletedAt = nil
@@ -316,7 +334,7 @@ func (c CheckStageContinuer) closeEntry(entry triage.Entry, reason string) error
 		WorkItemID:    entry.WorkItemID,
 		Decision:      continuedChecksDocketDecision,
 		Reason:        singleLine(reason, triage.MaxMessageBytes),
-		DecidedBy:     "the harness, continuing unfinished checks within their count and time allowance",
+		DecidedBy:     "the harness, continuing a check stage its bound stopped under load",
 		ClosedAt:      c.now(),
 	})
 	return err
@@ -330,15 +348,8 @@ func checkStageContinueReason(prior runstate.State) string {
 		during = " during " + prior.CheckStage.Command
 	}
 	return fmt.Sprintf(
-		"Continued at its checks: the check stage of run %s did not finish within its time limit%s; load may have contributed, but its cause remains unresolved. The harness continues the same change on the same branch and worktree, with no developer attempt (continuation %d of %d; %s). No review round, repair grant, or re-run was spent on it.",
-		prior.RunID, during, prior.CheckContinuationCount()+1, runstate.MaxCheckStageContinuations, prior.CheckAllowanceSays())
-}
-
-func checkAllowanceReserved(state runstate.State) int64 {
-	if state.CheckTimeAllowance == nil {
-		return 0
-	}
-	return state.CheckTimeAllowance.ReservedSeconds
+		"Continued at its checks: the check stage of run %s was stopped by load at its execution.check_stage_timeout bound%s, which judged nothing, so the harness continued the run itself at its checks on the change it already has, on the same branch and in the same worktree, with no developer attempt (continuation %d of %d). No review round, repair grant, or re-run was spent on it.",
+		prior.RunID, during, len(prior.CheckStageContinuations)+1, runstate.MaxCheckStageContinuations)
 }
 
 func (c CheckStageContinuer) validate() error {

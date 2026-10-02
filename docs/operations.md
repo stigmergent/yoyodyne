@@ -2008,44 +2008,78 @@ went with it.
 
 ## What a check stage may cost, and where the whole suite runs
 
-A run's checks have two configured time limits: `execution.check_timeout`
-for one check and `execution.check_stage_timeout` for the whole list, both
-thirty minutes by default. Both scale with the machine's one-minute load
-average divided by its core count, at a factor between one and ten. The load
-is read as each check begins; the stage retains its heaviest reading. Each
-check receives the smaller of its scaled budget and the stage's remaining time.
-[The configuration guide](configuration.md#how-long-a-check-may-take) describes
-the limits and the records they produce.
+A run's checks are bounded twice, and the two bounds answer different
+questions. `execution.check_timeout` is what one check may spend, thirty
+minutes by default. `execution.check_stage_timeout` is what the whole list may
+spend, from the first check starting to the last one ending — thirty minutes
+by default, and in minutes on purpose. That figure is for an idle machine: the
+bound in force is it scaled for the machine's one-minute load average exactly
+as a local Git command's budget is, multiplied by how far the load is above the
+number of cores and capped at ten times, read again as each check begins and
+never lowered. [What a whole check stage may
+cost](configuration.md#what-a-whole-check-stage-may-cost) says why. The second exists because the first says
+nothing about the list: on 2026-09-19 a run on this repository sat in its
+checks for over two hours under load, every check inside its own budget and
+`make race` alone past ninety minutes, holding a developer seat and the watch
+session's drain for the whole of it. Twenty-one timing-flake reports in the
+same fortnight were the same suite failing under the load it was creating.
 
-A check stopped by either time limit ends the run as `timed_out`, with the
-branch, worktree and developer session preserved. A command that returns
-failure is still a failed check. A timeout does not prove the machine caused
-the delay, and an unfinished check never earns passing gate evidence. The
-record names the check, configured and scaled check and stage limits, load,
-core count, tested worktree content digest, and cumulative time reserved.
+**A stage that reaches its bound ends the run as a stoppage**, `timed_out`,
+with the change preserved and no repair attempt spent — a stage the bound
+stopped never judged the change, so there is nothing to hand a developer. It is
+recorded on the run as a stop from outside the work, of cause
+`check-stage-bound`, and counts toward nothing: not the intake brake, and not
+the item's review rounds, repair grant, or re-run. The reason names the bound,
+the configured figure and the load that scaled it, the check the bound stopped
+and how long it had run, what the stage had spent across how many checks, and
+what moves it — here on a machine at three times its cores:
 
-The harness continues the run at its checks on the same change at the next
-pull with a free developer slot and load below the core count. No developer is
-invoked and no repair attempt, review round or re-run is spent. The worktree
-must still hold the change as the harness left it; the item must remain one a
-run may continue on. The intake hold and operator pause still apply.
+```text
+the check stage reached its 1h30m0s execution.check_stage_timeout bound (the configured 30m0s scaled for a one-minute load average of 48.0 on 16 cores) during make race, which had run for 1h12m0s; the stage had spent 1h30m0s across 3 check(s) (gate narrowed to: the whole module (the repository root is not a Go module)); narrow the per-run gate to what the change touches with $YOYODYNE_CHANGED_GO_PACKAGES, move the whole suite to landing_checks, or raise the bound
+```
 
-Check and stage timeouts share at most two continuations and a durable time
-allowance pinned to twenty times the initially configured stage limit. With
-the default, that is ten hours across the original stage and all later stages.
-Each stage reserves its budget before it executes and reserves any growth
-before granting it. Those reservations are consumed even when a stage ends
-early or its process dies. Restarting a session, switching timeout paths or
-using a decided continuation cannot reset the allowance. Both automatic and
-decided continuations count against the same two-continuation limit.
+It is a different stoppage from a check reaching its own budget, and it is
+worded as one, because raising `check_timeout` does nothing for a check the
+stage stopped. Both leave the branch and the worktree where they were.
 
-When either limit is exhausted, automatic continuation stops. The branch,
-worktree and developer session remain preserved, and the development manager
-receives the unresolved stoppage. The run, docket and channel say the check did
-not finish and its cause remains unresolved; they do not claim that high load
-proved the change was sound. The continuation records retain the prior stage's
-limits, load and tested revision beside the allowance consumed. A refusal
-because the worktree changed is also recorded, and the harness stops asking.
+**The harness continues a stage the bound stopped, at its checks, by itself.**
+What stops a stage at its bound is nearly always the machine — three runs' race
+suites beside each other — rather than the change, and until
+yoyodyne-ifd.429.25 the only thing that fired for one was a re-run from the
+target branch: repair was refused because nothing was handed back, resumption
+covers only approved changes, and the claim audit gave the item back half an
+hour later to a fresh run that redid the development while the finished change
+sat on its branch. Now the stopped run is docketed as it ends, and the watching
+session's pull continues it itself — no development manager decision — on the
+first pull where a developer slot is free and the machine's one-minute load
+average is below its number of cores. The run is made live again at its
+checks, on the same branch and in the same worktree, and the checks are re-run
+on the change it already has; no developer is invoked, and no review round,
+repair grant, or re-run is spent. It is held to the conditions a repair is: the
+worktree has to be as the harness left it and still hold the change, and the
+item has to be one a run may continue on. The operator's pause and the intake
+hold stop it exactly as they stop a recorded decision's carry-out. The claim
+audit leaves such an item's claim alone, so a load that stays high does not
+turn it into a fresh run.
+
+The docket entry and the run's line in the channel say it in one sentence:
+
+```text
+the check stage was stopped by load at its execution.check_stage_timeout bound, not by the change: nothing was judged and nothing was handed back to the developer; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free and the machine's one-minute load average below its number of cores — no developer is invoked and no review round, repair grant, or re-run is spent (continuation 1 of 2)
+```
+
+and the entry's next mover is the harness. The continuation is recorded on the
+run (`check_stage_continuations`) and noted on the item, and the entry is closed
+in the harness's name. **The harness does this at most twice for one run.** A
+stage the bound stops a third time at a load the harness judged low enough is
+a suite that does not fit its bound — a decision about the gate or the bound,
+not something another try settles — so the entry then says the harness's
+continuations are spent and the stoppage is the development manager's, as it
+was before. So is one whose worktree somebody has been in, or whose change is
+gone: the refusal is written onto the run
+(`check_stage_continuation_refused`), the item is told, and the stoppage is
+docketed again for her, and the harness does not ask again. A stage stopped by
+a check reaching its own `check_timeout` is not continued this way.
 
 **While the checks run, the bound is what `yoyo status` shows.** A run in its
 checks says where the stage stands in place of the bare phase — how much of the
@@ -4158,7 +4192,7 @@ disagree about one run:
   hands nobody a blocker, so its record ends `failed` rather than `stopped` and
   every rule that looked for a blocker read it as an item with nothing holding
   it.
-- **A run whose check or stage time limit stopped it**, which ends `timed out` with
+- **A run whose check stage its bound stopped**, which ends `timed out` with
   its finished change on the branch. The harness
   [continues it at its checks](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs)
   once the load allows, and the audit leaves it for that.
@@ -4288,7 +4322,7 @@ comes from a small fixed set:
 | `succeeded` | the work landed |
 | `stopped` | it ended on a durable blocker: the item carries it and nothing was discarded; the development manager decides what happens next, except for a first stall of a silent provider stream outside the repair loop, which the harness [continues once itself](#when-a-provider-stalls-or-runs-out-of-budget) and which becomes hers only if it stalls again |
 | `cancelled` | something stopped it rather than judged it — the operator, or a killed process |
-| `timed out` | the harness stopped it on time; nothing judged the change, and a check or stage its time limit stopped is acted on afterwards — [continued at its checks by the harness](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs), then the development manager's once those continuations are spent |
+| `timed out` | the harness stopped it on time; nothing judged the change, and only a check stage its bound stopped is acted on afterwards — [continued at its checks by the harness](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs), then the development manager's once those continuations are spent |
 | `failed` | it ended without succeeding and without leaving anybody a blocker |
 | `pending`, `running` | it has not finished |
 

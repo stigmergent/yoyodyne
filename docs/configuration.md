@@ -2465,52 +2465,43 @@ per-language examples above, which is what it always did.
 
 ### How long a check may take
 
-Each check has a configured time limit for an idle machine:
+Each check gets a budget, and a check that exceeds it is killed and ends the run:
 
 ```yaml
 execution:
   check_timeout: 30m   # the default; per check, not for the list
 ```
 
-It bounds the total time a check may run, including time when it prints output.
-Before each check starts, the harness scales this limit by the machine's
-one-minute load average divided by its number of cores, with a minimum factor
-of one and a maximum of ten. A platform that cannot report load uses the
-configured limit. The stage retains its heaviest load reading, so later checks
-keep that reading when the load falls. A check receives no more than the stage's
-scaled limit or the time the stage has left.
+It is the *total* time a check may run rather than the time it may stay quiet: a
+suite printing a result every second is spending it just as fast as one that has
+gone silent. The `30m` default is deliberately generous, because a check stopped
+at this bound is not a check that judged the change — the work may have been
+passing the whole way, and killing it costs a run that had nothing wrong with it.
 
-For example, a configured thirty-minute check on a machine whose load is three
-times its core count receives ninety minutes, if the stage has that much time
-left. Load can explain a slow check, but it cannot prove the change did not
-cause a hang. A command returning failure remains a failed check; a command
-stopped by either time limit remains unfinished and never earns passing gate
-evidence.
+**Concurrency multiplies what a suite takes, so this has to scale with it.**
+`max_concurrent_developers: 2` does not give each run its own machine: two suites
+contend for the same cores, and each one's wall clock grows accordingly — about
+twofold for this repository's own suite, and further under whatever else the
+machine is doing, including the provider processes the runs themselves keep busy.
+The budget is spent in wall clock, so N concurrent runs need a budget set against
+what the suite takes with N of them running, not against what it takes alone.
+Either raise `check_timeout` to match, or lower `max_concurrent_developers` so
+the suites serialize; leaving both at values chosen independently is how a
+passing suite gets killed. This is the failure that produced the setting: a flat
+ten minutes, a suite past forty packages with real Git integration tests, and two
+concurrent runs — the tests were passing package by package when the bound
+stopped them.
 
-Check and stage timeouts share at most two continuations per run and one durable
-cumulative time allowance. The allowance is pinned when checks first run, at
-twenty times the configured stage limit: two stages at the tenfold scaling
-ceiling, or ten hours with the default thirty-minute stage. Each stage reserves
-its time before execution, including any increase when load grows. Reserved time
-is consumed even if the stage ends early or the process dies; this conservative
-account prevents a restart from restoring time that may already have been used.
-A later stage receives only the allowance left. Switching between check and
-stage timeouts, or between automatic and decided continuations, resets neither
-limit. Timeout recovery spends no developer repair attempt.
+Every check reports what it spent against what it was allowed, whether it passed
+or not. The completion event carries `elapsed` and `timeout`, and the run's notes
+on the work item carry the same pair per check, so a suite growing toward its
+ceiling is visible run after run rather than only in the run the ceiling finally
+stops. When one does time out, the failure names both numbers and the two
+settings that move them.
 
-At the next pull with a free developer slot and load below the core count, the
-harness re-runs the checks on the same branch and worktree without invoking a
-developer. Once the count or time allowance is exhausted, automatic continuation
-stops, the branch, worktree and developer session remain preserved, and the
-development manager receives the unresolved stoppage. The record says that the
-check did not finish and its cause remains unresolved.
-
-The run records the check, its configured and scaled limits, the stage's limits,
-load and core count, the tested worktree content digest, and the cumulative time
-reserved. Continuations retain the prior stage's record. Check completion events
-carry `configured_timeout`, `timeout`, `elapsed`, `stage_timeout` and
-`stage_elapsed`. A configured limit of `0` is refused.
-
+A budget of `0` is refused rather than read as "unbounded": nothing else bounds a
+check, so one that never returns would hold a worktree, a claim, and a run open
+indefinitely.
 
 ### What a whole check stage may cost
 
@@ -2554,14 +2545,17 @@ bound. That is a different failure from a check reaching its own budget, and it
 is reported as one, because raising `check_timeout` does nothing for a check the
 stage stopped.
 
-**Check and stage timeouts share bounded recovery.** Neither timeout is proof
-that load caused the stoppage. The harness records the unfinished check under
-`check-stage-bound` and preserves the branch, worktree and developer session.
-No repair attempt or review round is spent by the continuation. Both paths use
-the count and durable cumulative allowance described above; neither can restore
-time by switching paths or restarting. When either allowance is exhausted, the
-run says the check did not finish and its cause remains unresolved, and what
-happens next is the development manager's decision.
+**A stage the scaled bound still stops is a stop from outside the work.** It is
+recorded on the run as one, of cause `check-stage-bound`, naming the bound, the
+load, and the check; the run keeps its branch, its worktree, and its developer
+session; and it counts toward nothing — not the
+[failure-storm brake](#watching-instead-of-draining), and not the item's review
+rounds, repair grant, or re-run. Because a stage the bound stopped judged
+nothing, the harness [continues it at its checks by
+itself](operations.md#what-a-check-stage-may-cost-and-where-the-whole-suite-runs)
+— on the change the run already has, at a pull with a slot free and the
+machine's load below its cores, at most twice per run, spending nothing —
+rather than leaving it to a re-run that redoes the development.
 
 **The bound is visible while the checks run, not only when it stops them.**
 The run's record carries the stage — when it began, the bound in force, the

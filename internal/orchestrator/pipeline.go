@@ -5259,8 +5259,6 @@ func (p Pipeline) sleep(ctx context.Context, duration time.Duration) error {
 func (a *activeRun) verify(ctx context.Context) error {
 	p := a.pipeline
 	a.state.Phase = runstate.PhaseChecking
-	// An unfinished new stage cannot inherit evidence from a previous one.
-	a.state.ChecksPassed = nil
 	// Scope is settled before the suite runs, because it costs a listing of names
 	// against a handful of prefixes and the suite costs whatever the project's
 	// suite costs. A change that is not allowed to stand does not get a check
@@ -5282,8 +5280,10 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// rather than after the last, because the record is what a surface reads to
 	// say how much of the bound has gone while the checks are still running.
 	//
-	// The record and its time reservation must be saved before a check starts:
-	// a crash cannot restore time a process may already have consumed.
+	// Both writes of it are best effort. The record is visibility and nothing
+	// reads it to decide anything, so a store that refuses it costs the status
+	// line a figure and costs the stage nothing — and the first event the checks
+	// persist is what says the store has gone, in the words it always said it in.
 	//
 	// What it touches also decides which path checks join the configured ones:
 	// a check that vouches for part of the repository — the adoption walk, for
@@ -5294,58 +5294,16 @@ func (a *activeRun) verify(ctx context.Context) error {
 	narrowing := checks.NarrowGoPackages(a.worktree.Path, changed)
 	added := pathChecksFor(a.worktree.Path, p.Config.PathChecks, changed)
 	configured := p.checkStageTimeout()
-	contentTested, err := p.Worktrees.ContentIdentity(ctx, a.worktree)
-	if err != nil {
-		return fmt.Errorf("name the revision to be checked: %w", err)
-	}
-	if a.state.CheckTimeAllowance == nil {
-		// The shared allowance is pinned to this run, not the session or the
-		// current configuration: two stages at the tenfold scaling ceiling.
-		limit := int64(configured / time.Second)
-		if a.state.CheckStage != nil {
-			limit = int64(a.state.CheckStage.Configured() / time.Second)
-		}
-		const maxSeconds = int64((1<<63 - 1) / time.Second)
-		if limit > maxSeconds/20 {
-			limit = maxSeconds
-		} else {
-			limit *= 20
-		}
-		reserved := int64(0)
-		if a.state.CheckStage != nil {
-			// A record from before reservations existed still owes its previous
-			// stage. Count older continuations conservatively at that bound.
-			reserved = a.state.CheckStage.BoundSeconds * int64(a.state.CheckContinuationCount()+1)
-			if reserved > limit {
-				reserved = limit
-			}
-		}
-		a.state.CheckTimeAllowance = &runstate.CheckTimeAllowance{LimitSeconds: limit, ReservedSeconds: reserved}
-	}
-	if a.state.CheckAllowanceExhausted() {
-		// No new stage ran. Keep the preceding stage's outcome intact and
-		// record this stop independently, including after failure or interruption.
-		a.state.CheckTimeAllowance.StoppedAtExhaustion = true
-		a.outcome.CheckStage = a.state.CheckStage
-		cause := fmt.Errorf("the checks did not finish and their cause remains unresolved; %s; automatic continuation stopped because its cumulative time allowance is exhausted; the branch, worktree and developer session are preserved", a.state.CheckAllowanceSays())
-		a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
-		return stoppedBy(runstate.StopChecks, phaseError{status: runstate.StatusTimedOut, cause: cause})
-	}
 	stage := &runstate.CheckStage{
 		StartedAt:         p.clock().Now(),
 		BoundSeconds:      int64(configured / time.Second),
 		ConfiguredSeconds: int64(configured / time.Second),
-		LoadScaledSeconds: int64(configured / time.Second),
 		Narrowed:          narrowing.Describe() + describePathChecks(added),
-		Content:           contentTested,
 	}
 	p.scaleCheckStage(stage)
-	a.limitCheckStage(stage)
 	a.state.CheckStage = stage
 	a.state.UpdatedAt = p.clock().Now()
-	if err := p.Store.Save(a.state); err != nil {
-		return stoppedBy(runstate.StopChecks, fmt.Errorf("record check time allowance before execution: %w", err))
-	}
+	_ = p.Store.Save(a.state)
 	checkResults, lastSequence, err := p.Checks.Run(ctx, checks.Request{
 		RunID:        a.state.RunID,
 		Directory:    a.worktree.Path,
@@ -5358,28 +5316,13 @@ func (a *activeRun) verify(ctx context.Context) error {
 		// check it bounds starts.
 		StageBound: func() time.Duration {
 			p.scaleCheckStage(stage)
-			a.limitCheckStage(stage)
 			return stage.Bound()
 		},
-		CheckBound: func(command string, configured time.Duration) (time.Duration, error) {
-			bound := gitworktree.ScaleForLoad(configured, stage.Load, stage.Cores)
-			stage.CheckScaledSeconds = int64(bound / time.Second)
-			if bound > stage.Bound() {
-				bound = stage.Bound()
-			}
-			stage.CheckConfiguredSeconds = int64(configured / time.Second)
-			stage.CheckBoundSeconds = int64(bound / time.Second)
+		// Which check the stage is on goes onto the record as each begins.
+		Started: func(command string, _ time.Duration) {
 			stage.Command = command
 			a.state.UpdatedAt = p.clock().Now()
-			// Reserve any growth before granting it. A restart cannot recover
-			// time that a vanished process may already have spent.
-			allowance := a.state.CheckTimeAllowance
-			allowance.ReservedSeconds += stage.BoundSeconds - stage.AllowanceReservedSeconds
-			stage.AllowanceReservedSeconds = stage.BoundSeconds
-			if err := p.Store.Save(a.state); err != nil {
-				return 0, fmt.Errorf("reserve check time allowance before execution: %w", err)
-			}
-			return bound, nil
+			_ = p.Store.Save(a.state)
 		},
 	}, a.sink)
 	a.outcome.Checks = checkResults
@@ -5408,12 +5351,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 			// stage had spent across how many checks, and the two things that
 			// move it — narrowing the gate, or raising the bound.
 			//
-			// Scaling makes room for load without proving why the check did not
-			// finish. Both timeout paths share the same finite allowance.
+			// The bound it reached was already scaled for the machine's load, so
+			// what stopped the stage is the machine rather than the change: it is
+			// recorded as a stop from outside the work, naming the bound, the
+			// load, and the check, and it counts toward nothing — no brake, no
+			// review round, no repair grant, no re-run.
 			cause = fmt.Errorf(
 				"the check stage reached its %s execution.check_stage_timeout bound%s during %s, which had run for %s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
 				stage.Bound(), stageBoundLoad(*stage), check.Command, check.Elapsed().Round(time.Second), stage.Elapsed().Round(time.Second), len(checkResults), stage.Narrowed, checks.ChangedGoPackagesVariable)
-			cause = fmt.Errorf("%w; revision %s; check configured %s, scaled %s; %s; the check did not finish and its cause remains unresolved", cause, stage.Content, check.ConfiguredTimeout, check.Timeout, a.state.CheckAllowanceSays())
 			a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
 		case check.Process.Status == execution.ProcessTimedOut:
 			// A check stopped on time says nothing about the change: the work
@@ -5422,9 +5367,8 @@ func (a *activeRun) verify(ctx context.Context) error {
 			// both numbers and the setting that moves the ceiling, rather than
 			// reporting the kill as an exit code nobody chose.
 			cause = fmt.Errorf(
-				"verification timed out: %s ran for %s and was stopped at its %s execution.check_timeout budget (configured %s, %s); stage configured %s, scaled %s; revision %s; %s; the check did not finish and its cause remains unresolved",
-				check.Command, check.Elapsed().Round(time.Second), check.Timeout, check.ConfiguredTimeout, stage.LoadSays(), stage.Configured(), stage.Bound(), stage.Content, a.state.CheckAllowanceSays())
-			a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
+				"verification timed out: %s ran for %s and was stopped at its %s execution.check_timeout budget; raise that budget or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
+				check.Command, check.Elapsed().Round(time.Second), check.Timeout)
 		}
 		return stoppedBy(runstate.StopChecks, phaseError{status: statusForProcess(check.Process.Status), cause: cause})
 	}
@@ -5484,10 +5428,6 @@ var ErrIntegrationUnearned = errors.New("integration refused: the record does no
 func (a *activeRun) integrationEarned(ctx context.Context) error {
 	state := a.state
 	switch {
-	case state.CheckTimeAllowance != nil && state.CheckTimeAllowance.StoppedAtExhaustion:
-		return fmt.Errorf("%w: the checks stopped at their cumulative time allowance", ErrIntegrationUnearned)
-	case state.CheckStage != nil && (state.CheckStage.Running() || state.CheckStage.StoppedAtBound || state.CheckStage.StoppedAtCheckBound || state.CheckStage.Interrupted):
-		return fmt.Errorf("%w: the check stage did not finish successfully", ErrIntegrationUnearned)
 	case state.PathRefusal != nil:
 		return fmt.Errorf("%w: a protected-path refusal is still recorded against the change", ErrIntegrationUnearned)
 	case state.CheckFailure != nil:
@@ -5528,21 +5468,9 @@ func (a *activeRun) closeCheckStage(stage *runstate.CheckStage, results []checks
 		stage.Command = results[last].Command
 		stage.ElapsedSeconds = int64(results[last].StageElapsed / time.Second)
 		stage.StoppedAtBound = results[last].StoppedByStage
-		stage.StoppedAtCheckBound = results[last].Process.Status == execution.ProcessTimedOut && !results[last].StoppedByStage
 	}
 	a.outcome.CheckStage = stage
 	a.state.UpdatedAt = finished
-}
-
-// limitCheckStage confines every stage to the run's remaining allowance,
-// including time already reserved for this stage as its load grows.
-func (a *activeRun) limitCheckStage(stage *runstate.CheckStage) {
-	allowance := a.state.CheckTimeAllowance
-	remaining := allowance.LimitSeconds - allowance.ReservedSeconds + stage.AllowanceReservedSeconds
-	if stage.BoundSeconds > remaining {
-		stage.BoundSeconds = remaining
-		stage.AllowanceLimited = true
-	}
 }
 
 // scaleCheckStage raises the stage's bound for the machine's load as it reads
@@ -5562,9 +5490,6 @@ func (p Pipeline) scaleCheckStage(stage *runstate.CheckStage) {
 		stage.Load, stage.Cores = load, cores
 	}
 	scaled := int64(gitworktree.ScaleForLoad(stage.Configured(), load, cores) / time.Second)
-	if scaled > stage.LoadScaledSeconds {
-		stage.LoadScaledSeconds = scaled
-	}
 	if scaled > stage.BoundSeconds {
 		stage.BoundSeconds = scaled
 	}
@@ -5576,8 +5501,6 @@ func (p Pipeline) scaleCheckStage(stage *runstate.CheckStage) {
 // could not be read.
 func stageBoundLoad(stage runstate.CheckStage) string {
 	switch {
-	case stage.AllowanceLimited:
-		return fmt.Sprintf(" (configured %s, load-scaled %s for %s, capped by the remaining cumulative check time allowance)", stage.Configured(), time.Duration(stage.LoadScaledSeconds)*time.Second, nonEmpty(stage.LoadSays(), "an unavailable load reading"))
 	case stage.Scaled():
 		return fmt.Sprintf(" (the configured %s scaled for %s)", stage.Configured(), stage.LoadSays())
 	case stage.LoadSays() != "":

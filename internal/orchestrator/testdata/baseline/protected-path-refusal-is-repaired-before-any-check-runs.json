@@ -14,24 +14,17 @@
           "status": "A feature.txt"
         },
         "check_stage": {
-          "allowance_reserved_seconds": 1800,
           "bound_seconds": 1800,
-          "check_bound_seconds": 1800,
-          "check_configured_seconds": 1800,
-          "check_scaled_seconds": 1800,
           "command": "test -f feature.txt",
           "configured_seconds": 1800,
-          "content": "\u003ccontent\u003e",
           "elapsed_seconds": "\u003celapsed\u003e",
           "finished_at": "\u003ctime\u003e",
-          "load_scaled_seconds": 1800,
           "narrowed": "the whole module (the repository root is not a Go module)",
           "started_at": "\u003ctime\u003e"
         },
         "checks": [
           {
             "command": "test -f feature.txt",
-            "configured_timeout": 1800000000000,
             "passed": true,
             "process": {
               "ExitCode": 0,
@@ -99,23 +92,13 @@
       "files": "A feature.txt"
     },
     "check_stage": {
-      "allowance_reserved_seconds": 1800,
       "bound_seconds": 1800,
-      "check_bound_seconds": 1800,
-      "check_configured_seconds": 1800,
-      "check_scaled_seconds": 1800,
       "command": "test -f feature.txt",
       "configured_seconds": 1800,
-      "content": "\u003ccontent\u003e",
       "elapsed_seconds": "\u003celapsed\u003e",
       "finished_at": "\u003ctime\u003e",
-      "load_scaled_seconds": 1800,
       "narrowed": "the whole module (the repository root is not a Go module)",
       "started_at": "\u003ctime\u003e"
-    },
-    "check_time_allowance": {
-      "limit_seconds": 36000,
-      "reserved_seconds": 1800
     },
     "checks_passed": {
       "at": "\u003ctime\u003e",
