@@ -37,11 +37,12 @@ var replyFences = []string{
 
 // replyBlocks separates framing before any payload is decoded. An unclosed
 // block ends at the next recognized opener, so it cannot swallow another kind
-// of block. Repeated blocks of one kind are decoded together and refused whole.
-func replyBlocks(answer string) (string, map[string]string) {
-	builders := make(map[string]*strings.Builder)
+// of block. Occurrences stay separate for authority checks; validation still
+// decodes repeated blocks of one kind together and refuses them whole.
+func replyBlocks(answer string) (string, map[string][]string) {
+	builders := make(map[string][]*strings.Builder)
 	var prose strings.Builder
-	var current string
+	var current *strings.Builder
 	for _, line := range strings.SplitAfter(answer, "\n") {
 		var opening string
 		for _, fence := range replyFences {
@@ -51,27 +52,27 @@ func replyBlocks(answer string) (string, map[string]string) {
 			}
 		}
 		if opening != "" {
-			current = opening
+			current = &strings.Builder{}
+			builders[opening] = append(builders[opening], current)
 		} else if strings.HasPrefix(line, "```yoyodyne-") {
 			// Blocks interpreted by the caller, such as a scheduled sweep's
 			// account, stay in prose even after an unclosed conversation block.
-			current = ""
+			current = nil
 		}
-		if current == "" {
+		if current == nil {
 			prose.WriteString(line)
 			continue
 		}
-		if builders[current] == nil {
-			builders[current] = &strings.Builder{}
-		}
-		builders[current].WriteString(line)
+		current.WriteString(line)
 		if opening == "" && strings.HasPrefix(line, "```") {
-			current = ""
+			current = nil
 		}
 	}
-	blocks := make(map[string]string, len(builders))
-	for fence, builder := range builders {
-		blocks[fence] = builder.String()
+	blocks := make(map[string][]string, len(builders))
+	for fence, occurrences := range builders {
+		for _, builder := range occurrences {
+			blocks[fence] = append(blocks[fence], builder.String())
+		}
 	}
 	return strings.TrimSpace(prose.String()), blocks
 }
@@ -83,15 +84,17 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed := parsedReply{Prose: prose, Carried: make(map[string]bool)}
 	var trackerProblem error
 	for _, fence := range replyFences {
-		block, found := blocks[fence]
+		occurrences, found := blocks[fence]
 		if !found {
 			continue
 		}
 		parsed.Carried[fence] = true
-		if parsed.AuthorityProblem == nil {
-			parsed.AuthorityProblem = blockAuthority(role, fence, block)
+		for _, block := range occurrences {
+			if parsed.AuthorityProblem == nil {
+				parsed.AuthorityProblem = blockAuthority(role, fence, block)
+			}
 		}
-		part, err := splitSingleReply(role, block)
+		part, err := splitSingleReply(role, strings.Join(occurrences, ""))
 		if err != nil {
 			if fence == trackerFence {
 				trackerProblem = err

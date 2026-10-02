@@ -9,6 +9,7 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func TestMalformedMemoryKeepsTrackerActionsAndReachesTheNextProcess(t *testing.T) {
@@ -137,6 +138,81 @@ func TestInvalidArgumentsCannotHideAnUnauthorizedTrackerAction(t *testing.T) {
 	var unauthorized *AuthorityError
 	if !errors.As(err, &unauthorized) || len(reply.Memories) != 0 || len(reply.BlockRefusals) != 0 {
 		t.Fatalf("authority refusal = %v, memories=%v, refusals=%v", err, reply.Memories, reply.BlockRefusals)
+	}
+}
+
+func TestRepeatedBlocksCannotHideUnauthorizedActions(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		role       domain.AgentRole
+		permitted  string
+		forbidden  string
+		wantReason string
+	}{
+		{
+			name: "tracker", role: domain.RoleDevelopmentManager,
+			permitted:  trackerReply("Reading it.", `{"action":"read","id":"yoyodyne-ifd.22"}`),
+			forbidden:  trackerReply("Moving it.", `{"action":"reprioritize","id":"yoyodyne-ifd.22","priority":1,"reason":"move it first"}`),
+			wantReason: "reprioritize",
+		},
+		{
+			name: "artifact", role: domain.RoleProductManager,
+			permitted:  documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing."),
+			forbidden:  documentReply("create", "v2-design", "design", "docs/designs", "# Design\\n\\nBuild the thing."),
+			wantReason: "design",
+		},
+	} {
+		for _, order := range []string{"forbidden first", "forbidden last", "unclosed first"} {
+			t.Run(test.name+"/"+order, func(t *testing.T) {
+				first, second := test.permitted, test.forbidden
+				if order == "forbidden first" {
+					first, second = second, first
+				} else if order == "unclosed first" {
+					first = strings.TrimSuffix(first, "```\n")
+				}
+				provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: first + second +
+					memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`)}}}
+				options, _ := documentOptions(t, provider)
+				root := t.TempDir()
+				memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				tracker := &fakeTracker{}
+				options.Role, options.Agent = test.role, string(test.role)
+				options.Store, options.Memories, options.Tracker = newTestStore(t, root), memories, tracker
+				session := openTestSession(t, options)
+				reply, err := session.Send(context.Background(), "Carry on.")
+				var unauthorized *AuthorityError
+				if !errors.As(err, &unauthorized) || !strings.Contains(err.Error(), test.wantReason) {
+					t.Fatalf("Send() = %v, want the unauthorized %s to refuse the whole reply", err, test.name)
+				}
+				if len(reply.Actions) != 0 || len(tracker.shown) != 0 || len(reply.Memories) != 0 || len(reply.Writes) != 0 ||
+					len(session.Writes()) != 0 || len(reply.BlockRefusals) != 0 || len(provider.requests) != 1 {
+					t.Fatalf("unauthorized reply carried out other blocks: %+v", reply)
+				}
+				all, problems, err := memories.Memories(string(test.role))
+				if err != nil || len(problems) != 0 || len(all) != 0 {
+					t.Fatalf("memory store = %v, %v, %v; want no memory written", all, problems, err)
+				}
+			})
+		}
+	}
+}
+
+func TestRepeatedAuthorizedBlocksStillFailValidation(t *testing.T) {
+	t.Parallel()
+	for _, block := range []string{
+		trackerReply("Reading it.", `{"action":"read","id":"yoyodyne-ifd.22"}`),
+		documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing."),
+	} {
+		parsed, err := splitReply(domain.RoleProductManager, block+block+
+			memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`))
+		if parsed.AuthorityProblem != nil || (err == nil && len(parsed.Refusals) == 0) ||
+			len(parsed.Actions) != 0 || len(parsed.Writes) != 0 || len(parsed.Memories) != 1 {
+			t.Fatalf("duplicate validation lost a block or widened authority: %+v, %v", parsed, err)
+		}
 	}
 }
 
