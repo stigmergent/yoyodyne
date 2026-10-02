@@ -3030,6 +3030,11 @@ standing. Captured uncommitted work remains on its recorded ref; checking out
 the branch does not recover it. The development manager decides what follows
 such a refusal.
 
+The restoration writer holds the directories open while creating files and
+registration data; replacing a root with a symlink cannot redirect its writes.
+Restoration refuses configured checkout filters because committed objects alone
+cannot prove those filters' output was recovered.
+
 The last reading the sweep takes — after every settlement above and before the
 runs it continues, below — is whether anything is happening at all. When
 no developer run has started or ended for `--stall-after` — ten minutes by

@@ -284,7 +284,7 @@ func (m *Manager) RestoreWorktree(ctx context.Context, worktree Worktree) (Workt
 	defer func() { _ = lease.release() }()
 	// Resolve the root through the same confinement primitive as other writes.
 	// A replaced root is a refusal, never a checkout written through a symlink.
-	root, err := repowrite.NewRoot(m.worktreeRoot)
+	root, err := repowrite.OpenPinnedRoot(m.worktreeRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		// The entire checkout root may have gone with the missing checkout.
 		// Recreate it through the shared writer, rooted at its existing parent.
@@ -300,28 +300,24 @@ func (m *Manager) RestoreWorktree(ctx context.Context, worktree Worktree) (Workt
 			}
 			parent = filepath.Dir(parent)
 		}
-		writer, parentErr := repowrite.NewRoot(parent)
+		writer, parentErr := repowrite.OpenPinnedRoot(parent)
 		if parentErr != nil {
 			return Worktree{}, parentErr
 		}
+		defer writer.Close()
 		relative, relativeErr := filepath.Rel(parent, m.worktreeRoot)
 		if relativeErr != nil {
 			return Worktree{}, relativeErr
 		}
-		if _, err := writer.MakeDirectory(filepath.ToSlash(relative), 0o700); err != nil {
+		if err := writer.MakeDirectory(filepath.ToSlash(relative), 0o700); err != nil {
 			return Worktree{}, err
 		}
-		root, err = repowrite.NewRoot(m.worktreeRoot)
+		root, err = writer.OpenDirectory(relative)
 	}
 	if err != nil {
 		return Worktree{}, fmt.Errorf("resolve the restoration root: %w", err)
 	}
-	if root.Path() != m.worktreeRoot {
-		return Worktree{}, errors.New("worktree root must not be a symlink")
-	}
-	if _, err := root.Resolve(filepath.Base(path)); err != nil {
-		return Worktree{}, err
-	}
+	defer root.Close()
 	head, err := m.resolveBranchCommit(ctx, worktree.Branch)
 	if err != nil {
 		return Worktree{}, fmt.Errorf("resolve the retired worktree's branch: %w", err)
@@ -346,26 +342,9 @@ func (m *Manager) RestoreWorktree(ctx context.Context, worktree Worktree) (Workt
 		if branch != worktree.Branch {
 			return Worktree{}, fmt.Errorf("missing worktree %s is registered on %s rather than %s", path, branch, worktree.Branch)
 		}
-		// Only this missing checkout's registration is removed. No force flag
-		// bypasses a lock or a checkout the branch holds somewhere else.
-		removed, err := m.run(ctx, "-C", m.repositoryRoot, "worktree", "remove", path)
-		if err != nil {
-			return Worktree{}, err
-		}
-		if removed.Status != execution.ProcessSucceeded {
-			return Worktree{}, fmt.Errorf("remove the missing checkout's registration failed with exit code %d: %s", removed.ExitCode, strings.TrimSpace(removed.Stderr))
-		}
 	}
-	files, counted, err := m.checkoutFiles(ctx, head)
-	if err != nil {
+	if err := m.restoreCheckout(ctx, worktree, root, registered); err != nil {
 		return Worktree{}, err
-	}
-	result, err := m.runBounded(ctx, nil, m.checkoutTimeout(files, counted), "-C", m.repositoryRoot, "worktree", "add", path, worktree.Branch)
-	if err != nil {
-		return Worktree{}, err
-	}
-	if result.Status != execution.ProcessSucceeded {
-		return Worktree{}, fmt.Errorf("restore worktree failed with exit code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	restored := worktree
 	restored.Path = path
@@ -381,9 +360,6 @@ func (m *Manager) RestoreWorktree(ctx context.Context, worktree Worktree) (Workt
 	}
 	if inspection.Dirty {
 		return restored, errors.New("restored worktree already carries uncommitted changes")
-	}
-	if err := m.refreshExports(ctx, path); err != nil {
-		return restored, fmt.Errorf("refresh the current exports in the restored worktree: %w", err)
 	}
 	return restored, nil
 }

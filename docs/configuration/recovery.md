@@ -755,9 +755,9 @@ checkout is already missing, a recorded repair may restore it at its recorded
 path from the surviving branch. The branch must still point to the exact
 completed commit the harness recorded and pass its ownership checks. Restoration
 keeps the run identifier, developer session, and consumed budgets. Check approval
-is cleared durably before Git restores the checkout; a run stopped at review
+is cleared durably before restoration writes the checkout; a run stopped at review
 returns through checks before review can proceed.
-An unfinished restoration is also recorded before Git runs. After a restart,
+An unfinished restoration is also recorded before writing. After a restart,
 the harness requires a complete, clean checkout at the recorded revision before
 it clears that record and continues the same decision.
 
@@ -767,6 +767,13 @@ developer attempt, or work captured separately on a preserved-work ref refuses
 branch-only restoration. Missing uncommitted work is never reported recovered.
 The decision remains standing, no continuation is spent, and the development
 manager decides what follows.
+
+Restoration writes through opened directory handles, so replacing the checkout
+root with a symlink cannot redirect the files outside it. Git supplies the
+committed objects without creating the checkout. Configured checkout filters
+refuse restoration because committed objects cannot prove those filters' output
+was recovered. Such a refusal leaves the branch and recovery decision available
+for the development manager.
 
 **What it may hand the run is the grant the development manager already
 recorded**, and it spends nothing of its own. Deciding `repair` is what takes the
