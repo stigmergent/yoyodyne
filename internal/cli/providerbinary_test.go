@@ -100,7 +100,11 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"claude-fixture
 							return session, nil, nil
 						}}
 						turn, err := trigger.Wake(context.Background(), role, string(role), "fixture-pass", "", message)
-						if err != nil || turn.Model != "gpt-6-astra" {
+						wantModel := "gpt-6-astra"
+						if role != domain.RoleArchitect {
+							wantModel = "codex's gpt-6-astra"
+						}
+						if err != nil || turn.Model != wantModel {
 							t.Fatalf("scheduled turn = %+v, %v", turn, err)
 						}
 					} else {
@@ -153,7 +157,7 @@ func executableFixtureSession(t *testing.T, cfg config.Config, role domain.Agent
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := chat.Open(chat.Options{Role: role, Agent: name, Backend: provider, Store: store, Model: agent.Model, Provider: agent.Backend, Providers: providerRegistry(cfg), AccountAlias: account.Alias, AccountConfigDir: account.Directory, Repository: t.TempDir(), ProductID: cfg.Product.ID, RepositoryID: "fixture", Persona: "Inspect only.", Briefing: chat.Briefing{Text: "Controlled executable fixture.", GatheredAt: time.Now()}, UsageLimits: limits, FailoverModel: alternate.model, FailoverEndpoint: alternate.endpoint, FailoverBackend: alternate.backend, FailoverAccountConfigDir: alternate.configDir})
+	session, err := chat.Open(chat.Options{Role: role, Agent: name, Backend: provider, Store: store, Model: agent.Model, Provider: agent.Backend, Providers: providerRegistry(cfg), AccountAlias: account.Alias, Repository: t.TempDir(), ProductID: cfg.Product.ID, RepositoryID: "fixture", Persona: "Inspect only.", Briefing: chat.Briefing{Text: "Controlled executable fixture.", GatheredAt: time.Now()}, UsageLimits: limits, FailoverModel: alternate.model, FailoverEndpoint: alternate.endpoint, FailoverBackend: alternate.backend, FailoverAccountConfigDir: alternate.configDir})
 	if err != nil {
 		t.Fatal(err)
 	}

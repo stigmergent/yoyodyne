@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
@@ -22,7 +23,7 @@ type ExecutableError struct {
 func (e *ExecutableError) Error() string {
 	var detail string
 	switch {
-	case errors.Is(e.Cause, os.ErrPermission):
+	case errors.Is(e.Cause, os.ErrPermission), errors.Is(e.Cause, syscall.EISDIR):
 		detail = fmt.Sprintf("%q is not executable in this environment: %v", e.Binary, e.Cause)
 	case errors.Is(e.Cause, exec.ErrNotFound), errors.Is(e.Cause, os.ErrNotExist):
 		if strings.ContainsAny(e.Binary, `/\`) {
