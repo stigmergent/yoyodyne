@@ -30,11 +30,18 @@ product:
   # and reviewer is handed them beside the work item it is given. A README here
   # is read as the directory index it is, and what it says about ownership as a
   # rule. Beside them, and labeled as a description of what is built rather than
-  # as intent, the Lead Product Manager is also given the README, a fixed set of
-  # operator-facing documents under docs/, and the help the commands print -- not
+  # as intent, the Lead Product Manager is also given the configured set of
+  # operator-facing documents below and the help the commands print -- not
   # this file, not the source, not the design document. It must stay inside the
   # repository.
   specifications: docs/product
+  # Codex exec caps one input at 1,048,576 characters. Keep the descriptive
+  # briefing compact; authoritative intent and role-owned artifacts are still
+  # delivered separately, and read-only tools can inspect the remaining docs.
+  shipped_documentation:
+    - README.md
+    - docs/work.md
+    - docs/provider-plugins.md
   # The architect's durable architectural invariants: one Markdown file per
   # constraint, named by its id. The harness delivers the ones relevant to a
   # work item into the developer's context and the reviewer's evidence. A
