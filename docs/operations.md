@@ -2051,28 +2051,32 @@ covers only approved changes, and the claim audit gave the item back half an
 hour later to a fresh run that redid the development while the finished change
 sat on its branch. Now the stopped run is docketed as it ends, and the watching
 session's pull continues it itself — no development manager decision — on the
-first pull where a developer slot is free and the machine's one-minute load
-average is below its number of cores. The run is made live again at its
-checks, on the same branch and in the same worktree, and the checks are re-run
+first pull where a developer slot is free, ahead of fresh work at equal or
+lower priority. Machine load does not gate a continuation, just as it does
+not gate fresh work. The run is made live again at its checks, on the same
+branch and in the same worktree, and the checks are re-run
 on the change it already has; no developer is invoked, and no review round,
 repair grant, or re-run is spent. It is held to the conditions a repair is: the
 worktree has to be as the harness left it and still hold the change, and the
 item has to be one a run may continue on. The operator's pause and the intake
 hold stop it exactly as they stop a recorded decision's carry-out. The claim
-audit leaves such an item's claim alone, so a load that stays high does not
-turn it into a fresh run.
+audit leaves such an item's claim alone. After 30 minutes from the durable
+record of the run ending, any remaining gate and what clears it are noted on
+the item. Restarting the watcher does not reset that wait or repeat the same
+note. Intake holds, the spending pause, capacity, item eligibility, and the
+worktree checks still apply; elapsed waiting never counts a check as passed.
 
 The docket entry and the run's line in the channel say it in one sentence:
 
 ```text
-the check stage was stopped by load at its execution.check_stage_timeout bound, not by the change: nothing was judged and nothing was handed back to the developer; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free and the machine's one-minute load average below its number of cores — no developer is invoked and no review round, repair grant, or re-run is spent (continuation 1 of 2)
+the check stage was stopped by load at its execution.check_stage_timeout bound, not by the change: nothing was judged and nothing was handed back to the developer; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free, ahead of fresh work at equal or lower priority, without waiting on machine load; after 30 minutes waiting, the item names any remaining gate and what clears it — no developer is invoked and no review round, repair grant, or re-run is spent (continuation 1 of 2)
 ```
 
 and the entry's next mover is the harness. The continuation is recorded on the
 run (`check_stage_continuations`) and noted on the item, and the entry is closed
 in the harness's name. **The harness does this at most twice for one run.** A
-stage the bound stops a third time at a load the harness judged low enough is
-a suite that does not fit its bound — a decision about the gate or the bound,
+stage the bound stops a third time is a suite that does not fit its bound —
+a decision about the gate or the bound,
 not something another try settles — so the entry then says the harness's
 continuations are spent and the stoppage is the development manager's, as it
 was before. So is one whose worktree somebody has been in, or whose change is

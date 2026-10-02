@@ -28,11 +28,15 @@ import (
 
 // MaxCheckStageContinuations bounds how many times the harness continues one
 // run at its checks after the stage bound stopped it. It is small on purpose:
-// a stage the bound stops again and again at a load the harness judged low
-// enough to try is a suite that does not fit its bound, which is a decision
+// a stage the bound stops again and again is a suite that does not fit its
+// bound, which is a decision
 // about the gate or the bound, not something another try settles. Past it the
 // stoppage is the development manager's, as every such stoppage was before.
 const MaxCheckStageContinuations = 2
+
+// CheckStageContinuationWait is how long an eligible continuation may wait
+// before the harness must record the remaining gate on its item.
+const CheckStageContinuationWait = 30 * time.Minute
 
 // CheckStageContinuation is one continuation of this run at its checks by the
 // harness, after the stage bound stopped it.
@@ -80,6 +84,9 @@ func (s State) validateCheckStageContinuations() []error {
 	if len(s.CheckStageContinuationRefused) > MaxBlockerBytes {
 		problems = append(problems, fmt.Errorf("check_stage_continuation_refused is %d bytes, which exceeds the %d byte bound", len(s.CheckStageContinuationRefused), MaxBlockerBytes))
 	}
+	if len(s.CheckStageContinuationWaitNoted) > MaxBlockerBytes {
+		problems = append(problems, fmt.Errorf("check_stage_continuation_wait_noted is %d bytes, which exceeds the %d byte bound", len(s.CheckStageContinuationWaitNoted), MaxBlockerBytes))
+	}
 	return problems
 }
 
@@ -99,7 +106,7 @@ func (s State) StoppedAtStageBound() bool {
 // still there, the developer attempt that made the change is on the record,
 // the harness has not already continued it MaxCheckStageContinuations times,
 // and no earlier continuation was refused for something only a person can
-// settle. Whether it may go now — a free slot, a load below the threshold, the
+// settle. Whether it may go now — a free slot and the
 // operator's switches — is the moment's to answer rather than the record's.
 func (s State) HarnessContinuesCheckStage() bool {
 	if !s.StoppedAtStageBound() {
@@ -117,11 +124,6 @@ func (s State) HarnessContinuesCheckStage() bool {
 	return len(s.CheckStageContinuations) < MaxCheckStageContinuations
 }
 
-// CheckStageLoadThreshold is the condition the harness waits for before it
-// continues a stage the bound stopped, in words. It is stated once here so the
-// docket, the channel, the item, and the configuration guide say one thing.
-const CheckStageLoadThreshold = "the machine's one-minute load average below its number of cores"
-
 // CheckStageStopSays is what every surface says about a run the stage bound
 // stopped: that load stopped it rather than the change, and what happens next.
 // It is empty for every other run.
@@ -132,8 +134,8 @@ func (s State) CheckStageStopSays() string {
 	stopped := "the check stage was stopped by load at its execution.check_stage_timeout bound, not by the change: nothing was judged and nothing was handed back to the developer"
 	if s.HarnessContinuesCheckStage() {
 		return fmt.Sprintf(
-			"%s; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free and %s — no developer is invoked and no review round, repair grant, or re-run is spent (continuation %d of %d)",
-			stopped, CheckStageLoadThreshold, len(s.CheckStageContinuations)+1, MaxCheckStageContinuations)
+			"%s; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free, ahead of fresh work at equal or lower priority, without waiting on machine load; after 30 minutes waiting, the item names any remaining gate and what clears it — no developer is invoked and no review round, repair grant, or re-run is spent (continuation %d of %d)",
+			stopped, len(s.CheckStageContinuations)+1, MaxCheckStageContinuations)
 	}
 	if refused := strings.TrimSpace(s.CheckStageContinuationRefused); refused != "" {
 		return fmt.Sprintf("%s; the harness's continuation of it was refused — %s — so what happens to it next is the development manager's decision", stopped, refused)

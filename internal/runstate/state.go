@@ -1712,6 +1712,7 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("check_stage.narrowed", "check_stage.narrowed", &s.CheckStage.Narrowed, MaxRecordedTextBytes)
 	}
 	own("check_stage_continuation_refused", &s.CheckStageContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
+	own("check_stage_continuation_wait_noted", &s.CheckStageContinuationWaitNoted, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	own("stall_continuation_refused", &s.StallContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	if s.EscalationEnded != nil {
 		nested("escalation_ended.why", "escalation_ended.why", &s.EscalationEnded.Why, MaxBlockerBytes)
@@ -2825,6 +2826,10 @@ type State struct {
 	// there. It hands the stoppage to the development manager rather than having
 	// the harness ask again on every pull.
 	CheckStageContinuationRefused string `json:"check_stage_continuation_refused,omitempty"`
+	// CheckStageContinuationWaitNoted is the latest overdue wait note written
+	// onto the item. It prevents duplicate notes across watcher restarts and is
+	// cleared when the run continues, for the next stoppage's own deadline.
+	CheckStageContinuationWaitNoted string `json:"check_stage_continuation_wait_noted,omitempty"`
 	// IntegrationRetries counts the races for its target branch this run has
 	// lost: each one a promotion refused because the target moved, answered by
 	// replaying the change onto where the target went, re-checking it, and

@@ -197,9 +197,9 @@ func TestTheCheckStageBoundScalesWithLoadAndAStopUnderItCountsTowardNothing(t *t
 // checks again on the change it already has — not a re-run from the target
 // branch that redoes the development. The stopped run dockets itself saying load
 // stopped it and the harness continues it; the carry-out takes it up with nobody
-// deciding anything once a slot is free and the load is below the threshold,
-// and not before; and the continued run re-runs the checks on the preserved
-// change with no developer invoked, then goes on to its review and promotion,
+// deciding anything once a slot is free, even if load stays high; the continued
+// run re-runs the checks on the preserved change with no developer invoked,
+// then goes on to its review and promotion,
 // with the run's and the item's counters exactly where the stop left them.
 func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(t *testing.T) {
 	t.Parallel()
@@ -250,10 +250,10 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 		t.Fatalf("Counters() error = %v", err)
 	}
 
-	// The machine is still loaded: the carry-out offers nothing, so no slot is
-	// taken for a continuation that would be stopped the same way.
+	// Load stays high: just as for fresh work, it does not prevent offering
+	// and continuing the preserved change.
 	calm, checked := build(map[string]time.Duration{"make fmtcheck": time.Minute, "make test": time.Minute, "make race": 5 * time.Minute, "make vet": time.Minute})
-	load := 12.0
+	load := 120.0
 	intake := newIntakeHoldStore(t)
 	continuer := CheckStageContinuer{
 		Docket: docket, Redocket: calm.Docket, Runs: store, Intake: intake, Items: tracker, Worktrees: calm.Worktrees.(*gitworktree.Manager),
@@ -264,19 +264,6 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 		},
 	}
 	carrying := CarryOut{Docket: docket, Decisions: store.Triage(), Reruns: store.Reruns(), Runs: store, CheckStages: continuer}
-	if tasks, err := carrying.Outstanding(); err != nil || len(tasks) != 0 {
-		t.Fatalf("Outstanding() under load = %#v, %v; want nothing offered", tasks, err)
-	}
-	if result, err := continuer.Continue(context.Background(), CheckStageContinueRequest{Run: outcome.RunID}); err != nil || result.Continued || result.LoadHigh == "" {
-		t.Fatalf("Continue() under load = %#v, %v; want it waiting on the load", result, err)
-	}
-	if again, _ := store.Load(outcome.RunID); again.Status != runstate.StatusTimedOut || len(again.CheckStageContinuations) != 0 {
-		t.Fatalf("a continuation waiting on the load changed the run: %#v", again)
-	}
-
-	// The load falls: the next pull's carry-out continues it with nobody having
-	// decided anything.
-	load = 2
 	tasks, err := carrying.Outstanding()
 	if err != nil || len(tasks) != 1 || tasks[0].Decision != DecisionContinueChecks || tasks[0].RunID != outcome.RunID {
 		t.Fatalf("Outstanding() = %#v, %v; want the harness's continuation of the stopped stage", tasks, err)
@@ -805,5 +792,80 @@ func TestAChangeThatNarrowsAPathChecksListStillRunsIt(t *testing.T) {
 	}
 	if added := pathChecksFor(root, configured, []string{"internal/cli/status.go"}); len(added) != 0 {
 		t.Fatalf("added = %#v, want nothing for a change the unedited list does not cover", added)
+	}
+}
+
+// A hold may still stop a continuation, but its thirty-minute deadline is the
+// durable ending of the stopped run, not the lifetime of the watcher.
+func TestAnOverdueCheckStageContinuationNamesItsGateAcrossWatcherRestarts(t *testing.T) {
+	t.Parallel()
+	state := stoppedState()
+	state.Status = runstate.StatusTimedOut
+	state.Phase = runstate.PhaseChecking
+	state.ProviderSessionID = "session"
+	state.CheckFailure = nil
+	state.CheckStage = &runstate.CheckStage{StartedAt: state.StartedAt, FinishedAt: state.CompletedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true}
+	h := newDocketedHarness(t, state)
+	tracker := &orchestratortest.Tracker{Item: h.item}
+	clock := &steppingClock{now: state.CompletedAt.Add(runstate.CheckStageContinuationWait - time.Nanosecond)}
+	if _, err := h.intake.Hold(runstate.IntakeHolderOperator, "held for this test", *state.CompletedAt); err != nil {
+		t.Fatal(err)
+	}
+	started := 0
+	build := func() CarryOut {
+		return CarryOut{Docket: h.docket, Decisions: h.runs.Triage(), Reruns: h.reruns, Runs: h.runs,
+			CheckStages: CheckStageContinuer{Docket: h.docket, Runs: h.runs, Intake: h.intake, Items: tracker,
+				Worktrees: &fakeOwnership{}, Capacity: 1, Clock: clock,
+				Load: func() (float64, int, bool) { return 160, 8, true },
+				Start: func(context.Context, string, string) (Outcome, error) {
+					started++
+					return Outcome{}, errors.New("the check has not passed")
+				}}, Clock: clock}
+	}
+	carrying := build()
+	task := theOneOutstanding(t, carrying)
+	if task.Decision != DecisionContinueChecks {
+		t.Fatalf("task = %#v", task)
+	}
+	if carried, _, err := carrying.Carry(context.Background(), task); err != nil || carried.Gate != runstate.TriageGateIntakeHold {
+		t.Fatalf("before deadline: %#v, %v", carried, err)
+	}
+	if len(tracker.NoteRecords) != 0 || started != 0 {
+		t.Fatal("the hold did not preserve the run without an overdue note")
+	}
+	// A restarted watcher remembers that the hold stopped this item. It does
+	// not attempt it again, but its unattempted sweep still owes the wait note.
+	clock.now = state.CompletedAt.Add(runstate.CheckStageContinuationWait)
+	carrying = build()
+	passed := map[string]string{state.RunID: "intake is held; lifting the intake hold lets the next pull attempt it"}
+	if _, err := carrying.RecordUnattempted(context.Background(), time.Minute, passed); err != nil {
+		t.Fatal(err)
+	}
+	if len(tracker.NoteRecords) != 1 || !strings.Contains(tracker.Notes, "intake is held") || !strings.Contains(tracker.Notes, "What clears it:") {
+		t.Fatalf("at deadline: notes = %v", tracker.NoteRecords)
+	}
+	// Reopen the durable store as a new process would. The elapsed wait and
+	// the note survive, so the next pass does not append the same note.
+	reopened, err := runstate.NewStore(filepath.Dir(filepath.Dir(filepath.Dir(h.runs.Root()))), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.runs = reopened
+	h.reruns = reopened.Reruns()
+	clock.now = clock.now.Add(14 * time.Hour)
+	carrying = build()
+	if _, err := carrying.RecordUnattempted(context.Background(), time.Minute, passed); err != nil || len(tracker.NoteRecords) != 1 {
+		t.Fatalf("after restart: %v, notes = %v", err, tracker.NoteRecords)
+	}
+	if _, _, err := h.intake.Release(); err != nil {
+		t.Fatal(err)
+	}
+	carried, outcome, err := carrying.Carry(context.Background(), task)
+	if !carried.Carried || started != 1 || err == nil || outcome.Status == runstate.StatusSucceeded {
+		t.Fatalf("under persistent high load: %#v, %#v, %v, starts %d", carried, outcome, err, started)
+	}
+	continued, err := reopened.Load(state.RunID)
+	if err != nil || continued.Status != runstate.StatusRunning || len(continued.CheckStageContinuations) != 1 || continued.CheckStageContinuationWaitNoted != "" {
+		t.Fatalf("continuation must remain unfinished and spend only its finite continuation: %#v, %v", continued, err)
 	}
 }
