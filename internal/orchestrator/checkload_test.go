@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -80,6 +82,127 @@ func TestEachCheckScalesWithLoadAndStaysInsideTheStage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The last reservation can be consumed by a stage that fails or is interrupted,
+// rather than times out. Its restart still owes a durable stoppage to the
+// development manager, without rewriting that stage as a timeout.
+func TestCheckAllowanceExhaustionAfterFailedOrInterruptedStageIsDocketed(t *testing.T) {
+	t.Parallel()
+	for _, status := range []execution.ProcessStatus{execution.ProcessFailed, execution.ProcessCancelled} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			repository, worktreeRoot, store := restartableFixture(t)
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+			provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+				return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+			}, approveVerdict)
+			clock := &steppingClock{now: time.Now().UTC().Add(time.Hour)}
+			build := func() Pipeline {
+				p := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"make race"}), provider)
+				p.Config.Execution.CheckStageTimeout = config.Duration(30 * time.Minute)
+				p.Load = func() (float64, int, bool) { return 160, 16, true }
+				p.Checks = checks.Runner{Process: &timedChecks{clock: clock, takes: map[string]time.Duration{"make race": 24 * time.Hour}}, Clock: clock, Timeout: time.Hour}
+				return p
+			}
+			first := build()
+			outcome, err := first.Run(ctx, tracker.Item.ID)
+			if err == nil {
+				t.Fatal("hung check passed")
+			}
+			initial, err := store.Load(outcome.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Execute another stage against the remaining allowance, then save
+			// the checkpoint a process can leave before its repair or restart.
+			second := build()
+			second.Checks = checks.Runner{Process: stoppedCheck{clock: clock, status: status}, Clock: clock, Timeout: time.Hour}
+			active := activeRun{pipeline: second, state: initial, worktree: worktreeOf(initial)}
+			active.state.Status = runstate.StatusRunning
+			active.state.CompletedAt = nil
+			active.state.Environmental = nil
+			active.state.Failure = ""
+			active.state.RepairAttempts = 1
+			if err := active.verify(ctx); err == nil {
+				t.Fatal("failed or cancelled check passed")
+			}
+			if status == execution.ProcessFailed {
+				active.recordCheckFailure(active.outcome.Checks[0])
+			} else {
+				// The sweep closes the running stage when its process vanished.
+				active.state.CheckStage.FinishedAt = nil
+				active.state.CheckStage.CloseInterrupted(clock.Now())
+			}
+			previous := *active.state.CheckStage
+			if previous.StoppedAtBound || previous.StoppedAtCheckBound || !active.state.CheckAllowanceExhausted() {
+				t.Fatalf("preceding stage = %#v, allowance = %#v", previous, active.state.CheckTimeAllowance)
+			}
+			if err := store.Save(active.state); err != nil {
+				t.Fatal(err)
+			}
+			docketRoot := t.TempDir()
+			docket, err := runstate.NewDocketStore(docketRoot, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			resumed := build()
+			resumed.Docket = docketerOverStore(docket, store, resumed.Config)
+			resumedChecks := resumed.Checks.(checks.Runner).Process.(*timedChecks)
+			outcome, err = resumed.Continue(ctx, tracker.Item.ID, initial.RunID)
+			if err == nil || outcome.Status != runstate.StatusTimedOut {
+				t.Fatalf("exhausted restart = %#v, %v", outcome, err)
+			}
+			stopped, err := store.Load(initial.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !stopped.CheckTimeAllowance.StoppedAtExhaustion || !stopped.StoppedAtStageBound() || stopped.HarnessContinuesCheckStage() || !reflect.DeepEqual(*stopped.CheckStage, previous) {
+				t.Fatalf("exhaustion lost its stop or replaced the preceding stage: %#v", stopped)
+			}
+			if len(resumedChecks.ran) != 0 || len(provider.RequestsForRole(domain.RoleDeveloper)) != 1 || stopped.RepairAttempts != 1 || stopped.ChecksPassed != nil || stopped.WorktreeRemoved || stopped.BranchRemoved || stopped.WorktreePath != initial.WorktreePath || stopped.Branch != initial.Branch || stopped.ProviderSessionID != initial.ProviderSessionID {
+				t.Fatal("exhaustion ran a check, spent an attempt, earned evidence, or lost preserved work")
+			}
+			if outcome.Preservation == nil || outcome.Preservation.Lost() {
+				t.Fatalf("preserved artifacts = %#v", outcome.Preservation)
+			}
+			// Reopen both durable readers: notification must survive the session.
+			docket, err = runstate.NewDocketStore(docketRoot, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			built, err := docketerOverStore(docket, store, resumed.Config).Build()
+			if err != nil || len(built.Entries) != 1 {
+				t.Fatalf("durable docket = %#v, %v", built, err)
+			}
+			entry := built.Entries[0]
+			if entry.HarnessContinuesChecks || entry.RunID != stopped.RunID || !strings.Contains(entry.CheckStageStop, "development manager's decision") || !strings.Contains(entry.CheckStageFailure, "cause remains unresolved") || !strings.Contains(entry.Render(), "Next mover: you — nothing the harness has still to carry out") {
+				t.Fatalf("exhaustion did not reach the development manager: %s", entry.Render())
+			}
+			// Even stale passing evidence cannot bypass the explicit stop, apart
+			// from the failed/interrupted stage's own independent gate refusal.
+			gate := activeRun{state: stopped}
+			gate.state.CheckStage = nil
+			gate.state.CheckFailure = nil
+			gate.state.ChecksPassed = &runstate.ChecksPassed{Content: previous.Content, Attempt: stopped.RepairAttempts}
+			gate.state.ReviewDecision = runstate.ReviewApprove
+			if err := gate.integrationEarned(ctx); !errors.Is(err, ErrIntegrationUnearned) || !strings.Contains(err.Error(), "cumulative time allowance") {
+				t.Fatalf("exhaustion gate = %v", err)
+			}
+		})
+	}
+}
+
+type stoppedCheck struct {
+	clock  *steppingClock
+	status execution.ProcessStatus
+}
+
+func (r stoppedCheck) Run(_ context.Context, _ execution.Command, _ execution.OutputObserver) (execution.ProcessResult, error) {
+	started := r.clock.Now()
+	r.clock.now = started.Add(time.Minute)
+	return execution.ProcessResult{Status: r.status, ExitCode: 7, StartedAt: started, FinishedAt: r.clock.Now()}, nil
 }
 
 func TestRemainingCheckTimeAllowanceCapsAStageBelowItsConfiguredLimit(t *testing.T) {

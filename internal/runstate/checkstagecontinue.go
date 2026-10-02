@@ -24,6 +24,9 @@ const MaxCheckStageContinuations = 2
 type CheckTimeAllowance struct {
 	LimitSeconds    int64 `json:"limit_seconds"`
 	ReservedSeconds int64 `json:"reserved_seconds"`
+	// StoppedAtExhaustion records a refused stage separately from how the last
+	// executed stage ended. A failed or interrupted stage has no timeout flag.
+	StoppedAtExhaustion bool `json:"stopped_at_exhaustion,omitempty"`
 }
 
 // CheckContinuationCount includes both automatic and decided continuations.
@@ -100,6 +103,9 @@ func (s State) validateCheckStageContinuations() []error {
 		if allowance.LimitSeconds <= 0 || allowance.ReservedSeconds < 0 || allowance.ReservedSeconds > allowance.LimitSeconds {
 			problems = append(problems, errors.New("check time allowance must have a positive limit and reservations within that limit"))
 		}
+		if allowance.StoppedAtExhaustion && !s.CheckAllowanceExhausted() {
+			problems = append(problems, errors.New("a stop at check time allowance exhaustion requires the allowance to be exhausted"))
+		}
 	}
 	if len(s.CheckStageContinuations) > MaxCheckStageContinuations {
 		problems = append(problems, fmt.Errorf("%d check stage continuations are recorded, which exceeds the bound of %d", len(s.CheckStageContinuations), MaxCheckStageContinuations))
@@ -116,13 +122,14 @@ func (s State) validateCheckStageContinuations() []error {
 }
 
 // StoppedAtStageBound reports a run that ended because its check stage reached
-// a check or stage time limit: timed out, at its checks, with the stage on the
+// a check, stage or cumulative time limit: timed out, at its checks, with the
 // record saying the bound is what ended it, and nothing promoted. Whatever else
 // the record carries, nothing judged the change this round.
 func (s State) StoppedAtStageBound() bool {
 	return s.Status == StatusTimedOut &&
 		s.Phase == PhaseChecking &&
-		s.CheckStage != nil && (s.CheckStage.StoppedAtBound || s.CheckStage.StoppedAtCheckBound) &&
+		((s.CheckStage != nil && (s.CheckStage.StoppedAtBound || s.CheckStage.StoppedAtCheckBound)) ||
+			(s.CheckTimeAllowance != nil && s.CheckTimeAllowance.StoppedAtExhaustion)) &&
 		s.Integration == nil
 }
 

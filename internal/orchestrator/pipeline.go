@@ -5323,6 +5323,10 @@ func (a *activeRun) verify(ctx context.Context) error {
 		a.state.CheckTimeAllowance = &runstate.CheckTimeAllowance{LimitSeconds: limit, ReservedSeconds: reserved}
 	}
 	if a.state.CheckAllowanceExhausted() {
+		// No new stage ran. Keep the preceding stage's outcome intact and
+		// record this stop independently, including after failure or interruption.
+		a.state.CheckTimeAllowance.StoppedAtExhaustion = true
+		a.outcome.CheckStage = a.state.CheckStage
 		cause := fmt.Errorf("the checks did not finish and their cause remains unresolved; %s; automatic continuation stopped because its cumulative time allowance is exhausted; the branch, worktree and developer session are preserved", a.state.CheckAllowanceSays())
 		a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
 		return stoppedBy(runstate.StopChecks, phaseError{status: runstate.StatusTimedOut, cause: cause})
@@ -5480,6 +5484,8 @@ var ErrIntegrationUnearned = errors.New("integration refused: the record does no
 func (a *activeRun) integrationEarned(ctx context.Context) error {
 	state := a.state
 	switch {
+	case state.CheckTimeAllowance != nil && state.CheckTimeAllowance.StoppedAtExhaustion:
+		return fmt.Errorf("%w: the checks stopped at their cumulative time allowance", ErrIntegrationUnearned)
 	case state.CheckStage != nil && (state.CheckStage.Running() || state.CheckStage.StoppedAtBound || state.CheckStage.StoppedAtCheckBound || state.CheckStage.Interrupted):
 		return fmt.Errorf("%w: the check stage did not finish successfully", ErrIntegrationUnearned)
 	case state.PathRefusal != nil:
