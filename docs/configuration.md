@@ -1622,35 +1622,45 @@ yoyo amendment approve <id> --reason ...  # record the change as authorized
 yoyo amendment decline <id> --reason ...  # turn it down, keeping why
 ```
 
-**Every decision is yours, whoever owns the document.** An owning role that runs
-is shown what has been proposed against its documents and argues for or against
-it — proposals against the brief and the goals are carried into the Lead Product
-Manager's conversation, and proposals against the designs, the specifications,
-and the decision records are carried into the architect's, each told in so many
-words that it cannot decide one. An owner may write its own documents, which is
-how an approved change is made: it writes the revision as a typed action, you
-approve it, and the harness performs the write — see [writing a document from a
-conversation](artifacts.md#writing-a-document-from-a-conversation). What no
-owner can do is decide the proposal from there. Both owners can now be
-asked directly: `yoyo agent chat architect` is where the argument about a design
-happens. And the argument is made on a cadence rather than only when you open
-the conversation: a [recurring task](#working-the-amendment-queue-on-a-cadence)
-wakes the owner with the undecided proposals, oldest first and bounded, and
-records what it recommended on each — approve, decline, or merge with another,
-with the reason — as one batch on the firing's report, which is sent to you
-once as one decision list and named on `yoyo status` until you have decided it. But no agent records a decision, `yoyo
-amendment` is the only thing that does, and the record says you exercised the
-owner's authority rather than that the owner answered — the same override path
-`yoyo invariant` documents. A decline keeps the reason it was turned down with,
-because a proposal refused silently is one the same argument arrives to make
-again.
+**Ordinary amendment decisions belong to the role that owns the document.**
+The ownership registry assigns them to that role. A change of fundamental intent
+is yours to decide: one that changes what the goals admit or refuse. Proposals
+against the goals currently carry no record of whether they change that
+boundary, so the registry treats them as changes of fundamental intent until
+that distinction can be recorded.
 
-An owning role recording its own decision is vocabulary the record already has
-and nothing produces: what would make it real is a decision the harness carries
-out for a role from its own reply, the way it carries out the Lead Product Manager's
-tracker actions. Until something does that, read "under the architect's
-authority" on a decision as your judgement standing in for the role, taken after
-hearing it rather than instead of hearing it.
+The owning role is shown what has been proposed against its documents and argues
+for or against it — proposals against the brief and the goals are carried into
+the Lead Product Manager's conversation, and proposals against the designs, the
+specifications, and the decision records are carried into the architect's. Both
+owners can be asked directly: `yoyo agent chat architect` is where the argument
+about a design happens. A
+[recurring task](#working-the-amendment-queue-on-a-cadence) also wakes the owner
+with the undecided proposals, oldest first and bounded, and records what it recommended
+on each — approve, decline, or merge with another, with the reason — as one batch
+on the firing's report. That batch reaches the channel once without an operator
+tag or direct message and remains on `yoyo status` under the owning role until
+the decisions are recorded.
+
+**Recording a role's decision still needs a person's hand** until owning roles
+deciding amendments (yoyodyne-ifd.437.14) lands. The current conversation and
+recurring-task interfaces accept the owner's recommendations but cannot record
+an amendment decision from its reply. `yoyo amendment` is the only path that
+records one. Its record names the document owner's authority and you as the
+decider, rather than claiming that the role recorded its own answer — the same
+override path `yoyo invariant` documents. This temporary command execution does
+not make every proposal yours to decide; the waiting entry continues to name
+the owning role. A decline keeps the reason it was turned down with, because a
+proposal refused silently is one the same argument arrives to make again.
+
+An owner may write its own documents, which is how an approved change is made:
+it writes the revision as a typed action, you confirm it, and the harness performs
+the write — see [writing a document from a
+conversation](artifacts.md#writing-a-document-from-a-conversation). Confirmation
+of that write and recording the amendment decision are separate acts. The record
+already distinguishes an owning role's own decision from an operator override;
+the missing capability is the harness carrying out a decision from that role's
+reply, as it already carries out the Lead Product Manager's tracker actions.
 
 The reviewer is deliberately not given this block. What it finds wrong with a
 change is a finding, which decides whether the change is repaired; a reviewer
@@ -7004,9 +7014,10 @@ yoyo amendment decline <id> --reason ...        # turn it down, keeping why
 
 A `merge` recommendation names the proposal it folds into; the record has no
 merge of its own, so it is carried out as one approval and one decline whose
-reason names the other. A proposal you decide between her pass and your reading
-is dropped from the batch wherever the batch is read — `yoyo status` derives it
-from the sweep records and the amendment log together — so the batch always
+reason names the other. A proposal whose decision is recorded between her pass
+and your reading is dropped from the batch wherever the batch is read —
+`yoyo status` derives it from the sweep records and the amendment log together —
+so the batch always
 names what is still undecided rather than what she once said, and a batch whose
 every proposal is decided stops being named. The same cadence works for the
 Lead Product Manager over the brief and the goals; nothing
