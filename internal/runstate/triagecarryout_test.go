@@ -2,10 +2,54 @@ package runstate
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
+
+func TestAPendingCarryOutNoteSurvivesAFailedDeliveryAndAClearedFinding(t *testing.T) {
+	t.Parallel()
+	store := newTriageStore(t)
+	ctx := context.Background()
+	refusal := carryOutRefused(decidedRunID, TriageGatePreservedWork)
+	refusal.Cause = triage.CarryOutWorktreeGone
+	counters, err := store.RecordCarryOutRefusal(ctx, "yoyodyne-ifd.346", refusal, time.Now())
+	if err != nil || len(counters.PendingCarryOutNotes) != 1 {
+		t.Fatalf("refusal = %+v, %v; want an atomically queued note", counters, err)
+	}
+	note := counters.PendingCarryOutNotes[0]
+	trackerErr := errors.New("the tracker is temporarily unavailable")
+	if err := store.DeliverCarryOutNotes(ctx, counters.WorkItemID, time.Now(), func(context.Context, string) error {
+		return trackerErr
+	}); !errors.Is(err, trackerErr) {
+		t.Fatalf("failed delivery = %v, want %v", err, trackerErr)
+	}
+	if _, err := store.ClearCarryOut(ctx, counters.WorkItemID, decidedRunID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	read, err := store.Counters(counters.WorkItemID)
+	if err != nil || len(read.CarryOuts) != 0 || len(read.PendingCarryOutNotes) != 1 || read.PendingCarryOutNotes[0] != note {
+		t.Fatalf("cleared finding = %+v, %v; want the exact pending note preserved", read, err)
+	}
+	deliveries := 0
+	for pull := 0; pull < 2; pull++ {
+		if err := store.DeliverCarryOutNotes(ctx, counters.WorkItemID, time.Now(), func(_ context.Context, delivered string) error {
+			deliveries++
+			if delivered != note {
+				t.Fatalf("delivered note = %q, want %q", delivered, note)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if deliveries != 1 {
+		t.Fatalf("note delivered %d times, want once", deliveries)
+	}
+}
 
 // carryOutRefused is one finding as the record requires it: the stoppage, what
 // was being carried out, which gate stopped it, and what would clear it.
@@ -169,5 +213,25 @@ func TestAFindingDescribesTheGateAndTheRemedy(t *testing.T) {
 		if !strings.Contains(described, want) {
 			t.Fatalf("described %q is missing %q", described, want)
 		}
+	}
+}
+
+func TestAPermanentRefusalBlocksOnlyTheDecisionThatWasAttempted(t *testing.T) {
+	t.Parallel()
+	decided := time.Now()
+	refusal := TriageCarryOut{Decision: TriageDecisionRepair, DecidedAt: decided,
+		Cause: triage.CarryOutWorktreeGone, RefusedAt: decided.Add(time.Minute)}
+	later := decided.Add(7 * 24 * time.Hour)
+	if !refusal.BlocksDecision(TriageDecisionRepair, decided, later) {
+		t.Fatal("a permanent refusal cooled into another attempt")
+	}
+	if refusal.BlocksDecision(TriageDecisionRerun, decided, later) ||
+		refusal.BlocksDecision(TriageDecisionRepair, decided.Add(time.Second), later) {
+		t.Fatal("a refusal about an earlier decision blocked a new decision")
+	}
+	refusal.Cause = ""
+	if !refusal.BlocksDecision(TriageDecisionRepair, decided, decided.Add(2*time.Minute)) ||
+		refusal.BlocksDecision(TriageDecisionRepair, decided, later) {
+		t.Fatal("a temporary gate lost its paced retry")
 	}
 }

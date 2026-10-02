@@ -413,3 +413,31 @@ func TestAnAttemptIsPacedFromWhenItWasMade(t *testing.T) {
 		t.Fatalf("second attempt = %#v, want the latest attempt moved and the first left where it was", second)
 	}
 }
+
+func TestAPermanentRefusalIsANewDeliveryEvenAfterAnUndatedLegacyDelivery(t *testing.T) {
+	t.Parallel()
+	store := newEscalationStore(t)
+	ctx := context.Background()
+	if _, err := store.Attempt(ctx, attemptedEscalation()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Settle(ctx, escalationDocketKey, delivered()); err != nil {
+		t.Fatal(err)
+	}
+	refusal := attemptedAt(firstAttemptAt.Add(2 * time.Hour))
+	refusal.CarryOutRefusedAt = firstAttemptAt.Add(time.Hour)
+	refusal.DocketedAt = refusal.CarryOutRefusedAt
+	fresh, err := store.Attempt(ctx, refusal)
+	if err != nil || fresh.Attempts != 1 || fresh.Delivered() {
+		t.Fatalf("permanent refusal = %+v, %v; want a new delivery", fresh, err)
+	}
+	deliveredRefusal := delivered()
+	deliveredRefusal.At = refusal.FirstAttemptedAt.Add(time.Minute)
+	if _, err := store.Settle(ctx, escalationDocketKey, deliveredRefusal); err != nil {
+		t.Fatal(err)
+	}
+	refusal.FirstAttemptedAt = firstAttemptAt.Add(24 * time.Hour)
+	if _, err := store.Attempt(ctx, refusal); !errors.Is(err, ErrEscalationSpent) {
+		t.Fatalf("duplicate refusal delivery = %v; want it refused", err)
+	}
+}

@@ -128,9 +128,9 @@ type rearmSwitch struct {
 // run has to be a re-arm, and the publication's budget has to carry one the
 // harness has not made.
 //
-// Three things keep such a decision from being attempted. A refusal still
-// cooling is left to its pacing and said nowhere new, because the refusal already
-// on the item says it. A waiting record made since the decision, on the switch
+// A permanent refusal leaves the decision alone until it changes. A temporary
+// refusal still cooling is left to its pacing and said nowhere new, because the
+// refusal already on the item says it. A waiting record made since the decision, on the switch
 // that is shut now, is not written again every poll the switch stands. And a run
 // of the item in flight holds the decision back, which is returned as held so
 // RecordUnattempted writes it onto the item once it has stood a poll interval.
@@ -214,7 +214,7 @@ func (c CarryOut) readRearms(ctx context.Context, entries []triage.Entry, inFlig
 			continue
 		}
 		if standing, recorded := counters.CarryOutOf(state.RunID); recorded && !standing.RefusedAt.Before(task.DecidedAt) {
-			if standing.Cooling(now) {
+			if standing.BlocksDecision(task.Decision, task.DecidedAt, now) {
 				continue
 			}
 			if shut != "" && standing.Waiting && standing.Gate == shut {
@@ -281,7 +281,11 @@ func (c CarryOut) carryRearm(ctx context.Context, task CarryOutTask) CarriedOut 
 	}
 	result, err := c.Rearmer.Rearm(ctx, RearmRequest{Run: task.RunID, Reason: task.Reason})
 	if err != nil || !result.Rearmed {
+		carried.Cause = carryOutCause(err)
 		clears := "what the refusal names: a head brought level with its target, checks that pass, a requirement on the forge met, or a forge that can be read again — nothing was spent where the refusal says so, and the decision is attempted again once the refusal has cooled; a re-run is the other decision, and hands the change back for a fresh run"
+		if carried.Cause != "" {
+			clears = "the development manager recording a new decision about this publication, or escalating the inconsistent record"
+		}
 		var unrearmable UnrearmablePublicationError
 		if errors.As(err, &unrearmable) {
 			clears = fmt.Sprintf("nothing on the forge: the record of run %s cannot describe the merge a re-arm makes, so no later attempt makes it and none brings pull request %d's head up to date. The decision that applies is a re-run, recorded in place of this re-arm, which hands the change back for a fresh run from the target branch — the fallback a re-arm decision names for a head it cannot bring up to date",

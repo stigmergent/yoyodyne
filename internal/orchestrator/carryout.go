@@ -54,7 +54,8 @@ package orchestrator
 // the slots do not stretch to is written onto the item by RecordUnattempted once
 // it has stood a poll interval, so no decision is ever silently passed over.
 //
-// A refusal is paced, and what decides that is who the gate is shut for. The
+// A permanent refusal is left alone until its decision changes. Other
+// refusals are paced according to who the gate is shut for. The
 // pass reads the docket every poll interval and attempts every decision it can,
 // so an unpaced retry of a gate shut for one item — a directive pausing it, work
 // it waits on, a worktree somebody has been in — would take a developer slot
@@ -72,6 +73,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -100,6 +102,7 @@ type CarryOutDecisions interface {
 	RecordCarryOutRefusal(ctx context.Context, workItemID string, refusal runstate.TriageCarryOut, at time.Time) (runstate.TriageCounters, error)
 	RecordCarryOutUnattempted(ctx context.Context, workItemID string, unattempted runstate.TriageCarryOut, at time.Time) (runstate.TriageCounters, error)
 	ClearCarryOut(ctx context.Context, workItemID, runID string, at time.Time) (runstate.TriageCounters, error)
+	DeliverCarryOutNotes(ctx context.Context, workItemID string, at time.Time, deliver func(context.Context, string) error) error
 }
 
 // CarryOutReruns is what the harness has already claimed of the re-run decisions.
@@ -196,6 +199,12 @@ type CarryOut struct {
 	// firing on nobody's decision, and one that could not write it would be the
 	// silence this exists to end.
 	Decisions CarryOutDecisions
+	// Notes appends permanent refusals to the tracker item as well as its
+	// durable triage record. The production harness wires its tracker here.
+	Notes interface {
+		Show(context.Context, string) (beads.WorkItem, error)
+		RecordOutcome(context.Context, string, string) (beads.WorkItem, error)
+	}
 	// Reruns and Runs are what has already been carried out of those decisions.
 	// Both required: a decision already acted on is not one to act on again, and
 	// the two records are the only things that say so.
@@ -276,8 +285,9 @@ type CarriedOut struct {
 	// Gate is which gate stopped it, in the durable record's own vocabulary, and
 	// Waiting says that gate clears without anybody doing anything. Both are empty
 	// on an attempt that fired.
-	Gate    string `json:"gate,omitempty"`
-	Waiting bool   `json:"waiting,omitempty"`
+	Cause   triage.CarryOutCause `json:"cause,omitempty"`
+	Gate    string               `json:"gate,omitempty"`
+	Waiting bool                 `json:"waiting,omitempty"`
 	// Problem is the whole account of a stopped attempt: what the gate said and
 	// what would clear it. It is what a pass prints, and it is the same sentence
 	// the item's own record now carries.
@@ -664,7 +674,21 @@ func (i outstandingItem) repairOutstanding(workItemID string, history func() ([]
 func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func() ([]runstate.State, error)) (CarryOutTask, bool, *heldDecision, error) {
 	decision, found := i.counters.DecisionOf(entry.RunID)
 	if !found {
-		return CarryOutTask{}, false, nil, nil
+		// Old budgets predate durable decisions. Offer them only to record the
+		// missing authorization, never to execute on the budget alone. Carry
+		// refuses before asking either action to do anything.
+		if len(i.counters.Decisions) != 0 {
+			return CarryOutTask{}, false, nil, nil
+		}
+		if outstanding, err := i.repairOutstanding(entry.WorkItemID, history); err != nil {
+			return CarryOutTask{}, false, nil, err
+		} else if outstanding {
+			decision.Decision = runstate.TriageDecisionRepair
+		} else if i.counters.Reruns > len(i.claimed) {
+			decision.Decision = runstate.TriageDecisionRerun
+		} else {
+			return CarryOutTask{}, false, nil, nil
+		}
 	}
 	task := CarryOutTask{
 		WorkItemID: entry.WorkItemID,
@@ -706,7 +730,7 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 		// makes is one nothing ever asked the forge for or one the forge dropped.
 		return CarryOutTask{}, false, nil, nil
 	}
-	if stopped, refused := i.counters.CarryOutOf(entry.RunID); refused && stopped.Cooling(now) {
+	if stopped, refused := i.counters.CarryOutOf(entry.RunID); refused && stopped.BlocksDecision(task.Decision, task.DecidedAt, now) {
 		return CarryOutTask{}, false, nil, nil
 	}
 	return task, true, nil, nil
@@ -839,6 +863,17 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (CarriedOut, Out
 			fmt.Sprintf("the operator has paused everything the harness spends on a provider, since %s", hold.HeldAt.UTC().Format(time.RFC3339)),
 			"`yoyo resume` lifting the pause; nothing was spent and the decision still stands"), Outcome{}, nil
 	}
+	counters, err := c.Decisions.Counters(task.WorkItemID)
+	if err != nil {
+		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, err.Error(),
+			"the item's triage record becoming readable again"), Outcome{}, nil
+	}
+	if _, decided := counters.DecisionOf(task.RunID); !decided {
+		carried.Cause = triage.CarryOutDecisionMissing
+		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false,
+			fmt.Sprintf("the item's budget records a %s but the development manager has recorded no durable triage decision about run %s on %s, so there is nothing authorized to carry out; the decision must be recorded in her conversation, with an override where its budget requires it", task.Decision, task.RunID, task.WorkItemID),
+			"the development manager recording the missing decision again, or escalating the inconsistent record"), Outcome{}, nil
+	}
 	switch task.Decision {
 	case runstate.TriageDecisionRerun:
 		return c.rerun(ctx, task, carried)
@@ -876,9 +911,11 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 			fmt.Sprintf("the fresh run met %s where it would have started", pauseMet(*result.PausedBeforeStarting)), clears), Outcome{}, nil
 	case !result.Started:
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
+			carried.Cause = carryOutCause(runErr)
 			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
 		}
 		gate, clears := carryOutGate(runErr)
+		carried.Cause = carryOutCause(runErr)
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
 	}
 	carried.Carried = true
@@ -910,9 +947,11 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 			"a developer slot freeing, which needs nobody; nothing was spent, so the item keeps its grant"), Outcome{}, nil
 	case !result.Continued:
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
+			carried.Cause = carryOutCause(runErr)
 			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
 		}
 		gate, clears := carryOutGate(runErr)
+		carried.Cause = carryOutCause(runErr)
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
 	}
 	carried.Carried = true
@@ -1081,6 +1120,8 @@ func carryOutGate(err error) (gate, clears string) {
 		// rather than a state, and it is recorded as one: silence is what this
 		// mechanism exists to end, so an ending nobody accounted for is said out loud.
 		return runstate.TriageGateHarness, "somebody looking at the harness: it neither started the run nor said why"
+	case carryOutCause(err) == triage.CarryOutWorktreeGone, carryOutCause(err) == triage.CarryOutBranchGone:
+		return runstate.TriageGatePreservedWork, "the development manager recording a re-run from the target branch or escalating what became of the preserved change"
 	case errors.Is(err, ErrWorktreeNotAsLeft), errors.Is(err, ErrPreservedChangeMissing):
 		return runstate.TriageGatePreservedWork,
 			"somebody saying what became of the worktree the stopped run preserved; what is in it is what a continued developer would be handed back, so this is a person's to look at"
@@ -1213,6 +1254,9 @@ func (c CarryOut) applicableDecision(task CarryOutTask) string {
 // attached context would lose.
 func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried CarriedOut, gate string, waiting bool, refusal, clears string) CarriedOut {
 	carried.Gate = gate
+	if carried.Cause != "" {
+		clears += "; this gate will not clear on its own, so no later pull retries this decision. The development manager records a re-run or an escalation instead; a missing decision must be recorded again, with an override where the budget requires it"
+	}
 	carried.Waiting = waiting
 	held := "was refused by"
 	if waiting {
@@ -1226,19 +1270,65 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	}
 	write, stopWriting := recordContext(ctx)
 	defer stopWriting()
-	if _, err := c.Decisions.RecordCarryOutRefusal(write, task.WorkItemID, runstate.TriageCarryOut{
-		RunID:    task.RunID,
-		Decision: task.Decision,
-		Gate:     gate,
-		Refusal:  refusal,
-		Clears:   clears,
-		Waiting:  waiting,
-	}, c.now()); err != nil {
+	_, err := c.Decisions.RecordCarryOutRefusal(write, task.WorkItemID, runstate.TriageCarryOut{
+		Cause:     carried.Cause,
+		DecidedAt: task.DecidedAt,
+		RunID:     task.RunID,
+		Decision:  task.Decision,
+		Gate:      gate,
+		Refusal:   refusal,
+		Clears:    clears,
+		Waiting:   waiting,
+	}, c.now())
+	if err != nil {
 		carried.RecordProblem = fmt.Sprintf(
 			"and the finding could not be written onto %s's triage record, so the docket the development manager reads does not carry it and this pass is the only thing that says it: %v",
 			task.WorkItemID, err)
 	}
+	if err == nil && carried.Cause != "" && c.Notes != nil {
+		if noteErr := c.deliverItemNotes(write, task.WorkItemID); noteErr != nil {
+			carried.RecordProblem = fmt.Sprintf("the permanent refusal is on the triage record but could not be appended to the item's notes; its note remains pending for a later pull: %v", noteErr)
+		}
+	}
 	return carried
+}
+
+// DeliverNotes retries tracker notes independently of the refused actions. It
+// includes closed docket entries, so a new decision cannot lose an earlier note.
+func (c CarryOut) DeliverNotes(ctx context.Context) error {
+	if c.Notes == nil {
+		return nil
+	}
+	entries, err := c.Docket.List()
+	if err != nil {
+		return fmt.Errorf("read the docket for pending carry-out notes: %w", err)
+	}
+	seen := make(map[string]bool)
+	var problems []error
+	for _, entry := range entries {
+		if entry.WorkItemID == "" || seen[entry.WorkItemID] {
+			continue
+		}
+		seen[entry.WorkItemID] = true
+		if err := c.deliverItemNotes(ctx, entry.WorkItemID); err != nil {
+			problems = append(problems, fmt.Errorf("deliver pending carry-out notes on %s: %w", entry.WorkItemID, err))
+		}
+	}
+	return errors.Join(problems...)
+}
+
+func (c CarryOut) deliverItemNotes(ctx context.Context, workItemID string) error {
+	return c.Decisions.DeliverCarryOutNotes(ctx, workItemID, c.now(), func(ctx context.Context, note string) error {
+		item, err := c.Notes.Show(ctx, workItemID)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(item.Notes, note) {
+			return nil
+		}
+		_, err = c.Notes.RecordOutcome(ctx, workItemID, note)
+		return err
+	})
 }
 
 // itemsInFlight names the work items with a run going. A decision about an item

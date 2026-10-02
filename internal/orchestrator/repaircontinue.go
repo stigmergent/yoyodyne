@@ -308,7 +308,7 @@ func (e WorktreeSurgeryError) Error() string {
 		e.RunID, e.WorktreePath, e.Cause)
 }
 
-func (e WorktreeSurgeryError) Unwrap() error { return ErrWorktreeNotAsLeft }
+func (e WorktreeSurgeryError) Unwrap() []error { return []error{ErrWorktreeNotAsLeft, e.Cause} }
 
 // ErrPreservedChangeMissing is what a re-entry refused for a worktree holding
 // none of the change it was picked up to continue unwraps to, so a caller can
@@ -579,14 +579,14 @@ func (c RepairContinuer) granted(workItemID, runID string) (repairGrant, error) 
 	}
 	standing, found := counters.DecisionOf(runID)
 	if !found {
-		return repairGrant{}, fmt.Errorf(
+		return repairGrant{}, permanentCarryOut(triage.CarryOutDecisionMissing, fmt.Errorf(
 			"the development manager has recorded no triage decision about the stoppage of run %s on %s's triage record, so there is nothing here to carry out: a repair carries the decision the record holds rather than words given to this command, and the decision is recorded where it is made, in the development manager's own conversation, against the item the run was made for. Recording it there spends a further repair grant of %s, which the cap may refuse — `yoyo triage override` is what permits that",
-			runID, workItemID, workItemID)
+			runID, workItemID, workItemID))
 	}
 	if standing.Decision != runstate.TriageDecisionRepair {
-		return repairGrant{}, fmt.Errorf(
+		return repairGrant{}, permanentCarryOut(triage.CarryOutDecisionSuperseded, fmt.Errorf(
 			"the decision standing about the stoppage of run %s is %q rather than a repair, %s: a repair recorded earlier about it was superseded by that decision and the rounds it reserved were released with it, so carrying a repair out here would spend attempts the item's record no longer holds",
-			runID, standing.Decision, standing.Cite())
+			runID, standing.Decision, standing.Cite()))
 	}
 	if counters.RepairGrants < 1 {
 		return repairGrant{}, fmt.Errorf(
@@ -674,16 +674,27 @@ func (c RepairContinuer) carriedOut(workItemID string) (int, error) {
 func continuableRepair(prior runstate.State, found triage.Found) error {
 	if prior.IntegrationStop != nil {
 		if !triage.IntegrationResumable(&found, false) {
-			return errors.New(triage.IntegrationGoneSays(prior.RunID, found.Describe()) +
+			err := errors.New(triage.IntegrationGoneSays(prior.RunID, found.Describe()) +
 				", and a repair has no approved change to hand back either")
+			if found.Unknown {
+				return err
+			}
+			return permanentCarryOut(triage.CarryOutBranchGone, err)
 		}
 		return errors.New(prior.IntegrationStop.ResumeSays(prior.RunID))
 	}
 	if prior.WorktreePath == "" || prior.Branch == "" || prior.BaseCommit == "" || prior.TargetBranch == "" {
-		return fmt.Errorf("run %s recorded no preserved worktree to continue in, so there is no change to repair; a fresh run of the item is what it needs", prior.RunID)
+		return permanentCarryOut(triage.CarryOutWorktreeGone, fmt.Errorf("run %s recorded no preserved worktree to continue in, so there is no change to repair; a fresh run of the item is what it needs", prior.RunID))
 	}
 	if found.Unknown || !found.WorktreeThere || !found.BranchThere {
-		return fmt.Errorf("there is no verified branch and checkout of run %s to continue: %s", prior.RunID, found.Describe())
+		err := fmt.Errorf("there is no verified branch and checkout of run %s to continue: %s", prior.RunID, found.Describe())
+		if found.Unknown {
+			return err
+		}
+		if !found.BranchThere {
+			return permanentCarryOut(triage.CarryOutBranchGone, err)
+		}
+		return permanentCarryOut(triage.CarryOutWorktreeGone, err)
 	}
 	if prior.ProviderSessionID == "" {
 		return fmt.Errorf("run %s recorded no developer session, so a continuation could not be the same developer carrying on with the change it made", prior.RunID)

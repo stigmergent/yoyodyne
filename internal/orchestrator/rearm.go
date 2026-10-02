@@ -625,14 +625,14 @@ func (r Rearmer) decided(state runstate.State, published runstate.PullRequest, k
 	}
 	standing, found := counters.DecisionOf(state.RunID)
 	if !found {
-		return runstate.TriageCounters{}, runstate.TriageDecision{}, fmt.Errorf(
+		return runstate.TriageCounters{}, runstate.TriageDecision{}, permanentCarryOut(triage.CarryOutDecisionMissing, fmt.Errorf(
 			"a re-arm of publication %s is recorded as spent and no decision about the stoppage of run %s stands on %s's record, so its durable record disagrees with itself and nothing here is safe to carry out: the decision spends the budget as it is recorded, in one write",
-			key, state.RunID, state.WorkItemID)
+			key, state.RunID, state.WorkItemID))
 	}
 	if standing.Decision != runstate.TriageDecisionRearm {
-		return runstate.TriageCounters{}, runstate.TriageDecision{}, fmt.Errorf(
+		return runstate.TriageCounters{}, runstate.TriageDecision{}, permanentCarryOut(triage.CarryOutDecisionSuperseded, fmt.Errorf(
 			"the decision standing about the stoppage of run %s is %q rather than a re-arm, %s: repeating the merge request would carry out a decision nobody holds any more",
-			state.RunID, standing.Decision, standing.Cite())
+			state.RunID, standing.Decision, standing.Cite()))
 	}
 	return counters, standing, nil
 }

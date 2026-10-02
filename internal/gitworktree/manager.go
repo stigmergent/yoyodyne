@@ -436,6 +436,9 @@ var (
 	// ErrNoChanges reports that there is nothing to integrate. It is a refusal,
 	// not a failure: an empty commit would claim work that does not exist.
 	ErrNoChanges = errors.New("worktree has no changes to integrate")
+	// ErrOwnedHeadMoved reports a checkout whose HEAD differs from the recorded
+	// harness commit, rather than a failed reading of the checkout.
+	ErrOwnedHeadMoved = errors.New("the preserved worktree HEAD moved")
 	// ErrTargetDrift reports that the target branch moved away from the base the
 	// work was written against, so the change must be reconciled rather than
 	// merged.
@@ -1784,7 +1787,7 @@ func (m *Manager) verifyOwnedHead(ctx context.Context, worktree Worktree) (strin
 		expected = worktree.HarnessCommit
 	}
 	if commit != expected {
-		return "", "", fmt.Errorf("worktree HEAD is %s, want the commit the harness recorded (%s); Git commits are owned by the harness", commit, expected)
+		return "", "", fmt.Errorf("%w: worktree HEAD is %s, want the commit the harness recorded (%s); Git commits are owned by the harness", ErrOwnedHeadMoved, commit, expected)
 	}
 	if commit == worktree.BaseCommit {
 		return path, commit, nil

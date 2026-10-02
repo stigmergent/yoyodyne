@@ -224,6 +224,11 @@ func (e Entry) Critical() bool {
 	if e.Class == ClassEscalation || e.Class == ClassProductDecision {
 		return true
 	}
+	// A legacy grant with no decision record has no closure, but its permanent
+	// refusal still needs the manager's attention at once.
+	if e.CarryOut != nil && e.CarryOut.Cause != "" {
+		return true
+	}
 	return e.CarryOutStopped() && !e.CarryOut.Waiting
 }
 

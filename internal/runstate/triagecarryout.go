@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // The gates a carry-out is refused by. They are a closed vocabulary because a
@@ -108,6 +110,10 @@ const TriageCarryOutRetryDelay = 15 * time.Minute
 // and a finding standing over work that is running is the worst kind, since it
 // reads exactly like the condition this whole mechanism exists to report.
 type TriageCarryOut struct {
+	// Cause is permanent when nonempty; DecidedAt binds it to the decision
+	// attempted rather than to a later decision about the same run.
+	Cause     triage.CarryOutCause `json:"cause,omitempty"`
+	DecidedAt time.Time            `json:"decided_at,omitempty"`
 	// RunID is the stopped run whose decision was being carried out, which is what
 	// makes this one per stoppage rather than one per item.
 	RunID string `json:"run_id"`
@@ -169,6 +175,9 @@ type TriageCarryOut struct {
 // Validate reports every contract violation in the record at once.
 func (t TriageCarryOut) Validate() error {
 	var problems []error
+	if t.Cause != "" && (!t.Cause.Valid() || t.Waiting || t.Unattempted) {
+		problems = append(problems, errors.New("a permanent carry-out cause must name a known refusal, never a wait or an unattempted decision"))
+	}
 	switch run := strings.TrimSpace(t.RunID); {
 	case run == "":
 		problems = append(problems, errors.New("a carry-out record names the stopped run whose decision it was carrying out"))
@@ -212,9 +221,9 @@ func (t TriageCarryOut) Validate() error {
 // recorded decision at once, so retrying one of them starves nothing and pacing
 // it would leave a decision uncarried for a quarter of an hour after the switch
 // was already open — which is the latency this whole mechanism exists to remove.
-// Every other gate is paced, because the pass attempts every decision it has a
-// slot for on every pull and an unpaced retry of one that cannot fire spends a
-// slot on every one of them.
+// Other temporary gates are paced, because the pass attempts every decision it
+// has a slot for on every pull and an unpaced retry spends a slot on every one
+// of them. BlocksDecision separately suppresses permanent refusals.
 func (t TriageCarryOut) Cooling(now time.Time) bool {
 	// A decision nobody attempted is not paced: pacing is what stops a refusal
 	// being repeated, and there is no refusal here to repeat.
@@ -222,6 +231,23 @@ func (t TriageCarryOut) Cooling(now time.Time) bool {
 		return false
 	}
 	return now.Before(t.RefusedAt.Add(TriageCarryOutRetryDelay))
+}
+
+// BlocksDecision leaves a permanent refusal alone until its decision changes,
+// and paces other refusals. Older records have no decision timestamp and are
+// matched by the decision's word and the refusal's time instead.
+func (t TriageCarryOut) BlocksDecision(decision string, decidedAt, now time.Time) bool {
+	return t.AboutDecision(decision, decidedAt) && (t.Cause != "" || t.Cooling(now))
+}
+
+// AboutDecision reports a finding made about this decision, not a later one
+// recorded against the same stopped run.
+func (t TriageCarryOut) AboutDecision(decision string, decidedAt time.Time) bool {
+	if t.Cause == triage.CarryOutDecisionMissing && t.DecidedAt.IsZero() && !decidedAt.IsZero() {
+		return false
+	}
+	return t.Decision == decision && !t.RefusedAt.Before(decidedAt) &&
+		(t.DecidedAt.IsZero() || t.DecidedAt.Equal(decidedAt))
 }
 
 // Describe says what one carry-out finding is, for whoever is reading the item's
@@ -233,6 +259,9 @@ func (t TriageCarryOut) Describe() string {
 			strings.TrimSpace(t.Refusal), strings.TrimSpace(t.Clears))
 	}
 	held := "refused by"
+	if t.Cause != "" {
+		held = "stopped by a gate that will not clear on its own:"
+	}
 	if t.Waiting {
 		held = "waiting on"
 	}
@@ -265,7 +294,10 @@ func (c TriageCounters) CarryOutOf(runID string) (TriageCarryOut, bool) {
 func (c TriageCounters) RefusedCarryOut(runID string) (TriageCarryOut, bool) {
 	decision, decided := c.DecisionOf(runID)
 	finding, found := c.CarryOutOf(runID)
-	if !decided || !found || finding.Decision != decision.Decision || finding.RefusedAt.Before(decision.DecidedAt) ||
+	if !decided && found && finding.Cause == triage.CarryOutDecisionMissing && !finding.Waiting && !finding.Unattempted {
+		return finding, true
+	}
+	if !decided || !found || !finding.AboutDecision(decision.Decision, decision.DecidedAt) ||
 		finding.Waiting || finding.Unattempted {
 		return TriageCarryOut{}, false
 	}
@@ -280,7 +312,11 @@ func (c TriageCounters) RefusedCarryOut(runID string) (TriageCarryOut, bool) {
 func (c TriageCounters) CarryOutFindings() (refused, unattempted int) {
 	for _, finding := range c.CarryOuts {
 		decision, found := c.DecisionOf(finding.RunID)
-		if !found || decision.Decision != finding.Decision || finding.RefusedAt.Before(decision.DecidedAt) {
+		if !found && finding.Cause == triage.CarryOutDecisionMissing && !finding.Waiting && !finding.Unattempted {
+			refused++
+			continue
+		}
+		if !found || !finding.AboutDecision(decision.Decision, decision.DecidedAt) {
 			continue
 		}
 		switch {
@@ -321,7 +357,11 @@ func (s *TriageStore) RecordCarryOutRefusal(ctx context.Context, workItemID stri
 		attempts := 0
 		for _, existing := range counters.CarryOuts {
 			if existing.RunID == prepared.RunID {
-				attempts = existing.Attempts
+				if existing.Decision == prepared.Decision &&
+					(existing.DecidedAt.Equal(prepared.DecidedAt) ||
+						(existing.DecidedAt.IsZero() && !existing.RefusedAt.Before(prepared.DecidedAt))) {
+					attempts = existing.Attempts
+				}
 				continue
 			}
 			standing = append(standing, existing)
@@ -336,8 +376,50 @@ func (s *TriageStore) RecordCarryOutRefusal(ctx context.Context, workItemID stri
 			return fmt.Errorf("invalid triage carry-out record: %w", err)
 		}
 		counters.CarryOuts = append(standing, prepared)
+		if prepared.Cause != "" {
+			note := "Yoyodyne stopped carrying out the development manager's decision: " + prepared.Describe()
+			counters.PendingCarryOutNotes = append(counters.PendingCarryOutNotes, note)
+		}
 		return nil
 	})
+}
+
+// DeliverCarryOutNotes holds the item's record lock while delivering its pending
+// notes, so concurrent pulls cannot append the same note. A failure leaves the
+// queue intact. The caller checks for notes already on the tracker before each
+// append, covering a write that landed but whose confirmation or local save failed.
+func (s *TriageStore) DeliverCarryOutNotes(ctx context.Context, workItemID string, at time.Time, deliver func(context.Context, string) error) error {
+	_, err := s.update(ctx, workItemID, at, func(counters *TriageCounters) error {
+		if len(counters.PendingCarryOutNotes) == 0 {
+			return errNoTriageChange
+		}
+		for _, note := range counters.PendingCarryOutNotes {
+			if err := deliver(ctx, note); err != nil {
+				return err
+			}
+		}
+		counters.PendingCarryOutNotes = nil
+		return nil
+	})
+	return err
+}
+
+func validatePendingCarryOutNotes(notes []string) []error {
+	var problems []error
+	if len(notes) > MaxTriageCarryOuts {
+		problems = append(problems, fmt.Errorf("%d pending carry-out notes exceed the bound of %d", len(notes), MaxTriageCarryOuts))
+	}
+	seen := make(map[string]bool)
+	for index, note := range notes {
+		if strings.TrimSpace(note) == "" || len(note) > MaxTriageCarryOutRefusalBytes+MaxTriageCarryOutClearsBytes+1024 {
+			problems = append(problems, fmt.Errorf("pending carry-out note %d is empty or exceeds its refusal and clearing text bounds", index))
+		}
+		if seen[note] {
+			problems = append(problems, fmt.Errorf("pending carry-out note %d is already queued", index))
+		}
+		seen[note] = true
+	}
+	return problems
 }
 
 // RecordCarryOutUnattempted writes down that no pass has attempted one recorded

@@ -971,6 +971,31 @@ func (c Closure) Describe() string {
 	return described
 }
 
+// CarryOutCause names a refusal no later attempt of the same decision can clear.
+// Empty means the refusal may be retried at the ordinary paced interval.
+type CarryOutCause string
+
+const (
+	CarryOutWorktreeGone          CarryOutCause = "worktree-gone"
+	CarryOutBranchGone            CarryOutCause = "branch-gone"
+	CarryOutHeadMoved             CarryOutCause = "head-moved"
+	CarryOutDecisionSuperseded    CarryOutCause = "decision-superseded"
+	CarryOutDecisionMissing       CarryOutCause = "decision-missing"
+	CarryOutStoppageMissing       CarryOutCause = "stoppage-missing"
+	CarryOutPublicationUnmakeable CarryOutCause = "publication-unmakeable"
+)
+
+// CarryOutCauses is the closed list the record and the inventory share.
+func CarryOutCauses() []CarryOutCause {
+	return []CarryOutCause{CarryOutWorktreeGone, CarryOutBranchGone, CarryOutHeadMoved,
+		CarryOutDecisionSuperseded, CarryOutDecisionMissing, CarryOutStoppageMissing,
+		CarryOutPublicationUnmakeable}
+}
+
+func (c CarryOutCause) Valid() bool {
+	return slices.Contains(CarryOutCauses(), c)
+}
+
 // CarryOut is the harness's own last attempt to carry this entry's standing
 // decision out, and the gate that stopped it. It is declared here rather than
 // imported from the durable record for the reason Finding is: what reaches a
@@ -983,6 +1008,8 @@ func (c Closure) Describe() string {
 // something changes — and saying which thing is the difference between this and
 // the thirty-three decided items that sat unfired with nothing anywhere saying so.
 type CarryOut struct {
+	// Cause marks a gate that will not clear until the decision changes.
+	Cause CarryOutCause `json:"cause,omitempty"`
 	// RunID names the run the decision is about where that is not the entry's own
 	// run: the item's latest decision named a run the docket holds no entry for,
 	// and the finding about it is shown on the item's entries so it is seen at
@@ -2321,7 +2348,11 @@ func (e Entry) renderCarryOut() string {
 		stopped.Decision, stopped.Gate, plural(stopped.Attempts, "attempt", "attempts"),
 		stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
 	rendered.WriteString(indented("What would clear it", stopped.Clears))
-	rendered.WriteString("      Nothing was spent, so this decision is carried out by the first pass after that is no longer so; until then the harness keeps trying it at a paced interval rather than every pass.\n")
+	if stopped.Cause != "" {
+		rendered.WriteString("      This gate will not clear on its own; no further attempt is made until the development manager changes the decision, by recording a re-run or an escalation.\n")
+	} else {
+		rendered.WriteString("      Nothing was spent, so this decision is carried out by the first pass after that is no longer so; until then the harness keeps trying it at a paced interval rather than every pass.\n")
+	}
 	return rendered.String()
 }
 

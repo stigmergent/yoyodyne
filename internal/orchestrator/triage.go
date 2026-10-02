@@ -652,11 +652,12 @@ func undocketedCarryOut(entry triage.Entry, counters runstate.TriageCounters, do
 		return nil
 	}
 	recorded, found := counters.CarryOutOf(latest.RunID)
-	if !found || recorded.RefusedAt.Before(latest.DecidedAt) || recorded.RefusedAt.Before(entry.RecordedAt) {
+	if !found || !recorded.AboutDecision(latest.Decision, latest.DecidedAt) || recorded.RefusedAt.Before(entry.RecordedAt) {
 		return nil
 	}
 	return &triage.CarryOut{
 		RunID:       latest.RunID,
+		Cause:       recorded.Cause,
 		Decision:    recorded.Decision,
 		Gate:        recorded.Gate,
 		Refusal:     recorded.Refusal,
@@ -683,7 +684,11 @@ func docketedCarryOut(entry triage.Entry, counters runstate.TriageCounters) *tri
 	if !found || recorded.RefusedAt.Before(entry.RecordedAt) {
 		return nil
 	}
+	if decision, decided := counters.DecisionOf(entry.RunID); decided && !recorded.AboutDecision(decision.Decision, decision.DecidedAt) {
+		return nil
+	}
 	return &triage.CarryOut{
+		Cause:       recorded.Cause,
 		Decision:    recorded.Decision,
 		Gate:        recorded.Gate,
 		Refusal:     recorded.Refusal,
