@@ -79,6 +79,8 @@ const (
 	KindTrackerUnanswered Kind = "tracker-unanswered"
 	// KindPassedOver is the recorded cause of a poll starting no work.
 	KindPassedOver Kind = "passed-over"
+	// KindNotification is the next move after a durable milestone.
+	KindNotification Kind = "notification"
 )
 
 // Kinds is every kind the registry holds a rule for, so a test that has to
@@ -106,6 +108,7 @@ func Kinds() []Kind {
 		KindFactoryStall,
 		KindTrackerUnanswered,
 		KindPassedOver,
+		KindNotification,
 	}
 }
 

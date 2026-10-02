@@ -3241,9 +3241,10 @@ round — one of her turns and one probe run per cooldown — and before the bou
 nothing about it got louder unless she escalated it. `brake_escalation_cycles`
 is how many of those summons-and-probe cycles the harness goes round before it
 escalates the hold to you itself: the cycle that reaches it is not put to her
-again, no further probe starts, and you are sent
-[one direct message](reporting.md#a-brake-hold-the-harness-escalates), tagged
-by member id, naming the cycles spent and what stopped the last probe. It is a
+again, no further probe starts, and the channel receives
+[one message](reporting.md#a-brake-hold-the-harness-escalates), without an
+operator tag or direct message, naming the cycles spent and what stopped the
+last probe and assigning the hold to the Lead Product Manager. It is a
 count of cycles rather than a length of time because the loop is what it
 bounds; what it comes to in hours is the cooldown times it, and the default of
 four is two hours at the default cooldown — the same bar the heartbeat raises a
@@ -6466,9 +6467,12 @@ execution:
 When a stall begins the harness files a critical report in its own voice,
 naming how long nothing has happened, when work was last pulled and a pass
 last succeeded, and what each recurring task's latest attempt failed on. The
-report goes into the pile every report goes into, so it is put in front of the
-operator wherever critical reports reach him and delivered to the Lead Product
-Manager as a turn of its own. It is filed once per stall: the stall is recorded
+report goes into the pile every report goes into and is delivered immediately
+in the channel as the Lead Product Manager's finding, without operator tagging
+or a direct message, and to her conversation as a turn of its own. It reaches
+the operator once if a later handling names `needs=operator` and opens its
+reason with a closed-list reason and a colon, such as `credential: renew the
+provider login`. It is filed once per stall: the stall is recorded
 in `factory-stalls.jsonl` under the product's state directory, and readings
 that agree with a standing stall write nothing. The first pull or successful
 pass closes it and files a note saying what cleared it. While it stands,
@@ -6770,7 +6774,10 @@ problem names the cause. Each cause is also reported differently:
 - **The harness held its own cadence.** The schedule could not be fired, the
   harness could not be read, or the pull
   that reached the task gave its one firing to another task. This is filed as the
-  harness's own report at `critical`, which puts it in front of the operator.
+  harness's own report at `critical`, delivered immediately to the Lead Product
+  Manager in the channel and as a turn in her conversation, without an operator
+  tag or direct message. A later handling that names `needs=operator` and a
+  closed-list reason sends the finding to him once.
 - **The firing was turned away before it reached the role.** The provider had
   no capacity, the provider was answering nobody, or the role's conversation was
   held by another process. The miss quotes the refusal, including the reset the
@@ -6974,17 +6981,17 @@ that would take the wake past its size bound, so what she is put is always the
 oldest she has not argued. She argues each back in her account, and the
 firing's report in `yoyo sweeps` lists them in one batch.
 
-**The batch reaches you once, as one decision list.** Each pass that argued
-something still undecided is a [finding that needs your
-hand](operations.md#where-a-finding-that-needs-your-hand-goes): it is sent to
-you directly, tagged by member id, through the same operator-action message
-every such finding uses, naming each proposal with what she recommends and why,
-and it is not sent again. `yoyo status` names it on the needs-a-human line —
-never folded into the count of things not named — until every proposal in it is
-decided. **Deciding is yours**, from the same two verbs as before:
+**The batch is said once, as one decision list.** Each pass that argued
+something still undecided is a [finding](operations.md#where-a-finding-that-needs-your-hand-goes)
+assigned to the role that owns the documents. It reaches the channel without
+an operator tag or a direct message, naming each proposal with the owner's
+recommendation and reason. `yoyo status` names it under that role's waiting
+entries until every proposal in it is decided. Recording those decisions still
+needs a person's hand until owning roles deciding amendments
+(yoyodyne-ifd.437.14) lands; the commands are:
 
 ```sh
-yoyo status                                     # each pass's batch waiting on you, and each undecided proposal
+yoyo status                                     # each pass's batch under its owning role, and each undecided proposal
 yoyo sweeps --task architect-amendments         # her reasons, pass by pass
 yoyo amendment approve <id> --reason ...        # record the change as authorized
 yoyo amendment decline <id> --reason ...        # turn it down, keeping why

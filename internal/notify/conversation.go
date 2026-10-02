@@ -309,7 +309,8 @@ type unresolvedTrackerRefusal struct {
 // It is critical where the refusal it follows is a warning, and the step between
 // them is what earns it: a refusal on its own is a loss the harness is about to
 // try to repair by itself, and this is the same loss with the repair spent. What
-// is left needs the operator, which is the whole of what the severity says.
+// is left needs the Lead Product Manager's attention; severity names the loss,
+// and the registry supplies ownership independently.
 //
 // It is addressed to the product for the reason the refusal is: the actions were
 // refused together and which items they were about is in a reply nobody kept.

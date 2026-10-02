@@ -38,7 +38,8 @@ func fixtures() map[Kind][]Entry {
 	open := &runstate.PullRequest{Number: 3}
 	stopped := runstate.State{RunID: "run-1", WorkItemID: "item-1", Blocker: "checks failed"}
 	return map[Kind][]Entry{
-		KindPassedOver: passedOverFixtures(),
+		KindNotification: notificationFixtures(),
+		KindPassedOver:   passedOverFixtures(),
 		KindAmendment: {
 			{Kind: KindAmendment, Amendment: &goals},
 			{Kind: KindAmendment, Amendment: &design},
@@ -116,6 +117,23 @@ func fixtures() map[Kind][]Entry {
 			{Kind: KindStoppage},
 		},
 	}
+}
+
+func notificationFixtures() []Entry {
+	var entries []Entry
+	for _, kind := range NotificationKinds() {
+		entries = append(entries, Entry{Kind: KindNotification, Notification: kind})
+	}
+	return append(entries,
+		Entry{Kind: KindNotification, Notification: NotificationProviderOutage, OutageCause: domain.ProviderUnauthenticated},
+		Entry{Kind: KindNotification, Notification: NotificationOperatorAction, Finding: FindingHandling, Account: "credential: renew the login"},
+		Entry{Kind: KindNotification, Notification: NotificationDirectiveRecorded, Unsettled: true},
+		Entry{Kind: KindNotification, Notification: NotificationWatchIdle, Unreadable: true},
+		Entry{Kind: KindNotification, Notification: NotificationWatchIdle, UsageWindow: true},
+		Entry{Kind: KindNotification, Notification: NotificationWatchIdle, Role: domain.RoleArchitect},
+		Entry{Kind: KindNotification, Notification: NotificationWorkHandedOff, Role: domain.RoleArchitect},
+		Entry{Kind: KindNotification, Notification: NotificationItemAdmitted, Role: domain.RoleArchitect},
+	)
 }
 
 func passedOverFixtures() []Entry {
@@ -206,6 +224,16 @@ func TestTheOperatorsEntriesAreTheOnesTheDesignNames(t *testing.T) {
 		{KindHumanGate, 0}:      ReasonHumanGate,
 		{KindHeldWork, 5}:       ReasonHumanGate,
 		{KindHeldWork, 12}:      ReasonDivergedHistory,
+	}
+	for index, entry := range notificationFixtures() {
+		switch {
+		case entry.Notification == NotificationHoldPlaced:
+			his[key{KindNotification, index}] = ReasonOwnHold
+		case entry.Notification == NotificationProviderOutage && entry.OutageCause == domain.ProviderUnauthenticated:
+			his[key{KindNotification, index}] = ReasonCredential
+		case entry.Notification == NotificationOperatorAction && entry.Finding == FindingHandling && entry.Account == "credential: renew the login":
+			his[key{KindNotification, index}] = ReasonCredential
+		}
 	}
 	stall := stallFixtures()
 	for index, entry := range passedOverFixtures() {

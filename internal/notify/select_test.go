@@ -737,9 +737,9 @@ func TestEachLostRaceIsSaidAsANoteNamingTheBranchAndTheCount(t *testing.T) {
 		t.Fatalf("a lost race crossed %v", kinds)
 	}
 	lost := notifications[0]
-	if lost.Event.Severity != report.SeverityNote || !lost.Speaker.IsHarness() || KindRaceLost.Reach() != ReachThread {
+	if lost.Event.Severity != report.SeverityNote || !lost.Speaker.IsHarness() || kindReach(KindRaceLost) != ReachThread {
 		t.Fatalf("a lost race is said at %q by %q reaching %q, want a harness note in the thread",
-			lost.Event.Severity, lost.Speaker.Key(), KindRaceLost.Reach())
+			lost.Event.Severity, lost.Speaker.Key(), kindReach(KindRaceLost))
 	}
 	message, err := Render(lost.Topic, lost.Speaker, lost.Event)
 	if err != nil {
@@ -1825,7 +1825,7 @@ func TestAnIdleSessionCarriesWhatItSawGoingAndWhoItWaitsOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render a session that could not read the harness: %v", err)
 	}
-	if strings.HasSuffix(said.Body, nextMoveLead+nextMoves[KindWatchIdle]) {
+	if strings.HasSuffix(said.Body, nextMoveLead+recordedMove(KindWatchIdle)) {
 		t.Fatalf("body %q sends the reader to an admission over a store that would not answer", said.Body)
 	}
 }
@@ -1862,11 +1862,11 @@ func TestAnIdlePollThatCouldNotReadTheStoreIsSaidAsARetryRatherThanAsIdle(t *tes
 	if strings.Contains(message.Body, "started nothing") || strings.Contains(strings.ToLower(message.Body), "product manager") {
 		t.Fatalf("body %q says the session found nothing, or hands the move to the product manager", message.Body)
 	}
-	if !strings.Contains(message.Body, "reading it again") || !strings.HasSuffix(message.Body, nextMoveLead+nextMoves[KindWatchReadRetrying]) {
+	if !strings.Contains(message.Body, "reading it again") || !strings.HasSuffix(message.Body, nextMoveLead+recordedMove(KindWatchReadRetrying)) {
 		t.Fatalf("body %q does not say the read is being retried and close on the harness's move", message.Body)
 	}
-	if !strings.HasPrefix(nextMoves[KindWatchReadRetrying], "the harness's") {
-		t.Fatalf("whose move follows %s is %q, want the harness's", KindWatchReadRetrying, nextMoves[KindWatchReadRetrying])
+	if !strings.HasPrefix(recordedMove(KindWatchReadRetrying), "the harness's") {
+		t.Fatalf("whose move follows %s is %q, want the harness's", KindWatchReadRetrying, recordedMove(KindWatchReadRetrying))
 	}
 }
 
@@ -1897,7 +1897,7 @@ func TestAStopMarkedAsARestartIsSaidAsOneRatherThanAsAnEnding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render a restarting session: %v", err)
 	}
-	if strings.Contains(message.Body, nextMoves[KindWatchStopped]) {
+	if strings.Contains(message.Body, recordedMove(KindWatchStopped)) {
 		t.Fatalf("body %q hands the operator the move a session that ended would", message.Body)
 	}
 }

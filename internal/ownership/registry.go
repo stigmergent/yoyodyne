@@ -58,6 +58,11 @@ func (r Resolution) Whose() string {
 // Manager rather than guessing.
 type Entry struct {
 	Kind Kind
+	// Notification and its poll or directive facts classify a durable milestone.
+	Notification NotificationKind
+	Running      int
+	Carried      bool
+	Unsettled    bool
 	// PassedOver is the class the last idle poll recorded. Unreadable and
 	// UsageWindow are the two conditions that take precedence over that class.
 	PassedOver  runstate.PassedOverClass
@@ -152,6 +157,7 @@ var registry = map[Kind]Rule{
 	KindFactoryStall:      factoryStallRule,
 	KindTrackerUnanswered: trackerUnansweredRule,
 	KindPassedOver:        passedOverRule,
+	KindNotification:      notificationRule,
 }
 
 // Covers reports whether the registry holds a rule for a kind.
@@ -565,6 +571,9 @@ func stoppageRule(e Entry) (Resolution, bool) {
 		run.HarnessContinuesCheckStage(),
 		run.HarnessContinuesStall():
 		return owned(Harness, "the harness carries it on at its next pull, with nobody deciding anything", "the watch session")
+	}
+	if run.DiedBeforeClaiming() {
+		return owned(DevelopmentManager, "the run took nothing, and the dispatch that could not start it is on the docket", "yoyo triage")
 	}
 	return owned(DevelopmentManager, "nothing pulls the stopped item until she decides what becomes of the run", "yoyo triage")
 }

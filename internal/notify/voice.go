@@ -29,6 +29,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -205,7 +206,7 @@ var harnessVoice = voice{
 		KindIntakeHeld:               "Intake is held for this product: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released for this product, {released}.",
 		KindIntakeEscalated:          "The brake's hold on intake is escalated by the harness, past the development manager: {why}",
-		KindOperatorAction:           "This was raised for the operator's hand: {needs} Found by {foundby}; recorded in {recordedin}. Nothing here changes it, and this is not said again — `yoyo status` names it until it is done, and {ends}.",
+		KindOperatorAction:           "A finding is waiting: {needs} Found by {foundby}; recorded in {recordedin}. This is said once to its owner — `yoyo status` names it until it is done, and {ends}.",
 		KindHoldPlaced:               "All harness activity is held.",
 		KindHoldLifted:               "The hold on harness activity is lifted.",
 		KindWatchStarted:             "A watch session is open on this product: {why}",
@@ -223,7 +224,7 @@ var harnessVoice = voice{
 		KindProviderRestored:         "The provider is answering again after {age}: {stopped}. Every run that was waiting has resumed where it stopped, and the queue is being pulled from again. Nothing was released and nothing was restarted.",
 		KindRecurringTaskFailing:     "{stopped}. Each of those is a failed firing rather than a partial pass: nothing was asked of the role and nothing was spent, and the next firing meets the same refusal until its cause is fixed. It has stood for {age}.",
 		KindClaimReleased:            "{item} was claimed with nothing working on it, so the harness gave it back to the queue: {stopped}. Nothing had moved on it for {age}.",
-		KindResidentStale:            "The watch session on this product is running a build from before {behind} landed, made at {commit}. It restarts itself into a build installed over it, between the runs it is carrying.",
+		KindResidentStale:            "The watch session on this product is running a build from before {behind} landed, made at {commit}. It restarts itself into a build installed over it, between the runs it is carrying; installing the build makes those changes available.",
 		KindBundleImprovement:        "{improvement}. Nothing has changed and nothing is waiting on anybody: `yoyo config drift` shows {setting} beside everything else the template moved, and it is adopted by hand or not at all.",
 		KindBundleImprovements:       "{improvement}. Nothing has changed and nothing is waiting on anybody: `yoyo config drift` shows what each one was and is, and each is adopted by hand or not at all.",
 		KindCatchUpDigest:            "{events} were recorded here over {age} while nothing was posting them. Every one of them is in the durable record.",
@@ -242,7 +243,7 @@ var developerVoice = voice{
 		KindItemAttributed:           "{item} now says what it is for: {goal}. That is the intent I'd be building against.",
 		KindItemReprioritized:        "{item} sits at {priority} now. What I build doesn't change with the order it is queued in.",
 		KindTrackerBlockRefused:      "A block the {asking} sent was refused together — {refused} — and nothing in the queue moved for any of it: {why}",
-		KindTrackerRefusalUnresolved: "The {asking} lost a block and the turn after it put nothing back — {refused} still lost, and {cause} — so this one needs a person: {why}",
+		KindTrackerRefusalUnresolved: "The {asking} lost a block and the turn after it put nothing back — {refused} still lost, and {cause} — so the self-correcting path is spent: {why}",
 		KindWorkApproved:             "The operator approved that one, so it is work somebody will be given: {title}, for {goal}.",
 		KindWorkDeclined:             "Proposed work was turned down before it reached anybody — {title} — because: {why}",
 		KindWorkHandedOff:            "{item} will never reach me: it is carried by {executor} rather than by a run, because {why}",
@@ -284,7 +285,7 @@ var developerVoice = voice{
 		KindIntakeHeld:               "Intake is held, so nothing new reaches me: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is open again, {released}; I'll take what I'm given.",
 		KindIntakeEscalated:          "The harness has stopped probing the line with runs like mine and escalated the hold: {why}",
-		KindOperatorAction:           "Something only you can change is recorded against my work: {needs} Found by {foundby}; recorded in {recordedin}. I can't make that change from a run, nothing here asks you twice, and {ends}.",
+		KindOperatorAction:           "A finding against my work is waiting: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status`, and {ends}.",
 		KindHoldPlaced:               "Held before my next provider call. Nothing of the change is lost.",
 		KindHoldLifted:               "The hold is lifted; I'm carrying on.",
 		KindWatchStarted:             "Work can reach me without anybody typing an identifier now: {why}",
@@ -363,7 +364,7 @@ var reviewerVoice = voice{
 		KindIntakeHeld:               "Intake is held, so nothing new will arrive for review: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is open, {released}; work will reach me again.",
 		KindIntakeEscalated:          "The harness has escalated the brake's hold rather than probe the line again; nothing new reaches me until it is released: {why}",
-		KindOperatorAction:           "A finding here is yours rather than a verdict's: {needs} Found by {foundby}; recorded in {recordedin}. No review changes it, it is said to you once, and {ends}.",
+		KindOperatorAction:           "A finding accompanies the verdict: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status`, and {ends}.",
 		KindHoldPlaced:               "Held before my next review. Nothing already judged changes.",
 		KindHoldLifted:               "The hold is lifted; reviews resume.",
 		KindWatchStarted:             "Changes will keep arriving for a verdict without anybody starting them: {why}",
@@ -417,7 +418,7 @@ var developmentManagerVoice = voice{
 		KindPublished:                "{item} is published as {pr} and still counts as in flight.",
 		KindMergeQueued:              "{pr} is queued to merge, so {item} stays in flight until the forge says otherwise.",
 		KindMergeCompleted:           "{pr} merged; {item} is done.",
-		KindMergeDropped:             "{pr} will not merge on its own: {cause}. {item} is promoted, and its publication is now somebody's to settle by hand.",
+		KindMergeDropped:             "{pr} will not merge on its own: {cause}. {item} is promoted, and its publication is waiting for a decision in triage.",
 		KindMergeWaitingOnTarget:     "{pr} waits on the target being fixed rather than on a decision: {cause}. The item filed for it is at the front of the queue.",
 		KindLandingGreen:             "{item} landed and the whole suite is green over it: {landing}.",
 		KindLandingRed:               "{item} landed and the whole suite is red over it: {landing}. The item that filed is at the front of the queue, and everything behind it is cut from that commit.",
@@ -440,8 +441,8 @@ var developmentManagerVoice = voice{
 		KindQuestionHeard:            "That was a question rather than direction, so nothing about this item moved; the Lead Product Manager answers it here.",
 		KindIntakeHeld:               "Intake is held, so I pull nothing new until it lifts: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}; I'm pulling from the top of the backlog again.",
-		KindIntakeEscalated:          "The harness escalated the brake's hold over my head — I was asked every cycle and did not — so no further probe starts and the queue waits on the Lead Product Manager: {why}",
-		KindOperatorAction:           "This is on you rather than on my docket: {needs} Found by {foundby}; recorded in {recordedin}. I won't raise it again, and {ends}.",
+		KindIntakeEscalated:          "The harness escalated the brake's hold over my head — I was asked every cycle and did not — so no further probe starts and the queue stays held: {why}",
+		KindOperatorAction:           "This finding is waiting: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status`, and {ends}.",
 		KindHoldPlaced:               "Everything is held. Nothing new starts, and nothing in flight is lost.",
 		KindHoldLifted:               "The hold is lifted; the work in flight carries on.",
 		KindWatchStarted:             "The queue is being pulled from until somebody stops it, rather than once: {why}",
@@ -520,7 +521,7 @@ var productManagerVoice = voice{
 		KindIntakeHeld:               "Intake is held, so nothing new is chosen until somebody lifts it: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}; the backlog is being pulled from again.",
 		KindIntakeEscalated:          "The brake's hold on intake is escalated: the harness stopped asking the development manager and escalated it itself, so nothing I admit is chosen until somebody releases it: {why}",
-		KindOperatorAction:           "This one was raised for your hand rather than a decision of mine: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status` until it is done — {ends} — and I won't say it again.",
+		KindOperatorAction:           "A finding needs attention: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status` until it is done — {ends}.",
 		KindHoldPlaced:               "The operator holds all harness activity.",
 		KindHoldLifted:               "The operator lifted the hold.",
 		KindWatchStarted:             "What is admitted is now what is spent on, since the queue is pulled from until somebody stops it: {why}",
@@ -599,7 +600,7 @@ var architectVoice = voice{
 		KindIntakeHeld:               "Intake is held, which stops selection and nothing already running: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}; selection resumes.",
 		KindIntakeEscalated:          "The brake's summons-and-probe loop reached its bound and the harness escalated the hold, which is the loop working as designed rather than standing silent: {why}",
-		KindOperatorAction:           "A change only the operator can make is recorded: {needs} Found by {foundby}; recorded in {recordedin}. No design decides it, it is said once, and {ends}.",
+		KindOperatorAction:           "A finding is recorded: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status`, and {ends}.",
 		KindHoldPlaced:               "All harness activity is held, at the provider-call boundary rather than mid-generation.",
 		KindHoldLifted:               "The hold is lifted, and every run that stopped for it carries on from its own record.",
 		KindWatchStarted:             "Selection is now a loop rather than a pass, and nothing between its readings is cached: {why}",
@@ -679,7 +680,7 @@ var programManagerVoice = voice{
 		KindIntakeHeld:               "Intake is held: nothing new is chosen, and what is running carries on. How long the line stays held is part of what I watch: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}, and the line can choose work again.",
 		KindIntakeEscalated:          "The brake went round its summons-and-probe loop to the bound, and the harness escalated the hold, as it is built to: {why}",
-		KindOperatorAction:           "Something in my lane waits on the operator's own hand rather than on any role: {needs} Found by {foundby}; recorded in {recordedin}. It is said to you once, and {ends}.",
+		KindOperatorAction:           "A finding in my lane is waiting: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status`, and {ends}.",
 		KindHoldPlaced:               "Everything is held at the next provider call; nothing in flight is thrown away.",
 		KindHoldLifted:               "The hold is off, and each held run continues from its own record.",
 		KindWatchStarted:             "The line is being watched in a loop now, reading the queue fresh every time: {why}",
@@ -725,9 +726,8 @@ var voices = map[string]voice{
 // holds the ball. An operator reading a thread the morning after should never
 // have to reconstruct which of those it was.
 //
-// So every message says what follows it and whose it is to make. It is one table
-// keyed by the kind rather than a clause per persona, for the same reason the
-// severity mark is: whose move follows a promotion is a fact about the state of
+// So every message says what follows it and whose it is to make. The ownership
+// registry supplies that answer rather than a clause per persona: whose move follows a promotion is a fact about the state of
 // the work, identical whoever is narrating it, and six paraphrases of one fact
 // are six chances to state it differently. The persona's own line is still the
 // whole of what the persona says.
@@ -739,310 +739,25 @@ var voices = map[string]voice{
 // last is not the guarantee.
 const nextMoveLead = " Next: "
 
-var nextMoves = map[Kind]string{
-	// Work sitting in the backlog. What follows is the harness choosing it, which
-	// is the one move in this whole table that happens without anybody deciding
-	// anything.
-	KindItemAdmitted:      "the harness's, when this reaches the top of the queue and a run is free.",
-	KindItemDecomposed:    "the harness's, when this reaches the top of the queue and a run is free.",
-	KindItemAttributed:    "the harness's, when this reaches the top of the queue and a run is free.",
-	KindItemReprioritized: "the harness's, and this is where it now gets pulled from.",
-	// A refused block is the one item here whose move belongs to the harness and
-	// then to the role that asked. The harness wakes that role's own conversation
-	// with the refusal in it, once, and the actions come back only if the role
-	// issues them again — so what a reader has to know is that a turn is coming
-	// without anybody starting it, and that it is the role rather than the wakeup
-	// that puts the queue back.
-	KindTrackerBlockRefused: "the harness's, then the role that asked — a turn is started for it with the refusal in it, and the actions happen only if the role issues them again.",
-	// And once the turn after a refusal has failed to put the actions back — a
-	// second block refused, or a turn that sent none at all — the move stops being
-	// anybody's inside the harness. The actions are still lost, the role has had a
-	// turn to re-issue them, and nothing further is scheduled. The clause
-	// deliberately says nothing about which of those endings it was, or about
-	// whether the harness woke the turn: they reach the same place, and which one
-	// it was is the message's own to say.
-	KindTrackerRefusalUnresolved: "the operator's — the harness has stopped trying to have these re-issued and will not start another turn for them.",
-	KindWorkApproved:             "the harness's, when this reaches the top of the queue and a run is free.",
-	KindWorkDeclined:             "nobody's — nothing was created, and nothing follows.",
-	// Work a conversation carries. The handoff is the one state where the thread
-	// waits on a person opening a conversation rather than on anything the harness
-	// will do by itself, which is exactly the silence this exists to name.
-	// The clause here is the one an item's marker does not name a role for, which
-	// is work marked before it could. Where the marker names one, handedOffMove
-	// says whose it is instead: the wait between the handoff and the pickup is the
-	// longest silence in any thread, and the role holding the item is the whole of
-	// what a reader wants from it.
-	KindWorkHandedOff:  "the role that carries it, in conversation — no run will ever be started for this.",
-	KindWorkPickedUp:   "the role carrying it, until the work is done and the item closed.",
-	KindWorkCarriedOut: "nobody's — the item is done.",
-	// A crossing is already in force, so nobody has to do anything for it to take
-	// effect — which is exactly why the clause names the operator anyway. The
-	// delegation was granted on the condition that they could still say no, and a
-	// message that said nobody's move followed would be telling the reader they had
-	// nothing to do about the one kind of message they were promised a say in.
-	KindCapCrossed: "the operator's, only if they disagree — the cap is crossed already, and the decision it makes recordable is the development manager's to record next.",
-	// One run's own arc. Each of these is followed by the next by itself, so what
-	// they say is who is working rather than who is being waited on.
-	KindRunStarted:     "the developer's, until the checks say otherwise.",
-	KindChecksPassed:   "the reviewer's — a verdict on the change.",
-	KindChecksFailed:   "the developer's — another attempt at the same item.",
-	KindPathRefused:    "the developer's — another attempt at the same item, with the refused paths taken back out.",
-	KindReviewApproved: "the harness's — the promotion onto the target branch.",
-	KindReviewRepairs:  "the developer's — the findings as written.",
-	// A lost race is followed by the harness's own replay and the gate it
-	// re-earns, so nobody is waited on and nothing is docketed for it.
-	KindRaceLost:       "the harness's — the replayed change goes through the checks and a fresh review, and lands if they pass.",
-	KindPromoted:       "the harness's — publishing the change where the product publishes.",
-	KindPublished:      "the forge's, until the request merges.",
-	KindMergeQueued:    "the forge's, until it settles.",
-	KindMergeCompleted: "nobody's — the item is done.",
-	// A dropped merge is the one crossing in this stretch whose move is a
-	// person's. The forge is done with it — it refused the merge or gave up on
-	// one it had queued, and asking again earns the same answer — so nothing
-	// happens to the publication until somebody makes it happen.
-	KindMergeDropped: "the operator's — the forge will not merge this by itself, and the publication stands until somebody settles it.",
-	// A merge waiting on its target's red check is the harness's: the failure is
-	// filed as the target's, and the harness takes the merge up once that closes.
-	KindMergeWaitingOnTarget: "the harness's, on the item filed for the target's red check — it takes the merge up again once that closes, and nobody has anything to decide.",
-	// A landing is after the run: green asks nothing of anybody, red has filed
-	// the work that answers it and that work is queued like any other, and one
-	// the checks could not run over is the operator's to look at, because
-	// nothing else will run them again.
-	KindLandingGreen:      "nobody's — the target branch is as green as the landing checks can say.",
-	KindLandingRed:        "the harness's, on the item the landing filed — it is queued at the front, and every run until it lands is cut from a red base.",
-	KindLandingUnverified: "the operator's — nothing will run the landing checks over this commit again by itself.",
-	KindRunParked:         "whatever it is waiting on; the run resumes from its own record once that clears.",
-	KindRunContinued:      "the developer's, from where the change stopped.",
-	// Work that stopped and stayed stopped, and capacity that ran out. Neither
-	// clears on its own, which is why naming who has to act on it is the whole of
-	// what a reader needs.
-	KindBlockerRecorded: "the development manager's, in triage — nothing moves this item until it is decided.",
-	// A run that ended with no blocker left nobody a decision, so nothing is
-	// waiting on a person and the item is queued exactly as it was. The clause
-	// says so rather than naming a move: sending a reader to triage over a run
-	// that recorded nothing to triage is the same guessing as saying nothing.
-	KindRunEnded: "the harness's — nothing was recorded for anybody to decide, and the item is where the run left it.",
-	// The clause deliberately says nothing about when. Whether the provider named a
-	// moment the capacity comes back is the message's own to say, and a whose-move
-	// clause that implied one would be the sink inventing the fact the record was
-	// careful not to claim.
-	KindUsageLimitExhausted: "the provider's — nothing here moves while the limit stands.",
-	// A substitution asks for nothing, which is the whole of what makes it worth
-	// saying without interrupting anybody: the work carried on, and the clause
-	// says so rather than sending a reader to look at a window that is lifting on
-	// the provider's clock either way.
-	KindModelSubstituted: "nobody's — the turn was served, and the model it asked for is asked for again as soon as it can be.",
-	// What an agent said in its own words. A report asks for nothing by design and
-	// says so; the other three are all waiting on the operator.
-	KindReportFiled:    "nobody's — the work carried on.",
-	KindProposalRaised: "the operator's — nothing reaches the document until they decide it.",
-	KindExchangeTurn:   "the operator's, until the exchange is answered.",
-	KindExchangeClosed: "back to the work the exchange was holding.",
-	// What a reply did. The recorded clause is the pausing one, because a
-	// directive that stopped work is the one a reader has to do something about;
-	// directiveInForceMove is the other case, and nextMove chooses between them
-	// from what the record left unsettled.
-	KindDirectiveRecorded: "the operator's — the work this affects waits until the directive is resolved.",
-	KindDirectiveResolved: "the harness's — the work this held carries on from where it stopped.",
-	// A directive that has been carried out is over, and it was holding nothing
-	// up while it stood. Naming somebody's move would invent a wait where the
-	// answer somebody was owed has just arrived.
-	KindDirectiveCarriedOut: "nobody's — what was asked for is done, and nothing was waiting on it.",
-	KindDirectiveRefused:    "the operator's — nothing was recorded, so nothing about the work has changed.",
-	// A withdrawn directive is over, and nobody has to do anything for that to be
-	// so: one that paused work stops holding it, and one that paused nothing was
-	// holding nothing. The clause covers both rather than naming a wait, because
-	// the person reading it has just been told the thing they asked about was
-	// taken back.
-	KindDirectiveWithdrawn: "nobody's — the directive no longer applies, and any work it was holding carries on from where it stopped.",
-	// A question is answered rather than recorded, and the answer is the product
-	// manager's: it is carried to her conversation the moment the receipt is
-	// posted, and her reply lands in the same thread. Nothing about the work
-	// waits on it, and the person who asked has nothing to do but read.
-	KindQuestionHeard: "the Lead Product Manager's — the answer follows in this thread.",
-	// The operator's switches and the session that chooses work. These are about
-	// the whole line rather than one item, and every one of them is waiting on
-	// somebody by name.
-	KindIntakeHeld:     "the operator's — nothing new is chosen until `yoyo release` lifts it.",
-	KindIntakeReleased: "the harness's — the backlog is being pulled from again.",
-	// The harness's own escalation: the account above it already says why in the
-	// hold's own words, so this says only what follows.
-	KindIntakeEscalated: "the Lead Product Manager's — the harness has stopped probing, and nothing new is chosen until `yoyo release` lifts it.",
-	// A finding only the operator can act on. The message carries the read
-	// model's own wording of whose move it is and what ends it in Mover, so the
-	// terminal's attention line and this clause are one wording; this is what a
-	// record that carried none would say.
-	KindOperatorAction: "the operator's — only a person can act on this, and `yoyo status` names it until the record says it is done.",
-	KindHoldPlaced:     "the operator's — nothing runs until the hold is lifted.",
-	KindHoldLifted:     "the harness's — every run that stopped for the hold carries on from its own record.",
-	KindWatchStarted:   "the harness's — the queue is pulled from until somebody stops it.",
-	// An idle poll without a recorded cause projects the registry's fallback.
-	KindWatchIdle:    ended(readmodel.IdlePollCause(false, false, "", 0).Whose()),
-	KindWatchBraked:  "the operator's — choosing resumes when intake is released.",
-	KindWatchResumed: "the harness's — work is being chosen again.",
-	KindWatchStopped: "the operator's — nothing more is chosen until a session is started again.",
-	// The one stop nobody has to answer. The session waited out its runs and is
-	// being re-executed into the build deployed over it, so telling the reader to
-	// start a session would be handing them a move they do not have — once per
-	// deploy, which is exactly the standing chore self-redeployment removes.
-	KindWatchRedeploying: "nobody's — the session is coming back on the build that was deployed, and the queue is read again when it does.",
-	// A read of the store that failed is the harness's to retry, and it retries
-	// it itself: nothing a person admits, releases, or opens reaches a store that
-	// will not answer, and a session that gives up on it records a stop that is
-	// said as one.
-	KindWatchReadRetrying: "the harness's — the queue could not be read, and it is read again until it answers or the session gives up on it.",
-	// The line carries the read model's own wording of whose move it is in Mover,
-	// so this is what a line that carried none would say.
-	KindLineWaiting: "the operator's — this stands until somebody clears what stopped it.",
-	// A stall names the machine rather than the state, because there is no state:
-	// what has to be looked at is the thing that chooses work, and whether it is
-	// dead or merely wedged is in the message above this clause.
-	KindStallNoticed: "the operator's — nothing starts until whatever chooses work is looked at, and started again if it has died.",
-	// The same silence as the stall above, and nobody's move. Naming one would be
-	// sending somebody to look at a machine that is behaving, which is exactly
-	// what the alarm this replaces did on 2026-09-05.
-	KindProviderWindow: "nobody's — the window lifts on the provider's clock, and the queue is read again when it does.",
-	// Every role held is the one capacity state that is somebody's move. The window
-	// is still the provider's; what is the operator's is the configuration that
-	// let one window hold every role. The message carries the read model's own
-	// wording of that in Mover, so a terminal and a channel name the same move,
-	// and this is what a record that carried none would say.
-	KindCapacityHold: "the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does.",
-	// The provider answering nobody is the operator's move in the one way a
-	// window is not, and the message carries the read model's own wording of it
-	// in Mover — which cause it is decides whether the move is a login or the
-	// network — so a terminal and a channel name the same move. This is what a
-	// record that carried none would say.
-	KindProviderOutage: "the operator's — log in to the provider, or wait for the network; the harness resumes on its own once it answers, and nothing is released or restarted.",
-	// The provider answering again is nobody's move: the runs resumed by
-	// themselves, which is the whole of what the message is for.
-	KindProviderRestored: "nobody's — the line carried on by itself, and nothing was released or restarted to make it.",
-	// A task failing before its first turn is the harness's or the operator's by
-	// its cause, and the message carries the read model's own wording of which in
-	// Mover, so a terminal and a channel name the same move. This is what a record
-	// that carried none would say.
-	KindRecurringTaskFailing: "the harness's or the operator's, by its cause — fix what refuses the firing; the first firing that takes a turn clears it.",
-	// Nobody's move, and the message is still worth sending. The item is back in
-	// the queue, the run that left it is ended, and the slot it was filling is
-	// free — so the state this reports is one the harness has already put right,
-	// and a clause naming a chore would be inventing one. What it is for is that
-	// the line was quietly degraded until it was, and a second run for an item is
-	// something a reader has to be able to account for afterwards.
-	KindClaimReleased: "nobody's — the item is pullable again and will be chosen in its turn, and whatever the run that left it produced is still on its branch.",
-	// The restart is no longer anybody's: a watch session takes up a build
-	// installed over it by itself, between the runs it is carrying and without
-	// interrupting one. What is left is the install, which is why this names it
-	// rather than naming a restart nobody has to make.
-	KindResidentStale: "the operator's — installing the build is the whole of it; the session takes it up itself between runs.",
-	// Nobody's, and saying so is the point. Every other move in this table is one
-	// somebody eventually has to make; this one is an offer an operator is
-	// entitled to decline forever, and a message that implied otherwise would be
-	// the nagging that gets a channel muted.
-	KindBundleImprovement:  "nobody's — the value stands as this project has it until somebody decides otherwise, and nothing will ask again.",
-	KindBundleImprovements: "nobody's — every one of them stands as this project has it until somebody decides otherwise, and nothing will ask again.",
-	KindCatchUpDigest:      "nobody's — the record holds all of it, and the thread carries on from here.",
-	// A line nothing can read is the operator's to look at and nobody's to wait
-	// on: the reader has already stepped past it, so nothing after it is held up,
-	// and what the line held is recoverable only by somebody opening the file.
-	KindLogLineSkipped: "the operator's, only to look at the line — nothing after it is waiting, and nothing here will read it again.",
-}
-
-// directiveInForceMove is whose move follows a directive that stopped nothing.
-// An operational directive takes effect the moment it is recorded, so there is
-// nobody to wait for — and a thread that told a reader to wait for a resolution
-// would be naming a move nobody has to make, on the ordinary case rather than
-// the rare one.
-//
-// It says the work carries on rather than that the directive is in force, which
-// is the operator's rule about every message here: the everyday word, not the
-// term of art, wherever a reader would have to already know the vocabulary. That
-// it applies from now on is the account's own to say, and saying it twice in one
-// message — once as what was recorded, once as what follows — is the padding an
-// acknowledgment reads worst as.
-const directiveInForceMove = "the harness's — the work carries on under it."
-
-// unstartedMove is whose move follows a run that died before it claimed
-// anything. The table's answer for a run that ended is that nothing was recorded
-// for anybody to decide, and this is the one ending where something was: the
-// death is docketed as it happens, so the item is where it always was and the
-// dispatch is a decision waiting on the development manager.
-//
-// That clause is the whole reason this class was worth recording. The message an
-// operator read on 2026-09-07, twenty-nine times over, said nothing was recorded
-// for anybody to decide — which was true, and was the defect.
-const unstartedMove = "the development manager's, in triage — the run took nothing, and the dispatch that could not start it is on the docket."
-
-// nextMove is whose move follows one event, and says whether anything does. A
-// kind nothing answers for is a kind added to the vocabulary without anybody
-// deciding what a reader is supposed to do about it, which is a mistake in this
-// table rather than in any record — so it is refused the way a missing voice line
-// is, rather than posted as a message that leaves the reader exactly where this
-// exists to stop leaving them.
+// nextMove projects the supplied read-model answer, or asks that model to
+// resolve the facts this event carries. No renderer chooses an owner.
 func nextMove(event Event) (string, bool) {
-	// Work already marked for a conversation is not queued for a run and never
-	// will be, so the queue's answer would be telling a reader to expect something
-	// that cannot come. The handoff's answer is the true one, whether the marker
-	// arrived with the admission or afterwards.
-	if strings.TrimSpace(event.Detail.Executor) != "" {
-		switch event.Kind {
-		case KindItemAdmitted, KindItemDecomposed, KindItemAttributed, KindItemReprioritized, KindWorkHandedOff:
-			return handedOffMove(event.Detail.Executor), true
-		}
+	if !event.Kind.Valid() {
+		return "", false
 	}
-	// A recorded directive that left nothing unsettled is in force already rather
-	// than holding anything up, and the two are opposite answers to the question
-	// this clause exists to answer.
-	if event.Kind == KindDirectiveRecorded && strings.TrimSpace(event.Detail.Unresolved) == "" {
-		return directiveInForceMove, true
-	}
-	// A watch that started nothing idles for opposite reasons, and the fixed clause
-	// answered for one of them.
-	if event.Kind == KindWatchIdle {
-		return idleMove(event.Detail), true
-	}
-	// A stall over a queue whose last poll said what was holding it is waiting on
-	// whoever releases that, rather than on somebody restarting a chooser that is
-	// running and doing exactly what it should. A run that died before it claimed
-	// anything is docketed as it dies, where every other ending under that kind
-	// recorded nothing for anybody to decide. An approved change the environment
-	// stopped is the harness's to resume by a verb, under either ending kind,
-	// where the table says a decision or nothing. Each is one kind of message
-	// covering two situations that send a reader to different people, so the
-	// clause is the read model's — derived beside the fact the message states, so
-	// the two cannot disagree. The waiting line is the same shape over the
-	// intake hold: the brake's is the development manager's while she decides
-	// and the operator's once she has escalated it, and the line is repeated to
-	// the operator exactly when it is his.
 	if strings.TrimSpace(event.Detail.Mover) != "" {
-		switch event.Kind {
-		case KindStallNoticed, KindRunEnded, KindBlockerRecorded, KindCapacityHold, KindProviderOutage, KindRecurringTaskFailing, KindWatchBraked, KindIntakeHeld, KindIntakeEscalated, KindLineWaiting, KindOperatorAction:
-			return ended(strings.TrimSpace(event.Detail.Mover)), true
-		}
+		return ended(strings.TrimSpace(event.Detail.Mover)), true
 	}
-	move, ok := nextMoves[event.Kind]
-	return move, ok
-}
-
-// idleMove projects the read model's resolved cause for this idle poll.
-func idleMove(detail Detail) string {
-	cause := readmodel.IdlePollCause(detail.Unreadable, detail.ProviderWindow, domain.WorkItemExecutor(strings.TrimSpace(detail.Executor)), detail.Running)
-	return ended(cause.Whose())
-}
-
-// handedOffMove is whose move follows work only a conversation will carry. It
-// names the role the marker names, because nothing else in that stretch of the
-// thread does: the handoff is followed by however long it takes somebody to open
-// the conversation, and until the pickup says who started, this clause is the
-// only thing standing between a reader and an unattributed silence.
-//
-// A marker that names no role falls back to the clause that says a role carries
-// it without saying which. That is what the record holds, and a thread that
-// named a role the marker did not would send the operator to the wrong one.
-func handedOffMove(executor string) string {
-	if role := domain.WorkItemExecutor(strings.TrimSpace(executor)).Role(); role != "" {
-		return "the " + role.Title() + "'s, in conversation — no run will ever be started for this."
+	entry := ownership.Entry{
+		Account:     event.Detail.Cause,
+		Role:        domain.WorkItemExecutor(strings.TrimSpace(event.Detail.Executor)).Role(),
+		Unreadable:  event.Detail.Unreadable,
+		UsageWindow: event.Detail.ProviderWindow,
+		Running:     event.Detail.Running,
+		Carried:     strings.TrimSpace(event.Detail.Executor) != "",
+		Unsettled:   strings.TrimSpace(event.Detail.Unresolved) != "",
 	}
-	return nextMoves[KindWorkHandedOff]
+	return ended(readmodel.NotificationOwnership(event.Kind, entry).Whose()), true
 }
 
 // The words each severity is said in, and the decoration that is added to them.

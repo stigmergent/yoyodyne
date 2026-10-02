@@ -417,7 +417,7 @@ func TestMarkingWorkForAConversationIsSaidAsAHandoff(t *testing.T) {
 	}
 	// A thread that goes quiet here is waiting on a person opening a conversation,
 	// and nothing else in the record would ever tell the reader that.
-	if !strings.Contains(message.Body, "no run will ever be started for this") {
+	if !strings.Contains(message.Body, "no run will ever be started for it") {
 		t.Fatalf("body %q does not say whose move follows the handoff", message.Body)
 	}
 	// And it says which person, which is the whole of the difference between a
@@ -426,7 +426,7 @@ func TestMarkingWorkForAConversationIsSaidAsAHandoff(t *testing.T) {
 	if !strings.Contains(message.Body, "the architect's conversation") {
 		t.Fatalf("body %q does not say whose conversation carries the item", message.Body)
 	}
-	if !strings.HasSuffix(message.Body, nextMoveLead+"the architect's, in conversation — no run will ever be started for this.") {
+	if !strings.HasSuffix(message.Body, nextMoveLead+"the architect's — in conversation; no run will ever be started for it.") {
 		t.Fatalf("body %q leaves the wait for the pickup unattributed", message.Body)
 	}
 }
@@ -449,7 +449,7 @@ func TestAHandoffNamesWhicheverRoleCarriesTheWork(t *testing.T) {
 			if !strings.Contains(message.Body, "the "+role.Title()+"'s conversation") {
 				t.Fatalf("body %q does not name the %s", message.Body, role)
 			}
-			if !strings.HasSuffix(message.Body, nextMoveLead+"the "+role.Title()+"'s, in conversation — no run will ever be started for this.") {
+			if !strings.HasSuffix(message.Body, nextMoveLead+"the "+role.Title()+"'s — in conversation; no run will ever be started for it.") {
 				t.Fatalf("body %q does not leave the move with the %s", message.Body, role)
 			}
 		})
@@ -475,7 +475,7 @@ func TestAHandoffWhoseMarkerNamesNoRoleSaysOnlyWhatTheRecordHolds(t *testing.T) 
 	if !strings.Contains(message.Body, "a role's conversation") {
 		t.Fatalf("body %q does not say a conversation carries it", message.Body)
 	}
-	if !strings.HasSuffix(message.Body, nextMoveLead+nextMoves[KindWorkHandedOff]) {
+	if !strings.HasSuffix(message.Body, nextMoveLead+recordedMove(KindWorkHandedOff)) {
 		t.Fatalf("body %q names a role the record never did", message.Body)
 	}
 }
@@ -582,7 +582,7 @@ func TestKeepingTheQueueAroundHandedWorkIsNotPickingItUp(t *testing.T) {
 			}
 			// The item is still not queued for a run and never will be, so what
 			// follows is the handoff's answer rather than the queue's.
-			if !strings.HasSuffix(message.Body, nextMoveLead+nextMoves[KindWorkHandedOff]) {
+			if !strings.HasSuffix(message.Body, nextMoveLead+recordedMove(KindWorkHandedOff)) {
 				t.Fatalf("body %q says this is waiting for a run", message.Body)
 			}
 		})
@@ -909,7 +909,7 @@ func TestARefusedTrackerBlockIsSaidAgainstTheProductWithWhatItCost(t *testing.T)
 // A refused block the harness woke a role for and got another refused block from
 // is the loss with the repair spent, so it is said at critical rather than as a
 // second warning about an unrelated block.
-func TestARefusalTheHarnessWokeAndLostAgainIsSaidAsTheOperatorsToLookAt(t *testing.T) {
+func TestARefusalTheHarnessWokeAndLostAgainIsSaidAsTheProductManagersToSettle(t *testing.T) {
 	conversation := conversationWith(domain.RoleProductManager)
 	events := []execution.Event{recorded(t, 1, execution.EventTrackerRefusalUnresolved, map[string]any{
 		"turn":          6,
@@ -938,7 +938,7 @@ func TestARefusalTheHarnessWokeAndLostAgainIsSaidAsTheOperatorsToLookAt(t *testi
 			t.Fatalf("message %q does not say %q", message.Body, wanted)
 		}
 	}
-	if !strings.Contains(message.Body, "the operator's") {
+	if !strings.Contains(message.Body, "Next: the Lead Product Manager's") {
 		t.Fatalf("message %q does not say whose move follows it", message.Body)
 	}
 }

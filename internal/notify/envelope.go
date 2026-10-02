@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -19,7 +20,7 @@ const SchemaVersion = 1
 // Kind is what happened. The set is the milestones an operator would otherwise
 // have to be at a terminal to see, and each transition is said once: a thread is
 // a narrative rather than an event log scrolling sideways.
-type Kind string
+type Kind = ownership.NotificationKind
 
 const (
 	// The backlog moving, which is the harness's steering wheel turning. An item
@@ -28,30 +29,30 @@ const (
 	// decomposition is separate from an admission because they are different acts
 	// by different roles, and recording one as the other would say a role admitted
 	// work it has no authority to admit.
-	KindItemAdmitted      Kind = "backlog.admitted"
-	KindItemDecomposed    Kind = "backlog.decomposed"
-	KindItemAttributed    Kind = "backlog.attributed"
-	KindItemReprioritized Kind = "backlog.reprioritized"
+	KindItemAdmitted      Kind = ownership.NotificationItemAdmitted
+	KindItemDecomposed    Kind = ownership.NotificationItemDecomposed
+	KindItemAttributed    Kind = ownership.NotificationItemAttributed
+	KindItemReprioritized Kind = ownership.NotificationItemReprioritized
 	// A block of tracker actions the harness would not read, and therefore the
 	// backlog not moving when a role meant it to. It is here beside the kinds that
 	// say the queue moved because it is the same news photographed from the other
 	// side: the actions are refused whole, so what a reader is being told is that
 	// several admissions, closes, or reorderings they might have expected did not
 	// happen and the role that asked for them believed they had.
-	KindTrackerBlockRefused Kind = "tracker.block-refused"
+	KindTrackerBlockRefused Kind = ownership.NotificationTrackerBlockRefused
 	// The same news once the harness has tried to fix it itself and failed: a
 	// refused block is woken for once, and a conversation whose next block was
 	// refused too is one nothing else is going to correct. It is its own kind
 	// because it is the opposite half of the same story — the self-correction was
 	// attempted and did not take — and a reader shown the refusal line twice would
 	// read two unrelated losses rather than one the harness has stopped working on.
-	KindTrackerRefusalUnresolved Kind = "tracker.refusal-unresolved"
+	KindTrackerRefusalUnresolved Kind = ownership.NotificationTrackerRefusalUnresolved
 	// What the operator decided about work an agent proposed. It is two kinds
 	// rather than one with a field, for the reason the reviewer's verdict is:
 	// work entering the backlog and work turned down are different news, and
 	// every persona says them differently.
-	KindWorkApproved Kind = "proposed-work.approved"
-	KindWorkDeclined Kind = "proposed-work.declined"
+	KindWorkApproved Kind = ownership.NotificationWorkApproved
+	KindWorkDeclined Kind = ownership.NotificationWorkDeclined
 	// Work leaving the run queue for a role's conversation, that role starting
 	// it, and that role finishing it. They are the transitions of the one class
 	// of work no run ever touches, and before they existed a thread said nothing
@@ -64,9 +65,9 @@ const (
 	// on rather than merely recorded. The completion is here and nowhere else
 	// because closing an item is otherwise said by the run that finished it, and
 	// this is the work that has no run to say it.
-	KindWorkHandedOff  Kind = "work.handed-off"
-	KindWorkPickedUp   Kind = "work.picked-up"
-	KindWorkCarriedOut Kind = "work.carried-out"
+	KindWorkHandedOff  Kind = ownership.NotificationWorkHandedOff
+	KindWorkPickedUp   Kind = ownership.NotificationWorkPickedUp
+	KindWorkCarriedOut Kind = ownership.NotificationWorkCarriedOut
 	// A cap the development manager crossed on his own delegated authority. It is
 	// here rather than left to the item's notes because the crossing is the whole
 	// of what the delegation traded away: the operator no longer approves it in
@@ -74,15 +75,15 @@ const (
 	// happens, with the cap, which of the item's five crossings it was, and the
 	// argument for it. A crossing nobody was told about is the delegation without
 	// the condition it was granted under.
-	KindCapCrossed Kind = "cap.crossed"
+	KindCapCrossed Kind = ownership.NotificationCapCrossed
 	// KindRunStarted carries the recorded selection reason with it, so the fact
 	// the selected-work-passes-intake-and-records-why invariant makes durable is
 	// the fact an operator actually reads.
-	KindRunStarted Kind = "run.started"
+	KindRunStarted Kind = ownership.NotificationRunStarted
 	// The deterministic gate, said in both directions. Passing is progress and
 	// failing is a repair attempt, and neither is a verdict on the change.
-	KindChecksPassed Kind = "checks.passed"
-	KindChecksFailed Kind = "checks.failed"
+	KindChecksPassed Kind = ownership.NotificationChecksPassed
+	KindChecksFailed Kind = ownership.NotificationChecksFailed
 	// The gate in front of the checks: a change refused for touching a path its
 	// work item does not grant. It is a repair attempt exactly as a failing check
 	// is, and it was silent in the thread until it had a kind — the note on the
@@ -90,12 +91,12 @@ const (
 	// showed a repair round happening with no stated reason. It carries the paths
 	// and what the item grants, because the grant is what would admit them and
 	// the one thing a reader of the thread can act on.
-	KindPathRefused Kind = "paths.refused"
+	KindPathRefused Kind = ownership.NotificationPathRefused
 	// The reviewer's verdict is two kinds rather than one with a field, because
 	// an approval and a request for repairs are different news and are said
 	// differently by every persona that says them.
-	KindReviewApproved Kind = "review.approved"
-	KindReviewRepairs  Kind = "review.repairs"
+	KindReviewApproved Kind = ownership.NotificationReviewApproved
+	KindReviewRepairs  Kind = ownership.NotificationReviewRepairs
 	// The three separate facts about getting a change out: promoted locally,
 	// published to a forge, and merged there. A queued merge is its own kind
 	// because it is a run that finished with its publication still owed.
@@ -105,24 +106,24 @@ const (
 	// on anybody, and a replay that passes costs the item nothing. It is said at
 	// all because a run that loses several races on a busy branch otherwise reads
 	// as one whose review went round for no stated reason.
-	KindRaceLost       Kind = "promotion.race-lost"
-	KindPromoted       Kind = "promotion.made"
-	KindPublished      Kind = "publication.opened"
-	KindMergeQueued    Kind = "merge.queued"
-	KindMergeCompleted Kind = "merge.completed"
+	KindRaceLost       Kind = ownership.NotificationRaceLost
+	KindPromoted       Kind = ownership.NotificationPromoted
+	KindPublished      Kind = ownership.NotificationPublished
+	KindMergeQueued    Kind = ownership.NotificationMergeQueued
+	KindMergeCompleted Kind = ownership.NotificationMergeCompleted
 	// A merge that is not going to happen: the forge refused it, or gave up on
 	// one it had queued. It is the fourth fact about getting a change out and the
 	// only one nobody finds out about on their own — the change is promoted, the
 	// item usually reads as landed, and what is left is a publication waiting on a
 	// person with nothing saying so. It said nothing at all until the moment it
 	// happens became part of the record.
-	KindMergeDropped Kind = "merge.dropped"
+	KindMergeDropped Kind = ownership.NotificationMergeDropped
 	// A merge the harness withdrew because its checks failed on the target itself
 	// rather than on the change: the failure is filed as the target's, as a red
 	// landing is, and the merge waits on the item filed for it. It is said where a
 	// dropped merge is, because it is the same publication not landing, and in
 	// the harness's words, because nobody is waited on but the filed item.
-	KindMergeWaitingOnTarget Kind = "merge.waiting-on-target"
+	KindMergeWaitingOnTarget Kind = ownership.NotificationMergeWaitingOnTarget
 	// What the landing checks made of the commit a run landed, said once the run
 	// is over: the suite the per-run gate ran narrowed, run whole over what
 	// actually landed. Green is the ordinary case and stays in the thread. Red is
@@ -131,17 +132,17 @@ const (
 	// — so it reaches the channel, and the item it filed is named in it. An
 	// unverified landing is the checks not having run at all, which is neither
 	// and is said as itself rather than folded into either.
-	KindLandingGreen      Kind = "landing.green"
-	KindLandingRed        Kind = "landing.red"
-	KindLandingUnverified Kind = "landing.unverified"
+	KindLandingGreen      Kind = ownership.NotificationLandingGreen
+	KindLandingRed        Kind = ownership.NotificationLandingRed
+	KindLandingUnverified Kind = ownership.NotificationLandingUnverified
 	// A run that stopped and one that carried on. Both are said because a queue
 	// that goes quiet at night is indistinguishable from a broken one until
 	// something says which it is.
-	KindRunParked    Kind = "run.parked"
-	KindRunContinued Kind = "run.continued"
+	KindRunParked    Kind = ownership.NotificationRunParked
+	KindRunContinued Kind = ownership.NotificationRunContinued
 	// A blocker is work that stopped and stayed stopped, which is the one thing
 	// nobody finds out about on their own.
-	KindBlockerRecorded Kind = "blocker.recorded"
+	KindBlockerRecorded Kind = ownership.NotificationBlockerRecorded
 	// A run that ended without succeeding and without leaving anybody a blocker
 	// to act on: one the harness failed to carry, one something stopped rather
 	// than judged, one it stopped on time. It is separate from the blocker above
@@ -150,12 +151,12 @@ const (
 	// that said one word over all four told an operator the attempt was over and
 	// nothing about whether their change still existed. The ending is named in the
 	// read model's own word and what remains of the change is stated beside it.
-	KindRunEnded Kind = "run.ended"
+	KindRunEnded Kind = ownership.NotificationRunEnded
 	// A provider refusing the harness for want of capacity, somewhere that is not
 	// a run: a conversation turn, an independent review. A run says it by parking,
 	// and this is the same news from every other process — hours in which nothing
 	// will happen, with a cause and, where the provider named one, an end.
-	KindUsageLimitExhausted Kind = "usage-limit.exhausted"
+	KindUsageLimitExhausted Kind = ownership.NotificationUsageLimitExhausted
 	// The same refusal with the opposite outcome: the model an agent's turn asked
 	// for would not serve it — its window was closed, or it was a pinned version
 	// this provider has not got — and a model the operator stated took the turn
@@ -167,15 +168,15 @@ const (
 	// message would be a reason to mute the channel that carries the first. Which
 	// of the two moved the turn is in the cause rather than in a second kind: to a
 	// reader it is the same news, and the answer to "why" is one field away.
-	KindModelSubstituted Kind = "model.substituted"
+	KindModelSubstituted Kind = ownership.NotificationModelSubstituted
 	// What an agent said in its own words: a report at its severity, a proposed
 	// change to a document it does not own, a turn of an ask exchange, and the
 	// exchange closing — including closing unresolved at its round cap, which
 	// escalates to the operator and is exactly what this channel exists for.
-	KindReportFiled    Kind = "report.filed"
-	KindProposalRaised Kind = "proposal.raised"
-	KindExchangeTurn   Kind = "exchange.turn"
-	KindExchangeClosed Kind = "exchange.closed"
+	KindReportFiled    Kind = ownership.NotificationReportFiled
+	KindProposalRaised Kind = ownership.NotificationProposalRaised
+	KindExchangeTurn   Kind = ownership.NotificationExchangeTurn
+	KindExchangeClosed Kind = ownership.NotificationExchangeClosed
 	// What a reply in a topic's thread did. They are the acknowledgment the
 	// inbound half owes every message it reads: the directive as recorded, the
 	// resolution that lifted one, what came of one that held nothing up, or the
@@ -199,43 +200,33 @@ const (
 	// answered. It is still said to the thread that asked, because a directive
 	// recorded from a thread and later withdrawn otherwise wore the thinking face
 	// forever — the thread was told it was heard and never told it was taken back.
-	KindDirectiveRecorded   Kind = "directive.recorded"
-	KindDirectiveResolved   Kind = "directive.resolved"
-	KindDirectiveCarriedOut Kind = "directive.carried-out"
-	KindDirectiveRefused    Kind = "directive.refused"
-	KindDirectiveWithdrawn  Kind = "directive.withdrawn"
+	KindDirectiveRecorded   Kind = ownership.NotificationDirectiveRecorded
+	KindDirectiveResolved   Kind = ownership.NotificationDirectiveResolved
+	KindDirectiveCarriedOut Kind = ownership.NotificationDirectiveCarriedOut
+	KindDirectiveRefused    Kind = ownership.NotificationDirectiveRefused
+	KindDirectiveWithdrawn  Kind = ownership.NotificationDirectiveWithdrawn
 	// A reply that was a question rather than an instruction. Nothing is
 	// recorded from it — a question in the directive record is a directive
 	// nobody gave — and what the person is owed is an answer, which the product
 	// manager gives in the same thread. This is the receipt that says so in the
 	// meantime, and it is its own kind rather than a refusal because nothing was
 	// refused: the question was heard, and the answer is on its way.
-	KindQuestionHeard Kind = "question.heard"
+	KindQuestionHeard Kind = ownership.NotificationQuestionHeard
 	// The operator's two switches. They are about the whole line rather than any
 	// one item, which is why they are addressed to the product rather than
 	// buried in a thread that would misfile them.
-	KindIntakeHeld     Kind = "intake.held"
-	KindIntakeReleased Kind = "intake.released"
-	// The brake's own hold handed to the operator by the harness, after its
-	// summons-and-probe loop went round the configured number of times with the
-	// development manager not escalating it. It is a kind of its own rather than
-	// the hold said again because it is the moment the hold becomes a person's:
-	// the trip was said when it happened and asked nothing of anybody, and this
-	// is the one message about that hold that does. It is said once, tagged to
-	// the operators and sent to them directly, naming the cycles spent and what
-	// stopped the last probe; the hourly line carries it from there.
-	KindIntakeEscalated Kind = "intake.escalated"
-	KindHoldPlaced      Kind = "hold.placed"
-	KindHoldLifted      Kind = "hold.lifted"
-	// A finding only the operator can act on, recorded: a report handled as
-	// needing his hand, or a report filed at the severity that means action. It
-	// is said once per finding, to him directly and tagged by member id, because
-	// it is both important and his to act on — the communication rule's own test
-	// for a tag — and it is never said again: `yoyo status` names it until it is
-	// done. Six such findings sat in the report pile from 2026-08-17 until a
-	// sweep reached them on 2026-09-14, and then reached him only because he
-	// asked.
-	KindOperatorAction Kind = "operator-action.recorded"
+	KindIntakeHeld     Kind = ownership.NotificationIntakeHeld
+	KindIntakeReleased Kind = ownership.NotificationIntakeReleased
+	// The brake's hold escalated past the development manager. The ownership
+	// registry assigns it to the Lead Product Manager; the channel carries it
+	// once without an operator tag or direct message.
+	KindIntakeEscalated Kind = ownership.NotificationIntakeEscalated
+	KindHoldPlaced      Kind = ownership.NotificationHoldPlaced
+	KindHoldLifted      Kind = ownership.NotificationHoldLifted
+	// A finding raised for attention. The ownership registry determines whose
+	// it is; only a finding it assigns to the operator reaches him directly and
+	// tagged. A corrected handling can change that ownership later.
+	KindOperatorAction Kind = ownership.NotificationOperatorAction
 	// What a watch session is doing. A session that stays open until it is told
 	// to stop spends most of its life saying nothing, and an idle one and a dead
 	// one are the same silence: these are what tell them apart in the record. Idle
@@ -250,11 +241,11 @@ const (
 	// because the states somebody acts on are said by KindWatchBraked, by
 	// KindLineWaiting once there is work a stopped session would have started, and
 	// by KindStallNoticed where nothing was recorded at all.
-	KindWatchStarted Kind = "watch.started"
-	KindWatchIdle    Kind = "watch.idle"
-	KindWatchBraked  Kind = "watch.braked"
-	KindWatchResumed Kind = "watch.resumed"
-	KindWatchStopped Kind = "watch.stopped"
+	KindWatchStarted Kind = ownership.NotificationWatchStarted
+	KindWatchIdle    Kind = ownership.NotificationWatchIdle
+	KindWatchBraked  Kind = ownership.NotificationWatchBraked
+	KindWatchResumed Kind = ownership.NotificationWatchResumed
+	KindWatchStopped Kind = ownership.NotificationWatchStopped
 	// A session stopping to be restarted into a build deployed over it. It is the
 	// same recorded stop as the one above and it is said apart from it, because
 	// the two mean opposite things to whoever reads them: a session that ended is
@@ -262,7 +253,7 @@ const (
 	// waited out its runs and is coming straight back on the new build. Saying
 	// them the same way would hand the operator a move they do not have, once per
 	// deploy, which is the standing chore self-redeployment exists to end.
-	KindWatchRedeploying Kind = "watch.redeploying"
+	KindWatchRedeploying Kind = ownership.NotificationWatchRedeploying
 	// A session that chose nothing because the harness's store could not be read,
 	// and is reading it again. It is the same recorded idle poll as KindWatchIdle
 	// and it is said apart from it, on the precedent above: a poll that read the
@@ -270,13 +261,13 @@ const (
 	// things of whoever reads them, and saying the second as the first told a
 	// reader for the whole of a store outage that the session had found nothing to
 	// start.
-	KindWatchReadRetrying Kind = "watch.read-retrying"
+	KindWatchReadRetrying Kind = ownership.NotificationWatchReadRetrying
 	// A line that is choosing nothing while work is ready to be chosen. Every
 	// kind above is a transition said once; this one is a state said again while
 	// it stands, because the fact somebody needs is not that it began but that it
 	// is still true hours later. Silence has to mean nothing to do, so a state
 	// that means waiting-on-you says so periodically until it clears.
-	KindLineWaiting Kind = "line.waiting"
+	KindLineWaiting Kind = ownership.NotificationLineWaiting
 	// A session that is choosing work while running a binary the harness has moved
 	// on from. Like the line above it this is a state said again while it stands
 	// rather than a transition, and for a sharper reason: nothing in the record
@@ -284,7 +275,7 @@ const (
 	// go on looking ordinary, so the only visible symptom is rounds spent against
 	// bugs that were fixed on the main line hours earlier — which reads as an agent
 	// failing rather than as a process nobody restarted.
-	KindResidentStale Kind = "resident.stale"
+	KindResidentStale Kind = ownership.NotificationResidentStale
 	// The harness having started nothing at all while work was ready to start.
 	// It is the opposite reading from the line above it: that one is derived from
 	// a record something wrote about itself, and this one from the absence of any
@@ -302,7 +293,7 @@ const (
 	// serious thing this vocabulary carries, so the sink repeats it on its
 	// heartbeat, raises it to critical as it stands, and tags the operators each
 	// time. How often and how loud are the sink's; this is what is said.
-	KindStallNoticed Kind = "stall.noticed"
+	KindStallNoticed Kind = ownership.NotificationStallNoticed
 	// The harness waiting out the provider's usage window. It is the same silence
 	// the stall above reports and the opposite fact about it: nothing has started,
 	// nothing is wrong, and the reason is one nobody can do anything about. It is
@@ -315,7 +306,7 @@ const (
 	// again while it stands. Nothing is degraded and nothing is waiting on
 	// anybody, so a second message would be a reason to mute the channel that
 	// carries the alarm this replaces.
-	KindProviderWindow Kind = "provider.window"
+	KindProviderWindow Kind = ownership.NotificationProviderWindow
 	// The provider holding every configured role at once. It is the capacity half
 	// of the stall: the window above is a session waiting out a window it met
 	// itself, and this is every role refused on a known reset with nothing
@@ -329,7 +320,7 @@ const (
 	// line stopped on a known reset with a remedy in the configuration is the
 	// sharpest case there is of the harness being degraded by something a person
 	// can change.
-	KindCapacityHold Kind = "capacity.hold"
+	KindCapacityHold Kind = ownership.NotificationCapacityHold
 	// The provider answering nobody: a login nobody has renewed, or an API nothing
 	// reaches. It is the other half of the capacity hold — no reset, no window,
 	// nothing the harness can wait out on a clock — and the one the operator has
@@ -343,12 +334,12 @@ const (
 	// member id, because it is both important and theirs to act on. It is not
 	// said again while it stands: the line's own banner carries it, and what a
 	// repeated message would buy is a reason to mute the channel.
-	KindProviderOutage Kind = "provider.outage"
+	KindProviderOutage Kind = ownership.NotificationProviderOutage
 	// The provider answering again after an outage: the login was renewed, or the
 	// network came back. It is said once, as a note, because the operator was told
 	// the line had stopped and is owed being told it carried on — and because the
 	// remedy is the harness's own: nothing was released and nothing was restarted.
-	KindProviderRestored Kind = "provider.restored"
+	KindProviderRestored Kind = ownership.NotificationProviderRestored
 	// A recurring task whose firings keep failing before their first turn: the
 	// harness refusing the message it composed for the pass, a conversation
 	// nothing can open, a turn that will not assemble. From 06:39Z on 2026-09-26
@@ -359,7 +350,7 @@ const (
 	// warning and once more as critical once it has stood two hours, and not
 	// again: the attention line carries it while it stands, and the first firing
 	// that takes a turn ends it.
-	KindRecurringTaskFailing Kind = "recurring.failing"
+	KindRecurringTaskFailing Kind = ownership.NotificationRecurringTaskFailing
 	// A claim the harness gave back because nothing was working on it. It is the
 	// same reading as the stall above, taken from the other end: that one asks
 	// whether anything has started and this one asks whether what the tracker says
@@ -373,7 +364,7 @@ const (
 	// It is said once per release, which is once per stuck item, because the
 	// release is what ends the state: what follows it is the item being pulled
 	// again, and that has its own message.
-	KindClaimReleased Kind = "claim.released"
+	KindClaimReleased Kind = ownership.NotificationClaimReleased
 	// One value the project's template has improved that this project has never
 	// edited. It is the third state here rather than a crossing, and it is the
 	// mildest thing this vocabulary carries: nothing is wrong, nothing is waiting,
@@ -385,7 +376,7 @@ const (
 	// It is said exactly once per improvement and never again, which is the whole
 	// of what admits it to a message somebody is sent rather than one they come
 	// looking for: a fact that repeats is a fact somebody mutes.
-	KindBundleImprovement Kind = "bundle.improvement"
+	KindBundleImprovement Kind = ownership.NotificationBundleImprovement
 	// Several such values found on one reading, said together: how many there
 	// are and the first few by name. It is the same fact as the kind above at a
 	// coarser grain, and it exists because the class is bounded to one message a
@@ -394,130 +385,28 @@ const (
 	// communication rule is against, aimed at the one channel that reaches a
 	// person as a notification. Each value it names is still marked as said on
 	// its own, so nothing it stands for is ever said again.
-	KindBundleImprovements Kind = "bundle.improvements"
+	KindBundleImprovements Kind = ownership.NotificationBundleImprovements
 	// What one topic gathered while nothing was posting it. Every kind above is
 	// something the record says happened; this one is what a surface does with a
 	// backlog it cannot say one message at a time — a long gap replayed in full
 	// is hundreds of messages nobody scrolls, and the surface that carries them
 	// starts dropping them. So the accumulation is said once per thread, naming
 	// how much of it there is and the record that holds all of it.
-	KindCatchUpDigest Kind = "catch-up.digest"
+	KindCatchUpDigest Kind = ownership.NotificationCatchUpDigest
 	// One line of a durable log the sink could not read, and read past. Every
 	// other kind here is something the record says; this is the one place the
 	// record itself could not be read, said so that a torn write or a schema the
 	// sink's build does not know costs one message rather than every message
 	// behind it. It is said once per line, because the reader keeps the line's
 	// position and does not meet it again.
-	KindLogLineSkipped Kind = "log.line-skipped"
+	KindLogLineSkipped Kind = ownership.NotificationLogLineSkipped
 )
 
 // Kinds is the whole reportable set, in the order work reaches them: the queue
 // changing, then what a run does to one item of it, then what an agent says and
 // what an operator does. A caller that has to cover every kind reads it from
 // here rather than repeating the list.
-func Kinds() []Kind {
-	return []Kind{
-		KindItemAdmitted,
-		KindItemDecomposed,
-		KindItemAttributed,
-		KindItemReprioritized,
-		KindTrackerBlockRefused,
-		KindTrackerRefusalUnresolved,
-		KindWorkApproved,
-		KindWorkDeclined,
-		KindWorkHandedOff,
-		KindWorkPickedUp,
-		KindWorkCarriedOut,
-		KindCapCrossed,
-		KindRunStarted,
-		KindChecksPassed,
-		KindChecksFailed,
-		KindPathRefused,
-		KindReviewApproved,
-		KindReviewRepairs,
-		KindRaceLost,
-		KindPromoted,
-		KindPublished,
-		KindMergeQueued,
-		KindMergeCompleted,
-		KindMergeDropped,
-		KindMergeWaitingOnTarget,
-		KindLandingGreen,
-		KindLandingRed,
-		KindLandingUnverified,
-		KindRunParked,
-		KindRunContinued,
-		KindBlockerRecorded,
-		KindRunEnded,
-		KindUsageLimitExhausted,
-		KindModelSubstituted,
-		KindReportFiled,
-		KindProposalRaised,
-		KindExchangeTurn,
-		KindExchangeClosed,
-		KindDirectiveRecorded,
-		KindDirectiveResolved,
-		KindDirectiveCarriedOut,
-		KindDirectiveRefused,
-		KindDirectiveWithdrawn,
-		KindQuestionHeard,
-		KindIntakeHeld,
-		KindIntakeReleased,
-		KindIntakeEscalated,
-		KindHoldPlaced,
-		KindHoldLifted,
-		KindOperatorAction,
-		KindWatchStarted,
-		KindWatchIdle,
-		KindWatchBraked,
-		KindWatchResumed,
-		KindWatchStopped,
-		KindWatchRedeploying,
-		KindWatchReadRetrying,
-		KindLineWaiting,
-		KindResidentStale,
-		KindStallNoticed,
-		KindProviderWindow,
-		KindCapacityHold,
-		KindProviderOutage,
-		KindProviderRestored,
-		KindRecurringTaskFailing,
-		KindClaimReleased,
-		KindBundleImprovement,
-		KindBundleImprovements,
-		KindCatchUpDigest,
-		KindLogLineSkipped,
-	}
-}
-
-// Valid reports whether a name is one of the reportable kinds. An unrecognized
-// kind has no voice line in any persona, so it is refused rather than posted as
-// something nobody wrote words for.
-func (k Kind) Valid() bool {
-	switch k {
-	case KindItemAdmitted, KindItemDecomposed, KindItemAttributed, KindItemReprioritized,
-		KindTrackerBlockRefused, KindTrackerRefusalUnresolved, KindWorkApproved, KindWorkDeclined,
-		KindWorkHandedOff, KindWorkPickedUp, KindWorkCarriedOut, KindCapCrossed,
-		KindRunStarted, KindChecksPassed, KindChecksFailed, KindPathRefused,
-		KindReviewApproved, KindReviewRepairs,
-		KindRaceLost, KindPromoted, KindPublished, KindMergeQueued, KindMergeCompleted, KindMergeDropped, KindMergeWaitingOnTarget,
-		KindLandingGreen, KindLandingRed, KindLandingUnverified,
-		KindRunParked, KindRunContinued, KindBlockerRecorded, KindRunEnded, KindUsageLimitExhausted,
-		KindModelSubstituted,
-		KindReportFiled, KindProposalRaised, KindExchangeTurn, KindExchangeClosed,
-		KindDirectiveRecorded, KindDirectiveResolved, KindDirectiveCarriedOut, KindDirectiveRefused,
-		KindDirectiveWithdrawn, KindQuestionHeard,
-		KindIntakeHeld, KindIntakeReleased, KindIntakeEscalated, KindHoldPlaced, KindHoldLifted, KindOperatorAction,
-		KindWatchStarted, KindWatchIdle, KindWatchBraked, KindWatchResumed, KindWatchStopped,
-		KindWatchRedeploying, KindWatchReadRetrying, KindLineWaiting, KindResidentStale, KindStallNoticed,
-		KindProviderWindow, KindCapacityHold, KindProviderOutage, KindProviderRestored,
-		KindRecurringTaskFailing, KindClaimReleased,
-		KindBundleImprovement, KindBundleImprovements, KindCatchUpDigest, KindLogLineSkipped:
-		return true
-	default:
-		return false
-	}
-}
+func Kinds() []Kind { return ownership.NotificationKinds() }
 
 // TopicKind is what a thread is about. The three are the whole set: an item of
 // work, an ask exchange that concerns no item, and the product line itself.
@@ -862,37 +751,11 @@ type Detail struct {
 	// a session that had already found the accounting is what woke the operator on
 	// 2026-09-06 with "nothing accounting for it".
 	//
-	// Mover is whose move follows that cause, worded by the same derivation and
-	// carried for the same reason. It is the one whose-move clause that is not in
-	// the table below, because the table answers per kind and this answers per
-	// cause: a queue held for triage decisions and a queue carried in conversation
-	// are one kind of message and two different people to go to. A stall with no
-	// poll to read a cause from carries neither, and the table answers.
-	//
-	// KindRunEnded reads it for the same reason and without a Cause beside it. A
-	// run that died before it claiming anything is docketed as it dies, where every
-	// other ending under that kind recorded nothing for anybody to decide — one
-	// kind of message, two different people again. A run that got as far as
-	// claiming carries none, and the table answers.
-	//
-	// KindRunEnded and KindBlockerRecorded both read it for an approved change the
-	// environment stopped short of its promotion: that ending is the harness's to
-	// resume by `yoyo triage resume` once the cause has cleared, which is neither
-	// the decision one table clause names nor the nothing the other does. The
-	// sentence is the run record's own, the one the docket entry carries and the
-	// repair verb refuses in — while the run's branch is there. Once it is gone
-	// the sentence is the one those surfaces then say, naming the re-run.
-	//
-	// Both read it too for a run whose check stage its bound stopped: load stopped
-	// it rather than the change, and the harness continues it at its checks, in
-	// the run record's own sentence — the one the docket entry carries.
-	//
-	// KindCapacityHold reads Mover alone: whose move ends a hold early is worded by
-	// the read model beside the hold itself, so the sentence a terminal prints on
-	// its attention line and the clause this message ends on are one wording.
-	// KindLineWaiting reads it the same way, for the intake hold above all: the
-	// brake's hold is the development manager's while she decides and the
-	// operator's once she has escalated it, and the hold's own record words which.
+	// Mover is the read model's resolved owner and remedy, carried beside the
+	// cause so the message and every other surface project the same answer.
+	// Without it, the read model asks the ownership registry to resolve the
+	// event's facts; missing facts require classification by the Lead Product
+	// Manager. No renderer assumes the operator owns a waiting state.
 	Cause string `json:"cause,omitempty"`
 	Mover string `json:"mover,omitempty"`
 	// Waiting is what a provider's refusal stopped, read by

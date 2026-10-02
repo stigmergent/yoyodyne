@@ -21,6 +21,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -297,7 +298,7 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 			// line rather than worded again by the sink, for the reason the stall's
 			// clause is.
 			if after.DiedBeforeClaiming() {
-				remains.Mover = unstartedMove
+				remains.Mover = readmodel.NotificationOwnership(KindRunEnded, ownership.Entry{Stopped: &after}).Whose()
 			}
 			sayWith(KindRunEnded, endingSeverity(outcome), Harness(), remains, endingReason(after))
 		}
@@ -529,8 +530,11 @@ func FromProposal(proposal amendment.Proposal) (Notification, error) {
 			At:       proposal.RaisedAt,
 			Severity: report.SeverityNote,
 			Refs:     Refs{RunID: proposal.RunID, WorkItemID: proposal.WorkItemID},
-			Detail:   Detail{Artifact: proposal.Artifact},
-			Text:     text,
+			Detail: Detail{
+				Artifact: proposal.Artifact,
+				Mover:    readmodel.NotificationOwnership(KindProposalRaised, ownership.Entry{Amendment: &proposal}).Whose(),
+			},
+			Text: text,
 		},
 	}, nil
 }
@@ -552,12 +556,9 @@ func FromProposal(proposal amendment.Proposal) (Notification, error) {
 // what stopped it, so the message names what stopped the line rather than
 // counting it.
 func FromIntakeHold(hold runstate.IntakeHold) Notification {
-	detail := Detail{Reason: hold.Account()}
-	// A hold the brake is working itself is whoever the ownership registry reads
-	// off its record; the fixed clause names the operator, which is right for
-	// the operator's hold and for nothing else.
+	detail := Detail{Reason: hold.Account(), Mover: readmodel.IntakeHoldWhose(hold)}
+	// Both the operator's hold and the brake's carry the registry's answer.
 	if hold.Braked() {
-		detail.Mover = readmodel.IntakeHoldWhose(hold)
 		detail.Stops = strings.Join(hold.Brake.Entries(), "; ")
 	}
 	return productNotification(KindIntakeHeld, hold.HeldAt, detail)
@@ -574,7 +575,7 @@ func IntakeReleased(at time.Time, release runstate.IntakeRelease, recorded bool)
 	return productNotification(KindIntakeReleased, release.ReleasedAt, Detail{Reason: release.Says()})
 }
 
-// OperatorAction is one finding only the operator can act on, as the read model
+// OperatorAction is a finding raised for attention, as the read model
 // derives it: what is needed, where it is recorded, who found it, and since
 // when. It is carried here rather than read from the read model because this
 // package speaks and does not read; the surface that reads hands it over.
@@ -593,15 +594,14 @@ type OperatorAction struct {
 	Since time.Time
 }
 
-// FromOperatorAction says a finding that needs the operator's hand, once. It is
+// FromOperatorAction says a finding once, carrying its resolved ownership. It is
 // addressed to the item the finding is about where there is one, so it sits in
 // that item's narrative, and to the product otherwise. The harness speaks it:
 // what the finding says is in Needs, in the words of whoever found it, and the
-// message is the harness telling the operator it is his.
+// message projects the read model's answer about whose it is.
 //
-// It is a warning, whatever the report was filed at: something only a person
-// can change is stopping something until they change it, and a note is what a
-// reader scrolls past.
+// It is a warning, whatever the report was filed at; severity does not determine
+// its owner or grant it direct delivery to the operator.
 func FromOperatorAction(action OperatorAction) (Notification, error) {
 	topic, err := topicForItem(action.WorkItemID)
 	if err != nil {
@@ -698,7 +698,7 @@ func FromWatch(transition runstate.WatchTransition) (Notification, error) {
 		ProviderWindow: transition.ProviderWindow,
 		// Whose move a braked poll is, where the hold's own record says: a hold
 		// the brake placed is the development manager's or the harness's until
-		// she escalates it, and the fixed clause names the operator.
+		// she escalates it, when it moves to the Lead Product Manager.
 		Mover: transition.Mover,
 	})
 	notification.Event.Severity = severity
@@ -749,8 +749,7 @@ type Line struct {
 	// beside the state itself rather than here, so the clause this message ends
 	// on and the attention line `yoyo status` prints name one move. A line
 	// stopped by the brake's hold is the development manager's or the harness's
-	// while the brake works it and the operator's once she has escalated it, and
-	// one fixed clause could not be right about both.
+	// while the brake works it and the Lead Product Manager's once escalated.
 	Mover string
 	// Standing is where the harness stands, in the four lines the read model
 	// renders. It is said with the line because the two answer one question at

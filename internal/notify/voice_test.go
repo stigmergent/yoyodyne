@@ -106,6 +106,12 @@ func fullyRecorded(kind Kind) Event {
 	}
 }
 
+// recordedMove is the projection of a recorded fixture, with no supplied owner.
+func recordedMove(kind Kind) string {
+	move, _ := nextMove(fullyRecorded(kind))
+	return move
+}
+
 func TestEveryPersonaSaysEveryReportableKind(t *testing.T) {
 	topic, err := WorkItem("yoyodyne-ifd.68.2")
 	if err != nil {
@@ -145,7 +151,7 @@ func TestEveryMessageSaysWhoseMoveFollowsIt(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the %s says %s: %v", speaker.Key(), kind, err)
 			}
-			move, ok := nextMoves[kind]
+			move, ok := nextMove(fullyRecorded(kind))
 			if !ok {
 				t.Fatalf("%s says nothing about whose move follows it", kind)
 			}
@@ -184,7 +190,7 @@ func TestWorkAConversationCarriesIsNeverSaidToBeWaitingForARun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("render ordinary %s: %v", kind, err)
 		}
-		if !strings.HasSuffix(message.Body, nextMoveLead+nextMoves[kind]) {
+		if !strings.HasSuffix(message.Body, nextMoveLead+recordedMove(kind)) {
 			t.Fatalf("ordinary %s reads as %q, want the queue's answer", kind, message.Body)
 		}
 		queued.Detail.Executor = string(domain.WorkItemExecutorConversation)
@@ -192,7 +198,7 @@ func TestWorkAConversationCarriesIsNeverSaidToBeWaitingForARun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("render conversation-carried %s: %v", kind, err)
 		}
-		if !strings.HasSuffix(handed.Body, nextMoveLead+nextMoves[KindWorkHandedOff]) {
+		if !strings.HasSuffix(handed.Body, nextMoveLead+recordedMove(KindWorkHandedOff)) {
 			t.Fatalf("conversation-carried %s reads as %q, want the handoff's answer", kind, handed.Body)
 		}
 		// An admission that says whose conversation carries the item answers with
@@ -203,7 +209,7 @@ func TestWorkAConversationCarriesIsNeverSaidToBeWaitingForARun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("render %s carried by a named role: %v", kind, err)
 		}
-		if !strings.HasSuffix(attributed.Body, nextMoveLead+"the architect's, in conversation — no run will ever be started for this.") {
+		if !strings.HasSuffix(attributed.Body, nextMoveLead+"the architect's — in conversation; no run will ever be started for it.") {
 			t.Fatalf("%s carried by the architect reads as %q, want the wait left with them", kind, attributed.Body)
 		}
 	}
@@ -263,7 +269,7 @@ func TestAnIdleWatchNamesTheActorWhoCanActOnIt(t *testing.T) {
 		{
 			name:   "nothing going and nothing anybody carries",
 			detail: func(*Detail) {},
-			want:   nextMoves[KindWatchIdle],
+			want:   recordedMove(KindWatchIdle),
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -335,7 +341,7 @@ func TestAStallPointsOutTheCauseAndClosesOnWhoeverReleasesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render a stall with no mover: %v", err)
 	}
-	if !strings.HasSuffix(fallen.Body, nextMoveLead+nextMoves[KindStallNoticed]) {
+	if !strings.HasSuffix(fallen.Body, nextMoveLead+recordedMove(KindStallNoticed)) {
 		t.Fatalf("the stall reads as %q, want the table's answer where no poll named one", fallen.Body)
 	}
 }
@@ -358,7 +364,7 @@ func TestAnIdleWatchPointsAtAdmissionOnlyWhenAdmissionIsTheNextAct(t *testing.T)
 		if err != nil {
 			t.Fatalf("render an idle watch: %v", err)
 		}
-		if strings.HasSuffix(message.Body, nextMoveLead+nextMoves[KindWatchIdle]) {
+		if strings.HasSuffix(message.Body, nextMoveLead+recordedMove(KindWatchIdle)) {
 			t.Fatalf("idle over %+v reads as %q, want somebody who can act on it named", detail, message.Body)
 		}
 	}
@@ -385,7 +391,7 @@ func TestEveryVoiceNamesTheSameWayOutOfAStaleResident(t *testing.T) {
 		"restarting it",
 		"until restart has an owner",
 	}
-	move, ok := nextMoves[KindResidentStale]
+	move, ok := nextMove(fullyRecorded(KindResidentStale))
 	if !ok {
 		t.Fatalf("%s says nothing about whose move follows it", KindResidentStale)
 	}
@@ -426,7 +432,7 @@ func TestEveryVoiceNamesTheSameWayOutOfAStaleResident(t *testing.T) {
 // is the standing chore the self-restart was built to end rather than reproduce.
 func TestEveryVoiceSaysARedeployingSessionIsComingBack(t *testing.T) {
 	topic := Product()
-	move, ok := nextMoves[KindWatchRedeploying]
+	move, ok := nextMove(fullyRecorded(KindWatchRedeploying))
 	if !ok {
 		t.Fatalf("%s says nothing about whose move follows it", KindWatchRedeploying)
 	}
@@ -971,7 +977,7 @@ func TestAFindingTooLongForALineIsCutRatherThanOverflowing(t *testing.T) {
 	}
 	// The clause saying whose move follows is the harness's own note, and it lands
 	// after the last change rather than being part of it.
-	account := strings.TrimSuffix(message.Body, nextMoveLead+nextMoves[KindReviewRepairs])
+	account := strings.TrimSuffix(message.Body, nextMoveLead+recordedMove(KindReviewRepairs))
 	for _, line := range strings.Split(account, "\n") {
 		if !strings.HasPrefix(line, "- ") {
 			continue
@@ -1057,7 +1063,7 @@ func TestABodyTooLongIsCutWithTheRecordThatHoldsTheWhole(t *testing.T) {
 	// A reader given a truncated account can go to the record for the rest; a
 	// reader given no idea who holds the ball has nothing to go to, so the cut
 	// takes the account rather than the clause.
-	if !strings.HasSuffix(message.Body, nextMoveLead+nextMoves[KindReportFiled]) {
+	if !strings.HasSuffix(message.Body, nextMoveLead+recordedMove(KindReportFiled)) {
 		t.Fatalf("a cut body lost whose move follows it: %q", message.Body[len(message.Body)-80:])
 	}
 }

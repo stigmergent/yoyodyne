@@ -72,10 +72,9 @@ func TestACapCrossingReachesTheOperatorWithTheCapTheCountAndTheReason(t *testing
 			t.Fatalf("the crossing message is missing %q:\n%s", want, message.Body)
 		}
 	}
-	// The clause that says the operator still has a say, which is the whole of
-	// what the delegation was granted on.
-	if !strings.Contains(message.Body, "only if they disagree") {
-		t.Fatalf("the crossing message does not leave the operator a move:\n%s", message.Body)
+	// The operator can overrule it; the delegated decision remains the manager's.
+	if !strings.Contains(message.Body, "Overrule me") || !strings.Contains(message.Body, "Next: the development manager's") {
+		t.Fatalf("the crossing message loses the veto or the decision owner:\n%s", message.Body)
 	}
 }
 

@@ -157,13 +157,8 @@ var reaches = map[Kind]Reach{
 	// promotion below because something already wrong is exactly what the operator
 	// wants told.
 	//
-	// The other three are all waiting on somebody to decide, and the exchange is
-	// both halves of one wait: nextMoves answers "the operator's, until the
-	// exchange is answered" for a turn, and the product manager's line for it says
-	// the operator is being asked something. A question shown only inside a thread
-	// and an answer shown at the top of the channel would be the two ends of one
-	// ask surfaced opposite ways round, with the half that needs somebody being
-	// the hidden one — which is the silence this whole change is against.
+	// Proposals and both sides of an exchange reach the channel. Ownership is
+	// the registry's answer carried in the message, independent of its reach.
 	KindReportFiled:    ReachThread,
 	KindProposalRaised: ReachChannel,
 	KindExchangeTurn:   ReachChannel,
@@ -191,13 +186,11 @@ var reaches = map[Kind]Reach{
 	KindIntakeReleased: ReachChannel,
 	KindHoldPlaced:     ReachChannel,
 	KindHoldLifted:     ReachChannel,
-	// The brake's hold handed to him by the harness at its bound. It is the one
-	// message about a brake hold that asks a person for something, and the sink
-	// sends it to the operators directly as well as posting it here.
+	// The brake's hold escalated past the development manager, to the Lead
+	// Product Manager. It is said in the channel without operator tagging.
 	KindIntakeEscalated: ReachChannel,
-	// A finding only the operator can act on is the channel level by the rule's
-	// own definition — what needs his action — and it is also said to him
-	// directly, which is the surface's to do.
+	// A finding reaches the channel. Direct delivery depends on its resolved
+	// ownership and a closed-list reason, which the read model supplies.
 	KindOperatorAction: ReachChannel,
 	// What a watch session is doing. These are the poll-by-poll narration of a
 	// process that spends most of its life saying nothing, and they were 473 of the
@@ -270,10 +263,10 @@ var reaches = map[Kind]Reach{
 	KindLogLineSkipped: ReachChannel,
 }
 
-// Reach is how far one kind goes on its own, before anything about a particular
+// kindReach is how far one kind goes on its own, before anything about a particular
 // event is taken into account. A kind with no entry reaches the record and no
 // further, which is the quiet way to be wrong about a kind nobody has classified.
-func (k Kind) Reach() Reach {
+func kindReach(k Kind) Reach {
 	if reach, found := reaches[k]; found {
 		return reach
 	}
@@ -332,7 +325,7 @@ func reachOf(topic Topic, event Event) Reach {
 	if event.Severity == report.SeverityCritical {
 		return ReachChannel
 	}
-	reach := event.Kind.Reach()
+	reach := kindReach(event.Kind)
 	if event.Kind == KindDirectiveRecorded && strings.TrimSpace(event.Detail.Unresolved) != "" {
 		reach = ReachChannel
 	}

@@ -710,19 +710,26 @@ handling — with each admission by the identifier it was assigned — so the
 development manager or a program manager can check later that each covering item
 actually covered what it was said to.
 
-One handling is not a closing. A report whose answer is a change only you can
-make by hand — a file the harness may not write, a credential, a workspace
-setting — is handled with `"needs": "operator"` and a reason saying what you
-have to do, and that record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
-said to you once, directly, and named on `yoyo status` until a later handling of
-the same report records the change made. It is a field the harness reads rather
-than a sentence in the reason, because a sentence is what six such reports were
-for a month. A report filed at `critical` is the same kind of finding on its
-own, until somebody handles it. A report handled as yours counts as handled and
-is not offered to the Lead Product Manager again, so her turns list the findings she
-has handed you, each with its identifier, until she records it done: tell her
-when the change is made, and she handles the same report once more, without
-`needs`.
+One handling is not a closing. A report whose answer is an act only a person
+can perform — a file the harness may not write, a credential, a workspace
+setting — is handled with `"needs": "operator"` and a reason opening with a
+[closed-list reason](#a-finding-that-needs-your-hand) and a colon, for example
+`credential: renew the provider login`. Both fields are needed: `needs` names
+the finding, and the ownership registry resolves whose it is. Such a handling
+is said to you once, directly and tagged, and named on `yoyo status` until a
+later handling of the same report records the change made.
+
+A handling that names the operator without a closed-list reason remains the
+Lead Product Manager's to settle or correct. An unhandled critical report is
+also hers: it is delivered immediately in the channel without operator tagging
+or a direct message, and reaches her conversation as a turn of its own. If
+she subsequently handles it with `needs=operator` and a closed-list reason, that
+ownership change sends the finding to you once even if its earlier message
+already reached the channel. A report handled as needing the operator counts
+as handled and leaves the unhandled pile; her turns still list those findings
+with their identifiers, so she can correct an unnamed reason or record an act
+done. Tell her when the change is made, and she handles the same report again,
+without `needs`.
 
 Where the decision is work, the admission can name the report it came from, and
 the item then records it. That citation is not bookkeeping: it is what a later
@@ -1349,7 +1356,7 @@ said as a state:
 > being served either. The window lifts on the provider's clock; failover on
 > the agents is what would move the work before it does.
 >
-> Next: the operator's — the window lifts on the provider's clock, and enabling
+> Next: the harness's — the window lifts on the provider's clock, and enabling
 > failover on the agents is what would move the work onto another model before
 > it does.
 
@@ -1432,9 +1439,9 @@ is nobody else's to renew.
 > intake brake is not tripping on it. The harness asks again on its own;
 > nothing to release, nothing to restart.
 >
-> Next: the operator's — log in to the provider, or wait for the network; the
-> harness resumes on its own once it answers, and nothing is released or
-> restarted.
+> Next: the operator's — log in to the provider; the harness resumes on its
+> own once it answers, and nothing is released or restarted (his because it
+> is a credential).
 
 The other cause reads *The provider cannot be reached*, and the move is the
 network's. It is shaped the opposite way from the hold above on purpose: the
@@ -1533,11 +1540,11 @@ what its owner recommends and why, for you to decide with `yoyo amendment`. The 
 needed, who found it, where it is recorded, and what ends it, so you can go and
 read the whole of it:
 
-> @operator This was raised for the operator's hand: beyond-grant: add the
+> @operator A finding is waiting: beyond-grant: add the
 > PreToolUse hook to `.claude/settings.json`; the harness may not write that
 > file. Found by the Lead Product Manager, handling the report; recorded in the
 > handling of report-9f2c… recorded in chat-91253e0e…, over the developer's
-> report from run-4f2a…. Nothing here changes it, and this is not said again —
+> report from run-4f2a…. This is said once to its owner —
 > `yoyo status` names it until it is done, and a later handling of the report
 > records it done. Next: the operator's — only a person can act on this; a later
 > handling of the report records it done (his because it is a file beyond
@@ -1569,14 +1576,13 @@ like every other record from before the watermark, and is marked without being
 said; its moment is the record that made it, so a handling made today of a
 month-old report is today's news.
 
-The brake's trip is sent to you the same way — directly, tagged, once, the
-moment it is recorded — naming what a count did not: each run it counted, with
-its item and what stopped it, and the verb that lifts it. It is not yours to
-move while the development manager and the harness are working it, and its
-closing clause says whose it is; it is the one hold you did not place, so you
-are told it happened:
+The brake's trip is said to the channel once, the moment it is recorded,
+without an operator tag or a direct message. It names each run the brake
+counted, with its item and what stopped it, and the verb that lifts the hold.
+The ownership registry assigns it to the development manager while she
+decides it, or the harness while it carries out her decision or runs a probe:
 
-> @operator Intake is held for this product: the harness's own brake placed it
+> Intake is held for this product: the harness's own brake placed it
 > after 3 run(s) blocked in a row with nothing landing between them, which is
 > the configured brake at 3, and the development manager was summoned at … to
 > decide what happens to it …; the runs it counted: run run-7c27… of
@@ -1588,9 +1594,12 @@ are told it happened:
 > `yoyo release`, or `/release` in the conversation,
 > lifts it sooner. Next: the development manager's — …
 
-When she escalates it to you, that hold is said to you once more, directly and
-tagged, in its own account of who decided it; the harness escalating it at the
-bound on its loop is [said the same way](#a-brake-hold-the-harness-escalates).
+When she escalates it, the hold moves to the Lead Product Manager, the role
+above her, and is said to the channel once more without tagging or a direct
+message. The harness escalating it at the bound on its loop is
+[said the same way](#a-brake-hold-the-harness-escalates). An act only a person
+can perform can reach you separately as a report handling or escalation whose
+account names a closed-list reason.
 While a hold stands the [heartbeat](#reporting-into-slack) says intake is held
 every hour, runs in flight or not: a held intake is the one state said over a
 run, because the runs are the ones that were already going when the line
@@ -1614,13 +1623,11 @@ state fitting neither class does not get one:
   work: something only a person fixes. The shipped states are the ones
   above — a session running a build the harness has moved well past, the
   harness having started nothing at all while work was ready, the provider
-  holding every role with nothing configured to fail over to, the brake's own
-  hold handed to them by the harness at the bound on its summons-and-probe
-  loop, a recurring task that has failed before its first turn for two hours
+  holding every role with nothing configured to fail over to, a recurring task
+  that has failed before its first turn for two hours
   (its critical message), an item that
-  sat claimed with nothing working on it until the harness gave it back, the
-  brake having held intake (its trip, once), a brake hold the development
-  manager escalated to you, and **the line choosing
+  sat claimed with nothing working on it until the harness gave it back, and
+  **the line choosing
   nothing over ready work**, which is the one state that is
   asked rather than reported and is below. The released claim is a fix rather
   than a request, and it is still in this class:
