@@ -30,11 +30,10 @@
 // `docs/decisions` is would be a disagreement about which repository is being
 // worked on.
 //
-// What this does not defend against is a symlink planted between the resolution
-// and the rename. That is a race against something already running inside the
-// repository, and the escapes this exists for are configuration and repository
-// layout rather than a local attacker: a checkout that hostile has already lost
-// more than a write.
+// Resolve alone does not defend against a symlink planted between resolution
+// and a later pathname-based write. Writers that must hold confinement across
+// path replacement use PinnedRoot: its directory handles, not prior path
+// checks, keep the mutation inside the declared root.
 package repowrite
 
 import (
