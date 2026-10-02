@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -141,10 +142,11 @@ func TestInvalidArgumentsCannotHideAnUnauthorizedTrackerAction(t *testing.T) {
 	}
 }
 
-func TestRepeatedBlocksCannotHideUnauthorizedActions(t *testing.T) {
+func TestMalformedBlocksCannotHideUnauthorizedActions(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name       string
+		fence      string
 		role       domain.AgentRole
 		permitted  string
 		forbidden  string
@@ -152,24 +154,35 @@ func TestRepeatedBlocksCannotHideUnauthorizedActions(t *testing.T) {
 	}{
 		{
 			name: "tracker", role: domain.RoleDevelopmentManager,
+			fence:      trackerFence,
 			permitted:  trackerReply("Reading it.", `{"action":"read","id":"yoyodyne-ifd.22"}`),
 			forbidden:  trackerReply("Moving it.", `{"action":"reprioritize","id":"yoyodyne-ifd.22","priority":1,"reason":"move it first"}`),
 			wantReason: "reprioritize",
 		},
 		{
 			name: "artifact", role: domain.RoleProductManager,
+			fence:      artifact.WriteFence,
 			permitted:  documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing."),
 			forbidden:  documentReply("create", "v2-design", "design", "docs/designs", "# Design\\n\\nBuild the thing."),
 			wantReason: "design",
 		},
 	} {
-		for _, order := range []string{"forbidden first", "forbidden last", "unclosed first"} {
+		for _, order := range []string{"forbidden first", "forbidden last", "unclosed first", "unclosed forbidden", "trailing opener", "trailing closer", "inline payload"} {
 			t.Run(test.name+"/"+order, func(t *testing.T) {
 				first, second := test.permitted, test.forbidden
-				if order == "forbidden first" {
+				switch order {
+				case "forbidden first":
 					first, second = second, first
-				} else if order == "unclosed first" {
+				case "unclosed first":
 					first = strings.TrimSuffix(first, "```\n")
+				case "unclosed forbidden":
+					first, second = strings.TrimSuffix(test.forbidden, "```\n"), ""
+				case "trailing opener":
+					first, second = strings.Replace(test.forbidden, test.fence, test.fence+" invalid", 1), ""
+				case "trailing closer":
+					first, second = strings.TrimSuffix(test.forbidden, "```\n")+"``` invalid\n", ""
+				case "inline payload":
+					first, second = strings.Replace(test.forbidden, test.fence+"\n", test.fence+" ", 1), ""
 				}
 				provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: first + second +
 					memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`)}}}
@@ -201,17 +214,23 @@ func TestRepeatedBlocksCannotHideUnauthorizedActions(t *testing.T) {
 	}
 }
 
-func TestRepeatedAuthorizedBlocksStillFailValidation(t *testing.T) {
+func TestAuthorizedMalformedBlocksStillFailValidation(t *testing.T) {
 	t.Parallel()
 	for _, block := range []string{
 		trackerReply("Reading it.", `{"action":"read","id":"yoyodyne-ifd.22"}`),
 		documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing."),
 	} {
-		parsed, err := splitReply(domain.RoleProductManager, block+block+
-			memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`))
-		if parsed.AuthorityProblem != nil || (err == nil && len(parsed.Refusals) == 0) ||
-			len(parsed.Actions) != 0 || len(parsed.Writes) != 0 || len(parsed.Memories) != 1 {
-			t.Fatalf("duplicate validation lost a block or widened authority: %+v, %v", parsed, err)
+		for _, malformed := range []string{
+			block + block,
+			strings.TrimSuffix(block, "```\n"),
+			strings.Replace(block, "\n{", " invalid\n{", 1),
+		} {
+			parsed, err := splitReply(domain.RoleProductManager, malformed+
+				memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`))
+			if parsed.AuthorityProblem != nil || (err == nil && len(parsed.Refusals) == 0) ||
+				len(parsed.Actions) != 0 || len(parsed.Writes) != 0 || len(parsed.Memories) != 1 {
+				t.Fatalf("validation lost a block or widened authority: %+v, %v", parsed, err)
+			}
 		}
 	}
 }

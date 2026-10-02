@@ -196,16 +196,20 @@ func (s *Session) reportBlockRefusals(out io.Writer, reply Reply) {
 	}
 }
 
-// Read authority-bearing fields separately from validation. A missing reason or
-// an unknown payload field must not conceal a known action the role may not take.
+// Read authority-bearing fields separately from payload and fence validation.
+// Each occurrence starts at its opening line; disregard that line's trailing
+// text, or read JSON placed directly after the opener, without requiring a
+// closing fence or EOF.
+// Malformed framing must not conceal a known action the role may not take.
 func blockAuthority(role domain.AgentRole, fence, block string) error {
 	if fence != trackerFence && fence != artifact.WriteFence {
 		return nil
 	}
-	_, payload, found, err := splitFencedBlock(block, fence, "authority")
-	if err != nil || !found {
-		return nil
+	payload := strings.TrimSpace(strings.TrimPrefix(block, fence))
+	if !strings.HasPrefix(payload, "{") {
+		payload = block[lineEnd(block):]
 	}
+	decoder := json.NewDecoder(strings.NewReader(payload))
 	authority, _ := AuthorityFor(role)
 	if fence == trackerFence {
 		var document struct {
@@ -213,7 +217,7 @@ func blockAuthority(role domain.AgentRole, fence, block string) error {
 				Action string `json:"action"`
 			} `json:"actions"`
 		}
-		if json.Unmarshal([]byte(payload), &document) != nil {
+		if decoder.Decode(&document) != nil {
 			return nil
 		}
 		for _, action := range document.Actions {
@@ -230,7 +234,7 @@ func blockAuthority(role domain.AgentRole, fence, block string) error {
 			Kind   artifact.Kind        `json:"kind"`
 		} `json:"documents"`
 	}
-	if json.Unmarshal([]byte(payload), &document) != nil {
+	if decoder.Decode(&document) != nil {
 		return nil
 	}
 	for _, write := range document.Documents {
