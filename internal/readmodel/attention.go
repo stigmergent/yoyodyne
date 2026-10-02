@@ -145,6 +145,45 @@ func (k AttentionKind) Valid() bool {
 	return false
 }
 
+// Label is the plain wording every surface uses for an attention entry.
+// The machine-facing kind stays unchanged.
+func (a Attention) Label() string {
+	if a.Kind == AttentionOwedStep {
+		if pr := a.OwedStep.queuedMerge(); pr != nil {
+			if pr.Checks != nil && pr.Checks.Red() {
+				return "merge stuck"
+			}
+			return "merge waiting"
+		}
+		return "run not finished"
+	}
+	if a.Kind == AttentionPublication {
+		if p := a.Publication; p != nil && ((p.MergeDrop != nil && (p.PullRequest == nil || !p.PullRequest.MergeQueued)) || (p.PullRequest != nil && p.PullRequest.Checks != nil && p.PullRequest.Checks.Red())) {
+			return "merge stuck"
+		}
+		return "merge waiting"
+	}
+	return map[AttentionKind]string{
+		AttentionAmendment:         "proposed document change",
+		AttentionCarriedItem:       "work in conversation",
+		AttentionReports:           "reports waiting",
+		AttentionAmendmentQueue:    "document changes waiting",
+		AttentionDegradedService:   "service down",
+		AttentionFailingTask:       "scheduled task failing",
+		AttentionHold:              "work paused",
+		AttentionDirective:         "direction unresolved",
+		AttentionOutage:            "provider unavailable",
+		AttentionStall:             "work not starting",
+		AttentionHeldWork:          "work waiting",
+		AttentionOperatorAction:    "person needed",
+		AttentionProductDecision:   "work decision waiting",
+		AttentionHumanGate:         "person's step waiting",
+		AttentionUntracedPass:      "findings not recorded",
+		AttentionFactoryStall:      "nothing completing",
+		AttentionTrackerUnanswered: "tracker not answering",
+	}[a.Kind]
+}
+
 // The three switches an AttentionHold entry can be about, as its ID names them.
 // None of the three is a record with an identifier of its own — each is one
 // file under the product, present or absent — so the name of the switch is
@@ -443,15 +482,29 @@ func (a Attention) Named() bool {
 	return false
 }
 
-// OwedStep is where a run that still owes a step stopped: its recorded status
-// and phase, which between them say which step that is. The run and its item
-// are on the entry.
+// OwedStep carries the finished run's remaining cleanup or merge settlement,
+// including the last recorded check reading. The run and item are on the entry.
 type OwedStep struct {
 	Status runstate.Status `json:"status"`
 	Phase  runstate.Phase  `json:"phase,omitempty"`
 	// EndedAt is when the run ended, which is when the step began to be owed.
 	// It is absent on a record that names no ending.
-	EndedAt time.Time `json:"ended_at,omitzero"`
+	EndedAt                    time.Time               `json:"ended_at,omitzero"`
+	PullRequest                *runstate.PullRequest   `json:"pull_request,omitempty"`
+	MergeDrop                  *runstate.MergeDrop     `json:"merge_drop,omitempty"`
+	TargetBranch               string                  `json:"target_branch,omitempty"`
+	CleanupFailure             string                  `json:"cleanup_failure,omitempty"`
+	LandingChecks              *runstate.LandingChecks `json:"landing_checks,omitempty"`
+	CompletionRecordingFailure string                  `json:"completion_recording_failure,omitempty"`
+}
+
+// queuedMerge excludes an obsolete publication without discarding the run's
+// independent landing or cleanup obligations or the publication's history.
+func (s *OwedStep) queuedMerge() *runstate.PullRequest {
+	if s == nil || s.PullRequest == nil || !s.PullRequest.MergeQueued || s.PullRequest.Superseded != "" || s.PullRequest.HandedBack != nil {
+		return nil
+	}
+	return s.PullRequest
 }
 
 // Publication is a promotion the forge has not published: where it was
@@ -541,7 +594,34 @@ func (a Attention) What() string {
 			return fmt.Sprintf("a change to %s is proposed and undecided (%s)", a.Amendment.Artifact, a.Amendment.ID)
 		}
 	case AttentionOwedStep:
-		return fmt.Sprintf("run %s of %s ended still owing a step", a.ID, a.WorkItemID)
+		if step := a.OwedStep; step != nil {
+			if pr := step.queuedMerge(); pr != nil {
+				what := fmt.Sprintf("merge of pull request %d for %s is queued", pr.Number, a.WorkItemID)
+				if pr.Merged {
+					what = fmt.Sprintf("merge of pull request %d for %s needs confirmation", pr.Number, a.WorkItemID)
+				}
+				if pr.Checks != nil {
+					what += "; " + pr.Checks.Describe(step.TargetBranch)
+				}
+				return what
+			}
+			// A dropped merge is a separate publication decision; this entry
+			// describes only the run's remaining cleanup or completion.
+			if step.LandingChecks != nil && !step.LandingChecks.Finished() {
+				return fmt.Sprintf("landing checks for %s ended without a recorded result; their checkout needs cleanup", a.WorkItemID)
+			}
+			if step.Phase != runstate.PhaseCleaningUp && step.Phase != runstate.PhaseComplete {
+				return fmt.Sprintf("completion of %s is not recorded; its work item needs settlement and its branch and worktree need cleanup", a.WorkItemID)
+			}
+			if step.CompletionRecordingFailure != "" {
+				return fmt.Sprintf("completion of %s could not be recorded: %s", a.WorkItemID, step.CompletionRecordingFailure)
+			}
+			what := fmt.Sprintf("cleanup of the branch and worktree for %s is not finished", a.WorkItemID)
+			if step.CleanupFailure != "" {
+				what += ": " + step.CleanupFailure
+			}
+			return what
+		}
 	case AttentionPublication:
 		if a.Publication != nil {
 			target := a.Publication.TargetBranch
@@ -551,6 +631,9 @@ func (a Attention) What() string {
 			if a.Publication.PullRequest == nil {
 				return fmt.Sprintf("run %s promoted %s into %s and its record holds no pull request for branch %s, so nothing has asked the forge to merge it",
 					a.ID, a.WorkItemID, target, a.Publication.Branch)
+			}
+			if a.Publication.MergeDrop != nil && !a.Publication.PullRequest.MergeQueued {
+				return fmt.Sprintf("merge of pull request %d for %s was dropped by the forge: %s", a.Publication.PullRequest.Number, a.WorkItemID, a.Publication.MergeDrop.Reason)
 			}
 			what := fmt.Sprintf("run %s promoted %s into %s and the forge has not published it: pull request #%d %s",
 				a.ID, a.WorkItemID, target, a.Publication.PullRequest.Number, a.Publication.PullRequest.URL)
@@ -669,7 +752,31 @@ func (a Attention) Whose() string {
 	case AttentionAmendment:
 		return a.Mover.Possessive() + " — nothing reaches the document until they or the operator decide it"
 	case AttentionOwedStep:
-		return a.Mover.Possessive() + " — `yoyo reconcile` reports which and settles it"
+		if step := a.OwedStep; step != nil {
+			if pr := step.queuedMerge(); pr != nil {
+				if pr.Checks != nil && pr.Checks.Red() {
+					checks := pr.Checks
+					if checks.AwaitingRerun() {
+						return a.Mover.Possessive() + " — the forge has not yet started the job rerun the harness requested; `yoyo reconcile` leaves the merge queued and reads the jobs again, without spending another rerun"
+					}
+					if checks.FailedInTheJob() && checks.Reruns < runstate.MaxCheckReruns {
+						return fmt.Sprintf("%s — `yoyo reconcile` asks the forge to run the jobs it cancelled, timed out, or could not start again (%d of %d reruns on this head), leaving the merge queued; if the forge refuses, the harness withdraws the merge to update its head or return it for repair", a.Mover.Possessive(), checks.Reruns+1, runstate.MaxCheckReruns)
+					}
+					if checks.FailedInTheJob() {
+						return a.Mover.Possessive() + " — the job rerun limit on this head is spent; `yoyo reconcile` withdraws the merge to update a head behind its target or return the change to the development manager"
+					}
+					return a.Mover.Possessive() + " — `yoyo reconcile` reads the failed checks and withdraws the merge to update its head, wait for a target fix, or return the change for repair"
+				}
+				return a.Mover.Possessive() + " — `yoyo reconcile` confirms the forge's merge and finishes the run's cleanup once it lands"
+			}
+			if step.LandingChecks != nil && !step.LandingChecks.Finished() {
+				return a.Mover.Possessive() + " — `yoyo reconcile` records the interrupted landing as unverified and removes its checkout"
+			}
+			if step.Phase != runstate.PhaseCleaningUp && step.Phase != runstate.PhaseComplete || step.CompletionRecordingFailure != "" {
+				return a.Mover.Possessive() + " — `yoyo reconcile` settles the work item, finishes cleanup, and records completion"
+			}
+			return a.Mover.Possessive() + " — `yoyo reconcile` finishes the run's cleanup and records it"
+		}
 	case AttentionPublication:
 		if a.Publication != nil {
 			// Four cases, and all four are settled by the same sweep once the forge
@@ -680,11 +787,14 @@ func (a Attention) Whose() string {
 			case a.Publication.PullRequest == nil:
 				return a.Mover.Possessive() + " — `yoyo reconcile` looks the request up on the forge by that branch, records it, and arms its merge; a forge that holds none is said on every sweep"
 			case a.Publication.PullRequest.MergeQueued:
+				if a.Publication.PullRequest.Checks != nil && a.Publication.PullRequest.Checks.Red() {
+					return (Attention{Kind: AttentionOwedStep, Mover: a.Mover, OwedStep: &OwedStep{PullRequest: a.Publication.PullRequest}}).Whose()
+				}
 				return a.Mover.Possessive() + " — it merges once the base branch's requirements are met, and `yoyo reconcile` settles the run when it does"
 			case a.Publication.PullRequest.TargetRed != nil:
 				return a.Mover.Possessive() + " — the checks fail on the target itself rather than on this change, so the failure is filed as the target's and the merge waits on " + strings.Join(a.Publication.PullRequest.TargetRed.WaitingOn(), ", ") + "; once that closes the watch re-arms it on a level head that passes, or `yoyo reconcile` brings a head the fix left behind up to date, and nothing here needs a person"
 			case a.Publication.MergeDrop != nil:
-				return a.Mover.Possessive() + " — the forge dropped the merge; `yoyo triage rearm` repeats it once, or the request is merged by hand on the forge, and `yoyo reconcile` settles it once the forge records the merge"
+				return a.Mover.Possessive() + " — the forge dropped the merge: " + a.Publication.MergeDrop.Reason + "; she decides a repair, re-run, or re-arm, which the harness carries out; `yoyo reconcile` settles it once the forge records the merge"
 			case a.Publication.Unarmed && a.Publication.PullRequest.Closed():
 				return a.Mover.Possessive() + " — nothing ever asked the forge to merge the request and the forge has closed it, so there is nothing left to arm: it is on her docket, and a re-run hands the change back for a fresh run"
 			case a.Publication.Unarmed:
@@ -749,6 +859,7 @@ type attentionFields Attention
 // sentences computed from them.
 type attentionWire struct {
 	attentionFields
+	Label string `json:"label"`
 	What  string `json:"what"`
 	Whose string `json:"whose"`
 	// SaidWhat and SaidWhose are the two sentences as a person reads them, with
@@ -765,7 +876,7 @@ type attentionWire struct {
 // disagrees with the other, because the sentences are never taken from
 // anywhere but the fields.
 func (a Attention) MarshalJSON() ([]byte, error) {
-	wire := attentionWire{attentionFields: attentionFields(a), What: a.What(), Whose: a.Whose()}
+	wire := attentionWire{attentionFields: attentionFields(a), Label: a.Label(), What: a.What(), Whose: a.Whose()}
 	if said := a.CitedWhat(); said != wire.What {
 		wire.SaidWhat = said
 	}
@@ -795,6 +906,9 @@ func (a *Attention) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	decoded := Attention(wire.attentionFields)
+	if wire.Label != "" && wire.Label != decoded.Label() {
+		return fmt.Errorf("attention entry %s: label %q disagrees with its record", decoded.ID, wire.Label)
+	}
 	if !decoded.Kind.Valid() {
 		return fmt.Errorf("attention entry %s: its kind %q is not one of %v", decoded.ID, decoded.Kind, AttentionKinds())
 	}
@@ -865,12 +979,16 @@ func amendmentAttention(proposal amendment.Proposal) Attention {
 // owedStepAttention is a run that ended still owing a step, as the attention
 // line carries it.
 func owedStepAttention(state runstate.State) Attention {
+	step := &OwedStep{Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure}
+	if state.Integration != nil {
+		step.TargetBranch = state.Integration.TargetBranch
+	}
 	return Attention{
 		Kind:       AttentionOwedStep,
 		ID:         state.RunID,
-		Mover:      MoverOperator,
+		Mover:      MoverHarness,
 		WorkItemID: state.WorkItemID,
-		OwedStep:   &OwedStep{Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state)},
+		OwedStep:   step,
 	}
 }
 

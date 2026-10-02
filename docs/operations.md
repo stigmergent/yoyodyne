@@ -3719,7 +3719,9 @@ has the rule.
   here`, because a finding folded into a count is one that did not reach you. The unpublished promotions are the same set the
   channel's hourly line counts as awaiting the forge, read by the same
   derivation, and each says who it is waiting on: the forge's while it holds the
-  merge queued — with the checks the last sweep read beside it, since a merge
+  merge queued with passing or running checks; the harness's when the last
+  reading has failed checks to settle — with the checks the last sweep read
+  beside it, since a merge
   held for checks that will not pass is [not left queued](#recovering-interrupted-runs)
   — the development manager's once it has dropped one, the development
   manager's too for a request nothing ever asked it to merge, which is on her
@@ -3733,6 +3735,56 @@ has the rule.
   other account and no drop is still named as the operator's. All of them leave
   the line the moment the forge records the merge and `yoyo reconcile` settles
   it.
+
+An `owed-step` entry is only for a finished run with no live process holding
+it. A live run in its checks, including landing checks after integration, never
+appears as an ended run here. The entry carries the recorded ending and phase,
+the cleanup failure or unfinished landing checks, and the pull request with the
+forge's last check reading when a merge still needs settlement. Its words say
+which step remains and what moves it: finishing cleanup, recording completion,
+confirming a queued merge, rerunning jobs the forge ended, waiting for a rerun
+already requested, or withdrawing a merge over failed checks. A job cancelled,
+timed out, or never started is rerun within the head's two-rerun limit, with the
+merge left queued; a reading still awaiting that rerun spends nothing more,
+even at the limit. Withdrawal follows a refusal, an exhausted limit, or a step
+that failed, as [merge recovery](#recovering-interrupted-runs) describes. These are
+the harness's steps, under **Waiting on the harness**, and `yoyo reconcile`
+settles them. A dropped merge already handed back is a separate publication
+entry under **Waiting on the development manager**, for her to decide a repair,
+re-run, or re-arm. If the same run still owes cleanup of a local promotion, its
+`owed-step` entry names only that cleanup, with **the harness** as its mover;
+the dropped-merge decision stays on the publication entry. A superseded
+publication or one handed back for a fresh run asks for nothing and is absent,
+but its run's unfinished landing checks or local cleanup still appear as the
+harness's steps. Something only a person can do is named separately, with what
+that person has to do; a run having ended
+never makes its remaining step the operator's.
+
+The dashboard list's grey tag and the card's heading and kind field all read
+the same `label` from the model. Code identifiers remain in JSON as `kind`;
+they are not the labels a person reads:
+
+| JSON kind | Dashboard label |
+| --- | --- |
+| `amendment` | proposed document change |
+| `conversation-carried-item` | work in conversation |
+| `report` | reports waiting |
+| `amendment-queue` | document changes waiting |
+| `owed-step` | run not finished or merge waiting or merge stuck |
+| `publication` | merge waiting or merge stuck |
+| `degraded-service` | service down |
+| `failing-task` | scheduled task failing |
+| `hold` | work paused |
+| `directive` | direction unresolved |
+| `outage` | provider unavailable |
+| `stall` | work not starting |
+| `held-work` | work waiting |
+| `operator-action` | person needed |
+| `product-decision` | work decision waiting |
+| `human-gate` | person's step waiting |
+| `untraced-pass` | findings not recorded |
+| `factory-stall` | nothing completing |
+| `tracker-unanswered` | tracker not answering |
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident
@@ -3925,8 +3977,8 @@ and its `human_gate` carries the gate's name and what the person has to do — o
 for a declaration nothing could read, what is wrong with it and no name. Two kinds
 carry no `id`, because each is about a set rather than a record: `report` is
 the pile, and `held-work` is how many items are in one of the two waits. The
-`what` and `whose` sentences are there beside them, and they are
-derived from those fields at the moment the answer is written rather than
+`label` and the `what` and `whose` sentences are there beside them, derived
+from those fields at the moment the answer is written rather than
 stored, so a record and the line about it cannot disagree; a document whose
 `what` says something its fields do not, or whose `kind` or `mover` is outside
 its vocabulary, is refused when the model reads it back. `said_what` and

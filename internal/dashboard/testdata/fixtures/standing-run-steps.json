@@ -1,0 +1,142 @@
+{
+  "observed_at": "2026-09-19T14:05:09Z",
+  "capacity_blocked": {
+    "runs": [],
+    "conversations": []
+  },
+  "running": [
+    {
+      "run_id": "run-live",
+      "work_item_id": "yoyodyne-ifd.372",
+      "title": "Checks still running",
+      "backend": "claude-code",
+      "model": "claude-opus-5",
+      "account": "default",
+      "phase": "checking",
+      "started_at": "2026-09-19T13:53:00Z",
+      "elapsed": 729000000000,
+      "cost_usd": 3.41,
+      "stage": "developing"
+    }
+  ],
+  "working": [],
+  "not_startable": [],
+  "admitted": 0,
+  "awaiting_decision": 0,
+  "awaiting_carry_out": 0,
+  "needs_human": [
+    {
+      "kind": "owed-step",
+      "id": "run-queued",
+      "mover": "harness",
+      "work_item_id": "yoyodyne-ifd.363",
+      "label": "merge stuck",
+      "owed_step": {
+        "status": "succeeded",
+        "phase": "complete",
+        "pull_request": {
+          "remote": "origin",
+          "branch": "run-queued",
+          "number": 700,
+          "url": "https://forge.example/pull/700",
+          "head_commit": "abc",
+          "merge_queued": true,
+          "checks": {
+            "head_commit": "abc",
+            "read_at": "2026-09-19T14:50:00Z",
+            "failing": [
+              {
+                "name": "build",
+                "conclusion": "failure"
+              }
+            ]
+          }
+        },
+        "target_branch": "main"
+      },
+      "what": "merge of pull request 700 for yoyodyne-ifd.363 is queued; checks failing: build (naming no file); head abc level with main; read 2026-09-19T14:50:00Z",
+      "whose": "the harness's — `yoyo reconcile` reads the failed checks and withdraws the merge to update its head, wait for a target fix, or return the change for repair"
+    },
+    {
+      "kind": "owed-step",
+      "id": "run-cleanup",
+      "mover": "harness",
+      "work_item_id": "yoyodyne-ifd.222",
+      "label": "run not finished",
+      "owed_step": {
+        "status": "succeeded",
+        "phase": "cleaning_up",
+        "cleanup_failure": "remove worktree: directory busy"
+      },
+      "what": "cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished: remove worktree: directory busy",
+      "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it"
+    },
+    {
+      "kind": "owed-step",
+      "id": "run-dropped",
+      "mover": "harness",
+      "work_item_id": "yoyodyne-ifd.435.1",
+      "label": "run not finished",
+      "owed_step": {
+        "status": "succeeded",
+        "phase": "cleaning_up",
+        "cleanup_failure": "remove worktree: directory busy",
+        "pull_request": {
+          "remote": "origin",
+          "branch": "run-dropped",
+          "number": 732,
+          "url": "https://forge.example/pull/732",
+          "head_commit": "def",
+          "checks": {
+            "head_commit": "abc",
+            "read_at": "2026-09-19T14:50:00Z",
+            "failing": [
+              {
+                "name": "build",
+                "conclusion": "failure"
+              }
+            ]
+          }
+        },
+        "merge_drop": {
+          "at": "2026-09-19T14:45:00Z",
+          "reason": "build failed"
+        },
+        "target_branch": "main"
+      },
+      "what": "cleanup of the branch and worktree for yoyodyne-ifd.435.1 is not finished: remove worktree: directory busy",
+      "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it"
+    },
+    {
+      "kind": "publication",
+      "id": "run-dropped",
+      "mover": "development-manager",
+      "work_item_id": "yoyodyne-ifd.435.1",
+      "label": "merge stuck",
+      "publication": {
+        "branch": "run-dropped",
+        "target_branch": "main",
+        "pull_request": {
+          "remote": "origin",
+          "branch": "run-dropped",
+          "number": 732,
+          "url": "https://forge.example/pull/732",
+          "head_commit": "def"
+        },
+        "merge_drop": {
+          "at": "2026-09-19T14:45:00Z",
+          "reason": "build failed"
+        }
+      },
+      "what": "merge of pull request 732 for yoyodyne-ifd.435.1 was dropped by the forge: build failed",
+      "whose": "the development manager's — the forge dropped the merge: build failed; she decides a repair, re-run, or re-arm, which the harness carries out; `yoyo reconcile` settles it once the forge records the merge"
+    }
+  ],
+  "reports": {
+    "collected": 0,
+    "unhandled": 0
+  },
+  "startable": 0,
+  "admitted_items": [],
+  "startable_items": []
+}

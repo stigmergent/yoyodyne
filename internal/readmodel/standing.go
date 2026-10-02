@@ -104,6 +104,13 @@ type RunPresence interface {
 	Presence(state runstate.State, quiet time.Duration, now time.Time) (runstate.RunPresence, error)
 }
 
+// RunHolder observes a lease's process even after the run's record went
+// terminal, while landing checks may still be running. Every wired store
+// satisfies it; readings over fixtures may omit it.
+type RunHolder interface {
+	Held(runID string) (bool, error)
+}
+
 // Conversations is the durable conversation state, and the observation that
 // says whether a turn is in flight. Both are needed and neither is enough: the
 // record says what the conversation is and how many turns it has had, and only
@@ -1761,6 +1768,31 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention, amendme
 		problem = joinProblems(problem, fmt.Sprintf("the runs that owe a step could not be read: %v", err))
 	} else {
 		for _, state := range outstanding {
+			if !state.Status.Terminal() {
+				continue
+			}
+			if presence, ok := sources.Runs.(RunHolder); ok {
+				held, err := presence.Held(state.RunID)
+				if err != nil {
+					problem = joinProblems(problem, fmt.Sprintf("the process holding run %s could not be read: %v", state.RunID, err))
+					continue
+				}
+				if held {
+					continue
+				}
+			}
+			if state.PullRequest != nil && (state.PullRequest.Superseded != "" || state.PullRequest.HandedBack != nil) {
+				// The obsolete publication owes no merge, but it may still owe
+				// landing settlement or local cleanup. Ask the same outstanding
+				// predicate with only that merge obligation removed.
+				remaining := state
+				pr := *state.PullRequest
+				pr.MergeQueued = false
+				remaining.PullRequest = &pr
+				if !remaining.Outstanding() {
+					continue
+				}
+			}
 			attention = append(attention, owedStepAttention(state))
 		}
 	}

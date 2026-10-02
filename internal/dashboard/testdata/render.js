@@ -41,6 +41,7 @@
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const assert = require("assert");
 
 const here = __dirname;
 const assets = path.join(here, "..", "assets");
@@ -322,6 +323,7 @@ function over(name, beneath, steps) {
 }
 
 const pages = [
+  { name: "run-steps", token: "t", standing: ok(fixture("standing-run-steps")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "signin", token: "", standing: pending, throughput: pending, spend: pending },
   { name: "loading", token: "t", standing: pending, throughput: pending, spend: pending },
   { name: "quiet", token: "t", standing: ok(fixture("standing-quiet")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
@@ -352,6 +354,11 @@ const pages = [
 ];
 
 const scenarios = pages.concat([
+  over("attention-run-steps", "run-steps", { open: [{ grouping: "attention" }] }),
+  over("attention-run-queued", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-queued" }] }),
+  over("attention-run-cleanup", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-cleanup" }] }),
+  over("attention-run-dropped-cleanup", "run-steps", { open: [{ grouping: "attention" }, { entry: "owed-step:run-dropped" }] }),
+  over("attention-run-dropped", "run-steps", { open: [{ grouping: "attention" }, { entry: "publication:run-dropped" }] }),
   // The pop-ups, each over a page rendered above. A pop-up scenario is that
   // page's scenario with what a reader clicks after it is drawn, and its
   // render is the pop-ups alone. The card, opened from Running now: an item in
@@ -633,8 +640,34 @@ async function main() {
   const out = process.argv[at + 1];
   fs.mkdirSync(out, { recursive: true });
   const matrix = {};
+  const runSteps = fixture("standing-run-steps");
   for (const scenario of scenarios) {
     const rendered = await run(scenario);
+    // Exercise the four run histories through the actual page script, even
+    // when this driver is called directly rather than through the Go suite.
+    if (scenario.name === "run-steps") {
+      assert(rendered.html.includes("Checks still running"));
+      assert(rendered.html.includes('<span class="phase">checking</span>'));
+    }
+    if (scenario.name.startsWith("attention-run-")) {
+      assert(!rendered.html.includes('data-entry="owed-step:run-live"'));
+      for (const entry of runSteps.needs_human) {
+        const cleanup = entry.kind === "owed-step" && !entry.owed_step.pull_request?.merge_queued;
+        const cardScenario = "attention-" + entry.id + (entry.id === "run-dropped" && cleanup ? "-cleanup" : "");
+        if (scenario.name !== "attention-run-steps" && scenario.name !== cardScenario) continue;
+        assert.strictEqual(entry.label, cleanup ? "run not finished" : "merge stuck");
+        assert.strictEqual(entry.mover, entry.kind === "publication" ? "development-manager" : "harness");
+        for (const words of [entry.what, entry.whose, entry.label]) {
+          assert(rendered.html.includes(escapeText(words)), `${scenario.name} must carry ${words}`);
+        }
+        if (scenario.name === "attention-run-steps") {
+          assert(rendered.html.includes(`<span class="item-id">${entry.label}</span>`));
+        } else {
+          assert(rendered.html.replace(/\s+/g, " ").includes(`<dt>Kind</dt> <dd>${entry.label}</dd>`));
+          assert(rendered.html.includes(`<h2 id="card-heading" class="popup-title">${entry.label}</h2>`));
+        }
+      }
+    }
     fs.writeFileSync(path.join(out, scenario.name + ".html"), rendered.html);
     matrix[scenario.name] = rendered.matrix;
   }

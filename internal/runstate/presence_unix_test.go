@@ -34,8 +34,14 @@ func TestPresenceFindsTheHolderAndNamesARunNothingHolds(t *testing.T) {
 	if !held.Found {
 		t.Fatalf("Presence() while this process holds the lease = %+v, want found", held)
 	}
+	if found, err := store.Held(state.RunID); err != nil || !found {
+		t.Fatalf("Held() = %v, %v, want a live holder", found, err)
+	}
 	if err := lease.Release(); err != nil {
 		t.Fatalf("Release() error = %v", err)
+	}
+	if found, err := store.Held(state.RunID); err != nil || found {
+		t.Fatalf("Held() after release = %v, %v", found, err)
 	}
 	if _, err := os.Stat(store.root + "/" + state.RunID + ".holder"); !os.IsNotExist(err) {
 		t.Fatalf("holder stamp after release: stat error = %v, want it gone", err)

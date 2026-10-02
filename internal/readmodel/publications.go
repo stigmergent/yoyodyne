@@ -35,8 +35,8 @@ func AwaitingForge(states []runstate.State) []runstate.State {
 
 // awaitingForgeAttention is one unpublished promotion as the attention line
 // carries it, with whose move it is: a merge the forge is holding is the
-// forge's, a merge it dropped is the development manager's to re-arm or a
-// person's to make by hand, a request nothing ever asked the forge to merge is
+// forge's while checks pass or run, and the harness's when checks fail. A merge
+// it dropped is the development manager's to decide, and a request nothing ever asked the forge to merge is
 // the development manager's to decide — a re-arm the harness carries out, or a
 // re-run — and a promotion whose record holds no request at all is the
 // harness's: the next reconcile looks the request up by the run's branch and
@@ -73,6 +73,9 @@ func awaitingForgeAttention(state runstate.State) Attention {
 		switch {
 		case published.MergeQueued:
 			mover = MoverForge
+			if published.Checks != nil && published.Checks.Red() {
+				mover = MoverHarness
+			}
 		case state.WaitingOnRedTarget():
 			// Withdrawn for the target's red check, and waiting on the items filed
 			// for it: the harness takes it up once they close, and nobody decides.

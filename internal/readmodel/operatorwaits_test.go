@@ -8,10 +8,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// An owed step and a publication named as the operator's are dated from the
-// run's ending, which is when each began to wait, so the development manager's
-// sweep shows how long they have waited rather than that nothing says. They
-// were two of the kinds her sweep could not see before it carried his line.
+// Finished-run entries are dated from the run's ending. The operator's section
+// carries only his entries, never the cleanup the harness still has to finish.
 func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T) {
 	t.Parallel()
 
@@ -39,14 +37,15 @@ func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T)
 
 	rendered := Standing{NeedsHuman: []Attention{owed, publication}}.RenderOperatorWaits(now)
 	for _, want := range []string{
-		"[owed-step run-owed, item yoyodyne-ifd.1]",
-		"since " + localMoment(ended) + ", 5 hours ago",
 		"[publication run-published, item yoyodyne-ifd.2]",
 		"since " + localMoment(promotedEnded) + ", 26 hours ago",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("the section does not carry %q:\n%s", want, rendered)
 		}
+	}
+	if strings.Contains(rendered, "run-owed") {
+		t.Errorf("the harness's cleanup reached the operator: %s", rendered)
 	}
 	if strings.Contains(rendered, "not recorded on it") {
 		t.Errorf("an entry was rendered with no moment:\n%s", rendered)

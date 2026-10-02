@@ -362,32 +362,15 @@ func TestTheNeedsAHumanTileCountsByTheModelsMovers(t *testing.T) {
 	}
 }
 
-// The kinds the page heads an entry's card by are the model's vocabulary,
-// every one of them and in the model's order, so an entry of a kind the page
-// never heard of cannot arrive: the model refuses one outside its vocabulary,
-// and the page names each one the model admits.
+// The list and card use the label supplied by the read model, which owns the
+// vocabulary and its plain wording. The page keeps no second kind registry.
 func TestTheEntryCardsAreHeadedByTheModelsKinds(t *testing.T) {
 	t.Parallel()
 	w := serve(t, stubReader{standing: standingWith("title")})
 	_, script := w.get("/assets/dashboard.js", nil)
-	var named []readmodel.AttentionKind
-	for _, line := range strings.Split(script, "\n") {
-		if !strings.Contains(line, `{ attention: "`) {
-			continue
-		}
-		parts := strings.Split(line, `"`)
-		if len(parts) < 5 || strings.TrimSpace(parts[3]) == "" {
-			t.Fatalf("the script's kind line does not carry a token and a title: %q", line)
-		}
-		named = append(named, readmodel.AttentionKind(parts[1]))
-	}
-	kinds := readmodel.AttentionKinds()
-	if len(named) != len(kinds) {
-		t.Fatalf("the script names %d kinds, and the model's vocabulary holds %d: %v against %v", len(named), len(kinds), named, kinds)
-	}
-	for i, kind := range kinds {
-		if named[i] != kind {
-			t.Fatalf("the script's kind %d is %q, and the model's is %q", i, named[i], kind)
+	for _, expected := range []string{`add("Kind", entry.label)`, `heading.textContent = entry.label`, `label: each.entry.label`} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("the list and card must read the model's label: missing %s", expected)
 		}
 	}
 	// The card is drawn from the entries the standing carries, and from
@@ -703,10 +686,10 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			// beside it, out of the whole the terminal prints. The label opens
 			// the list.
 			`<button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>`,
-			`<span class="figure">2</span>`,
-			`<span class="unit">things waiting on the operator</span>`,
-			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1</span>`,
-			"Needs a human: 2 things waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
+			`<span class="figure">1</span>`,
+			`<span class="unit">thing waiting on the operator</span>`,
+			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
+			"Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2.",
 			"22 runs reached the target branch",
 			// A stopped run is said as what it ended as, never as a wait it is
 			// still in.
@@ -819,10 +802,10 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"attention": {
 			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (8 things)</h2>`,
 			`<button class="item-open grouping-title" type="button" data-entry="directive:directive-4f2c">directive directive-4f2c is unresolved: which branch does this land on?</button>`,
-			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">run run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70 of yoyodyne-ifd.222 ended still owing a step</button>`,
+			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished</button>`,
 			`data-entry="amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c"`, `data-entry="amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d"`,
 			`data-entry="conversation-carried-item:yoyodyne-ifd.188"`, `data-entry="held-work:decision"`, `data-entry="held-work:carry-out"`, `data-entry="report:"`,
-			`<span class="item-id">amendment</span>`, `<span class="grouping-detail">the architect's — nothing reaches the document until they or the operator decide it</span>`, `<span class="grouping-detail">the harness's — the decision is made, and what is outstanding is the harness acting on it</span>`,
+			`<span class="item-id">proposed document change</span>`, `<span class="grouping-detail">the architect's — nothing reaches the document until they or the operator decide it</span>`, `<span class="grouping-detail">the harness's — the decision is made, and what is outstanding is the harness acting on it</span>`,
 		},
 		"attention-empty": {`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom</h2>`, `<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`},
 		"attention-error": {`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom</h2>`, "Could not be read: the recorded directives could not be read: open directives: permission denied"},
@@ -830,7 +813,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// change, and why, whole, with the item the proposer was working on
 		// opening its own card.
 		"attention-amendment": {
-			`<h2 id="card-heading" class="popup-title">A change proposed to a document</h2>`,
+			`<h2 id="card-heading" class="popup-title">proposed document change</h2>`,
 			"<dt>What</dt>", "<dt>Waiting on</dt>", "<dt>Kind</dt>", "<dt>Mover</dt>",
 			"<dd>the architect's — nothing reaches the document until they or the operator decide it</dd>",
 			"<dt>Document</dt>", "<dd>v1-harness-design</dd>", "<dt>Document kind</dt>", "<dd>design</dd>", "<dt>Owner</dt>", "<dd>architect</dd>",
@@ -843,14 +826,14 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// An owed step's card: the run, the item, where it stopped, and the
 		// command that settles it, in the terminal's sentence.
 		"attention-owed-step": {
-			`<h2 id="card-heading" class="popup-title">A run that still owes a step</h2>`,
-			"<dd>the operator's — `yoyo reconcile` reports which and settles it</dd>",
+			`<h2 id="card-heading" class="popup-title">run not finished</h2>`,
+			"<dd>the harness's — `yoyo reconcile` finishes the run's cleanup and records it</dd>",
 			"<dt>Run</dt>", "<dd>run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70</dd>",
-			`data-item="yoyodyne-ifd.222"`, "<dt>Ended</dt>", "<dd>succeeded</dd>", "<dt>Phase</dt>", "<dd>integrating</dd>",
+			`data-item="yoyodyne-ifd.222"`, "<dt>Ended</dt>", "<dd>succeeded</dd>", "<dt>Phase</dt>", "<dd>cleaning_up</dd>",
 		},
 		// A carried item's card: the item and the role.
 		"attention-carried-item": {
-			`<h2 id="card-heading" class="popup-title">A work item carried by a conversation</h2>`,
+			`<h2 id="card-heading" class="popup-title">work in conversation</h2>`,
 			`<dd>yoyodyne-ifd.188 is admitted for "conversation:product-manager" rather than a developer run</dd>`,
 			`<button class="item-open item-id" type="button" data-item="yoyodyne-ifd.188">yoyodyne-ifd.188</button>`,
 			"<dt>Executor</dt>", "<dd>conversation:product-manager</dd>", "<dt>Role</dt>", "<dd>product-manager</dd>", "<dd>the Lead Product Manager's</dd>",
@@ -859,7 +842,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"attention-carried-item-card": {`<h2 id="card-heading" class="popup-title">The goals document gains a legibility clause</h2>`, "<dd>Executor: conversation:product-manager.</dd>"},
 		// A poll after the card was opened finds the entry settled, and the
 		// list empty; and one that finds the line unreadable says so on both.
-		"attention-settled":    {`<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`, "Nothing under owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70 is waiting any more: it was settled since the page last read where the harness stands, at 14:15:09."},
+		"attention-settled":    {`<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`, "This entry is no longer waiting: it was settled since the page last read where the harness stands, at 14:15:09."},
 		"attention-unreadable": {`<p id="grouping-problem" class="problem">Could not be read: the recorded directives could not be read`, `<p id="card-problem" class="problem">Could not be read: the recorded directives could not be read`},
 	} {
 		body := page(scenario)
@@ -935,6 +918,44 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		body := page(scenario)
 		if strings.Contains(body, "Report file") || strings.Contains(body, "report.json") || strings.Contains(body, "/Users/somebody") {
 			t.Errorf("the %s render shows the report's file path to a person", scenario)
+		}
+	}
+	// The same model fields reach both the list and the opened card for a red
+	// queued merge, unfinished cleanup, and a merge the forge dropped. Live
+	// checks appear only in Running, never among ended-run attention.
+	var steps readmodel.Standing
+	strict(t, "standing-run-steps", fixture(t, "standing-run-steps"), &steps)
+	if !strings.Contains(page("run-steps"), "Checks still running") || strings.Contains(page("attention-run-steps"), "run-live") {
+		t.Error("live checks must be running, absent from attention")
+	}
+	if len(steps.NeedsHuman) != 4 {
+		t.Fatal("expected cleanup and dropped-merge decisions to be separate entries")
+	}
+	for _, entry := range steps.NeedsHuman {
+		wantMover := readmodel.MoverHarness
+		wantLabel := "merge stuck"
+		if entry.Kind == readmodel.AttentionPublication {
+			wantMover = readmodel.MoverDevelopmentManager
+		}
+		if entry.Kind == readmodel.AttentionOwedStep && (entry.OwedStep.PullRequest == nil || !entry.OwedStep.PullRequest.MergeQueued) {
+			wantLabel = "run not finished"
+		}
+		if entry.Mover != wantMover || entry.Label() != wantLabel {
+			t.Fatalf("wrong mover or label: %+v", entry)
+		}
+		scenario := "attention-" + entry.ID
+		if entry.ID == "run-dropped" && entry.Kind == readmodel.AttentionOwedStep {
+			scenario += "-cleanup"
+		}
+		card := page(scenario)
+		list := page("attention-run-steps")
+		for _, words := range []string{entry.What(), entry.Whose(), entry.Label()} {
+			if !strings.Contains(card, words) || !strings.Contains(list, words) {
+				t.Errorf("%s: list and card must both carry %q", entry.ID, words)
+			}
+		}
+		if !strings.Contains(strings.Join(strings.Fields(card), " "), `<dt>Kind</dt> <dd>`+entry.Label()+`</dd>`) {
+			t.Errorf("%s: card must show the label", entry.ID)
 		}
 	}
 	// The card acts on nothing: every button on it opens or closes a pop-up.

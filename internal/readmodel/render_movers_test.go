@@ -3,6 +3,8 @@ package readmodel
 import (
 	"strings"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // The fourth line lists only what waits on the operator under "Needs a human",
@@ -33,7 +35,7 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 		if _, ok := wants[mover]; !ok {
 			t.Fatalf("mover %q has no label this test asserts", mover)
 		}
-		entries = append(entries, Attention{Kind: AttentionOwedStep, ID: "run-" + string(mover), Mover: mover, WorkItemID: "item-" + string(mover)})
+		entries = append(entries, Attention{Kind: AttentionOwedStep, ID: "run-" + string(mover), Mover: mover, WorkItemID: "item-" + string(mover), OwedStep: &OwedStep{Phase: runstate.PhaseCleaningUp}})
 	}
 	// In reverse, so the heads are shown to come in the vocabulary's order
 	// rather than the order the entries arrived in.
@@ -53,7 +55,7 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 			t.Fatalf("rendered:\n%s\nthe head for %s is out of the movers' order", rendered, mover)
 		}
 		at = found
-		entry := "  run run-" + string(mover) + " of item-" + string(mover) + " ended still owing a step — " + mover.Possessive()
+		entry := "  cleanup of the branch and worktree for item-" + string(mover) + " is not finished — " + mover.Possessive()
 		if !strings.Contains(rendered[found:], head+entry) {
 			t.Fatalf("rendered:\n%s\nthe entry %s moves is not under its head %q", rendered, mover, head)
 		}
@@ -80,7 +82,7 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 			t.Fatalf("brief:\n%s\nmissing the head %q", brief, head)
 		}
 	}
-	if strings.Contains(brief, "ended still owing a step") {
+	if strings.Contains(brief, "cleanup of the branch and worktree") {
 		t.Fatalf("brief:\n%s\nlists an entry", brief)
 	}
 }
