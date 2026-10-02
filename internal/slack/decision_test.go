@@ -11,6 +11,8 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -483,7 +485,7 @@ func TestAnAskWhoseStateHasClearedIsStillAnswerable(t *testing.T) {
 
 	sink, directives, _ := newDecidingSink(t, testOperator)
 	// The line moved on: a different state is standing, and it is asked about.
-	asking := &Ask{Mark: "hold:2026-08-30T09:00:00Z", Stopped: "all harness activity is held by the operator", Ready: 7, Options: testOptions}
+	asking := &Ask{Ownership: testAskOwnership(), Mark: "hold:2026-08-30T09:00:00Z", Stopped: "all harness activity is held by the operator", Ready: 7, Options: testOptions}
 	sink.ask(context.Background(), asking)
 
 	sink.steering.handle(context.Background(), envelopeFor(map[string]any{
@@ -540,11 +542,12 @@ func TestAStoppedLineIsPutToEveryOperatorAsADirectMessage(t *testing.T) {
 	t.Parallel()
 
 	asking := &Ask{
-		Mark:    testStoppedMark,
-		Stopped: testStopped,
-		Since:   time.Date(2026, 8, 30, 2, 2, 0, 0, time.UTC),
-		Ready:   7,
-		Options: testOptions,
+		Ownership: testAskOwnership(),
+		Mark:      testStoppedMark,
+		Stopped:   testStopped,
+		Since:     time.Date(2026, 8, 30, 2, 2, 0, 0, time.UTC),
+		Ready:     7,
+		Options:   testOptions,
 	}
 	sink, _, posts := newSteeringSinkWithFeed(t, &fixedFeed{asking: asking}, testOperator, testStranger)
 	if err := sink.pass(context.Background()); err != nil {
@@ -570,10 +573,31 @@ func TestAStoppedLineIsPutToEveryOperatorAsADirectMessage(t *testing.T) {
 	if threaded.Channel != top.Channel || threaded.ThreadTS != posts.timestamps[0] {
 		t.Fatalf("threaded ask = %#v, want it under the top line rather than beside it", threaded)
 	}
-	for _, wanted := range []string{"1. " + testOptions[0], "2. " + testOptions[1], "2026-08-30T02:02:00Z", "Ready to pull: 7"} {
+	for _, wanted := range []string{"1. " + testOptions[0], "2. " + testOptions[1], "2026-08-30T02:02:00Z", "Ready to pull: 7", "Next: " + asking.Ownership.Whose()} {
 		if !strings.Contains(threaded.Text, wanted) {
 			t.Fatalf("threaded ask = %q, want it to carry %q", threaded.Text, wanted)
 		}
+	}
+}
+
+func TestSinkRefusesAsksWithoutOperatorOwnershipAndAClosedReason(t *testing.T) {
+	for _, answer := range []ownership.Resolution{
+		(readmodel.Stall{Reason: readmodel.ReasonNoWatchSession}).Ownership(),
+		ownership.Unclassified(),
+		{Owner: ownership.Operator},
+		{Owner: ownership.Operator, Reason: "not-a-closed-reason"},
+		{},
+	} {
+		t.Run(string(answer.Owner)+":"+string(answer.Reason), func(t *testing.T) {
+			asking := &Ask{Ownership: answer, Mark: testStoppedMark, Stopped: testStopped, Ready: 7, Options: testOptions}
+			sink, _, posts := newSteeringSinkWithFeed(t, &fixedFeed{asking: asking}, testOperator)
+			if err := sink.pass(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(posts.opened) != 0 || len(posts.requests) != 0 {
+				t.Fatalf("opened %v and posted %#v for ownership %+v", posts.opened, posts.requests, answer)
+			}
+		})
 	}
 }
 
@@ -583,7 +607,7 @@ func TestAStoppedLineIsPutToEveryOperatorAsADirectMessage(t *testing.T) {
 func TestOneStoppedStateIsPutToAnOperatorOnce(t *testing.T) {
 	t.Parallel()
 
-	asking := &Ask{Mark: testStoppedMark, Stopped: testStopped, Ready: 7, Options: testOptions}
+	asking := &Ask{Ownership: testAskOwnership(), Mark: testStoppedMark, Stopped: testStopped, Ready: 7, Options: testOptions}
 	sink, _, posts := newSteeringSinkWithFeed(t, &fixedFeed{asking: asking}, testOperator)
 	for round := 0; round < 3; round++ {
 		if err := sink.pass(context.Background()); err != nil {
@@ -612,7 +636,7 @@ func TestOneStoppedStateIsPutToAnOperatorOnce(t *testing.T) {
 func TestAProjectThatGrantedNobodyIsAskedNothing(t *testing.T) {
 	t.Parallel()
 
-	asking := &Ask{Mark: testStoppedMark, Stopped: testStopped, Ready: 7, Options: testOptions}
+	asking := &Ask{Ownership: testAskOwnership(), Mark: testStoppedMark, Stopped: testStopped, Ready: 7, Options: testOptions}
 	sink, _, posts := newSteeringSinkWithFeed(t, &fixedFeed{asking: asking})
 	if err := sink.pass(context.Background()); err != nil {
 		t.Fatalf("pass() error = %v", err)
@@ -628,7 +652,7 @@ func TestAProjectThatGrantedNobodyIsAskedNothing(t *testing.T) {
 func TestAWorkspaceThatRefusesAnAskDoesNotFailThePass(t *testing.T) {
 	t.Parallel()
 
-	asking := &Ask{Mark: testStoppedMark, Stopped: testStopped, Ready: 7, Options: testOptions}
+	asking := &Ask{Ownership: testAskOwnership(), Mark: testStoppedMark, Stopped: testStopped, Ready: 7, Options: testOptions}
 	sink, _, posts := newSteeringSinkWithFeed(t, &fixedFeed{asking: asking}, testOperator)
 	posts.refuseDirect = "cannot_dm_bot"
 	if err := sink.pass(context.Background()); err != nil {
@@ -677,6 +701,11 @@ func standingOn(t *testing.T, sink *Sink, mark string) {
 	if err := sink.store.SaveCursors(cursors); err != nil {
 		t.Fatalf("SaveCursors() error = %v", err)
 	}
+}
+
+// testAskOwnership is the registry answer for the operator's own intake hold.
+func testAskOwnership() ownership.Resolution {
+	return readmodel.IntakeHoldOwnership(runstate.IntakeHold{HeldBy: runstate.IntakeHolderOperator})
 }
 
 // testAsked is the ask as it was put to the operator and remembered.

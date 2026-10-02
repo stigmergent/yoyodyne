@@ -4688,7 +4688,9 @@ architect asking the Lead Product Manager whether a trade-off is one a user woul
 accept before it settles a design. Every exchange is recorded where you can read
 it with `yoyo exchange`. Both halves retain their backend-enforced read-only
 access, including repository inspection where supported. Their replies are
-advice, not validation results or authority to act. What is configurable is how
+advice, not validation results or authority to act. A recorded answer in Slack
+is spoken by the answering role and names the asking role's conversation as
+the next mover, using the ownership registry's answer. What is configurable is how
 long a single exchange may go on:
 
 ```yaml
@@ -4703,10 +4705,11 @@ this setting all leave a thread already in flight bounded by what it started
 with. A cap a crash could reset is not a cap.
 
 **Reaching it is not a silent cutoff.** The exchange closes as
-`unresolved-after-rounds`, and it is escalated to you as a report at warning
-severity naming the two roles, the question, the rounds, and what the exchange
-cost — so it reaches [the pile you read](reporting.md#what-agents-report-and-where-it-reaches-you)
-rather than ending in a record nobody opens. The failure this bounds is two
+`unresolved-after-rounds`, and a warning report names the two roles, the
+question, the rounds, and what the exchange cost. It reaches the Lead Product
+Manager's [report pile](reporting.md#what-agents-report-and-where-it-reaches-you)
+for handling; an operator request requires a handling naming `needs=operator`
+and a closed-list reason rather than being implied by the round limit. The failure this bounds is two
 judgement models deferring to each other politely for ever, which is rare,
 expensive, and invisible without the number.
 

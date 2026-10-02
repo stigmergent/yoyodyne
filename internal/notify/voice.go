@@ -510,7 +510,7 @@ var productManagerVoice = voice{
 		KindModelSubstituted:         "{waiting} is being served by {servedby} rather than {model}: {cause}. The work carries on and is priced against the model that served it.",
 		KindReportFiled:              "Noticed about {item}: {text}",
 		KindProposalRaised:           "A change to {artifact} is proposed, and I decide it only where the document is mine: {text}",
-		KindExchangeTurn:             "The operator is being asked something, in {exchange} at {rounds}: {text}",
+		KindExchangeTurn:             "A role's answer, in {exchange} at {rounds}: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}. What it settles is product intent.",
 		KindDirectiveRecorded:        "The operator has directed this work from the thread, and it is recorded for the {receiver}: {text} — {effect}",
 		KindDirectiveResolved:        "The operator settled it: {text}",
@@ -749,13 +749,15 @@ func nextMove(event Event) (string, bool) {
 		return ended(strings.TrimSpace(event.Detail.Mover)), true
 	}
 	entry := ownership.Entry{
-		Account:     event.Detail.Cause,
-		Role:        domain.WorkItemExecutor(strings.TrimSpace(event.Detail.Executor)).Role(),
-		Unreadable:  event.Detail.Unreadable,
-		UsageWindow: event.Detail.ProviderWindow,
-		Running:     event.Detail.Running,
-		Carried:     strings.TrimSpace(event.Detail.Executor) != "",
-		Unsettled:   strings.TrimSpace(event.Detail.Unresolved) != "",
+		Account:          event.Detail.Cause,
+		Role:             domain.WorkItemExecutor(strings.TrimSpace(event.Detail.Executor)).Role(),
+		Unreadable:       event.Detail.Unreadable,
+		UsageWindow:      event.Detail.ProviderWindow,
+		Running:          event.Detail.Running,
+		Carried:          strings.TrimSpace(event.Detail.Executor) != "",
+		Unsettled:        strings.TrimSpace(event.Detail.Unresolved) != "",
+		ExchangeAsker:    event.Detail.ExchangeAsker,
+		ExchangeAnswerer: event.Detail.ExchangeAnswerer,
 	}
 	return ended(readmodel.NotificationOwnership(event.Kind, entry).Whose()), true
 }

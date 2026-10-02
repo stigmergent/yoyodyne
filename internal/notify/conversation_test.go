@@ -7,6 +7,8 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -819,6 +821,44 @@ func TestAnAskExchangeIsSaidInAThreadOfItsOwn(t *testing.T) {
 	}
 	if !strings.Contains(closing.Body, "resolved") {
 		t.Fatalf("body %q does not say how it ended", closing.Body)
+	}
+}
+
+func TestRoleExchangeAnswersProjectTheAskingRolesOwnership(t *testing.T) {
+	for _, parties := range [][2]domain.AgentRole{
+		{domain.RoleProductManager, domain.RoleArchitect},
+		{domain.RoleArchitect, domain.RoleProductManager},
+	} {
+		t.Run(string(parties[0])+"-to-"+string(parties[1]), func(t *testing.T) {
+			event := recorded(t, 1, execution.EventExchangeRound, map[string]any{
+				"exchange": "exchange-7f3a000000000000000000000000000a",
+				"asked":    parties[1], "round": 1, "rounds": 10,
+				"text": "The answer belongs in the asking role's conversation.",
+			})
+			n, err := fromExchange(conversationWith(parties[0]), event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n.Speaker.Role != parties[1] || n.Event.Detail.ExchangeAsker != parties[0] || n.Event.Detail.ExchangeAnswerer != parties[1] {
+				t.Fatalf("exchange parties not projected: %+v", n)
+			}
+			answer := readmodel.NotificationOwnership(KindExchangeTurn, ownership.Entry{ExchangeAsker: parties[0], ExchangeAnswerer: parties[1]})
+			if answer.Owner != ownership.MoverOf(parties[0]) || answer.Reason != "" || answer.Remedy == ownership.RemedyClassify {
+				t.Fatalf("answered exchange resolved as %+v", answer)
+			}
+			for _, supplied := range []bool{true, false} {
+				if !supplied {
+					n.Event.Detail.Mover = ""
+				}
+				message, err := Render(n.Topic, n.Speaker, n.Event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(message.Body, "operator") || !strings.HasSuffix(message.Body, nextMoveLead+ended(answer.Whose())) {
+					t.Fatalf("supplied=%t exchange rendered %q, want role answer %q", supplied, message.Body, answer.Whose())
+				}
+			}
+		})
 	}
 }
 

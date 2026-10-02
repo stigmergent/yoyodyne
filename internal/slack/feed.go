@@ -249,8 +249,9 @@ type Batch struct {
 	// that read everything.
 	Partial bool
 
-	// Asking is the decision the operators are owed about a line that has stopped,
-	// nil on every pass over a line that is moving. It is beside the deliveries
+	// Asking is a decision the registry assigns to the operators about a stopped
+	// line. It is nil for a moving line or one owned by the harness or a role.
+	// It is beside the deliveries
 	// rather than among them because a delivery is something said into the
 	// channel, and this is a question put to named people in a direct message —
 	// same reading of the same records, different audience and a different act.

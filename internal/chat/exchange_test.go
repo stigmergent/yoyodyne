@@ -302,7 +302,7 @@ func (f *fakeExchanges) Charge(id string, costUSD float64) (exchange.Exchange, e
 }
 
 // Reaching the cap is not a silent cutoff at the asking end either: the role is
-// told the exchange is over and the operator has it, in words that do not invite
+// told the exchange is over and remains unsettled, in words that do not invite
 // it to open another thread about the same question.
 func TestTheAskerIsToldWhenItsExchangeRanOutOfRounds(t *testing.T) {
 	t.Parallel()
@@ -330,10 +330,13 @@ func TestTheAskerIsToldWhenItsExchangeRanOutOfRounds(t *testing.T) {
 		t.Fatalf("state = %q, want the exchange closed unresolved", exhausted.State)
 	}
 	told := provider.requests[2].Prompt
-	for _, wanted := range []string{"closed as unresolved", "The operator has been told", "do not open another exchange"} {
+	for _, wanted := range []string{"closed as unresolved", "The question remains unsettled", "do not open another exchange"} {
 		if !strings.Contains(told, wanted) {
 			t.Fatalf("the asker was not told %q: %q", wanted, told)
 		}
+	}
+	if strings.Contains(strings.ToLower(told), "operator has been told") {
+		t.Fatalf("the cap notice assigns the unresolved question to the operator: %q", told)
 	}
 	// A closed exchange is charged nothing further: the round it refused never
 	// happened.

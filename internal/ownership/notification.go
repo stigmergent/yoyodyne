@@ -24,9 +24,14 @@ func notificationRule(e Entry) (Resolution, bool) {
 		return publicationRule(e)
 	case NotificationLandingUnverified:
 		return owned(Harness, "the landing checks did not run; fix what stopped the checks and verify the target", "the landing checks")
-	case NotificationRunParked, NotificationLineWaiting, NotificationStallNoticed, NotificationResidentStale, NotificationExchangeTurn:
+	case NotificationRunParked, NotificationLineWaiting, NotificationStallNoticed, NotificationResidentStale:
 		// The kind alone names no cause, deployment authority, or participant.
 		return Resolution{}, false
+	case NotificationExchangeTurn:
+		if !e.ExchangeAsker.Valid() || !e.ExchangeAnswerer.Valid() {
+			return Resolution{}, false
+		}
+		return owned(MoverOf(e.ExchangeAsker), "the answer returns to their conversation; they consider it and either ask again or close the exchange", "the role's conversation")
 	case NotificationBlockerRecorded:
 		return heldWait(HeldAwaitingDecision)
 	case NotificationRunEnded:

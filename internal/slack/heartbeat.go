@@ -44,6 +44,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -140,13 +141,10 @@ type switches struct {
 // the channel already has. What this adds is the hour after that, and every hour
 // after that.
 //
-// It reports the ask beside the message, for the state that is worth saying at
-// all. They are the same derivation deliberately: what is said in the channel
-// and what the operators are asked in a direct message are one reading of one
-// line — the read model's — so the two can never come to disagree about whether
-// it is stopped or about what would unstop it. The ask is produced whenever the
-// message is, and which operators have already been asked about this state is
-// the sink's to remember: this is the reading, not the record of who was told.
+// It reports an ask beside the message only where the read model resolves the
+// line to the operator with a closed-list reason. The channel account and ask
+// carry that same answer. Which operators have already been asked is the sink's
+// to remember: this is the reading, not the record of who was told.
 func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, held switches, sessions []runstate.WatchTransition, inFlight, awaitingForge int, ready func(context.Context) (int, error), streams map[string]struct{}) ([]Delivery, *Ask, error) {
 	if f.Backlog == nil {
 		return nil, nil, nil
@@ -196,22 +194,10 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 		// would be the harness inventing a question.
 		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil, nil
 	}
-	// A line stopped by a hold the brake placed and then handed to a person is
-	// the one state the heartbeat says louder as it stands rather than at the
-	// same pitch. A hold the operator placed is a state they may have to sit
-	// with, and an hourly note is right for it; a hold the harness is working
-	// itself is the development manager's, and she is summoned about it — and
-	// the line names where that summons-and-probe loop stands, in the hold's
-	// own words, so an hourly note about a loop that is going round says which
-	// cycle it is on and when the harness stops asking. A brake hold that waits
-	// on the operator — escalated by her, escalated by the harness at that
-	// loop's bound, or written before the brake summoned anybody — is a stopped
-	// line nobody has told him about except by a message that is getting older,
-	// which on 2026-09-19 stood for two hours with a free slot idle. So it is
-	// tagged to the operators by member id every time it is said, a warning
-	// while it is young, and critical and taken to them directly once it has
-	// stood past the bar the stall alarm uses, for the reason the alarm uses it:
-	// it is a person's now, and nothing else ends it.
+	// The channel account and any request carry the same typed registry answer.
+	// A role or harness wait is still said here, but asks no operator to decide it.
+	answer := lineOwnership(state, held)
+	operatorOwned := answer.Owner.IsOperator() && answer.Reason.Valid()
 	severity := report.SeverityNote
 	tag, direct := false, false
 	// A target branch the harness will not catch up to the remote's is the
@@ -220,7 +206,7 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 	// recovery in its mover and is tagged to the operators every time it is said,
 	// at warning, since the per-run blocker that first said it went to one item's
 	// thread and this is the line itself standing still.
-	if state.Reason == readmodel.ReasonDivergedTarget {
+	if state.Reason == readmodel.ReasonDivergedTarget && operatorOwned {
 		severity = report.SeverityWarning
 		tag = true
 	}
@@ -228,7 +214,7 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 	// answer, read through the read model, and not this sink's: an escalated
 	// brake hold is the next rung's — the Lead Product Manager's — so it is not
 	// tagged to him.
-	if state.Reason == readmodel.ReasonIntakeHold && held.intake.HeldBy == runstate.IntakeHolderBrake && readmodel.IntakeHoldMover(held.intake).IsOperator() {
+	if state.Reason == readmodel.ReasonIntakeHold && held.intake.HeldBy == runstate.IntakeHolderBrake && operatorOwned {
 		severity = report.SeverityWarning
 		tag = true
 		if now.Sub(state.Since) >= f.stallEscalation() {
@@ -252,23 +238,22 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 			Since:       state.Since,
 			Ready:       count,
 			Outstanding: awaitingForge,
-			Mover:       lineMover(state, held),
+			Mover:       answer.Whose(),
 			Standing:    f.standing(ctx),
 		}, severity, now),
 	}
-	if count == 0 {
-		// The line is said for the promotion waiting on the forge, and that is the
-		// channel's to carry: nothing here is choosing nothing over ready work, so
-		// there is no decision to put to anybody. An ask offering to release intake
-		// over an empty queue would be a question about the wrong thing.
+	if count == 0 || !operatorOwned {
+		// The channel still names whose move it is. An empty queue or a wait owned
+		// by the harness or a role creates no operator decision request.
 		return []Delivery{said}, nil, nil
 	}
 	asking := Ask{
-		Mark:    mark,
-		Stopped: state.Says,
-		Since:   state.Since,
-		Ready:   count,
-		Options: options(state.Reason),
+		Ownership: answer,
+		Mark:      mark,
+		Stopped:   state.Says,
+		Since:     state.Since,
+		Ready:     count,
+		Options:   options(state.Reason),
 	}
 	return []Delivery{said}, &asking, nil
 }
@@ -300,26 +285,6 @@ func options(reason readmodel.Reason) []string {
 			"release intake so admitted work can be chosen again",
 			"keep intake held; let what is running finish and choose nothing new",
 		}
-	case readmodel.ReasonTrackerWait:
-		return []string{
-			"leave it; the dispatch is asking the tracker again on its own",
-			"the tracker needs a person; hold intake until somebody has looked at it",
-		}
-	case readmodel.ReasonStoreUnreadable:
-		return []string{
-			"leave it; the session is reading the store again on its own",
-			"the store needs a person; hold intake until somebody has looked at it",
-		}
-	case readmodel.ReasonSessionIdle:
-		return []string{
-			"what is ready is blocked on something; look at the queue before anything else is admitted",
-			"nothing is wrong; the ready work is not meant to be started yet",
-		}
-	case readmodel.ReasonNoWatchSession:
-		return []string{
-			"a watch session should be running; it stopped and nobody meant it to",
-			"leave the line stopped; work is being started by name rather than watched",
-		}
 	case readmodel.ReasonDivergedTarget:
 		// Neither answer ends the divergence: only settling the branches does, and
 		// the line resumes by itself once a sweep finds them converged. What an
@@ -339,10 +304,14 @@ func options(reason readmodel.Reason) []string {
 // says — so that one is read from the hold itself, which is the same record the
 // attention line of `yoyo status` words it from.
 func lineMover(state readmodel.Stall, held switches) string {
+	return lineOwnership(state, held).Whose()
+}
+
+func lineOwnership(state readmodel.Stall, held switches) ownership.Resolution {
 	if state.Reason == readmodel.ReasonIntakeHold && held.intakeHeld {
-		return readmodel.IntakeHoldWhose(held.intake)
+		return readmodel.IntakeHoldOwnership(held.intake)
 	}
-	return state.Whose()
+	return state.Ownership()
 }
 
 // standing is where the harness stands, in the four lines, or nothing at all

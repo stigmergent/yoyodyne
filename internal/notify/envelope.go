@@ -775,6 +775,10 @@ type Detail struct {
 	// by KindExchangeTurn and KindExchangeClosed.
 	Round  int `json:"round,omitempty"`
 	Rounds int `json:"rounds,omitempty"`
+	// The parties are the recorded roles, used by the read model to resolve
+	// whose conversation acts on an answer, even where Mover was not supplied.
+	ExchangeAsker    domain.AgentRole `json:"exchange_asker,omitempty"`
+	ExchangeAnswerer domain.AgentRole `json:"exchange_answerer,omitempty"`
 	// Unresolved is what an exchange closed without settling, read by
 	// KindExchangeClosed. Empty means it closed resolved, which is the ordinary
 	// way for one to end.

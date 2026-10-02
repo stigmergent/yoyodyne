@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -636,6 +637,9 @@ func TestTheAskIsDerivedBesideTheChannelLineFromTheReadModelsState(t *testing.T)
 	if batch.Asking == nil {
 		t.Fatal("asking = nil on the pass that said the line is waiting, want the operators asked beside it")
 	}
+	if got := batch.Asking.Ownership; !got.Owner.IsOperator() || got.Reason != ownership.ReasonOwnHold || !strings.HasSuffix(said.Body, " Next: "+got.Whose()+".") {
+		t.Fatalf("ask ownership = %+v, channel = %q, want their shared own-hold resolution", got, said.Body)
+	}
 	if batch.Asking.Mark != cursors.Streams[heartbeatStream].Standing {
 		t.Fatalf("asking about %q, want the mark the cursor stands on, %q", batch.Asking.Mark, cursors.Streams[heartbeatStream].Standing)
 	}
@@ -701,24 +705,69 @@ func TestAPromotionWaitingOnTheForgeOverAnEmptyQueueAsksNobody(t *testing.T) {
 	}
 }
 
-// Every reason the heartbeat repeats has answers to offer, so an ask is never a
-// question with nothing numbered under it for want of somebody adding a case.
-func TestEveryStateTheHeartbeatSaysOffersOptions(t *testing.T) {
+// Options belong only to stopped states the operator owns. Harness and role
+// states are channel accounts, with no decision offered to the operator.
+func TestOnlyOperatorOwnedHeartbeatStatesOfferOptions(t *testing.T) {
 	t.Parallel()
 
 	for _, reason := range readmodel.Reasons() {
-		// A run in flight and the provider's usage window are never said by this
-		// surface, a provider answering nobody is said once in its own message
-		// rather than by the heartbeat, a product nobody watched is not a
-		// stopped line, and a session restarting into a deployed build is said by
-		// its own restart message rather than repeated here; the rest are.
-		switch reason {
-		case readmodel.ReasonNoCapacity, readmodel.ReasonProviderWindow, readmodel.ReasonProviderAway, readmodel.ReasonUnwatched, readmodel.ReasonRedeploying:
-			continue
-		}
-		if len(options(reason)) < 2 {
+		answer := lineOwnership(readmodel.Stall{Reason: reason}, switches{
+			intakeHeld: true, intake: runstate.IntakeHold{HeldBy: runstate.IntakeHolderOperator},
+		})
+		if answer.Owner.IsOperator() && answer.Reason.Valid() && len(options(reason)) < 2 {
 			t.Fatalf("options(%q) = %v, want at least two answers to offer", reason, options(reason))
 		}
+		if !answer.Owner.IsOperator() && len(options(reason)) != 0 {
+			t.Fatalf("options(%q) = %v, want no operator options for %s", reason, options(reason), answer.Owner)
+		}
+	}
+}
+
+func TestHarnessAndRoleOwnedStoppedLinesAskNoOperator(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		owner ownership.Mover
+		setup func(*testHarness) []notify.Kind
+	}{
+		{"missing watch session", ownership.Harness, func(h *testHarness) []notify.Kind { return nil }},
+		{"idle watch session", ownership.Harness, func(h *testHarness) []notify.Kind {
+			h.watched(t, runstate.WatchIdle, "nothing was chosen", moment)
+			return nil
+		}},
+		{"brake decision", ownership.DevelopmentManager, func(h *testHarness) []notify.Kind {
+			h.braked(t, moment)
+			return []notify.Kind{notify.KindIntakeHeld}
+		}},
+		{"escalated brake", ownership.ProductManager, func(h *testHarness) []notify.Kind {
+			h.braked(t, moment)
+			if _, err := h.intake.DecideBrake(runstate.BrakeDecisionEscalate, "the checks fail on main", "chat-1", moment.Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			return []notify.Kind{notify.KindIntakeHeld}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := newTestHarness(t, time.Time{})
+			h.ready(4)
+			h.watched(t, runstate.WatchStopped, "the session stopped", moment)
+			cursors := h.poll(t, h.start(), test.setup(h)...)
+			h.now = h.now.Add(2 * time.Hour)
+			batch := h.batch(t, cursors)
+			if batch.Asking != nil {
+				t.Fatalf("operator asked about %s's stopped line: %+v", test.owner, batch.Asking)
+			}
+			said := h.say(t, cursors, notify.KindLineWaiting)
+			if !strings.Contains(said.Body, " Next: "+test.owner.Possessive()+" — ") {
+				t.Fatalf("channel account %q does not name %s", said.Body, test.owner)
+			}
+			sink, _, posts := newSteeringSinkWithFeed(t, &fixedFeed{deliveries: batch.Deliveries, asking: batch.Asking}, testOperator)
+			if err := sink.pass(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(posts.opened) != 0 {
+				t.Fatalf("opened operator conversations %v for %s's line", posts.opened, test.owner)
+			}
+		})
 	}
 }
 

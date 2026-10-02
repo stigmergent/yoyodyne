@@ -1,19 +1,20 @@
 package slack
 
-// The outbound half of the decision tier: a line that has stopped is put to the
-// operators where they will actually see it, as a question with an answer.
+// The outbound half of the decision tier: a stopped line the registry assigns
+// to the operator is put to the operators as a question with an answer.
 //
 // Everything else this sink says is addressed to a channel, and a channel is the
 // right place for an account of work: it is a narrative somebody reads when they
 // come to it. A stopped line is not that. It is the one thing the harness cannot
 // get past on its own, it is addressed to particular people rather than to
-// whoever is reading, and the difference between it being seen in ten minutes
+// whoever is reading, when its resolution names an act only they can perform.
+// The difference between it being seen in ten minutes
 // and in ten hours is the whole cost of the state. So it is a direct message,
 // and it is sent to every operator rather than to one: a decision addressed to a
 // room is one each of them can reasonably assume somebody else is making.
 //
 // It is the degraded class of direct message the slack-reporting design admits
-// — the system choosing nothing over ready work, which only a person fixes — and
+// — a stopped line whose closed-list reason requires a person — and
 // the state it is about is exactly the one the read model derives and the
 // heartbeat says in the channel. Nothing here decides that the line is stopped;
 // the feed hands this the ask beside the channel line, from the one derivation.
@@ -39,6 +40,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // Ask is one decision the operators are owed: what stopped the line, since when,
@@ -49,6 +51,9 @@ import (
 // second opinion about the record, which is exactly the disagreement an operator
 // cannot adjudicate.
 type Ask struct {
+	// Ownership is the read model's answer, shared with the channel account.
+	// Only the operator with a closed-list reason can receive this request.
+	Ownership ownership.Resolution
 	// Mark is the standing state this is about, in the same words the heartbeat
 	// names it by, so one state is one ask however many hours it stands.
 	Mark string
@@ -77,7 +82,7 @@ func (s *Sink) ask(ctx context.Context, asking *Ask) {
 	// A sink assembled without the directive record steers nothing, so a reply to
 	// this could not be recorded and the ask would be a question with nowhere for
 	// the answer to go. A product that has granted nobody has nobody to ask.
-	if asking == nil || s.steering == nil || len(s.operators) == 0 {
+	if asking == nil || !asking.Ownership.Owner.IsOperator() || !asking.Ownership.Reason.Valid() || s.steering == nil || len(s.operators) == 0 {
 		return
 	}
 	asked, err := s.store.LoadDecisions()
@@ -220,7 +225,8 @@ func threadedAsk(asking Ask) string {
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "Stopped by: %s\n", asking.Stopped)
 	fmt.Fprintf(&rendered, "Since: %s\n", asking.Since.UTC().Format(time.RFC3339))
-	fmt.Fprintf(&rendered, "Ready to pull: %d\n\n", asking.Ready)
+	fmt.Fprintf(&rendered, "Ready to pull: %d\n", asking.Ready)
+	fmt.Fprintf(&rendered, "Next: %s\n\n", asking.Ownership.Whose())
 	if len(asking.Options) > 0 {
 		rendered.WriteString("Reply with a number:\n")
 		for index, option := range asking.Options {

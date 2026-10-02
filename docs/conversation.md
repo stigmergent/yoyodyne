@@ -1564,7 +1564,9 @@ for:
   anything to each other that you cannot read afterwards, which is the
   no-side-conversations property traceability implies. The conversation that
   asked tells you at the time as well, and where the project reports to Slack
-  each round arrives in a thread of its own.
+  each round arrives in a thread of its own. The answering role speaks its
+  answer, and the registry names the asking role's conversation as the next
+  mover; a role-to-role answer creates no operator request.
 - **It is judgment-only.** Both halves are toolless: the role being asked has no
   filesystem, no commands, and nothing to check anything against, so an ask moves
   opinion and never evidence. An answer reaching for any harness block at all is
@@ -1599,8 +1601,10 @@ closes it with what it took from the exchange. Closing is the ordinary ending.
 to ten. The limit is copied onto the exchange as it opens and is durable with it,
 so neither a process dying nor an edit to the configuration lengthens a thread
 that is already running long. Reaching it is not a silent cutoff: the exchange
-closes as unresolved and is escalated to you as a report at warning severity,
-naming what the two roles did not settle. That is the one way this fails — two
+closes as unresolved and files a warning report for the Lead Product Manager
+to handle, naming what the two roles did not settle. It reaches the operator
+only if a later handling names `needs=operator` and a closed-list reason. That
+is the one way this fails — two
 judgement models deferring to each other politely for ever — and a limit that
 ended the conversation quietly would hide exactly the case worth seeing.
 

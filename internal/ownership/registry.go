@@ -78,6 +78,10 @@ type Entry struct {
 	// the role a carried item's marker names, the role whose pass left no
 	// trace, or the owning role that argued a batch of proposals.
 	Role domain.AgentRole
+	// ExchangeAsker and ExchangeAnswerer are the parties to a recorded answer.
+	// The answer returns to the asking role's conversation for its next act.
+	ExchangeAsker    domain.AgentRole
+	ExchangeAnswerer domain.AgentRole
 	// Amendment is the proposal whole, on an amendment.
 	Amendment *amendment.Proposal
 	// Hold is which switch a hold is (HoldOperator, HoldIntake, HoldCapacity),

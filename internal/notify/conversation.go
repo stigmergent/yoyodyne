@@ -26,6 +26,8 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -175,8 +177,10 @@ func fromExchange(conversation runstate.Conversation, event execution.Event) (No
 	speaker := Persona(answering, "")
 	severity := report.SeverityNote
 	detail := Detail{
-		Round:  recorded.Round,
-		Rounds: recorded.Rounds,
+		Round:            recorded.Round,
+		Rounds:           recorded.Rounds,
+		ExchangeAsker:    conversation.Role,
+		ExchangeAnswerer: answering,
 	}
 	text := strings.TrimSpace(recorded.Text)
 	if event.Type == execution.EventExchangeClosed {
@@ -191,6 +195,10 @@ func fromExchange(conversation runstate.Conversation, event execution.Event) (No
 		}
 		text = ""
 	}
+	detail.Mover = readmodel.NotificationOwnership(kind, ownership.Entry{
+		ExchangeAsker:    detail.ExchangeAsker,
+		ExchangeAnswerer: detail.ExchangeAnswerer,
+	}).Whose()
 	return Notification{
 		Topic:   topic,
 		Speaker: speaker,

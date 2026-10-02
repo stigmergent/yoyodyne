@@ -1632,9 +1632,9 @@ state fitting neither class does not get one:
   that has failed before its first turn for two hours
   (its critical message), an item that
   sat claimed with nothing working on it until the harness gave it back, and
-  **the line choosing
-  nothing over ready work**, which is the one state that is
-  asked rather than reported and is below. The released claim is a fix rather
+  **the line choosing nothing over ready work**, which is asked about only
+  where the ownership registry makes it the operator's for a closed-list
+  reason, as described below. The released claim is a fix rather
   than a request, and it is still in this class:
   the line was quietly degraded for as long as it stood, and a second run for an
   item with nothing accounting for the first is the kind of thing a person has
@@ -1646,12 +1646,18 @@ state fitting neither class does not get one:
   which is urgent in what it says and is still said exactly once, because
   `yoyo status` carries it from then on.
 
-The stopped line is the hourly state above, put to you personally. At the same
-moment the channel first says the line has stopped over ready work, the sink
+The stopped line is the hourly state above. It is put to you personally only
+where the registry names you as its owner with a closed-list reason: lifting
+your own hold, or choosing between diverged histories that need rights on the
+protected branch. A missing watch session belongs to the harness, and an
+escalated brake hold belongs to the Lead Product Manager; both are said in the
+channel with their resolved remedy and create no operator decision request.
+When the channel first says an operator-owned line has stopped over ready work, the sink
 opens a direct message with each person the project granted `direct-work` with
 a bound Slack member id — the same people whose thread replies steer the work,
 one conversation each — with a brief top line carrying the ask, and the context
-with the answers numbered threaded under it. A line said for a promotion
+with the registry's owner, reason, remedy, and numbered answers threaded under
+it. A line said for a promotion
 waiting on the forge alone, with nothing ready to pull, is the channel's to
 carry and asks nobody. **The reply in that thread
 is the decision**: a number takes the option it names, anything else is recorded

@@ -149,7 +149,13 @@ func (s Stall) Stopped() bool { return s.Reason != "" }
 // Whose is the registry's answer for the stall's recorded cause, including a
 // provider login that lapsed rather than a network that will return on its own.
 func (s Stall) Whose() string {
-	return resolved(Attention{Kind: AttentionStall, ID: string(s.Reason), Stall: &s}).Whose()
+	return s.Ownership().Whose()
+}
+
+// Ownership is the typed registry answer for this stall, for surfaces that
+// route a request by its owner and closed-list reason as well as saying it.
+func (s Stall) Ownership() ownership.Resolution {
+	return resolved(Attention{Kind: AttentionStall, ID: string(s.Reason), Stall: &s}).resolution()
 }
 
 // intakeClause is the one clause every surface here says about a held intake,

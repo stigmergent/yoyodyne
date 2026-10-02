@@ -78,7 +78,7 @@ const (
 // configures none. Ten is far more than any real question needs and small enough
 // that the pathological case — two judgment models deferring to each other
 // politely for ever — costs a bounded amount before it becomes one legible
-// question for the operator.
+// warning report.
 const DefaultMaxRounds = 10
 
 // Outcome is how an exchange ended. An exchange that has not ended carries none,
@@ -90,9 +90,9 @@ const (
 	// said so.
 	OutcomeResolved Outcome = "resolved"
 	// OutcomeUnresolved is the cap being reached. It is deliberately not a silent
-	// cutoff: the exchange closes as this, and the harness escalates it to the
-	// operator, so a conversation that would have gone round for ever becomes a
-	// rare question somebody can answer instead.
+	// cutoff: the exchange closes as this, and the harness files a warning report
+	// for handling, so a conversation that would have gone round for ever leaves
+	// its unresolved question in the durable record.
 	OutcomeUnresolved Outcome = "unresolved-after-rounds"
 )
 

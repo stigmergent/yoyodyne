@@ -1209,22 +1209,28 @@ same record.
 
 ## Deciding a stopped line from a direct message
 
-The hourly waiting line above is the one state the sink asks you about rather
-than reports. The same moment it first says a line has stopped over ready work
-in the channel, it opens a direct message with each person granted `direct-work`
+The hourly waiting line above produces a decision request only when the
+ownership registry names the operator with a closed-list reason. Lifting your
+own hold and settling diverged histories qualify; a missing watch session is
+the harness's, and an escalated brake hold is the Lead Product Manager's, so
+those are reported in the channel with their owner's remedy and ask you
+nothing. When it first says an operator-owned line has stopped over ready work
+in the channel, the sink opens a direct message with each person granted `direct-work`
 with a bound Slack member id — the same allow-list a thread reply is acted on
 by, and nobody else in `operators` — one conversation each, and puts the
 decision to them:
 
 > **Nothing is being started, and it is waiting on you.** intake is held, and
-> the harness's own brake placed it after runs kept blocking. 4 admitted items
+> the operator placed it — overnight. 4 admitted items
 > are ready to pull behind it — reply in this thread to decide.
 
 The context is threaded under that line, with the answers numbered:
 
-> Stopped by: intake is held, and the harness's own brake placed it after runs kept blocking
+> Stopped by: intake is held, and the operator placed it — overnight
 > Since: 2026-08-30T02:02:00Z
 > Ready to pull: 4
+> Next: the operator's — nothing new is chosen until `yoyo release` lifts it
+> (his because it is a hold he placed himself)
 >
 > Reply with a number:
 > 1. release intake so admitted work can be chosen again
@@ -1232,11 +1238,12 @@ The context is threaded under that line, with the answers numbered:
 
 What stopped the line is the read model's own sentence — the same one `yoyo
 status` prints against the queue and the channel line says — so the ask and the
-channel can never disagree about whether the line is stopped or what by. What
-the sink adds is the answers, which are its own: one pair per state the
-heartbeat repeats (everything held, intake held, a dispatch waiting out the
-tracker, a session that cannot read the harness's store, the watch session idle,
-no session running), and every state also takes an answer in your own words.
+channel can never disagree about whether the line is stopped or what by. The
+context also carries the same resolved owner, reason, and remedy. What the sink
+adds is the numbered answers for the operator's own holds and diverged target
+history; each request also takes an answer in your own words. Tracker retries,
+unreadable stores, idle sessions, and stopped sessions belong to the harness
+and create no operator decision request.
 
 **Your reply in that thread is the decision.** There is no button and nothing to
 type at a terminal: a number takes the option it names, and anything else is

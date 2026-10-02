@@ -249,11 +249,11 @@ func askUnavailable(cause error) string {
 }
 
 // askExhausted is what the asking role is told when its exchange reached the
-// round limit it was opened with. It says the exchange is over and that the
-// operator has it, because a role told only "refused" asks the same thing again
+// round limit it was opened with. It says the exchange is over and the question
+// remains unsettled, because a role told only "refused" asks the same thing again
 // in a fresh thread and spends the whole limit twice.
 func askExhausted(recorded exchange.Exchange) string {
-	return fmt.Sprintf("# Your ask\n\nExchange %s has spent all %d of the rounds it was opened with and is closed as unresolved, costing %s. The operator has been told, with the question left unsettled. Carry on answering them without an answer to it, say plainly what was not settled, and do not open another exchange about the same question in this reply.\n",
+	return fmt.Sprintf("# Your ask\n\nExchange %s has spent all %d of the rounds it was opened with and is closed as unresolved, costing %s. The question remains unsettled. Carry on with this conversation without an answer to it, say plainly what was not settled, and do not open another exchange about the same question in this reply.\n",
 		recorded.ID, recorded.MaxRounds, money(recorded.CostUSD()))
 }
 

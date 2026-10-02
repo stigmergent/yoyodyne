@@ -733,13 +733,18 @@ func intakeHoldAttention(hold runstate.IntakeHold) Attention {
 // IntakeHoldMover is whose move the intake hold is, as the ownership registry
 // resolves it, for a surface that weighs the hold by who moves it.
 func IntakeHoldMover(hold runstate.IntakeHold) Mover {
-	return intakeHoldAttention(hold).Mover
+	return IntakeHoldOwnership(hold).Owner
 }
 
 // IntakeHoldWhose is whose move the intake hold is and what settles it, as the
 // attention line says it, for a surface that says the hold on its own.
 func IntakeHoldWhose(hold runstate.IntakeHold) string {
-	return intakeHoldAttention(hold).Whose()
+	return IntakeHoldOwnership(hold).Whose()
+}
+
+// IntakeHoldOwnership is the typed registry answer for the hold's full record.
+func IntakeHoldOwnership(hold runstate.IntakeHold) ownership.Resolution {
+	return intakeHoldAttention(hold).resolution()
 }
 
 // directiveAttention is an unresolved directive as the attention line carries

@@ -122,7 +122,7 @@ type Spoken struct {
 var ErrRoundsSpent = errors.New("exchange round cap reached")
 
 // CapError reports an exchange that reached its cap. The exchange itself is
-// closed by the time this is returned and the operator has been told, so this is
+// closed by the time this is returned, so this is
 // the asker being informed rather than an action it can retry.
 type CapError struct {
 	ExchangeID string
@@ -131,7 +131,7 @@ type CapError struct {
 }
 
 func (e *CapError) Error() string {
-	return fmt.Sprintf("%s has spent all %d of its permitted rounds and is closed as unresolved; the operator has been told",
+	return fmt.Sprintf("%s has spent all %d of its permitted rounds and is closed as unresolved",
 		e.ExchangeID, e.Cap)
 }
 
@@ -239,7 +239,7 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 		defer release()
 	}
 	// The cap is asked before anything is spent, and reaching it is not a silent
-	// cutoff: the exchange closes, the operator is told, and the asker is
+	// cutoff: the exchange closes, a warning report is filed, and the asker is
 	// refused with the reason rather than being left waiting on a round that
 	// will never be taken.
 	if recorded.Spent() >= recorded.MaxRounds {
@@ -471,7 +471,7 @@ func (c Conductor) Reclaim(recorded Exchange, because string) (Exchange, error) 
 }
 
 // Exhaust closes an exchange that has spent every round it was opened with and
-// tells the operator, for a thread nobody asked anything further.
+// files its warning report, for a thread nobody asked anything further.
 //
 // The conductor already does this the moment somebody asks past the cap, and
 // that covers the exchange whose asker came back. This covers the one that did
@@ -493,7 +493,7 @@ func (c Conductor) Exhaust(recorded Exchange) (Exchange, error) {
 
 // exhaust closes an exchange that reached its cap and escalates it. The two
 // happen together and in that order: the exchange is closed first so nothing can
-// take another round while the operator is being told, and the escalation is the
+// take another round while the warning report is filed, and the escalation is the
 // whole reason the cap is worth having — a limit that ended a conversation
 // quietly would turn a loop nobody noticed into an answer nobody got.
 func (c Conductor) exhaust(recorded Exchange) (Exchange, error) {
@@ -508,14 +508,15 @@ func (c Conductor) exhaust(recorded Exchange) (Exchange, error) {
 		// The exchange is closed either way. A failed escalation is reported to
 		// the asker rather than swallowed, because an unresolved exchange nobody
 		// was told about is exactly what this ending exists to prevent.
-		return recorded, fmt.Errorf("%s closed unresolved and the operator could not be told: %w", recorded.ID, err)
+		return recorded, fmt.Errorf("%s closed unresolved and its warning report could not be filed: %w", recorded.ID, err)
 	}
 	return recorded, nil
 }
 
 // escalate files the unresolved exchange into the collected pile, at warning
 // severity: nothing is broken, and two roles failed to settle something one of
-// them needed, which is a question for the operator rather than news.
+// them needed. The report's handling resolves who can settle it; the exchange
+// itself assigns nobody a decision.
 func (c Conductor) escalate(recorded Exchange, at time.Time) error {
 	if c.Reports == nil {
 		return errors.New("no report collection is wired to this exchange, so an unresolved one reaches nobody")
