@@ -1805,7 +1805,7 @@ func TestAnIdleSessionCarriesWhatItSawGoingAndWhoItWaitsOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render an idle session: %v", err)
 	}
-	if !strings.HasSuffix(message.Body, nextMoveLead+"the architect's, in conversation — the work this poll passed over is carried there, and no run will ever start it.") {
+	if !strings.HasSuffix(message.Body, nextMoveLead+"the architect's — in conversation; the work this poll passed over is carried there, and no run will ever start it.") {
 		t.Fatalf("body %q does not close on the architect's move", message.Body)
 	}
 

@@ -1543,9 +1543,15 @@ read the whole of it:
 > handling of the report records it done (his because it is a file beyond
 > every grant).
 
-It is said once and never again while it stands. The sink marks each finding by
-name in its own durable cursors, so a second pass, a restarted sink, and every
-poll afterwards send nothing more; `yoyo status` names it under `Needs a human`
+It is said once for its current owner while it stands. The sink marks each
+finding by name and resolved owner in its own durable cursors, so a second pass,
+a restarted sink, and every poll afterwards send nothing more to that owner.
+A finding first delivered to a role reaches the operator once if a later
+handling or corrected escalation assigns it to him with a closed-list reason.
+Older cursors recorded only the name, so the first poll after upgrading may
+repeat an operator finding once rather than assume he heard a role's message.
+
+`yoyo status` names it under `Needs a human`
 until it ends, which is the record that says it is done — the report handled,
 the change recorded made, the escalated run decided again or its escalation
 ended, every proposal in a batch decided — and the mark is

@@ -1385,9 +1385,9 @@ func (f *HarnessFeed) releaseOf(heldAt string) (runstate.IntakeRelease, bool) {
 //
 // The findings are the read model's derivation over the pile and what became
 // of it, so what this says to him and what `yoyo status` names under what
-// needs a human are one list. Each is marked by its key once said and is never
-// said again while it stands: the status line carries it, and a message
-// repeated about something he has been told is the nagging that gets a channel
+// needs a human are one list. Each is marked by its key and resolved owner once
+// said and is never said again while that ownership stands: the status line
+// carries it, and a message repeated about something he has been told gets a channel
 // muted. A finding that ends drops its mark, so the cursor holds only what is
 // standing.
 //
@@ -1431,12 +1431,20 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 	advanced := cursor
 	var deliveries []Delivery
 	for _, action := range actions {
-		mark := findingMark + action.Key
+		entry := action.Attention()
+		his := entry.Mover.IsOperator()
+		mark := findingDeliveryMark(action.Key, entry.Mover)
 		standing[mark] = struct{}{}
 		if advanced.Has(mark) {
 			continue
 		}
 		advanced = advanced.With(mark)
+		// Old cursors did not record the owner. Keep their role deliveries quiet,
+		// but do not let an ambiguous old mark suppress an operator assignment.
+		// Cleanup below replaces that mark with the owner-specific one.
+		if !his && cursor.Has(findingMark+action.Key) {
+			continue
+		}
 		if predates(since, action.Since) {
 			deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
 			continue
@@ -1444,8 +1452,6 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		// Said to the operator directly only where the ownership registry says
 		// the finding is his; one it resolves to a role is said in the item's
 		// thread with that role named as whose it is.
-		entry := action.Attention()
-		his := entry.Mover.IsOperator()
 		notification, err := notify.FromOperatorAction(notify.OperatorAction{
 			WorkItemID: action.WorkItemID,
 			RunID:      action.RunID,
@@ -1496,6 +1502,12 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		deliveries = append(deliveries, Delivery{Stream: operatorActionStream, Cursor: advanced})
 	}
 	return deliveries, nil
+}
+
+// findingDeliveryMark distinguishes delivery to a role from delivery to the
+// operator, even when a corrected handling or escalation keeps its finding key.
+func findingDeliveryMark(key string, owner readmodel.Mover) string {
+	return findingMark + key + ":owner:" + string(owner)
 }
 
 // amendmentBatches is the owners' argued batches as findings, and whether the

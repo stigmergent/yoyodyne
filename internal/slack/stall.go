@@ -268,9 +268,8 @@ func (f *HarnessFeed) stallSaid(ctx context.Context, cursors Cursors, standing *
 				Chooser: standing.Chooser,
 				// The cause the last poll recorded and whose move follows it, both
 				// worded by the read model that derived them and read afresh on every
-				// repetition. A stall with no poll to read leaves both empty, and the
-				// message says what it always said: that nothing the record holds
-				// accounts for the silence.
+				// repetition. A stall with no poll names no cause; the registry
+				// assigns that unclassified entry to the Lead Product Manager.
 				Cause:    cause.Says(),
 				Mover:    cause.Whose(),
 				Standing: f.standing(ctx),

@@ -737,10 +737,11 @@ session's own idle line, in the same log, held the whole accounting.
 
 **An account a start overtook names nothing.** Where no poll left an account — a
 session that stopped cleanly, or one that never idled — the message says the
-cause is something the record does not name, and the move is the operator's. The
-same is true where something started after the last poll and the line then went
-quiet: the queue has not been read since it moved, so that account is not stated
-as the present cause and the message points at the chooser instead.
+cause is something the record does not name, and the ownership registry assigns
+the Lead Product Manager the remedy 'classify this entry'. The same is true
+where something started after the last poll and the line then went quiet: the
+queue has not been read since it moved, so that account is not stated as the
+present cause.
 
 **A named cause is not evidence that the chooser is alive.** A session that died
 while idle polled after the last thing that started, so its account survives that

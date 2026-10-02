@@ -77,6 +77,8 @@ const (
 	KindFactoryStall Kind = "factory-stall"
 	// KindTrackerUnanswered is the tracker failing listings after retries.
 	KindTrackerUnanswered Kind = "tracker-unanswered"
+	// KindPassedOver is the recorded cause of a poll starting no work.
+	KindPassedOver Kind = "passed-over"
 )
 
 // Kinds is every kind the registry holds a rule for, so a test that has to
@@ -103,6 +105,7 @@ func Kinds() []Kind {
 		KindStoppage,
 		KindFactoryStall,
 		KindTrackerUnanswered,
+		KindPassedOver,
 	}
 }
 

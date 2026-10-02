@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -12,12 +13,106 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
 
 var moment = time.Date(2026, 8, 19, 10, 0, 0, 0, time.UTC)
+
+// A finding first sent to a role must still reach the operator when a later
+// handling names a closed-list reason, without repeating either delivery.
+func TestAReportFindingReachesTheOperatorAfterItsOwnershipChanges(t *testing.T) {
+	t.Parallel()
+	for _, critical := range []bool{true, false} {
+		t.Run(fmt.Sprintf("critical=%v", critical), func(t *testing.T) {
+			harness := newTestHarness(t, time.Time{})
+			id := "report-0123456789abcdef0123456789abcde0"
+			severity := report.SeverityWarning
+			if critical {
+				severity = report.SeverityCritical
+			}
+			harness.file(t, id, severity, moment)
+			cursors := harness.start()
+			if critical {
+				assertFindingReach(t, harness, cursors, false)
+				cursors = harness.poll(t, cursors, notify.KindReportFiled, notify.KindOperatorAction)
+			} else {
+				cursors = harness.poll(t, cursors, notify.KindReportFiled)
+				harness.handle(t, id, "the operator should renew the token", true, moment.Add(time.Hour))
+				assertFindingReach(t, harness, cursors, false)
+				cursors = harness.poll(t, cursors, notify.KindOperatorAction)
+			}
+			cursors = harness.poll(t, cursors)
+			harness.handle(t, id, "credential: renew the token", true, moment.Add(2*time.Hour))
+			assertFindingReach(t, harness, cursors, true)
+			cursors = harness.poll(t, cursors, notify.KindOperatorAction)
+			cursors = harness.poll(t, cursors)
+			harness.poll(t, cursors)
+			if marks := cursors.Streams[operatorActionStream].Delivered; len(marks) != 1 || marks[0] != findingDeliveryMark("report:"+id, ownership.Operator) {
+				t.Fatalf("marks = %v, want only the current owner's mark", marks)
+			}
+		})
+	}
+}
+
+func TestAnEscalationReachesTheOperatorAfterItsReasonIsCorrected(t *testing.T) {
+	t.Parallel()
+	harness := newTestHarness(t, time.Time{})
+	stopped := harness.run(t, runstate.StatusFailed)
+	stopped.Blocker = "the forge token expired"
+	harness.record(t, stopped)
+	cursors := harness.poll(t, harness.start(), notify.KindRunStarted, notify.KindChecksPassed, notify.KindBlockerRecorded)
+	decision := runstate.TriageDecision{
+		Decision: runstate.TriageDecisionEscalate, RunID: stopped.RunID,
+		Reason: "the operator should renew the token", DecidedBy: "development-manager",
+		Conversation: "chat-0123456789abcdef0123456789abcdef", Turn: 7, DecidedAt: moment.Add(time.Hour),
+	}
+	for index, reason := range []string{decision.Reason, "credential: renew the token"} {
+		decision.Reason, decision.DecidedAt = reason, moment.Add(time.Duration(index+1)*time.Hour)
+		if _, err := harness.runs.Triage().RecordDecision(context.Background(), stopped.WorkItemID, decision, decision.DecidedAt); err != nil {
+			t.Fatal(err)
+		}
+		assertFindingReach(t, harness, cursors, index == 1)
+		cursors = harness.poll(t, cursors, notify.KindOperatorAction)
+		cursors = harness.poll(t, cursors)
+	}
+	harness.poll(t, cursors)
+}
+
+// A cursor from before owner-specific marks cannot establish that the operator
+// was told: the old mark could be the role's earlier delivery.
+func TestALegacyFindingMarkDoesNotSuppressAnOperatorAssignment(t *testing.T) {
+	t.Parallel()
+	harness := newTestHarness(t, time.Time{})
+	id := "report-0123456789abcdef0123456789abcde0"
+	harness.file(t, id, report.SeverityWarning, moment)
+	cursors := harness.poll(t, harness.start(), notify.KindReportFiled)
+	harness.handle(t, id, "credential: renew the token", true, moment.Add(time.Hour))
+	cursors.Streams[operatorActionStream] = Cursor{Delivered: []string{findingMark + "report:" + id}}
+	assertFindingReach(t, harness, cursors, true)
+	cursors = harness.poll(t, cursors, notify.KindOperatorAction)
+	harness.poll(t, cursors)
+}
+
+func assertFindingReach(t *testing.T, harness *testHarness, cursors Cursors, direct bool) {
+	t.Helper()
+	batch, err := harness.feed.Poll(context.Background(), cursors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var findings []Delivery
+	for _, delivery := range batch.Deliveries {
+		if !delivery.Silent() && delivery.Notification.Event.Kind == notify.KindOperatorAction {
+			findings = append(findings, delivery)
+		}
+	}
+	if len(findings) != 1 || findings[0].Direct != direct || findings[0].Tag != direct {
+		t.Fatalf("findings = %+v, want exactly one with direct and tag = %v", findings, direct)
+	}
+}
 
 // What is worth saying is the notifier's to decide, and the feed's whole job is
 // to hand it the two readings it compares and to remember which crossings have
@@ -261,7 +356,7 @@ func TestAFindingForTheOperatorIsSaidToHimOnceDirectly(t *testing.T) {
 		}
 	}
 	cursors = harness.poll(t, cursors, notify.KindOperatorAction)
-	if !cursors.Streams[operatorActionStream].Has(findingMark + "report:report-0123456789abcdef0123456789abcde0") {
+	if !cursors.Streams[operatorActionStream].Has(findingDeliveryMark("report:report-0123456789abcdef0123456789abcde0", ownership.Operator)) {
 		t.Fatalf("cursor = %#v, want the finding marked as said", cursors.Streams[operatorActionStream])
 	}
 
@@ -438,7 +533,7 @@ func TestAFindingFromBeforeTheWatermarkIsReadPast(t *testing.T) {
 	harness.file(t, "report-0123456789abcdef0123456789abcde0", report.SeverityCritical, moment.Add(-2*time.Hour))
 	harness.file(t, "report-0123456789abcdef0123456789abcde1", report.SeverityNote, moment.Add(-time.Hour))
 	cursors := harness.poll(t, harness.start())
-	if !cursors.Streams[operatorActionStream].Has(findingMark + "report:report-0123456789abcdef0123456789abcde0") {
+	if !cursors.Streams[operatorActionStream].Has(findingDeliveryMark("report:report-0123456789abcdef0123456789abcde0", readmodel.MoverProductManager)) {
 		t.Fatalf("cursor = %#v, want the old critical marked without being said", cursors.Streams[operatorActionStream])
 	}
 	harness.handle(t, "report-0123456789abcdef0123456789abcde1", "only the operator can rotate that token", true, moment.Add(time.Hour))
@@ -588,7 +683,7 @@ func TestTwoFindingsEndingInOnePassAreBothForgotten(t *testing.T) {
 	harness.handle(t, "report-0123456789abcdef0123456789abcde1", "rotated", false, moment.Add(2*time.Hour))
 	cursors = harness.poll(t, cursors)
 	marks := cursors.Streams[operatorActionStream].Delivered
-	if len(marks) != 1 || marks[0] != findingMark+"report:report-0123456789abcdef0123456789abcde2" {
+	if len(marks) != 1 || marks[0] != findingDeliveryMark("report:report-0123456789abcdef0123456789abcde2", readmodel.MoverProductManager) {
 		t.Fatalf("cursor = %#v, want only the standing finding marked", marks)
 	}
 }

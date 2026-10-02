@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -20,6 +21,56 @@ func polled(at time.Time, account runstate.PassedOver) runstate.WatchTransition 
 		State:         runstate.WatchIdle,
 		At:            at,
 		PassedOver:    account,
+	}
+}
+
+func TestEveryPassedOverClassCarriesTheRegistryAnswer(t *testing.T) {
+	t.Parallel()
+	for _, class := range runstate.PassedOverClasses() {
+		t.Run(string(class), func(t *testing.T) {
+			account := GroupPassedOver([]PassedOverItem{{ID: "waiting", Class: class, Role: domain.RoleArchitect}}, 1)
+			cause, found := WhyThePollStartedNothing([]runstate.WatchTransition{polled(moment, account)}, time.Time{}, moment)
+			if !found {
+				t.Fatal("the poll's cause was not read")
+			}
+			want := ownership.Resolve(ownership.Entry{Kind: ownership.KindPassedOver, PassedOver: class, Role: domain.RoleArchitect})
+			if cause.Mover != want.Owner || cause.OwnerReason != want.Reason || cause.Remedy != want.Remedy || cause.Capability != want.Capability || cause.Whose() != want.Whose() {
+				t.Fatalf("cause = %+v, want the registry's answer %+v", cause, want)
+			}
+		})
+	}
+}
+
+func TestACauseWithNoRecordedFactsUsesTheRegistryFallback(t *testing.T) {
+	t.Parallel()
+	if cause := (Cause{}); cause.Whose() != ownership.Unclassified().Whose() {
+		t.Fatalf("Whose() = %q, want the registry's fallback", cause.Whose())
+	}
+}
+
+func TestIdlePollFactsCarryTheRegistryAnswer(t *testing.T) {
+	t.Parallel()
+	for _, fixture := range []struct {
+		name               string
+		unreadable, window bool
+		executor           domain.WorkItemExecutor
+		running            int
+		entry              ownership.Entry
+	}{
+		{"unreadable before every other fact", true, true, domain.ConversationWith(domain.RoleArchitect), 1, ownership.Entry{Unreadable: true}},
+		{"usage window before a conversation", false, true, domain.ConversationWith(domain.RoleArchitect), 1, ownership.Entry{UsageWindow: true}},
+		{"conversation before running work", false, false, domain.ConversationWith(domain.RoleArchitect), 1, ownership.Entry{PassedOver: runstate.PassedOverCarriedInConversation, Role: domain.RoleArchitect}},
+		{"running work", false, false, "", 1, ownership.Entry{PassedOver: runstate.PassedOverAlreadyInFlight}},
+		{"no recorded cause", false, false, "", 0, ownership.Entry{}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			cause := IdlePollCause(fixture.unreadable, fixture.window, fixture.executor, fixture.running)
+			fixture.entry.Kind = ownership.KindPassedOver
+			want := ownership.Resolve(fixture.entry)
+			if cause.Mover != want.Owner || cause.OwnerReason != want.Reason || cause.Remedy != want.Remedy || cause.Capability != want.Capability || cause.Whose() != want.Whose() {
+				t.Fatalf("cause = %+v, want the registry's answer %+v", cause, want)
+			}
+		})
 	}
 }
 
@@ -219,9 +270,9 @@ func TestEveryPassedOverClassSaysSomethingAndNamesAMove(t *testing.T) {
 			t.Fatalf("class %q names no move", class)
 		}
 	}
-	// And nothing outside the set borrows an answer from it.
+	// An unknown class has no factual clause and uses the registry's fallback.
 	outside := Cause{Class: runstate.PassedOverClass("something-nobody-named"), Count: 1, Admitted: 1}
-	if outside.Says() != "" || outside.Whose() != "" {
+	if outside.Says() != "" || outside.Whose() != ownership.Unclassified().Whose() {
 		t.Fatalf("a class outside the taxonomy was given words: %q / %q", outside.Says(), outside.Whose())
 	}
 }
@@ -269,7 +320,7 @@ func TestWorkCarriedInConversationNamesTheRoleThatCarriesIt(t *testing.T) {
 	if !strings.Contains(cause.Says(), "carried in conversation by the architect") {
 		t.Fatalf("Says() = %q, want the role that carries it", cause.Says())
 	}
-	if !strings.HasPrefix(cause.Whose(), "the architect's, in conversation") {
+	if !strings.HasPrefix(cause.Whose(), "the architect's — in conversation") {
 		t.Fatalf("Whose() = %q, want the architect", cause.Whose())
 	}
 }

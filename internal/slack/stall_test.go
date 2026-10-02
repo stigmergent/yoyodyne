@@ -82,7 +82,7 @@ func TestAStandingStallIsSaidAgainAndLouderUntilItClears(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the stall could not be said: %v", err)
 		}
-		if !strings.Contains(said.Body, "Next: the operator's") {
+		if !strings.Contains(said.Body, "Next: the Lead Product Manager's — classify this entry") {
 			t.Fatalf("repetition %d: body %q does not say whose move follows it", repetitions, said.Body)
 		}
 		cursors = harness.poll(t, cursors, notify.KindStallNoticed)
@@ -265,7 +265,7 @@ func TestAStallSaysItsAgeItsQueueAndWhatTheChooserLastSaid(t *testing.T) {
 			t.Fatalf("body %q does not carry %q", said.Body, fact)
 		}
 	}
-	if !strings.Contains(said.Body, "Next: the operator's") {
+	if !strings.Contains(said.Body, "Next: the Lead Product Manager's — classify this entry") {
 		t.Fatalf("body %q does not say whose move follows it", said.Body)
 	}
 }
@@ -434,8 +434,8 @@ func TestAStallOverAnAccountAStartOvertookNamesNoCause(t *testing.T) {
 	if strings.Contains(said.Body, "waiting on the development manager's decision or the harness carrying it out") {
 		t.Fatalf("body %q states an account taken before the silence it is reporting", said.Body)
 	}
-	if !strings.Contains(said.Body, "Next: the operator's") {
-		t.Fatalf("body %q does not send the reader to the chooser", said.Body)
+	if !strings.Contains(said.Body, "Next: the Lead Product Manager's — classify this entry") {
+		t.Fatalf("body %q does not ask for the unnamed cause to be classified", said.Body)
 	}
 }
 
@@ -459,8 +459,8 @@ func TestAStallWithNoPollToReadSaysNothingAccountsForIt(t *testing.T) {
 	if !strings.Contains(said.Body, "something the record does not name") {
 		t.Fatalf("body %q does not state the absence of an accounting", said.Body)
 	}
-	if !strings.Contains(said.Body, "Next: the operator's") {
-		t.Fatalf("body %q does not fall back to the chooser being looked at", said.Body)
+	if !strings.Contains(said.Body, "Next: the Lead Product Manager's — classify this entry") {
+		t.Fatalf("body %q does not ask for the absent accounting to be classified", said.Body)
 	}
 }
 

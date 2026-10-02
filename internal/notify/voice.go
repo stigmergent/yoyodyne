@@ -30,6 +30,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -875,12 +876,8 @@ var nextMoves = map[Kind]string{
 	KindHoldPlaced:     "the operator's — nothing runs until the hold is lifted.",
 	KindHoldLifted:     "the harness's — every run that stopped for the hold carries on from its own record.",
 	KindWatchStarted:   "the harness's — the queue is pulled from until somebody stops it.",
-	// The idle poll with nothing else to say: the queue was read, no run is going,
-	// and nothing passed over is a person's to carry. Admitting ready work is then
-	// genuinely the act that changes the answer, which is the only case this clause
-	// is said in — see idleMove, which answers for the three states it used to be
-	// said over wrongly before it reaches this.
-	KindWatchIdle:    "the Lead Product Manager's — nothing is chosen until work that is ready is admitted.",
+	// An idle poll without a recorded cause projects the registry's fallback.
+	KindWatchIdle:    ended(readmodel.IdlePollCause(false, false, "", 0).Whose()),
 	KindWatchBraked:  "the operator's — choosing resumes when intake is released.",
 	KindWatchResumed: "the harness's — work is being chosen again.",
 	KindWatchStopped: "the operator's — nothing more is chosen until a session is started again.",
@@ -1026,45 +1023,10 @@ func nextMove(event Event) (string, bool) {
 	return move, ok
 }
 
-// idleMove is whose move follows a poll that started nothing. It is derived from
-// what the session recorded rather than taken from the table, because a watch
-// idles for opposite reasons and one fixed clause can only be right about one of
-// them.
-//
-// The clause it replaced named the product manager whatever the session had
-// found, and an operator acted on that three times over a queue whose only
-// unstarted work was the architect's to carry, while a developer run worked on
-// the other slot. Both halves of that were wrong: nothing was waiting on an
-// admission, and the line had not stopped. So every state that is not an
-// admission answers first — a store that would not answer, the provider's usage
-// window, work a conversation carries, runs still going — and the admission
-// clause is left to the case where admitting ready work is genuinely what
-// changes the answer.
+// idleMove projects the read model's resolved cause for this idle poll.
 func idleMove(detail Detail) string {
-	// A store that will not answer. Nothing a person admits, releases, or opens
-	// reaches it, so this answers before anything else: the queue was not read, so
-	// what is in it is not what stopped the choosing.
-	if detail.Unreadable {
-		return "the harness's — the queue could not be read, and it is read again until it answers or the session gives up on it."
-	}
-	// The provider refusing to serve any more work. Nothing a person admits,
-	// releases, or opens is startable while the window stands, so this answers
-	// ahead of the admission clause for the same reason the unreadable store does.
-	if detail.ProviderWindow {
-		return nextMoves[KindProviderWindow]
-	}
-	// Work only a conversation carries. No admission and no run moves it, and the
-	// marker names who does.
-	if role := domain.WorkItemExecutor(strings.TrimSpace(detail.Executor)).Role(); role != "" {
-		return "the " + role.Title() + "'s, in conversation — the work this poll passed over is carried there, and no run will ever start it."
-	}
-	// A run in flight is the harness working. Naming anybody's move over it would
-	// be reporting a stall while the chain moves, which is what sent an operator to
-	// look at a line that was not stopped.
-	if detail.Running > 0 {
-		return "nobody's — the runs in flight carry on, and the queue is read again as each of them finishes."
-	}
-	return nextMoves[KindWatchIdle]
+	cause := readmodel.IdlePollCause(detail.Unreadable, detail.ProviderWindow, domain.WorkItemExecutor(strings.TrimSpace(detail.Executor)), detail.Running)
+	return ended(cause.Whose())
 }
 
 // handedOffMove is whose move follows work only a conversation will carry. It

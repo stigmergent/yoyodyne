@@ -38,6 +38,7 @@ func fixtures() map[Kind][]Entry {
 	open := &runstate.PullRequest{Number: 3}
 	stopped := runstate.State{RunID: "run-1", WorkItemID: "item-1", Blocker: "checks failed"}
 	return map[Kind][]Entry{
+		KindPassedOver: passedOverFixtures(),
 		KindAmendment: {
 			{Kind: KindAmendment, Amendment: &goals},
 			{Kind: KindAmendment, Amendment: &design},
@@ -115,6 +116,14 @@ func fixtures() map[Kind][]Entry {
 			{Kind: KindStoppage},
 		},
 	}
+}
+
+func passedOverFixtures() []Entry {
+	entries := []Entry{{Kind: KindPassedOver, Unreadable: true}, {Kind: KindPassedOver, UsageWindow: true}}
+	for _, class := range runstate.PassedOverClasses() {
+		entries = append(entries, Entry{Kind: KindPassedOver, PassedOver: class, Role: domain.RoleArchitect})
+	}
+	return entries
 }
 
 func stallFixtures() []Entry {
@@ -196,6 +205,11 @@ func TestTheOperatorsEntriesAreTheOnesTheDesignNames(t *testing.T) {
 		{KindHeldWork, 12}:      ReasonDivergedHistory,
 	}
 	stall := stallFixtures()
+	for index, entry := range passedOverFixtures() {
+		if entry.PassedOver == runstate.PassedOverWaitingOnAPerson {
+			his[key{KindPassedOver, index}] = ReasonHumanGate
+		}
+	}
 	for index, entry := range stall {
 		switch {
 		case entry.StallReason == StallOperatorHold:
@@ -221,6 +235,9 @@ func TestTheOperatorsEntriesAreTheOnesTheDesignNames(t *testing.T) {
 // never the operator's.
 func TestAnEntryNoRuleCanClassifyIsTheLeadProductManagersToClassify(t *testing.T) {
 	unclassifiable := []Entry{
+		{Kind: KindPassedOver},
+		{Kind: KindPassedOver, PassedOver: "no-such-class"},
+		{Kind: KindPassedOver, PassedOver: runstate.PassedOverCarriedInConversation},
 		{Kind: "no-such-kind"},
 		{},
 		{Kind: KindAmendment},

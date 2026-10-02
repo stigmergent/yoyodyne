@@ -35,6 +35,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -254,6 +255,12 @@ func counted(count int, one, many string) string {
 // every class; a message that wakes somebody has one sentence, and a sentence
 // that lists ten classes is one nobody acts on.
 type Cause struct {
+	// The ownership registry's answer, carried with the recorded cause.
+	Mover       Mover
+	OwnerReason ownership.Reason
+	Remedy      string
+	Capability  string
+
 	// Unreadable is the poll that could not read the queue at all. It answers
 	// ahead of every class, because nothing a person admits, releases, or opens
 	// reaches a store that will not answer — and because what was in the queue is
@@ -271,6 +278,18 @@ type Cause struct {
 	Role     domain.AgentRole
 	Count    int
 	Admitted int
+}
+
+// IdlePollCause resolves the facts carried by an idle notification when the
+// watch transition does not carry the whole passed-over account.
+func IdlePollCause(unreadable, providerWindow bool, executor domain.WorkItemExecutor, running int) Cause {
+	cause := Cause{Unreadable: unreadable, Window: ProviderWindow{Waiting: providerWindow}}
+	if role := executor.Role(); role != "" {
+		cause.Class, cause.Role = runstate.PassedOverCarriedInConversation, role
+	} else if running > 0 {
+		cause.Class = runstate.PassedOverAlreadyInFlight
+	}
+	return resolvedCause(cause)
 }
 
 // WhyThePollStartedNothing is the cause the last poll that started nothing
@@ -320,21 +339,21 @@ func WhyThePollStartedNothing(sessions []runstate.WatchTransition, since, now ti
 		return Cause{}, false
 	}
 	if poll.Unreadable {
-		return Cause{Unreadable: true}, true
+		return resolvedCause(Cause{Unreadable: true}), true
 	}
 	if window := WaitingOnProvider(sessions); window.Standing(now) {
-		return Cause{Window: window}, true
+		return resolvedCause(Cause{Window: window}), true
 	}
 	dominant, found := dominantGroup(poll.PassedOver)
 	if !found {
 		return Cause{}, false
 	}
-	return Cause{
+	return resolvedCause(Cause{
 		Class:    dominant.Class,
 		Role:     dominant.Role,
 		Count:    dominant.Count,
 		Admitted: poll.PassedOver.Admitted,
-	}, true
+	}), true
 }
 
 // dominantGroup is the class holding most of what the poll passed over. A tie is
@@ -415,55 +434,22 @@ var passedOverClauses = map[runstate.PassedOverClass]string{
 	runstate.PassedOverWaitingOnUsageWindow:  "refused by the provider's usage window and waiting for it to reset",
 }
 
-// Whose is whose move it is, and what settles it. It is the other half of what a
-// cause is for: an alarm that names what is holding the queue without saying who
-// releases it has told the reader something they can do nothing with, which is
-// the state the alarm was in.
-//
-// Every cause answers. One that did not would be a state named and then left
-// unattributed, so the zero answer belongs to no cause and a test holds the set
-// to it.
+// Whose projects the ownership registry's answer, including the reason when
+// the recorded cause is the operator's. A directly constructed cause gets the
+// same answer as one built from the watch record.
 func (c Cause) Whose() string {
-	switch {
-	case c.Unreadable:
-		return "the harness's — the queue could not be read, and it is read again until it answers or the session gives up on it"
-	case c.Window.Waiting:
-		return "nobody's — the window lifts on the provider's clock, and the queue is read again when it does"
-	case c.Class == runstate.PassedOverCarriedInConversation && c.Role != "":
-		return "the " + c.Role.Title() + "'s, in conversation — the work this poll passed over is carried there, and no run will ever start it"
+	if c.Remedy == "" {
+		c = resolvedCause(c)
 	}
-	return passedOverMoves[c.Class]
+	return (ownership.Resolution{Owner: c.Mover, Reason: c.OwnerReason, Remedy: c.Remedy, Capability: c.Capability}).Whose()
 }
 
-// passedOverMoves is whose move follows each class. The ones that name a role
-// are the ones that never clear on their own: a parking, a stoppage nobody has
-// decided about, and an item asking the tree for something nobody has put there.
-// Only the one that names the operator needs a human, so no sentence here says
-// "a person" of a role's move: on 2026-09-27 the dashboard said "held for a
-// person" over thirty-four items the development manager was moving.
-// Everything else clears as work lands, which is a wait rather than a move, and
-// saying otherwise would send somebody to release a queue that is releasing
-// itself.
-//
-// A decision already recorded and not carried out names the harness, and it is
-// the one class here whose next mover is neither a person nor a wait. That is
-// the whole of what separating it bought: an operator reading "waiting on triage
-// decisions" goes to the development manager, and for thirty-three items on
-// 2026-09-07 she had made every one of them.
-var passedOverMoves = map[runstate.PassedOverClass]string{
-	runstate.PassedOverCarriedInConversation: "the role that carries them, in conversation — no run will ever start them",
-	runstate.PassedOverParked:                "the Lead Product Manager's — a parked item is passed over at every pull until it is released",
-	runstate.PassedOverHeldForAPerson:        "the development manager's, or the harness's where she has decided — nothing pulls a stopped item until her decision about it is made and carried out",
-	runstate.PassedOverAwaitingDecision:      "the development manager's — nothing pulls a stopped item until she decides what happens to it",
-	runstate.PassedOverAwaitingCarryOut:      "the harness's — the decisions are recorded, and what is outstanding is the harness acting on them",
-	runstate.PassedOverWaitingOnAPerson:      "a person's — the item declares a human gate, and `yoyo gate record` is the only thing that passes it",
-	runstate.PassedOverWaitingOnOtherWork:    "nobody's — the work they wait on lands or does not, and the queue is read again either way",
-	runstate.PassedOverAlreadyTried:          "nobody's — the session tries them again once they have cooled",
-	runstate.PassedOverAlreadyInFlight:       "nobody's — the runs carrying them finish, and the queue is read again as each of them does",
-	runstate.PassedOverCoveredByChildren:     "nobody's — the children are the work, and what covers them closes as they land",
-	runstate.PassedOverPausedByDirective:     "the Lead Product Manager's — she ends the directive or carries it into a document or an item, and the work stays paused until it is resolved",
-	runstate.PassedOverSequencedBehindWork:   "nobody's — each is pulled at the first pull where the run it would have raced has ended",
-	runstate.PassedOverPrerequisiteUnmet:     "the development manager's — the item asks for something the tree does not have, and it is docketed rather than dispatched",
-	runstate.PassedOverLeftForAnotherSlot:    "nobody's — a developer slot with no preference takes them in the Lead Product Manager's order, and a preferring slot falls back to them once its label's work is exhausted",
-	runstate.PassedOverWaitingOnUsageWindow:  "nobody's — the window lifts on the provider's clock, and the session pulls each of them again once its reset has passed",
+func (c Cause) ownershipEntry() ownership.Entry {
+	return ownership.Entry{Kind: ownership.KindPassedOver, PassedOver: c.Class, Role: c.Role, Unreadable: c.Unreadable, UsageWindow: c.Window.Waiting}
+}
+
+func resolvedCause(c Cause) Cause {
+	answer := ownership.Resolve(c.ownershipEntry())
+	c.Mover, c.OwnerReason, c.Remedy, c.Capability = answer.Owner, answer.Reason, answer.Remedy, answer.Capability
+	return c
 }

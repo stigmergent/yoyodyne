@@ -58,6 +58,11 @@ func (r Resolution) Whose() string {
 // Manager rather than guessing.
 type Entry struct {
 	Kind Kind
+	// PassedOver is the class the last idle poll recorded. Unreadable and
+	// UsageWindow are the two conditions that take precedence over that class.
+	PassedOver  runstate.PassedOverClass
+	Unreadable  bool
+	UsageWindow bool
 	// Step is the finished run's cleanup and merge obligations.
 	Step *runstate.State
 	// ID and WorkItemID are the record the entry is about and the item it
@@ -146,6 +151,7 @@ var registry = map[Kind]Rule{
 	KindStoppage:          stoppageRule,
 	KindFactoryStall:      factoryStallRule,
 	KindTrackerUnanswered: trackerUnansweredRule,
+	KindPassedOver:        passedOverRule,
 }
 
 // Covers reports whether the registry holds a rule for a kind.

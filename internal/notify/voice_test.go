@@ -216,9 +216,8 @@ func TestWorkAConversationCarriesIsNeverSaidToBeWaitingForARun(t *testing.T) {
 // the other slot: nothing was waiting on an admission, and the line had not
 // stopped.
 //
-// So the named actor is the one who can act. The admission clause is what is
-// left when nothing is going and nothing is anybody's to carry, which is the one
-// state admitting ready work actually changes.
+// Each line projects the registry's answer. A poll without a recorded cause
+// asks the Lead Product Manager to classify it.
 func TestAnIdleWatchNamesTheActorWhoCanActOnIt(t *testing.T) {
 	topic := Product()
 	for _, testCase := range []struct {
@@ -229,7 +228,7 @@ func TestAnIdleWatchNamesTheActorWhoCanActOnIt(t *testing.T) {
 		{
 			name:   "carried in an architect's conversation",
 			detail: func(d *Detail) { d.Executor = string(domain.ConversationWith(domain.RoleArchitect)) },
-			want:   "the architect's, in conversation — the work this poll passed over is carried there, and no run will ever start it.",
+			want:   "the architect's — in conversation; the work this poll passed over is carried there, and no run will ever start it.",
 		},
 		{
 			// The run in flight answers second: an item somebody has to open is still
@@ -239,12 +238,12 @@ func TestAnIdleWatchNamesTheActorWhoCanActOnIt(t *testing.T) {
 				d.Executor = string(domain.ConversationWith(domain.RoleArchitect))
 				d.Running = 1
 			},
-			want: "the architect's, in conversation — the work this poll passed over is carried there, and no run will ever start it.",
+			want: "the architect's — in conversation; the work this poll passed over is carried there, and no run will ever start it.",
 		},
 		{
 			name:   "a run in flight and nothing anybody carries",
 			detail: func(d *Detail) { d.Running = 1 },
-			want:   "nobody's — the runs in flight carry on, and the queue is read again as each of them finishes.",
+			want:   "nobody's — the runs carrying them finish, and the queue is read again as each of them does.",
 		},
 		{
 			// The queue was never read, so nothing that is in it stopped the choosing
