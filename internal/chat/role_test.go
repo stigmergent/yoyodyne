@@ -43,13 +43,13 @@ func TestEveryConversationalRoleCarriesItsOwnContractAheadOfThePersona(t *testin
 		if !strings.Contains(prompt, "Your role is read-only") {
 			t.Fatalf("%s contract does not refuse tools: %q", role, authority.Contract)
 		}
-		// With no persona the prompt is the contract and nothing but it, save the
-		// project's admission policy, which is part of the contract rather than
-		// something a persona sits between.
+		// With no persona the prompt is the contract plus the admission and
+		// refusal policies, all ahead of anything a persona could supply.
 		want := authority.Contract
 		if clause := admissionClause(authority, Admission{}); clause != "" {
 			want += "\n\n" + clause
 		}
+		want += "\n\n" + blockRefusalClause
 		if bare := SystemPrompt(role, Admission{}, nil, "  "); bare != want {
 			t.Fatalf("%s with no persona is not the contract alone", role)
 		}

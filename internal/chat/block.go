@@ -23,6 +23,8 @@ type BlockRefusal struct {
 	Problem string `json:"problem"`
 }
 
+const blockRefusalClause = "A malformed or invalid block is refused on its own: other valid blocks in your reply are carried out. The harness records the reason and tells you on your next turn; correct only the refused block. A block or action you hold no authority for refuses your whole reply before anything is carried out."
+
 func blockRefusal(fence string, err error) BlockRefusal {
 	return BlockRefusal{Block: strings.TrimPrefix(fence, "```"), Problem: err.Error()}
 }
@@ -158,7 +160,9 @@ func (s *Session) authorizeCarried(parsed parsedReply) error {
 }
 
 func (s *Session) recordBlockRefusal(reply *Reply, refusal BlockRefusal) error {
-	refusal.Problem = boundText(refusal.Problem, maxTrackerFailureBytes)
+	// A validation refusal includes the correction the role needs to make;
+	// the shorter action-failure bound can cut that guidance off.
+	refusal.Problem = boundText(refusal.Problem, maxTrackerRefusalBytes)
 	reply.BlockRefusals = append(reply.BlockRefusals, refusal)
 	if err := s.emit(execution.EventReplyBlockRefused, map[string]any{
 		"turn": s.state.Turns, "pass": s.pass, "block": refusal.Block, "problem": refusal.Problem,

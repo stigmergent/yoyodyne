@@ -474,7 +474,7 @@ func SystemPrompt(role domain.AgentRole, admission Admission, filing []artifact.
 	if clause := artifact.WriteContract(role, filing); clause != "" {
 		contract += "\n\n" + clause
 	}
-	contract += "\n\nA malformed or invalid block is refused on its own: other valid blocks in your reply are carried out. The harness records the reason and tells you on your next turn; correct only the refused block. A block or action you hold no authority for refuses your whole reply before anything is carried out."
+	contract += "\n\n" + blockRefusalClause
 	trimmed := strings.TrimSpace(persona)
 	if trimmed == "" {
 		return contract
