@@ -95,6 +95,15 @@ reviewer's evidence state what the item waits on, and state it as `nothing` when
 it waits on nothing, so neither can mistake an item this context happens not to
 describe for one nothing blocks.
 
+The dependency line also names each blocker's tracker status. Review evidence
+carries the upstream item's title and explanation, or says when the tracker
+could not supply them; at most eight explanations of 1,536 bytes each are
+included. An undecided upstream is a reason to stop, not permission for a
+developer to invent its design. A sound diagnosis can be approved as evidence,
+and an item that cannot be met as written can be escalated, using the terminal
+outcomes described below rather than spending repair rounds on missing work
+the developer correctly declined to implement.
+
 Then the change is gated on what it touched. The project configuration and the
 artifact homes upstream of the work — `.yoyodyne/`, `docs/product/`,
 `docs/designs/`, and `docs/decisions/` by default — are default-deny for a
@@ -197,7 +206,32 @@ guides extracted from `docs/configuration.md` and judged against the file as the
 target branch had it later. The reviewer is told to judge against the labelled
 copy and not to report a difference from a later revision it may know of. A path
 the base does not hold — a document the change itself creates — is not carried as
-a reference, because the patch is where it is read.
+a reference at the base commit; it can still appear in the patch and in the
+candidate content described next.
+
+**Repository evidence also names what the reviewed commit holds.** A committed
+tree listing includes unchanged files and binary assets, so a path omitted from
+the patch is not mistaken for a missing file. It is bounded to 20,000 paths and
+128 KiB of quoted paths. Any cut is stated with a count, and a partial listing
+proves presence only. Every finding claiming a repository path is missing names
+it in `absent`; the harness normalizes that path and rejects the verdict if the
+listing contradicts it or cannot check it. The change listing also accounts for
+uncommitted additions and deletions. This check covers the structured field;
+the contract requires it for absence claims written in a finding's prose.
+
+Whole text at the reviewed commit is supplied separately from references at the
+base commit, for literal counts and content claims that a patch cannot settle.
+Files cited by the acceptance criteria come first, followed by other item
+references, then other changed files. Up to 32 files share a 64 KiB content
+budget. Each supplied file is whole and labelled with its commit; unreadable,
+binary, oversized, and excluded content is stated as unavailable. The total
+review input bound can shorten this evidence further, with those losses stated
+too. A reviewer lacking the needed whole content and an inspection tool says
+what it cannot verify instead of asserting a defect from patch lines or an
+excerpt. These candidate copies do not replace the labelled base references
+used to judge an extraction. The review's start event records the candidate
+commit, the listing's omission count, and which file contents were supplied or
+unavailable.
 
 The patch is bounded, and the bound is spent whole file by whole file rather
 than cutting the patch at a byte count: a patch cut tail-first keeps whichever

@@ -79,10 +79,27 @@ func TestAssembleStatesWhatTheWorkItemWaitsOn(t *testing.T) {
 	if !strings.Contains(blocked.Text, "Depends on: yoyodyne-2, yoyodyne-9 (unfinished work this item waits on)") {
 		t.Fatalf("bundle does not name the unfinished work the item waits on: %s", blocked.Text)
 	}
+	if !strings.Contains(blocked.Text, "Blocker states:") {
+		t.Fatalf("bundle omitted the blockers' tracker states: %s", blocked.Text)
+	}
 	for _, unwanted := range []string{"yoyodyne-7", "yoyodyne-8"} {
 		if strings.Contains(blocked.Text, unwanted) {
 			t.Fatalf("bundle names %s, which is not work this item waits on: %s", unwanted, blocked.Text)
 		}
+	}
+}
+
+func TestFileReferencesPrioritizeCriteriaAndNormalizePaths(t *testing.T) {
+	t.Parallel()
+	item := beads.WorkItem{
+		AcceptanceCriteria: "Compare ./docs//source.txt and README.md. Ignore ../outside.md and https://example.com/remote.md.",
+		Description:        "Modify internal/feature.go using README.md.",
+		Notes:              "Earlier work named old/source.json and yoyodyne-ifd.148.",
+	}
+	got := ExtractFileReferences(item)
+	want := []string{"README.md", "docs/source.txt", "internal/feature.go", "old/source.json"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("ExtractFileReferences() = %v, want %v", got, want)
 	}
 }
 

@@ -131,6 +131,7 @@ type Request struct {
 	// change touches nothing this project's checks read.
 	Verification string
 	Changes      gitworktree.ChangeDiff
+	Repository   RepositoryEvidence
 	Checks       []checks.Result
 	// CheckPatterns is what the item's done-conditions quote, as
 	// CriterionPatterns reads it. Every line of a check's retained output that
@@ -253,6 +254,10 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	}
 	systemPrompt := reviewSystemPrompt(request.scope(), r.Persona)
 	redactor := execution.NewRedactor(request.RedactValues...)
+	withoutRepository := request
+	withoutRepository.Repository = RepositoryEvidence{}
+	remaining := MaxReviewInputBytes - len(systemPrompt) - len(redactor.Redact(reviewEvidencePrompt(withoutRepository))) + len(renderRepository(RepositoryEvidence{}))
+	request.Repository = request.Repository.bounded(remaining)
 	prompt := redactor.Redact(reviewEvidencePrompt(request))
 	inputBytes := len(systemPrompt) + len(prompt)
 	if inputBytes > MaxReviewInputBytes {
@@ -264,6 +269,23 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	started["checks"] = len(request.Checks)
 	started["patch_bytes"] = len(request.Changes.Patch)
 	started["truncated"] = request.Changes.Truncated
+	started["repository_commit"] = request.Repository.Listing.Commit
+	started["repository_paths_omitted"] = request.Repository.Listing.Omitted
+	started["repository_contents_omitted"] = request.Repository.ContentsOmitted
+	var suppliedContent, unavailableContent []string
+	for _, file := range request.Repository.Contents {
+		if file.Unavailable == "" {
+			suppliedContent = append(suppliedContent, file.Path)
+		} else {
+			unavailableContent = append(unavailableContent, file.Path)
+		}
+	}
+	if len(suppliedContent) > 0 {
+		started["repository_content_files"] = suppliedContent
+	}
+	if len(unavailableContent) > 0 {
+		started["repository_content_unavailable"] = unavailableContent
+	}
 	// What the bound kept out of the patch, by name, so the run's record says
 	// which files this verdict could not have covered without the prompt being
 	// reconstructed: the reviewer is told the same list, and the record is what
@@ -438,6 +460,11 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	decision, err := verdict.Resolve()
 	if err != nil {
 		return evidence(), err
+	}
+	if err := request.Repository.refute(verdict, request.Changes); err != nil {
+		unsupported := evidence()
+		unsupported.Verdict = verdict
+		return unsupported, err
 	}
 	if decision == DecisionApprove {
 		if unreviewable := request.unreviewable(); len(unreviewable) > 0 {
@@ -671,6 +698,8 @@ func reviewContract(scope Scope) string {
 
 Review the supplied architectural invariants, ` + contextNoun + `, patch, and check results. Use only the inspection tools explicitly supplied by the backend; if none are supplied, reason solely from the delivered evidence. Permitted inspection is limited to relevant repository context: callers, interfaces, tests, and documentation. For a branch review, the working directory may be checked out on another branch: inspect the named head and base commits with read-only Git commands and do not assume the current checkout is the candidate. For a work-item review, inspect the supplied worktree and its uncommitted changes. Do not change files, execute checks that write, reach external services, inspect unrelated local data, or request broader permissions. State what you cannot verify.
 
+Decide file existence from the repository listing at the reviewed commit together with the change listing, never from a file's absence in the patch. Every finding claiming that a repository path is missing must name it in "absent"; the harness refuses a claim contradicted by the listing or made without a complete listing. "absent" is optional for other findings. Whole-file content supplied at the reviewed commit is the candidate's content; references labelled with the base commit remain the sources the change was written against. For literal counts or content comparisons, use the labelled whole file, not patch lines or an excerpt. If the evidence does not supply the needed content and no inspection tool can read it, say what you cannot verify instead of asserting a defect.
+
 Architectural invariants supplied above the untrusted evidence are this repository's own durable constraints, delivered by the harness from the architect's files rather than by the developer, and they hold ` + invariantAuthority + `. Judge the change against every one of them. A change that violates a delivered invariant is not approvable: report it as a finding that names the invariant by its id, at major severity or higher. A change that creates, amends, retires, or edits an invariant is a finding for the same reason, because only the architect may. Your view of them is a selected set rather than all of them, so never report the invariants as a whole as satisfied.
 
 Reconcile the change against the documentation you can see, in the patch and in the ` + contextNoun + `. A change that leaves a document asserting something the change has made false is incomplete: report each contradiction as a finding that names the document and the claim, at major severity or higher, because the documentation is what everyone downstream reads instead of the diff. Name the documents you actually inspected; never report documentation you did not inspect as consistent.
@@ -871,7 +900,7 @@ func verdictSchema(scope Scope) string {
 		approves = ""
 		decisions = `"decision":"approve|repair",`
 	}
-	return `{` + decisions + approves + `"summary":"one paragraph","fixtures":["path"],"findings":[{"severity":"blocker|major|minor","disposition":"out_of_scope","message":"what is wrong and what to do","location":{"file":"path","line":1}}]}`
+	return `{` + decisions + approves + `"summary":"one paragraph","fixtures":["path"],"findings":[{"severity":"blocker|major|minor","disposition":"out_of_scope","message":"what is wrong and what to do","location":{"file":"path","line":1},"absent":"path claimed missing"}]}`
 }
 
 // approvesRequirement says when the field above is required, beside the two
@@ -924,6 +953,7 @@ func reviewEvidencePrompt(request Request) string {
 		prompt.WriteString("\n# The whole change under review\n\n")
 	}
 	prompt.WriteString(renderChanges(request.Changes, request.evidenceLocation()))
+	prompt.WriteString(renderRepository(request.Repository))
 	prompt.WriteString("\n# Check results\n\n")
 	prompt.WriteString(renderChecks(request.Checks, request.CheckPatterns, execution.EventLogOf(request.RunID)))
 	return prompt.String()

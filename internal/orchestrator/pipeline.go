@@ -97,6 +97,7 @@ type WorktreeManager interface {
 	// that copy has to be the one at the change's own base rather than whatever
 	// the checkout holds by the time the review is asked for.
 	FileAtCommit(ctx context.Context, commit, path string, maxBytes int64) (gitworktree.FileAt, error)
+	FilesAtCommit(ctx context.Context, commit string, maxFiles, maxBytes int) (gitworktree.CommitListing, error)
 	// ChangedPaths names every path the change touches. It is what the gate in
 	// front of the checks decides on, so it is separate from the summary and the
 	// patch above: those are bounded for a reader, and a gate that saw a bounded
@@ -7417,7 +7418,7 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}
-	return bundle.Text, nil
+	return bundle.Text + a.dependencyEvidence(ctx), nil
 }
 
 // refusedReviewForServerOverload reports a review the provider's own servers
@@ -7490,6 +7491,7 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 		Verification: describeVerification(a.state),
 		WorktreePath: a.worktree.Path,
 		Changes:      changes,
+		Repository:   reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
 		Checks:       a.outcome.Checks,
 		// What the item's done-conditions quote, so every line of a check's
 		// output carrying one reaches the reviewer beside the check's result.
@@ -7619,7 +7621,7 @@ func durableFindings(findings []review.Finding) []runstate.Finding {
 	}
 	durable := make([]runstate.Finding, 0, len(findings))
 	for _, finding := range findings {
-		recorded := runstate.Finding{Severity: string(finding.Severity), Disposition: string(finding.Disposition), Message: finding.Message}
+		recorded := runstate.Finding{Severity: string(finding.Severity), Disposition: string(finding.Disposition), Message: finding.Message, Absent: finding.Absent}
 		if finding.Location != nil {
 			recorded.File = finding.Location.File
 			recorded.Line = finding.Location.Line
@@ -7750,7 +7752,7 @@ func reportedFindings(findings []runstate.Finding) []review.Finding {
 	}
 	reported := make([]review.Finding, 0, len(findings))
 	for _, finding := range findings {
-		restored := review.Finding{Severity: review.Severity(finding.Severity), Disposition: review.Disposition(finding.Disposition), Message: finding.Message}
+		restored := review.Finding{Severity: review.Severity(finding.Severity), Disposition: review.Disposition(finding.Disposition), Message: finding.Message, Absent: finding.Absent}
 		if finding.File != "" {
 			restored.Location = &review.Location{File: finding.File, Line: finding.Line}
 		}

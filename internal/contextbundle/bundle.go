@@ -149,6 +149,35 @@ type Bundle struct {
 
 var markdownReferencePattern = regexp.MustCompile(`[A-Za-z0-9._/-]+\.md`)
 
+var fileReferencePattern = regexp.MustCompile(`[A-Za-z0-9._/-]+\.[A-Za-z][A-Za-z0-9]*`)
+
+// ExtractFileReferences names repository-relative files cited by the item,
+// including source and data files. Base-revision Markdown references remain
+// separate from this whole-file evidence at the candidate's HEAD.
+func ExtractFileReferences(item beads.WorkItem) []string {
+	var references []string
+	seen := make(map[string]bool)
+	// Acceptance sources have first claim on a bounded review's content budget;
+	// old run notes must not displace the sources needed to judge the criteria.
+	for _, text := range []string{item.AcceptanceCriteria, item.Description, item.Design, item.Notes} {
+		var candidates []string
+		for _, candidate := range fileReferencePattern.FindAllString(text, -1) {
+			clean := filepath.Clean(candidate)
+			if filepath.IsAbs(candidate) || clean == ".." || strings.HasPrefix(clean, "../") {
+				continue
+			}
+			candidates = append(candidates, filepath.ToSlash(clean))
+		}
+		for _, candidate := range uniqueSorted(candidates) {
+			if !seen[candidate] {
+				references = append(references, candidate)
+				seen[candidate] = true
+			}
+		}
+	}
+	return references
+}
+
 func Assemble(request Request) (Bundle, error) {
 	if request.WorkItem.ID == "" {
 		return Bundle{}, errors.New("work item is required")
@@ -926,16 +955,24 @@ const blocksDependency = "blocks"
 // what is still outstanding.
 func renderDependencies(item beads.WorkItem) string {
 	var waiting []string
+	var states []string
 	for _, dependency := range item.Dependencies {
 		if dependency.Type == blocksDependency && dependency.Status != "closed" {
 			waiting = append(waiting, dependency.ID)
+			status := dependency.Status
+			if strings.TrimSpace(status) == "" {
+				status = "not supplied by the tracker"
+			}
+			states = append(states, dependency.ID+": "+status)
 		}
 	}
 	if len(waiting) == 0 {
 		return "nothing; no unfinished work blocks this item"
 	}
 	sort.Strings(waiting)
-	return strings.Join(waiting, ", ") + " (unfinished work this item waits on)"
+	sort.Strings(states)
+	return strings.Join(waiting, ", ") + " (unfinished work this item waits on)\nBlocker states: " + strings.Join(states, ", ") +
+		".\nStopping for an undecided upstream can be correct; do not require the developer to invent the decision as a repair."
 }
 
 func emptyFallback(value string) string {

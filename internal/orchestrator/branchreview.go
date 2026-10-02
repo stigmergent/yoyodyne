@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -53,6 +54,7 @@ import (
 // half: nothing here creates, promotes, or removes anything.
 type BranchChangeReader interface {
 	BranchChanges(ctx context.Context, request gitworktree.BranchRequest, limits gitworktree.DiffLimits) (gitworktree.BranchChange, error)
+	repositoryReader
 }
 
 // BranchReviewRecorder keeps the durable record of a branch review: the verdict
@@ -216,6 +218,7 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		// be the reviewed branch. The review contract distinguishes the two.
 		WorktreePath: b.Repository,
 		Changes:      change.Changes,
+		Repository:   reviewedRepository(ctx, b.Worktrees, change.HeadCommit, beads.WorkItem{}, change.Changes),
 		RedactValues: b.RedactValues,
 		// A branch review is a provider invocation like any other the harness
 		// makes, so it records one like any other: this is what lets it be

@@ -42,6 +42,10 @@ func (PartialWorktreeManager) FileAtCommit(context.Context, string, string, int6
 	return gitworktree.FileAt{}, gitworktree.ErrNotAtCommit
 }
 
+func (PartialWorktreeManager) FilesAtCommit(context.Context, string, int, int) (gitworktree.CommitListing, error) {
+	return gitworktree.CommitListing{}, errors.New("partial worktree has no committed listing")
+}
+
 func (PartialWorktreeManager) ChangedPaths(context.Context, gitworktree.Worktree) ([]string, error) {
 	return nil, nil
 }
