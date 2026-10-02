@@ -57,6 +57,9 @@ func TestAnExchangeIsDurableRoundByRoundAndClosesResolved(t *testing.T) {
 	}
 	// The answering side is one session across the thread, so round two is
 	// answered by something that remembers round one.
+	if voice.answered[1].SessionBackend != served.Backend || voice.answered[1].SessionAccountAlias != served.AccountAlias {
+		t.Fatalf("session identity not forwarded: %+v", voice.answered[1])
+	}
 	if voice.sessions[1] != "session-1" {
 		t.Fatalf("second round session = %q, want the first round's", voice.sessions[1])
 	}
@@ -497,4 +500,49 @@ func decodeAsk(t *testing.T, payload string) Ask {
 		t.Fatalf("Decode(%s) error = %v", payload, err)
 	}
 	return ask
+}
+
+// A failed first invocation on a new endpoint must not leave the old endpoint's
+// session paired with the newly recorded provider/account on the next attempt.
+func TestFailedEndpointChangeClearsThePreviousExchangeSession(t *testing.T) {
+	t.Parallel()
+	for _, next := range []Spoken{{Backend: domain.BackendCodex, AccountAlias: "original"}, {Backend: domain.BackendClaudeCode, AccountAlias: "other"}} {
+		t.Run(string(next.Backend)+"/"+next.AccountAlias, func(t *testing.T) {
+			calls := 0
+			voice := sessionChangingVoice(func(_ context.Context, q Question) (Spoken, error) {
+				calls++
+				if calls == 1 {
+					return Spoken{Agent: "architect", Backend: domain.BackendClaudeCode, AccountAlias: "original", SessionID: "old-session", Answer: "First answer."}, nil
+				}
+				if q.SessionBackend != domain.BackendClaudeCode || q.SessionAccountAlias != "original" {
+					t.Fatalf("prior endpoint=%+v", q)
+				}
+				return next, errors.New("new endpoint unavailable")
+			})
+			store := &memoryExchanges{}
+			conductor := newTestConductor(store, voice, nil, 10)
+			asker := Party{Role: domain.RoleProductManager, Agent: "product-manager", Conversation: "chat-" + strings.Repeat("c", 32)}
+			first, err := conductor.Put(context.Background(), Ask{Role: domain.RoleArchitect, Question: "First question?"}, asker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = conductor.Put(context.Background(), Ask{Role: domain.RoleArchitect, Exchange: first.ID, Question: "Next question?"}, asker)
+			if err == nil {
+				t.Fatal("expected failed endpoint")
+			}
+			saved, err := store.Load(first.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.AnswererSessionID != "" {
+				t.Fatalf("retained foreign session %q", saved.AnswererSessionID)
+			}
+		})
+	}
+}
+
+type sessionChangingVoice func(context.Context, Question) (Spoken, error)
+
+func (v sessionChangingVoice) Answer(ctx context.Context, q Question) (Spoken, error) {
+	return v(ctx, q)
 }

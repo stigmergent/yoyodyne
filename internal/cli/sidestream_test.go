@@ -174,7 +174,9 @@ func TestTheSideVoiceReportsWhatServedTheTurnEvenWhenItFailed(t *testing.T) {
 				productID:  "yoyodyne",
 				stateRoot:  t.TempDir(),
 			}
-			spoken, err := voice.Answer(context.Background(), testSideQuestion())
+			question := testSideQuestion()
+			question.SessionAccountAlias = "research"
+			spoken, err := voice.Answer(context.Background(), question)
 			switch {
 			case test.wantErr == "" && err != nil:
 				t.Fatalf("Answer() error = %v", err)
@@ -213,10 +215,10 @@ func TestASideTurnWithNobodyToAskIsRefused(t *testing.T) {
 
 	elsewhere := answeringConfig()
 	architect := elsewhere.Agents["architect"]
-	architect.Backend = domain.BackendCodex
+	architect.Backend = domain.Backend("unknown-provider")
 	elsewhere.Agents["architect"] = architect
 	if _, err := (sideVoice{config: elsewhere, productID: "yoyodyne"}).Answer(context.Background(), question); err == nil ||
-		!strings.Contains(err.Error(), "requires a claude-code agent") {
+		!strings.Contains(err.Error(), "unknown-provider") {
 		t.Fatalf("Answer() on another backend error = %v, want it refused", err)
 	}
 }
@@ -305,17 +307,19 @@ func TestASideTurnRefusedForCapacityIsWrittenDown(t *testing.T) {
 
 func testSideQuestion() sidestream.Question {
 	return sidestream.Question{
-		StreamID:     "side-" + strings.Repeat("a", 32),
-		Role:         domain.RoleArchitect,
-		Agent:        "architect",
-		Conversation: "chat-" + strings.Repeat("b", 32),
-		Topic:        "whether the intake hold covers work an operator named",
-		Turn:         2,
-		MaxTurns:     8,
-		Question:     "does the intake hold cover work the operator named?",
-		SessionID:    "session-side-1",
-		LastSequence: 2,
-		Events:       func(execution.Event) error { return nil },
+		StreamID:            "side-" + strings.Repeat("a", 32),
+		Role:                domain.RoleArchitect,
+		Agent:               "architect",
+		Conversation:        "chat-" + strings.Repeat("b", 32),
+		Topic:               "whether the intake hold covers work an operator named",
+		Turn:                2,
+		MaxTurns:            8,
+		Question:            "does the intake hold cover work the operator named?",
+		SessionID:           "session-side-1",
+		SessionBackend:      domain.BackendClaudeCode,
+		SessionAccountAlias: config.DefaultAccountAlias,
+		LastSequence:        2,
+		Events:              func(execution.Event) error { return nil },
 	}
 }
 

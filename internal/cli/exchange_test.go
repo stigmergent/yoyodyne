@@ -291,7 +291,7 @@ func TestAnAnsweringRoundIsRefusedWhereThereIsNobodyToAsk(t *testing.T) {
 
 	elsewhere := answeringConfig()
 	elsewhere.Agents["architect"] = config.AgentConfig{
-		Role: domain.RoleArchitect, Backend: domain.Backend("codex"), Model: "o1",
+		Role: domain.RoleArchitect, Backend: domain.Backend("unknown-provider"), Model: "o1",
 	}
 	other := exchangeVoice{config: elsewhere, provider: provider, productID: "yoyodyne"}
 	if _, err := other.Answer(context.Background(), exchange.Question{
@@ -300,7 +300,7 @@ func TestAnAnsweringRoundIsRefusedWhereThereIsNobodyToAsk(t *testing.T) {
 		Asker:      domain.RoleProductManager,
 		Question:   "what does this cost?",
 	}); err == nil {
-		t.Fatal("an agent on another backend answered")
+		t.Fatal("an agent on an unknown backend answered")
 	}
 	if provider.calls != 0 {
 		t.Fatalf("a refused round still asked a provider %d time(s)", provider.calls)

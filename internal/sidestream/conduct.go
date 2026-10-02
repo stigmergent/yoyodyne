@@ -134,7 +134,9 @@ type Question struct {
 	Question string
 	// SessionID is the provider session this stream has been held in so far,
 	// empty on the first turn.
-	SessionID string
+	SessionID           string
+	SessionBackend      domain.Backend
+	SessionAccountAlias string
 	// LastSequence is where this stream's own event log has reached, and Events
 	// is where this invocation's events are recorded. Both are the stream's own:
 	// an event written into the main thread's log would be the interleaved
@@ -608,17 +610,19 @@ func (r Runner) speak(ctx context.Context, stream Stream, question string) (Spok
 		return nil
 	}
 	spoken, err := r.Voice.Answer(ctx, Question{
-		StreamID:     stream.ID,
-		Role:         stream.Role,
-		Agent:        stream.Agent,
-		Conversation: stream.Conversation,
-		Topic:        stream.Topic,
-		Turn:         stream.Turns,
-		MaxTurns:     stream.MaxTurns,
-		Question:     strings.TrimSpace(question),
-		SessionID:    stream.ProviderSessionID,
-		LastSequence: stream.LastSequence,
-		Events:       sink,
+		StreamID:            stream.ID,
+		Role:                stream.Role,
+		Agent:               stream.Agent,
+		Conversation:        stream.Conversation,
+		Topic:               stream.Topic,
+		Turn:                stream.Turns,
+		MaxTurns:            stream.MaxTurns,
+		Question:            strings.TrimSpace(question),
+		SessionID:           stream.ProviderSessionID,
+		SessionBackend:      stream.Backend,
+		SessionAccountAlias: stream.AccountAlias,
+		LastSequence:        stream.LastSequence,
+		Events:              sink,
 	})
 	if spoken.LastEvent > lastSequence {
 		lastSequence = spoken.LastEvent

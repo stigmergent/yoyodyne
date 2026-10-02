@@ -30,11 +30,18 @@ product:
   # and reviewer is handed them beside the work item it is given. A README here
   # is read as the directory index it is, and what it says about ownership as a
   # rule. Beside them, and labeled as a description of what is built rather than
-  # as intent, the Lead Product Manager is also given the README, a fixed set of
-  # operator-facing documents under docs/, and the help the commands print -- not
+  # as intent, the Lead Product Manager is also given the configured set of
+  # operator-facing documents below and the help the commands print -- not
   # this file, not the source, not the design document. It must stay inside the
   # repository.
   specifications: docs/product
+  # Codex exec caps one input at 1,048,576 characters. Keep the descriptive
+  # briefing compact; authoritative intent and role-owned artifacts are still
+  # delivered separately, and read-only tools can inspect the remaining docs.
+  shipped_documentation:
+    - README.md
+    - docs/work.md
+    - docs/provider-plugins.md
   # The architect's durable architectural invariants: one Markdown file per
   # constraint, named by its id. The harness delivers the ones relevant to a
   # work item into the developer's context and the reviewer's evidence. A
@@ -86,7 +93,10 @@ slack:
 # "file" names <state root>/products/yoyodyne/dashboard.token, a machine-local
 # file outside the repository; this line is the reference, never the token.
 services:
+  slack:
+    enabled: true
   dashboard:
+    enabled: true
     token: file
 
 execution:
@@ -305,39 +315,23 @@ checks:
 # default; an exact identifier such as claude-opus-5 pins a version. Persona
 # paths are relative to this .yoyodyne directory and must be Markdown inside it.
 # Delete an agent to remove it, edit one to change it.
+# Operator-directed recovery, 2026-10-02: Claude capacity is exhausted. Route all
+# roles through Codex because cross-provider failover does not yet cover run
+# invocations or inter-role exchanges. The adapter enforces each role's access.
 agents:
   architect:
     role: architect
-    backend: claude-code
-    # The judgment model, per the operator's decision 2026-08-19: the
-    # architect's decisions bind everything downstream, which is where
-    # judgment pays. Same rule as the product and development managers.
-    model: fable
-    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
-    # Served by opus while fable has no capacity, at the operator's direction of
-    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
-    # and every management role stopped. Back on fable once it has capacity.
-    failover:
-      enabled: true
-      model: opus
+    backend: codex
+    model: gpt-6.1-sol
     instances: 1
     persona:
       version: v2
       path: personas/architect.md
   developer:
     role: developer
-    backend: claude-code
-    model: opus
-    effort: medium  # Claude Code's own default for opus, pinned so it is stated (operator, 2026-09-27)
-    # Served by Codex while opus has no capacity, at the operator's direction of
-    # 2026-10-01. Codex can serve only the developer role (its sandbox cannot hold
-    # the other roles' tool access), and an agent has one alternate.
-    failover:
-      enabled: true
-      model: gpt-6.1-sol
-      provider: codex
-    # One instance per developer slot, because the capacity rule refuses a
-    # limit the instances cannot supply; two with max_concurrent_developers: 2.
+    backend: codex
+    model: gpt-6.1-sol
+    # One instance per configured developer slot.
     instances: 2
     persona:
       version: v2
@@ -347,15 +341,8 @@ agents:
   # docs/designs/program-manager.md; its passes fire on the triggers below.
   factory-flow-pm:
     role: program-manager
-    backend: claude-code
-    model: fable
-    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
-    # Served by opus while fable has no capacity, at the operator's direction of
-    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
-    # and every management role stopped. Back on fable once it has capacity.
-    failover:
-      enabled: true
-      model: opus
+    backend: codex
+    model: gpt-6.1-sol
     instances: 1
     persona:
       version: v3
@@ -374,45 +361,24 @@ agents:
       on: [admissions, stoppages]
   development-manager:
     role: development-manager
-    backend: claude-code
-    # The judgment model, per the operator's decision when the hierarchy was
-    # planned: the decision-owning roles run on Fable. Same reasoning as the
-    # product manager below.
-    model: fable
-    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
-    # Served by opus while fable has no capacity, at the operator's direction of
-    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
-    # and every management role stopped. Back on fable once it has capacity.
-    failover:
-      enabled: true
-      model: opus
+    backend: codex
+    model: gpt-6.1-sol
     instances: 1
     persona:
       version: v2
       path: personas/development-manager.md
   product-manager:
     role: product-manager
-    backend: claude-code
-    # The judgment model for the decision-owning role: one bad ordering or
-    # decomposition costs more than a session of conversation turns. The
-    # family alias floats; run evidence records what the provider served.
-    model: fable
-    effort: high  # Claude Code's own default for fable, pinned so it is stated (operator, 2026-09-27)
-    # Served by opus while fable has no capacity, at the operator's direction of
-    # 2026-09-29, when fable's seven-day window closed until Oct 3 8 PM Pacific
-    # and every management role stopped. Back on fable once it has capacity.
-    failover:
-      enabled: true
-      model: opus
+    backend: codex
+    model: gpt-6.1-sol
     instances: 1
     persona:
       version: v2
       path: personas/product-manager.md
   reviewer:
     role: reviewer
-    backend: claude-code
-    model: opus
-    effort: medium  # Claude Code's own default for opus, pinned so it is stated (operator, 2026-09-27)
+    backend: codex
+    model: gpt-6.1-sol
     # Raised 1->2 alongside max_concurrent_developers: 3 so reviews don't
     # queue behind one instance when the slots fill (operator, 2026-09-04).
     instances: 2

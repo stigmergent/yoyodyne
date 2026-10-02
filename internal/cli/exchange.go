@@ -5,8 +5,8 @@ package cli
 //
 // Both halves are here because both are the harness's rather than any role's.
 // The voice below starts the provider that answers, under a prompt that gives it
-// no tools and no authority; the command above reads the durable threads. What
-// makes the channel safe to have at all is that neither role reaches either one.
+// read-only access and no action authority; the command above reads the durable
+// threads. What makes the channel safe to have at all is that neither role reaches either one.
 
 import (
 	"context"
@@ -31,8 +31,8 @@ import (
 
 // exchangeAnswerTimeout bounds one answering invocation. It is shorter than a
 // conversation turn's because an exchange round is one question answered in
-// prose with nothing to look up: a round still running past this is one the
-// asking conversation is waiting on for no reason it can see.
+// prose with optional read-only inspection. A round still running past this leaves
+// the asking conversation waiting for no reason it can see.
 const exchangeAnswerTimeout = 5 * time.Minute
 
 func runExchange(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -147,7 +147,7 @@ func exchangeStore(configPath string) (*runstate.ExchangeStore, string, error) {
 	return store, string(resolved.Config.Product.ID), nil
 }
 
-// exchangeVoice is the answering half of the channel: one toolless provider
+// exchangeVoice is the answering half of the channel: one read-only provider
 // invocation per round, under the answering role's identity and the harness's
 // own boundary.
 //
@@ -158,7 +158,8 @@ func exchangeStore(configPath string) (*runstate.ExchangeStore, string, error) {
 // nobody to ask.
 type exchangeVoice struct {
 	config     config.Config
-	provider   chat.Backend
+	provider   chat.Backend // injected by tests that do not exercise adapter construction
+	runner     execution.ProcessRunner
 	repository string
 	// usageLimits is where a provider refusing this round for want of capacity is
 	// written down. An answering round has no run to park and no conversation of
@@ -206,10 +207,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		return exchange.Spoken{}, fmt.Errorf("no %s agent is configured, so there is nobody to ask", question.Role)
 	}
 	agent := v.config.Agents[name]
-	if agent.Backend != domain.BackendClaudeCode {
-		return exchange.Spoken{}, fmt.Errorf("an exchange requires a claude-code agent, and the %s agent %s is configured for %q",
-			question.Role, name, agent.Backend)
-	}
+
 	prompt := execution.NewRedactor(v.redactValues...).Redact(renderQuestion(question))
 	// The round is answered on the endpoint the answering agent is configured for,
 	// under the account its conversation is held under: an exchange is that role
@@ -224,7 +222,19 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 	if err != nil {
 		return exchange.Spoken{}, fmt.Errorf("resolve the endpoint the %s agent %s answers on: %w", question.Role, name, err)
 	}
+	if err := providers.EligibleFor(choice.Endpoint, question.Role); err != nil {
+		return exchange.Spoken{}, fmt.Errorf("the %s agent %s cannot answer on its configured endpoint: %w", question.Role, name, err)
+	}
 	account := choice.Account
+	if question.SessionBackend != choice.Endpoint.Provider || question.SessionAccountAlias != account.Alias {
+		// Every prompt carries the earlier rounds, so a new endpoint rebuilds
+		// from the record instead of receiving another endpoint's session ID.
+		question.SessionID = ""
+	}
+	answeringProvider := v.provider
+	if v.runner != nil {
+		answeringProvider = providerBackendIn(v.config, choice.Endpoint.Provider, v.runner, account.Directory)
+	}
 	// The round goes through the meter, so what it spends is one line in the cost
 	// log beside every other provider invocation the harness makes, charged to
 	// the exchange because that is the only record it belongs to.
@@ -234,7 +244,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 	// no single account, and a cost line naming none is a line nothing can
 	// attribute.
 	provider := spend.Metered{
-		Provider: v.provider,
+		Provider: answeringProvider,
 		Log:      v.spend,
 		Attribution: spend.Attribution{
 			ProductID:      v.productID,
@@ -265,8 +275,8 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		Model:            agent.Model,
 		// The agent's effort level, kept by whichever model serves the turn.
 		Effort: strings.TrimSpace(agent.Effort),
-		// No tools at all, exactly as a conversation gets none. What separates this
-		// from a conversation is only that there is no authority behind it either.
+		// The adapter enforces the role's read-only access, as on its main
+		// conversation. The answering reply carries no authority to act.
 		AllowedTools:     []string{},
 		Timeout:          exchangeAnswerTimeout,
 		RedactValues:     v.redactValues,
@@ -435,7 +445,7 @@ func renderQuestion(question exchange.Question) string {
 // for the roles that may ask is the same decision the triage budgets are wired
 // by: a capability a role has no authority for is not one its conversation
 // should be able to reach at all.
-func conversationExchanges(parts components, role domain.AgentRole, provider chat.Backend) chat.Exchanges {
+func conversationExchanges(parts components, role domain.AgentRole, provider chat.Backend, runner execution.ProcessRunner) chat.Exchanges {
 	authority, known := chat.AuthorityFor(role)
 	if !known || !authority.Asks {
 		return nil
@@ -456,6 +466,7 @@ func conversationExchanges(parts components, role domain.AgentRole, provider cha
 		Voice: exchangeVoice{
 			config:       parts.config,
 			provider:     provider,
+			runner:       runner,
 			repository:   parts.repository,
 			usageLimits:  parts.usageLimits,
 			spend:        parts.spend,
@@ -487,8 +498,8 @@ Options:
 An exchange is one role asking another something through the harness: the
 Lead Product Manager asking the architect what a goal costs, the architect
 asking the Lead Product Manager whether a trade-off is one a user would accept.
-It moves opinion and never evidence -- both sides are toolless -- and it carries
-no authority, so nothing in one admits work, orders a backlog, or edits a
+It carries advice, not validation results, and grants no authority, so nothing
+in one admits work, orders a backlog, or edits a
 document. It is recorded so that two roles can never say anything to each other
 that you cannot read afterwards, with what each one cost beside the rounds it
 took.
