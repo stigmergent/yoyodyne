@@ -37,6 +37,55 @@ that validates and can never run.
 This document is what a provider plugin is, what it may and may not decide, and
 how one is written.
 
+## Executable setup and precedence
+
+Interactive role chats, scheduled turns, developer and reviewer runs, and
+cross-provider fallback use the same executable selection. Configure every
+provider that can serve a turn, including an agent's fallback provider.
+
+1. `providers.<backend>.binary`, when set, selects that executable. An absolute
+   path works independently of the terminal or scheduler's PATH. A bare name is
+   looked up on the harness process's PATH; a relative path is resolved from the
+   harness's current directory. Use absolute paths for scheduled execution.
+2. Without an override, the compiled adapter looks for `codex` or `claude` on
+   that process's PATH. The child's account environment does not change lookup.
+
+An override that is missing or not executable fails with a setup remedy; yoyo
+does not silently select a different installation. The adapter retains the
+absolute path it resolved successfully for availability, authentication, launch
+and resume. Restart the conversation or service after changing configuration or
+moving an installation. Discovery does not establish authentication: the CLI's
+own login check still runs in the configured account's provider home.
+
+For the built-in providers, only `binary` may be specified under `providers`.
+Their adapter, capabilities, dialect and sandbox restrictions remain compiled in:
+
+```yaml
+providers:
+  codex:
+    binary: "/absolute/path/to/Desktop App.app/Contents/Resources/codex-cli/bin/codex"
+  claude-code:
+    binary: "/absolute/path/to/claude"
+```
+
+The desktop path above illustrates an installation you locate yourself. Yoyo
+does not scan application bundles or assume an application name or install
+directory. Put the actual executable path in `.yoyodyne/config.yaml`, omit any
+provider already installed on the harness's PATH, and keep machine-specific
+paths out of shared configuration unless collaborators use that location too.
+For a ChatGPT desktop installation, use the bundled `codex` executable's full
+path. Quote paths with spaces in YAML and when running shell commands; neither
+shell expansion nor arguments are accepted in `binary`.
+
+Run `"/absolute/path/to/codex" --version` and
+`"/absolute/path/to/codex" login` (or the account-home login command from
+`yoyo doctor`), then run `yoyo doctor` from the terminal that starts yoyo.
+`yoyo agent chat architect` and configured fallback turns now use that same
+installation without a per-command PATH prefix. Restart a running product with
+`yoyo stop` followed by `yoyo start` to load the configuration for scheduled
+turns. A normal PATH installation also works; ensure the service's launch
+environment includes its directory.
+
 ## What yoyo needs from a provider
 
 Not very much, and deliberately so. A provider says a great many things while a
@@ -267,7 +316,7 @@ the backend identifier your agents will name. See
 providers:
   my-harness:
     # Which compiled adapter launches it and reads its stream. Required, and
-    # `claude-code` is the only one this build ships.
+    # This build ships `claude-code` and `codex` adapters.
     adapter: claude-code
     # The executable that adapter runs. Omit it for the adapter's own.
     binary: my-harness
