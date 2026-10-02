@@ -1129,7 +1129,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		// making, and the rest are owed the rest of the step they stopped short of.
 		// Nothing reaches here while the hold or the dependency is still in force,
 		// so a run carrying one is a run whose reason to wait has gone.
-		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !(p.automatic() && resumableRepair(inFlight)) {
+		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !(p.automatic() && resumableRepair(inFlight)) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
 		inFlight, err = p.reclaimSlot(ctx, inFlight)
@@ -1541,8 +1541,9 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 	// and carried on, and a fresh run can satisfy none of them.
 	//
 	// A fourth is a run the check stage bound stopped, put back at its checks by
-	// the harness: it is re-entered at that step on the change it already has,
-	// which is what the continuation recorded on it says it is owed.
+	// the harness, automatically or by a decided repair: it is re-entered at
+	// that step on the change it already has, which is what the continuation
+	// recorded on it says it is owed.
 	if !resumableRepair(inFlight) && !resumableIntegration(inFlight) && !pausedForUsageLimit(inFlight) && !continuedAtCheckStage(inFlight) {
 		return Outcome{}, ContinuationMismatchError{
 			WorkItemID: workItemID,
@@ -7668,17 +7669,18 @@ func resumableRepair(state runstate.State) bool {
 	}
 }
 
-// continuedAtCheckStage reports an in-flight run the harness put back at its
-// checks after execution.check_stage_timeout stopped the stage: running, at the
-// checking phase, with a continuation on its record saying the harness put it
-// there on purpose, and with the worktree, branch, and developer session its
-// change and its review need. A run at the checks with none is one a process
-// died in, and that is the sweep's to settle rather than this path's to adopt.
+// continuedAtCheckStage reports an in-flight run put back at its checks after
+// execution.check_stage_timeout stopped the stage, either automatically or by
+// a decided repair: running, at the checking phase, with a continuation on its
+// record saying it was put there on purpose, and with the worktree, branch, and
+// developer session its change and its review need. A run at the checks with
+// none is one a process died in, and that is the sweep's to settle rather than
+// this path's to adopt.
 func continuedAtCheckStage(state runstate.State) bool {
 	if state.Status != runstate.StatusRunning || state.Phase != runstate.PhaseChecking {
 		return false
 	}
-	if len(state.CheckStageContinuations) == 0 {
+	if len(state.CheckStageContinuations) == 0 && !state.ContinuedCheckStage() {
 		return false
 	}
 	if state.WorktreePath == "" || state.Branch == "" || state.BaseCommit == "" || state.TargetBranch == "" {

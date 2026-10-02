@@ -3801,6 +3801,13 @@ func (s State) ContinuedStall() bool {
 	return last >= 0 && s.RepairContinuations[last].Stall
 }
 
+// ContinuedCheckStage reports the latest decided repair continuing the checks
+// the stage bound stopped, without charging another developer attempt.
+func (s State) ContinuedCheckStage() bool {
+	last := len(s.RepairContinuations) - 1
+	return last >= 0 && s.RepairContinuations[last].CheckStage
+}
+
 // ReturnGrantedRound gives back the granted repair round the most recent
 // continuation consumed, and reports whether there was one to give back. It is
 // the run's half of settling an environmental round: the item's own record keeps
