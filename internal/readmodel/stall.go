@@ -146,6 +146,12 @@ type Stall struct {
 // Stopped reports whether anything at all is stopping the choosing.
 func (s Stall) Stopped() bool { return s.Reason != "" }
 
+// Whose is the registry's answer for the stall's recorded cause, including a
+// provider login that lapsed rather than a network that will return on its own.
+func (s Stall) Whose() string {
+	return resolved(Attention{Kind: AttentionStall, ID: string(s.Reason), Stall: &s}).Whose()
+}
+
 // intakeClause is the one clause every surface here says about a held intake,
 // which is the hold's own account of itself: who placed it and why, and — for
 // a hold the brake is working itself — what the harness does about it next.
@@ -187,13 +193,9 @@ func (s Stall) Refusal() string {
 func (s Stall) Waiting() (Attention, bool) {
 	switch s.Reason {
 	case ReasonSessionIdle, ReasonNoWatchSession, ReasonProviderAway, ReasonDivergedTarget:
-		// All three are the operator's: the two session states because a queue
-		// with ready work and nothing pulling it is a stall rather than a rest,
-		// and the provider answering nobody because it is waiting on a person in
-		// the one way a window is not — it is the wait the attention line exists
-		// for, and the only thing that fired on it in September was a brake
-		// naming the wrong remedy. Reason.Whose words the same three the same
-		// way, and a test holds the two together.
+		// The registry reads the cause: the session states are the harness's,
+		// an expired login and diverged histories are the operator's, and the
+		// provider answering again clears a network outage on its own.
 		stall := s
 		return resolved(Attention{Kind: AttentionStall, ID: string(s.Reason), Stall: &stall}), true
 	default:

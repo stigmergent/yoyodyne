@@ -1444,7 +1444,8 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		// Said to the operator directly only where the ownership registry says
 		// the finding is his; one it resolves to a role is said in the item's
 		// thread with that role named as whose it is.
-		his := action.Owner().IsOperator()
+		entry := action.Attention()
+		his := entry.Mover.IsOperator()
 		notification, err := notify.FromOperatorAction(notify.OperatorAction{
 			WorkItemID: action.WorkItemID,
 			RunID:      action.RunID,
@@ -1452,7 +1453,7 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 			RecordedIn: action.RecordedIn,
 			FoundBy:    action.FoundBy,
 			Ends:       action.Ends,
-			Mover:      action.Whose(),
+			Mover:      entry.Whose(),
 			Since:      action.Since,
 		})
 		if err != nil {

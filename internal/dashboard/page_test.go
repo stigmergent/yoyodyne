@@ -680,7 +680,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"admitted items not startable now",
 			"of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1; and 3 ready, waiting for a developer slot; 3 slots, all taken",
 			`<span class="stage-unit">3 ready, waiting for a developer slot; 3 slots, all taken</span>`,
-			"Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one. Needs a human:",
+			"Nothing here is the operator's: the ownership registry assigns each waiting group to a role, the harness, or nobody. Needs a human:",
 			// What waits on a person, counted per mover in the model's order: the
 			// operator's is the figure, and each role's and the harness's are
 			// beside it, out of the whole the terminal prints. The label opens
@@ -713,7 +713,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 		},
 		"held": {
-			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage window until 18:50Z (most)", "next: the harness asks again when the provider's usage window lifts; whose: nobody's", "Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
+			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage window until 18:50Z (most)", "next: the harness asks again when the provider's usage window lifts; whose: nobody's", "Nothing here is the operator's: the ownership registry assigns each waiting group to a role, the harness, or nobody", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
 			// One thing waiting, and it is the harness's — the capacity hold, as
 			// the ownership registry gives it — so the operator's figure is zero
 			// and the breakdown names whose it is.

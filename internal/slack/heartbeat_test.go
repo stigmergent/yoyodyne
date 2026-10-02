@@ -9,11 +9,24 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+func TestLineMoverCarriesTheProvidersRecordedOutageCause(t *testing.T) {
+	t.Parallel()
+	for _, cause := range []domain.ProviderOutageCause{domain.ProviderUnauthenticated, domain.ProviderUnreachable} {
+		state := readmodel.Stall{Reason: readmodel.ReasonProviderAway, OutageCause: cause}
+		got := lineMover(state, switches{})
+		want := readmodel.OutageWhose(runstate.ProviderOutage{Cause: cause})
+		if got != want {
+			t.Errorf("%s: line mover = %q, want the outage's resolved answer %q", cause, got, want)
+		}
+	}
+}
 
 // The overnight this exists for: intake held at two minutes past midnight, a
 // watch session that reached its budget and stopped, and ten hours in which the

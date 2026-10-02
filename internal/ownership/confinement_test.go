@@ -65,7 +65,7 @@ func TestTheOperatorsMoverIsNamedOnlyInTheOwnershipPackage(t *testing.T) {
 func operatorUses(t *testing.T, root, path string) []string {
 	t.Helper()
 	fileSet := token.NewFileSet()
-	file, err := parser.ParseFile(fileSet, path, nil, 0)
+	file, err := parser.ParseFile(fileSet, path, nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
@@ -94,8 +94,18 @@ func operatorUses(t *testing.T, root, path string) []string {
 				say(n, pkg.Name+".Operator")
 			}
 		case *ast.Ident:
-			if n.Name == "MoverOperator" {
-				say(n, "MoverOperator")
+			if n.Name == "MoverOperator" || (aliases["."] && n.Name == "Operator") {
+				say(n, n.Name)
+			}
+		case *ast.ValueSpec:
+			if namesMover(n.Type) {
+				for _, value := range n.Values {
+					if literal, ok := value.(*ast.BasicLit); ok && literal.Kind == token.STRING {
+						if value, _ := strconv.Unquote(literal.Value); value == string(Operator) {
+							say(n, "a mover initialized to \"operator\"")
+						}
+					}
+				}
 			}
 		case *ast.CallExpr:
 			if len(n.Args) != 1 || !namesMover(n.Fun) {
@@ -110,6 +120,23 @@ func operatorUses(t *testing.T, root, path string) []string {
 		return true
 	})
 	return found
+}
+
+func TestTheConfinementScanFindsDotImportsAndTypedLiterals(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "surface.go")
+	source := `package surface
+import . "` + ownershipImport + `"
+var a = Operator
+var b Mover = "operator"
+const c Mover = "operator"
+`
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if found := operatorUses(t, dir, path); len(found) != 3 {
+		t.Errorf("the scan found %d uses, want 3: %v", len(found), found)
+	}
 }
 
 // namesMover reports a conversion's target that is the mover type: Mover, or

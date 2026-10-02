@@ -106,6 +106,8 @@ type Entry struct {
 	Stopped          *runstate.State
 	Found            *triage.Found
 	AwaitingCarryOut bool
+	// Recovery is the recorded act that clears a stalled target or session.
+	Recovery string
 }
 
 // Publication is how a promotion stands on the forge, as its rule reads it.
@@ -176,7 +178,7 @@ func Resolve(entry Entry) Resolution {
 	if !classified {
 		return Unclassified()
 	}
-	if resolved.Owner.IsOperator() != resolved.Reason.Valid() || !resolved.Owner.Valid() {
+	if !resolved.Owner.Valid() || (resolved.Owner.IsOperator() && !resolved.Reason.Valid()) || (!resolved.Owner.IsOperator() && resolved.Reason != "") {
 		return Unclassified()
 	}
 	return resolved
@@ -425,17 +427,30 @@ func heldWorkRule(e Entry) (Resolution, bool) {
 	case "":
 		return heldWait(e.Held)
 	case backlog.HeldForAPerson:
-		return heldWait(e.Held)
+		switch e.Held {
+		case HeldAwaitingDecision:
+			return owned(DevelopmentManager, "she decides what becomes of each stopped run: a repair, a re-run, a wait, a re-scope, or an escalation", "yoyo triage")
+		case HeldAwaitingCarryOut:
+			return owned(Harness, "the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull", "yoyo triage")
+		}
+		return Resolution{}, false
 	case backlog.HeldByDirective:
-		return directiveRule(e)
+		return owned(ProductManager, "the Lead Product Manager ends it or carries it into a document or an item, `yoyo directive resolve` settles it, and the work it pauses is pulled", "yoyo directive resolve")
 	case backlog.HeldForAGate:
 		return operators(ReasonHumanGate, "the operator records each act with `yoyo gate record <name> --for <item>`, and closing an item never passes one; a declaration nothing could read waits on its author correcting it", "yoyo gate record")
 	case backlog.HeldByStall:
-		return stallRule(e)
+		answer, classified := stallRule(e)
+		if classified && e.Recovery != "" {
+			answer.Remedy = e.Recovery
+		}
+		return answer, classified
 	case backlog.HeldWaitingOn:
 		return owned(Harness, "the harness pulls each once the work it waits on lands", "the watch session")
 	case backlog.HeldByConversation:
-		return carriedItemRule(e)
+		if !e.Role.Valid() {
+			return Resolution{}, false
+		}
+		return owned(MoverOf(e.Role), "the role does the work in its conversation, and the harness closes each item when the role's revision lands", "the role's conversation")
 	case backlog.HeldParked:
 		return owned(ProductManager, "she releases each once what it was parked for is settled", "the backlog order")
 	case backlog.HeldCovered:

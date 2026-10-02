@@ -146,13 +146,15 @@ func all(shapes ...func(*http.Request)) func(*http.Request) {
 // standingWith is a read model carrying the given text in every place a value
 // a person wrote can reach: a title, a refusal, and an attention entry.
 func standingWith(text string) readmodel.Standing {
+	answer := ownership.Resolve(ownership.Entry{Kind: ownership.KindDirective})
 	return readmodel.Standing{
 		ObservedAt:   time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
 		Running:      []readmodel.RunningRun{},
 		Working:      []readmodel.WorkingTurn{},
 		NotStartable: []readmodel.Refused{{WorkItemID: "yoyodyne-ifd.1", Title: text, Reason: text}},
 		NeedsHuman: []readmodel.Attention{{
-			Kind: readmodel.AttentionDirective, ID: "directive-1", Mover: ownership.Operator,
+			Kind: readmodel.AttentionDirective, ID: "directive-1", Mover: answer.Owner,
+			OwnerReason: answer.Reason, Remedy: answer.Remedy, Capability: answer.Capability,
 			Directive: &directive.Directive{ID: "directive-1", Text: text, Unresolved: text},
 		}},
 	}

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -69,6 +71,21 @@ func TestAnUnclassifiableEntryIsTheLeadProductManagersToClassify(t *testing.T) {
 	} {
 		if entry.Mover != MoverProductManager || entry.Remedy != "classify this entry" {
 			t.Errorf("%s %s: %s %q, want the Lead Product Manager's and \"classify this entry\"", entry.Kind, entry.ID, entry.Mover, entry.Remedy)
+		}
+	}
+}
+
+// Held groups carry the whole answer too: their next step is the registry's
+// remedy, and nothing composes that step beside the registry.
+func TestHeldGroupsCarryTheRegistrysWholeAnswer(t *testing.T) {
+	t.Parallel()
+	groups := newWaitGroups(Stall{Reason: ReasonDivergedTarget, Clears: "settle the diverged histories"}, switches{})
+	entry := backlog.Entry{ID: "item", Executor: domain.ConversationWith(domain.RoleArchitect)}
+	for _, kind := range []backlog.HoldKind{backlog.HeldForAPerson, backlog.HeldByDirective, backlog.HeldForAGate, backlog.HeldByStall, backlog.HeldWaitingOn, backlog.HeldByConversation, backlog.HeldParked, backlog.HeldCovered, backlog.HeldUnread} {
+		group := groups.shape(entry, kind)
+		answer := ownership.Resolve(groups.ownershipEntry(entry, group))
+		if group.Mover != answer.Owner || group.OwnerReason != answer.Reason || group.Next != answer.Remedy || group.Capability != answer.Capability {
+			t.Errorf("%s: group = %+v, want ownership %+v", kind, group, answer)
 		}
 	}
 }

@@ -75,8 +75,10 @@ type WaitGroup struct {
 	// decision", "waits on" for one.
 	WaitsOn string `json:"waits_on"`
 	// Next is the next step, and Mover whose it is.
-	Next  string `json:"next"`
-	Mover Mover  `json:"mover"`
+	Next        string           `json:"next"`
+	Mover       Mover            `json:"mover"`
+	OwnerReason ownership.Reason `json:"owner_reason,omitempty"`
+	Capability  string           `json:"capability,omitempty"`
 	// Items names the items in the group, in the Lead Product Manager's order.
 	Items []WorkItemRef `json:"items"`
 }
@@ -84,7 +86,11 @@ type WaitGroup struct {
 // Says is the group as one line prints it: the count, what it waits on, the
 // next step, and whose it is.
 func (g WaitGroup) Says() string {
-	return fmt.Sprintf("%s — next: %s; whose: %s", g.counted(), g.Next, g.Mover.Possessive())
+	said := fmt.Sprintf("%s — next: %s; whose: %s", g.counted(), g.Next, g.Mover.Possessive())
+	if reason := g.OwnerReason.Says(); reason != "" {
+		said += " (his because it is " + reason + ")"
+	}
+	return said
 }
 
 // counted is the count and what it waits on.
@@ -154,7 +160,8 @@ func (w *waitGroups) add(entry backlog.Entry, kind backlog.HoldKind) {
 // resolved by the ownership registry, as the held work the group is.
 func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup {
 	group := w.said(entry, kind)
-	group.Mover = ownership.Resolve(w.ownershipEntry(entry, group)).Owner
+	answer := ownership.Resolve(w.ownershipEntry(entry, group))
+	group.Mover, group.OwnerReason, group.Next, group.Capability = answer.Owner, answer.Reason, answer.Remedy, answer.Capability
 	return group
 }
 
@@ -169,6 +176,7 @@ func (w *waitGroups) ownershipEntry(entry backlog.Entry, group WaitGroup) owners
 		Role:        entry.Executor.Role(),
 		StallReason: w.stall.Reason,
 		OutageCause: w.stall.OutageCause,
+		Recovery:    w.stall.Clears,
 	}
 	if w.held.intakeHeld {
 		intake := w.held.intake
@@ -183,28 +191,22 @@ func (w *waitGroups) said(entry backlog.Entry, kind backlog.HoldKind) WaitGroup 
 	case backlog.HeldForAPerson:
 		if _, carryOut := entry.Awaits(); carryOut {
 			return WaitGroup{Kind: kind, Awaiting: HeldAwaitingCarryOut,
-				WaitsOn: "wait on the harness carrying out a decision already recorded",
-				Next:    "the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull"}
+				WaitsOn: "wait on the harness carrying out a decision already recorded"}
 		}
 		return WaitGroup{Kind: kind, Awaiting: HeldAwaitingDecision,
-			WaitsOn: "wait on the development manager's decision about a stopped run",
-			Next:    "she decides what becomes of each stopped run: a repair, a re-run, a wait, a re-scope, or an escalation"}
+			WaitsOn: "wait on the development manager's decision about a stopped run"}
 	case backlog.HeldByDirective:
 		return WaitGroup{Kind: kind,
-			WaitsOn: "wait on an unresolved directive",
-			Next:    "the Lead Product Manager ends it or carries it into a document or an item, `yoyo directive resolve` settles it, and the work it pauses is pulled"}
+			WaitsOn: "wait on an unresolved directive"}
 	case backlog.HeldForAGate:
 		return WaitGroup{Kind: kind,
-			WaitsOn: "wait on a step only a person can take",
-			Next:    "the operator records each act with `yoyo gate record <name> --for <item>`, and closing an item never passes one; a declaration nothing could read waits on its author correcting it"}
+			WaitsOn: "wait on a step only a person can take"}
 	case backlog.HeldByStall:
 		return WaitGroup{Kind: kind,
-			WaitsOn: "are ready and nothing is choosing work: " + w.stall.Says,
-			Next:    stallNext(w.stall)}
+			WaitsOn: "are ready and nothing is choosing work: " + w.stall.Says}
 	case backlog.HeldWaitingOn:
 		return WaitGroup{Kind: kind,
-			WaitsOn: "wait on other items",
-			Next:    "the harness pulls each once the work it waits on lands"}
+			WaitsOn: "wait on other items"}
 	case backlog.HeldByConversation:
 		role := entry.Executor.Role()
 		carrier := "a role's conversation"
@@ -212,20 +214,16 @@ func (w *waitGroups) said(entry backlog.Entry, kind backlog.HoldKind) WaitGroup 
 			carrier = "the " + role.Title() + "'s conversation"
 		}
 		return WaitGroup{Kind: kind,
-			WaitsOn: "are done in " + carrier + ", not by a run",
-			Next:    "the role does the work in its conversation, and the harness closes each item when the role's revision lands"}
+			WaitsOn: "are done in " + carrier + ", not by a run"}
 	case backlog.HeldParked:
 		return WaitGroup{Kind: kind,
-			WaitsOn: "are parked by the " + domain.RoleProductManager.Title(),
-			Next:    "she releases each once what it was parked for is settled"}
+			WaitsOn: "are parked by the " + domain.RoleProductManager.Title()}
 	case backlog.HeldCovered:
 		return WaitGroup{Kind: kind,
-			WaitsOn: "are covered by other work: their own unfinished children",
-			Next:    "the harness runs the children; nothing pulls the covering item itself"}
+			WaitsOn: "are covered by other work: their own unfinished children"}
 	default:
 		return WaitGroup{Kind: kind,
-			WaitsOn: "are not offered by the tracker, and nothing here can say why",
-			Next:    "the refusal beside each item says what could not be read"}
+			WaitsOn: "are not offered by the tracker, and nothing here can say why"}
 	}
 }
 
@@ -250,35 +248,21 @@ func (w *waitGroups) list() []WaitGroup {
 	return listed
 }
 
-// stallNext is what ends a pass-level stall: the command that settles it where
-// one does, and otherwise what the reason's own attribution says settles it.
-func stallNext(stall Stall) string {
-	if stall.Clears != "" {
-		return stall.Clears
-	}
-	whose := stall.Reason.Whose()
-	if _, after, found := strings.Cut(whose, " — "); found {
-		return after
-	}
-	return whose
-}
-
 // ForOperator is the one sentence that says whether anything on the
 // not-startable line, or the dashboard section that shows it, is the
-// operator's. His rule of 2026-09-26 is that what is
-// his is a change to the fundamental goals; the sentence names the groups the
-// read model gives him, and says so plainly where there are none.
+// operator's. The sentence projects the groups the ownership registry gives
+// him, including each reason, and says so plainly where there are none.
 func ForOperator(groups []WaitGroup) string {
 	var his []string
 	items := 0
 	for _, group := range groups {
 		if group.Mover.IsOperator() {
-			his = append(his, group.counted())
+			his = append(his, group.counted()+" (his because it is "+group.OwnerReason.Says()+")")
 			items += group.Count
 		}
 	}
 	if len(his) == 0 {
-		return "nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one"
+		return "nothing here is the operator's: the ownership registry assigns each waiting group to a role, the harness, or nobody"
 	}
 	return fmt.Sprintf("%s here %s the operator's — %s; everything else is somebody else's to move",
 		count(items, "item"), isAre(items), strings.Join(his, "; "))

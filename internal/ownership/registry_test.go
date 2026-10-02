@@ -262,6 +262,12 @@ func TestResolveRefusesTheOperatorWithoutAReason(t *testing.T) {
 	if resolved := Resolve(Entry{Kind: KindReports}); resolved.Owner.IsOperator() {
 		t.Errorf("a rule naming the operator with a reason off the closed list resolved to him")
 	}
+	registry[KindReports] = func(Entry) (Resolution, bool) {
+		return Resolution{Owner: ProductManager, Reason: "because", Remedy: "read the pile"}, true
+	}
+	if resolved := Resolve(Entry{Kind: KindReports}); resolved.Remedy != RemedyClassify || resolved.Reason != "" {
+		t.Errorf("a rule assigning a reason to a role resolved to %+v; want it refused as unclassified", resolved)
+	}
 }
 
 func TestNamedInReadsOnlyALeadingClosedListReason(t *testing.T) {
@@ -313,5 +319,19 @@ func TestTheNamingFormNamesEveryReason(t *testing.T) {
 	// The remedy an unnamed handling carries tells her the form.
 	if remedy := Resolve(Entry{Kind: KindOperatorAction, Finding: FindingHandling, Account: "look at this"}).Remedy; !strings.Contains(remedy, NamingForm) {
 		t.Errorf("the remedy for a handling naming no reason is %q; want it to show the form", remedy)
+	}
+}
+
+// The reasons are the invariant's closed list, not a set a new rule extends.
+func TestOperatorReasonsStayOnTheClosedList(t *testing.T) {
+	want := []Reason{"fundamental-intent", "credential", "forge-setting", "beyond-grant", "human-gate", "own-hold", "diverged-history"}
+	got := Reasons()
+	if len(got) != len(want) {
+		t.Fatalf("reasons = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("reason %d = %q, want %q", i, got[i], want[i])
+		}
 	}
 }

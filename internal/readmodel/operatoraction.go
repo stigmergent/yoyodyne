@@ -295,14 +295,20 @@ func sortOperatorActions(actions []OperatorAction) {
 // message that reaches the operator carries as the move that follows. It is
 // the attention line's own Whose for the finding, so the two cannot disagree.
 func (a OperatorAction) Whose() string {
-	return operatorActionAttention(a).Whose()
+	return a.Attention().Whose()
+}
+
+// Attention is the finding with its resolved ownership, shared by surfaces
+// that need both its owner and its remedy.
+func (a OperatorAction) Attention() Attention {
+	return operatorActionAttention(a)
 }
 
 // Owner is whose the finding is, as the ownership registry resolves it: the
 // operator only for a reason on the closed list the account that raised it
 // names, and otherwise the role that settles it.
 func (a OperatorAction) Owner() Mover {
-	return operatorActionAttention(a).Mover
+	return a.Attention().Mover
 }
 
 // Says is the finding as the attention line names it: what it is about, what

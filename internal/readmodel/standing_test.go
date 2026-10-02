@@ -1156,7 +1156,7 @@ func TestReadyWorkBehindAFullMachineIsCountedApartFromNotStartable(t *testing.T)
 	for _, want := range []string{
 		"Not startable: nothing, of 1 admitted item\n",
 		"  - 1 ready, waiting for a developer slot; 1 slot, taken — not counted as not startable",
-		"  - nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one\n",
+		"  - nothing here is the operator's: the ownership registry assigns each waiting group to a role, the harness, or nobody\n",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered lacks %q:\n%s", want, rendered)
@@ -1412,7 +1412,7 @@ func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
 	droppedKinds := map[AttentionKind]int{}
 	for _, entry := range standing.NeedsHuman {
 		seen[entry.ID]++
-		if entry.Mover == MoverOperator {
+		if entry.Mover.IsOperator() {
 			t.Fatalf("harness work reached the operator: %+v", entry)
 		}
 		switch entry.ID {
