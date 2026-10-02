@@ -563,7 +563,8 @@ func TestConverseSurvivesAConcernItCannotRead(t *testing.T) {
 		"Something worries me here.",
 		"cannot read",
 		"unknown field",
-		"never reached the harness",
+		"[refused] yoyodyne-concern",
+		"Nothing in that block happened",
 		"It was about the marketplace item.",
 	} {
 		if !strings.Contains(transcript, required) {

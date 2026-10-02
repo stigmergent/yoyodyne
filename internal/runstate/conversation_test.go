@@ -47,6 +47,7 @@ func TestConversationStoreRoundTripsAcrossProcesses(t *testing.T) {
 	conversation.Build = "9870df6a1b2c3d4e5f60718293a4b5c6d7e8f900"
 	conversation.Turns = 1
 	conversation.PendingTrackerResults = "- t1.1: closed yoyodyne-2\n"
+	conversation.PendingBlockRefusals = "yoyodyne-memory was refused: invalid name\n"
 	// What the agent is reasoning from travels with the record, because the
 	// process that briefed it is usually not the one that resumes it: a resumed
 	// conversation that cannot say how old its picture is describes a repository
@@ -837,6 +838,11 @@ func TestConversationValidateRejectsIncoherentRecords(t *testing.T) {
 			mutate: func(c *Conversation) { c.PendingTrackerResults = strings.Repeat("x", MaxPendingTrackerResultBytes+1) },
 			want:   "pending tracker results are",
 		},
+		{
+			name:   "unbounded pending block refusals",
+			mutate: func(c *Conversation) { c.PendingBlockRefusals = strings.Repeat("x", MaxPendingTrackerResultBytes+1) },
+			want:   "pending block refusals are",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -1093,6 +1099,7 @@ func TestAConversationFullOfUndecidedProposalsStillSaves(t *testing.T) {
 		// And the rest of what the record carries at its own bounds, because the
 		// state file holds all of it at once or none of it.
 		PendingTrackerResults: strings.Repeat("r", MaxPendingTrackerResultBytes),
+		PendingBlockRefusals:  strings.Repeat("f", MaxPendingTrackerResultBytes),
 	}
 	for i := 0; i < MaxPendingProposals; i++ {
 		conversation.PendingProposals = append(conversation.PendingProposals, PendingProposal{

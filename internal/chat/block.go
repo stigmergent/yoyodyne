@@ -169,7 +169,9 @@ func (s *Session) recordBlockRefusal(reply *Reply, refusal BlockRefusal) error {
 	}); err != nil {
 		return fmt.Errorf("record the refused %s block: %w", refusal.Block, err)
 	}
-	return s.carryResults(fmt.Sprintf("# Refused reply block\n\nYour %s block was refused: %s\nNothing in that block happened. Other valid blocks were carried out; correct only the refused block.\n\n", refusal.Block, refusal.Problem))
+	message := fmt.Sprintf("# Refused reply block\n\nYour %s block was refused: %s\nNothing in that block happened. Other valid blocks were carried out; correct only the refused block.\n\n", refusal.Block, refusal.Problem)
+	s.state.PendingBlockRefusals = boundText(s.state.PendingBlockRefusals+message, maxPendingResultBytes)
+	return s.record()
 }
 
 // RefusalProblems is the account a scheduled pass keeps beside its decisions.
@@ -187,7 +189,7 @@ func (r Reply) RefusalProblems() string {
 
 func (s *Session) reportBlockRefusals(out io.Writer, reply Reply) {
 	for _, refusal := range reply.BlockRefusals {
-		fmt.Fprintf(out, "[refused] %s: %s\n\n", refusal.Block, refusal.Problem)
+		fmt.Fprintf(out, "[refused] %s: %s\nNothing in that block happened.\n\n", refusal.Block, refusal.Problem)
 	}
 }
 

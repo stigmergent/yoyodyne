@@ -1497,6 +1497,9 @@ func TestARefusedTrackerBlockIsCorrectedWithinTheSameMessage(t *testing.T) {
 		t.Fatalf("provider calls = %d, want the refused round, the hand-back, and the round after the actions", len(backend.requests))
 	}
 	handBack := backend.requests[1].Prompt
+	if strings.Count(handBack, "# The tracker block in your last reply was refused") != 1 {
+		t.Fatalf("the correction turn did not receive the refusal exactly once: %q", handBack)
+	}
 	for _, wanted := range []string{
 		reply.HandedBack[0],
 		"refused whole",
@@ -1516,6 +1519,9 @@ func TestARefusedTrackerBlockIsCorrectedWithinTheSameMessage(t *testing.T) {
 	}
 	if strings.Contains(recorded.PendingTrackerResults, "refused whole") {
 		t.Fatalf("the refusal is still carried for the next turn: %q", recorded.PendingTrackerResults)
+	}
+	if recorded.PendingBlockRefusals != "" {
+		t.Fatalf("the delivered refusal is still pending: %q", recorded.PendingBlockRefusals)
 	}
 	onlyEventPayload(t, root, session, execution.EventTrackerBlockRefused)
 	for _, event := range loadTestEvents(t, root, session) {

@@ -1680,7 +1680,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				return reply, parseProblem
 			}
 			reply.HandedBack = append(reply.HandedBack, refused.Error())
-			continuation += renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
+			continuation += continueAfterTrackerRefusal(maxTrackerRounds - trackerRounds)
 		}
 		if continuation == "" {
 			break
@@ -1729,7 +1729,13 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// A reply the record cut last turn is the first thing this one is told, so
 	// the role can restate what the record lost; see replycut.go.
 	cutsTold := len(s.state.ReplyCuts) > 0
-	prompt = renderReplyCuts(s.state.ReplyCuts) + s.state.PendingTrackerResults + prompt
+	// Results held by a round limit wait for the next message. A continuation
+	// for an exchange must not deliver them or clear their durable record.
+	resultsTold := operatorMessage != ""
+	if resultsTold {
+		prompt = s.state.PendingTrackerResults + prompt
+	}
+	prompt = renderReplyCuts(s.state.ReplyCuts) + s.state.PendingBlockRefusals + prompt
 	s.turnCuts = nil
 	// The repository documents, the tracker's own text, and the operator's words
 	// all go to the provider, so anything recognizably sensitive is redacted on
@@ -2098,7 +2104,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// because a product manager that never saw them still has not been told.
 	s.notices = nil
 	s.noticesDropped = false
-	s.state.PendingTrackerResults = ""
+	if resultsTold {
+		s.state.PendingTrackerResults = ""
+	}
+	s.state.PendingBlockRefusals = ""
 	// And of the cuts it was told about, unless it was cut again itself.
 	if cutsTold && len(s.turnCuts) == 0 {
 		s.state.ReplyCuts = nil

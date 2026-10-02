@@ -746,8 +746,17 @@ func (s *Session) recordRefusedTrackerBlock(refused *TrackerError, handBack bool
 	// escalated has nobody left to hand it to but the operator.
 	s.handedBack = handBack && unanswered == nil
 	s.state.RefusedBlock = recorded
-	if err := s.carryResults(renderRefusedTrackerBlock(refused)); err != nil {
-		problems = append(problems, err)
+	var pendingProblem error
+	if s.handedBack {
+		// The refusal is owed to the next invocation in this message, while
+		// tracker results held by the round limit remain owed to a later message.
+		s.state.PendingBlockRefusals = boundText(s.state.PendingBlockRefusals+renderRefusedTrackerBlock(refused), maxPendingResultBytes)
+		pendingProblem = s.record()
+	} else {
+		pendingProblem = s.carryResults(renderRefusedTrackerBlock(refused))
+	}
+	if pendingProblem != nil {
+		problems = append(problems, pendingProblem)
 	}
 	return errors.Join(problems...)
 }
@@ -843,16 +852,13 @@ func renderRefusedTrackerBlock(refused *TrackerError) string {
 	return rendered.String()
 }
 
-// renderHandedBackTrackerBlock is the round a refused block is handed back in,
-// within the message that earned it. It is the refusal exactly as the next turn
-// would open with it, plus what only this round can say: that it is still the
-// same message, how many rounds of tracker actions it has left, and that a
-// second refusal goes to the operator rather than back to the role.
+// continueAfterTrackerRefusal adds what only a correction within the message
+// can say: how many rounds of actions remain and where a second refusal goes.
+// The durable refusal itself is delivered by takeTurn before this continuation.
 //
 // Other valid blocks have already been carried out and must not be repeated.
-func renderHandedBackTrackerBlock(refused *TrackerError, roundsLeft int) string {
+func continueAfterTrackerRefusal(roundsLeft int) string {
 	var rendered strings.Builder
-	rendered.WriteString(renderRefusedTrackerBlock(refused))
 	rendered.WriteString("# Continue\n\n")
 	rendered.WriteString("The harness is handing this back to you as a further round of the same message, so you can put it right before you finish answering. ")
 	fmt.Fprintf(&rendered, "This message has %d round(s) of tracker actions left. ", roundsLeft)

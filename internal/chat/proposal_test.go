@@ -344,7 +344,8 @@ func TestConverseSurvivesAProposalPlacedAgainstNothing(t *testing.T) {
 		"Here is what I would do.",
 		"do not exist",
 		"yoyodyne-ifd.99",
-		"Nothing was proposed and nothing was created",
+		"[refused] yoyodyne-proposal",
+		"Nothing in that block happened",
 		"created yoyodyne-1",
 	} {
 		if !strings.Contains(transcript, required) {
