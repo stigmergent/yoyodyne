@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -27,6 +28,7 @@ import (
 type checkedForge struct {
 	queuedForge
 	reading   publish.CheckReading
+	readError error
 	withdrawn []int
 	// reruns are the check runs it was asked to run again; refuseRerun, where
 	// set, is its answer to every such request.
@@ -43,12 +45,69 @@ func (f *checkedForge) RerunCheck(_ context.Context, checkRun int64) error {
 }
 
 func (f *checkedForge) Checks(_ context.Context, number int, _ string) (publish.CheckReading, error) {
+	if f.readError != nil {
+		return publish.CheckReading{}, f.readError
+	}
 	reading := f.reading
 	if reading.HeadCommit == "" {
 		merges := f.MergeRequests()
 		reading.HeadCommit = merges[len(merges)-1].HeadCommit
 	}
 	return reading, nil
+}
+
+func TestAQueuedMergeRecordsAnUnreadCheckStateAndReadsItAgain(t *testing.T) {
+	t.Parallel()
+	for _, message := range []string{"HTTP 403: Resource not accessible by integration", "decode the comparison: unexpected end of JSON input"} {
+		t.Run(message, func(t *testing.T) {
+			fixture, forge, _ := queuedOnProtectedTarget(t)
+			reconciler := fixture.sweep(t, forge, false)
+			forge.readError = errors.New(message)
+			if _, err := reconciler.Reconcile(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			initial, err := fixture.store.Load(pipelineRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if initial.PullRequest.Checks == nil || initial.PullRequest.Checks.ReadError != message || initial.PullRequest.Checks.HeadCommit != "" {
+				t.Fatalf("first failed read = %#v", initial.PullRequest.Checks)
+			}
+			forge.readError = nil
+			// Re-run accounting must survive a failed read of the same head.
+			forge.reading = jobFailure(41)
+			if _, err := reconciler.Reconcile(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			forge.readError = errors.New(message)
+			results, err := reconciler.Reconcile(context.Background())
+			if err != nil || len(results) != 1 || results[0].Action != ActionQueued {
+				t.Fatalf("Reconcile() = %#v, %v", results, err)
+			}
+			recorded, err := fixture.store.Load(pipelineRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checks := recorded.PullRequest.Checks
+			if checks == nil || checks.ReadError != message || checks.Red() || checks.Reruns != 1 {
+				t.Fatalf("recorded checks = %#v", checks)
+			}
+			if !recorded.PullRequest.MergeQueued || len(forge.withdrawn) != 0 || fixture.tracker.Record().Blocked {
+				t.Fatal("an unread state withdrew or handed back the merge")
+			}
+			forge.readError = nil
+			if _, err := reconciler.Reconcile(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			recorded, err = fixture.store.Load(pipelineRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checks = recorded.PullRequest.Checks; checks.ReadError != "" || checks.Reruns != 1 {
+				t.Fatalf("successful rereading = %#v, want the error cleared and re-run preserved", checks)
+			}
+		})
+	}
 }
 
 func (f *checkedForge) DisableAutoMerge(_ context.Context, number int) error {
@@ -546,6 +605,77 @@ func TestAQueuedLandingKeepsItsBranchAndWorktreeUntilTheForgesMergeIsConfirmed(t
 		t.Errorf("the settlement's notes say the change is integrated into the local target:\n%s", fixture.tracker.Record().Notes)
 	}
 	(&protectedRun{repository: fixture.repository, remote: fixture.remote}).assertMainNotAhead(t)
+}
+
+// An unread drop stays queued for the next sweep, under harness ownership.
+// Once its checks can be read, it is replayed or handed back using that reading.
+func TestADroppedMergeWithUnreadChecksStaysQueuedUntilASuccessfulRetry(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		behind int
+		want   ReconcileAction
+	}{
+		{"behind target, replayed", 1, ActionUpdating},
+		{"level with target, handed back", 0, ActionBlocked},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture, forge, _ := queuedOnProtectedTarget(t)
+			if tc.behind > 0 {
+				driftRemoteTarget(t, fixture.remote, "main")
+			}
+			forge.DropQueuedMerge()
+			forge.readError = errors.New("decode the comparison: unexpected end of JSON input")
+			reconciler := fixture.sweep(t, forge, true)
+			for sweep := 0; sweep < 2; sweep++ {
+				results, err := reconciler.Reconcile(context.Background())
+				if err != nil || len(results) != 1 || results[0].Action != ActionQueued {
+					t.Fatalf("unread sweep %d: Reconcile() = %#v, %v", sweep, results, err)
+				}
+				recorded, err := fixture.store.Load(pipelineRunID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !recorded.PullRequest.MergeQueued || recorded.MergeDrop != nil || recorded.PublishFailure != "" || recorded.PullRequest.Checks == nil || recorded.PullRequest.Checks.ReadError != forge.readError.Error() {
+					t.Fatalf("unread sweep %d: publication = %#v, drop = %#v, failure = %q", sweep, recorded.PullRequest, recorded.MergeDrop, recorded.PublishFailure)
+				}
+				standing := readmodel.ReadStanding(context.Background(), readmodel.Sources{Runs: fixture.store})
+				found := false
+				for _, entry := range standing.NeedsHuman {
+					if entry.Kind == readmodel.AttentionPublication && entry.ID == pipelineRunID {
+						found = true
+						if entry.Mover != readmodel.MoverHarness || !strings.Contains(entry.Whose(), "next `yoyo reconcile` sweep") {
+							t.Fatalf("unread publication waits on %s: %s", entry.Mover, entry.Whose())
+						}
+					}
+				}
+				if !found || fixture.tracker.Record().Blocked || fixture.tracker.Record().Closed {
+					t.Fatal("an unread drop disappeared or was handed back")
+				}
+			}
+			forge.readError = nil
+			forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3, BehindBy: tc.behind}
+			results, err := reconciler.Reconcile(context.Background())
+			if err != nil || len(results) != 1 || results[0].Action != tc.want {
+				t.Fatalf("successful retry: Reconcile() = %#v, %v, want %s", results, err, tc.want)
+			}
+			recorded, err := fixture.store.Load(pipelineRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if recorded.PullRequest.Checks != nil && recorded.PullRequest.Checks.ReadError != "" {
+				t.Fatal("the successful retry retained the earlier read error")
+			}
+			if tc.want == ActionUpdating {
+				updates, err := reconciler.ContinueUpdates(context.Background())
+				if err != nil || len(updates) != 1 || !updates[0].Continued || updates[0].Failure != "" || updates[0].Outcome == nil || updates[0].Outcome.PullRequest == nil || !updates[0].Outcome.PullRequest.MergeQueued {
+					t.Fatalf("ContinueUpdates() = %#v, %v, want the dropped head replayed and requeued", updates, err)
+				}
+			} else if recorded.MergeDrop == nil || recorded.PullRequest.MergeQueued {
+				t.Fatal("a decided drop still reads as queued")
+			}
+		})
+	}
 }
 
 // A merge the forge drops while its head is behind the target, failing nothing

@@ -786,6 +786,8 @@ func (a Attention) Whose() string {
 			switch {
 			case a.Publication.PullRequest == nil:
 				return a.Mover.Possessive() + " — `yoyo reconcile` looks the request up on the forge by that branch, records it, and arms its merge; a forge that holds none is said on every sweep"
+			case a.Publication.PullRequest.MergeQueued && a.Publication.PullRequest.Checks != nil && a.Publication.PullRequest.Checks.ReadError != "":
+				return a.Mover.Possessive() + " — the next `yoyo reconcile` sweep reads the checks again; the merge stays queued while its check state is unread"
 			case a.Publication.PullRequest.MergeQueued:
 				if a.Publication.PullRequest.Checks != nil && a.Publication.PullRequest.Checks.Red() {
 					return (Attention{Kind: AttentionOwedStep, Mover: a.Mover, OwedStep: &OwedStep{PullRequest: a.Publication.PullRequest}}).Whose()

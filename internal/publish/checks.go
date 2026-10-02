@@ -208,13 +208,19 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 
 	// How far the base has moved on without the head is the comparison of the
 	// head with the base: what the base carries past where the two met.
-	compared, err := g.api(ctx, "repos/{owner}/{repo}/compare/"+head+"..."+base)
+	// The comparison includes commits and patches we do not need. gh decodes
+	// it whole and selects the distance before the runner retains the output:
+	// a large JSON line otherwise meets the runner's line or total-output bound.
+	compared, err := g.apiQuery(ctx, "GET", "repos/{owner}/{repo}/compare/"+head+"..."+base, "--jq", "{ahead_by: .ahead_by}")
 	if err != nil {
 		return CheckReading{}, fmt.Errorf("compare %s with %s: %w", head, base, err)
 	}
 	if compared.Status != execution.ProcessSucceeded {
 		return CheckReading{}, fmt.Errorf("compare %s with %s: exit code %d: %s",
 			head, base, compared.ExitCode, g.redact(firstLine(strings.TrimSpace(compared.Stderr))))
+	}
+	if compared.OutputTruncation != "" {
+		return CheckReading{}, fmt.Errorf("the comparison of %s with %s was cut and is not read: %s", head, base, compared.OutputTruncation)
 	}
 	var distance struct {
 		AheadBy *int `json:"ahead_by"`
@@ -224,6 +230,9 @@ func (g GitHub) Checks(ctx context.Context, number int, base string) (CheckReadi
 	}
 	if distance.AheadBy == nil {
 		return CheckReading{}, fmt.Errorf("the comparison of %s with %s did not say how far %s has moved on", head, base, base)
+	}
+	if *distance.AheadBy < 0 {
+		return CheckReading{}, fmt.Errorf("the comparison of %s with %s reported a negative distance: %d", head, base, *distance.AheadBy)
 	}
 	reading.BehindBy = *distance.AheadBy
 	return reading, nil

@@ -775,16 +775,20 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 	}
 	published.State = observed.State
 	published.Merged = observed.Merged
-	published.MergeQueued = false
 	state.PullRequest = &published
 
 	if !observed.Merged {
 		// A landing the forge stopped holding is a change on its kept branch and
 		// on no target, and a head that fell behind is the lost race a replay
 		// answers — so that is asked before the drop is handed to anybody.
-		if replayed, decided, err := r.replayDroppedLanding(ctx, state, observed); decided {
+		// Keep the queued disposition until the checks decide what the drop
+		// means. A failed read records an unread state that the next sweep retries.
+		if replayed, decided, err := r.replayDroppedLanding(ctx, &state, observed); decided {
 			return replayed, err
 		}
+		published = *state.PullRequest
+		published.MergeQueued = false
+		state.PullRequest = &published
 		state.PublishFailure = droppedMerge(published, strings.ToLower(nonEmpty(observed.State, "in an unreported state")), state.Integration.TargetBranch)
 		// The moment the drop was found out, written down rather than left to be
 		// worked out again by whoever next reads the record. It is the one thing a
@@ -793,6 +797,7 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: state.PublishFailure}
 		return r.settleDroppedMerge(ctx, state)
 	}
+	published.MergeQueued = false
 	detail := fmt.Sprintf("the forge merged pull request %d into %s", published.Number, state.Integration.TargetBranch)
 	var catchup *gitworktree.Catchup
 	if failure := r.confirmQueuedPublication(ctx, state, &published, observed.MergeCommit); failure != nil {

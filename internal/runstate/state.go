@@ -1781,6 +1781,7 @@ func (s *State) recordedTexts() []recordedText {
 	// A check's name is the forge's, and the repository's workflows phrase it.
 	// Its conclusion is the forge's word for how it ended.
 	if s.PullRequest != nil && s.PullRequest.Checks != nil {
+		unstated("pull_request.checks.read_error", "pull_request.checks.read_error", &s.PullRequest.Checks.ReadError, MaxRecordedTextBytes)
 		for index := range s.PullRequest.Checks.Failing {
 			nested("pull_request.checks.failing[].name", at("pull_request.checks.failing", index, "name"), &s.PullRequest.Checks.Failing[index].Name, maxCheckNameBytes)
 			nested("pull_request.checks.failing[].conclusion", at("pull_request.checks.failing", index, "conclusion"), &s.PullRequest.Checks.Failing[index].Conclusion, maxCheckNameBytes)

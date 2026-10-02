@@ -1,10 +1,68 @@
 package runstate
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestUnreadChecksSurviveARecordAndDoNotDescribeAnEarlierFailureAsCurrent(t *testing.T) {
+	t.Parallel()
+	checks := PullRequestChecks{ReadAt: time.Date(2026, 10, 2, 7, 0, 0, 0, time.UTC), ReadError: "decode the comparison: unexpected end of JSON input"}
+	if err := checks.Validate(); err != nil {
+		t.Fatalf("failed read before a head was named: %v", err)
+	}
+	checks.HeadCommit = strings.Repeat("1", 40)
+	checks.Failing = []FailingCheck{{Name: "build", OnChange: []string{"feature.go"}, Conclusion: "failure"}}
+	encoded, err := json.Marshal(checks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reread PullRequestChecks
+	if err := json.Unmarshal(encoded, &reread); err != nil {
+		t.Fatal(err)
+	}
+	if reread.ReadError != checks.ReadError || reread.Red() || reread.ChangeFails() || reread.FailedInTheJob() || !strings.HasPrefix(reread.Describe("main"), "checks unread: ") {
+		t.Fatalf("unread checks = %#v, %s", reread, reread.Describe("main"))
+	}
+}
+
+func TestSavingAnOverlongCheckReadErrorBoundsItWithoutRewritingTheCaller(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "decode the comparison: "
+	long := prefix + strings.Repeat("x", MaxRecordedTextBytes)
+	state.PullRequest = &PullRequest{
+		Remote: "origin", Branch: "feature", Number: 732,
+		URL: "https://example.invalid/pull/732", HeadCommit: strings.Repeat("1", 40),
+		Checks: &PullRequestChecks{ReadAt: state.UpdatedAt, ReadError: long},
+	}
+	if err := state.Validate(); err == nil || !strings.Contains(err.Error(), "pull_request.checks.read_error is ") {
+		t.Fatalf("Validate() overlong read error = %v, want the field refused by name", err)
+	}
+	if err := store.Save(state); err != nil {
+		t.Fatalf("Save() overlong read error = %v, want it bounded", err)
+	}
+	if state.PullRequest.Checks.ReadError != long {
+		t.Fatal("Save() rewrote the caller's check read error")
+	}
+	saved, err := store.Load(state.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := saved.PullRequest.Checks.ReadError
+	if len(got) > MaxRecordedTextBytes || !strings.HasPrefix(got, prefix) || !strings.HasSuffix(got, truncatedNote(MaxRecordedTextBytes)) {
+		t.Fatalf("saved read error is %d bytes, with no retained prefix or truncation note", len(got))
+	}
+	if !strings.HasPrefix(saved.PullRequest.Checks.Describe("main"), "checks unread: ") {
+		t.Fatal("a bounded read error no longer describes the checks as unread")
+	}
+}
 
 // A job the forge ended itself — cancelled, timed out, never started — naming
 // no file is one; a step that failed is not, even with its only annotation on

@@ -299,6 +299,66 @@ func (redTargetRearmForge) MergeState(context.Context, int) (string, error) {
 	return "CLEAN", nil
 }
 
+// A failed read after the target's item closes keeps the wait. A later passing
+// reading replaces the error while the watch still owes the re-arm, and keeps
+// the re-runs spent on the same head.
+func TestAClosedRedTargetWaitReplacesUnreadChecksBeforeTheWatchRearms(t *testing.T) {
+	t.Parallel()
+	for _, sameHead := range []bool{true, false} {
+		name := "same head"
+		if !sameHead {
+			name = "new head"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture, forge, tracker, reconciler, _ := redTargetSweep(t, &recordingFiler{})
+			if _, err := reconciler.Reconcile(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			prior := loadRun(t, fixture.store, pipelineRunID)
+			prior.PullRequest.Checks.Reruns = 1
+			prior.PullRequest.Checks.RerunChecks = []int64{4215}
+			if err := fixture.store.Save(prior); err != nil {
+				t.Fatal(err)
+			}
+			tracker.AlsoHolds = map[string]beads.WorkItem{"yoyodyne-red-1": {ID: "yoyodyne-red-1", Status: "closed"}}
+			forge.readError = errors.New("decode the comparison: unexpected end of JSON input")
+			resumed, err := reconciler.ResumeRedTargets(context.Background())
+			if err != nil || len(resumed) != 1 || resumed[0].Action != ActionWaitingOnTarget {
+				t.Fatalf("failed reading: ResumeRedTargets() = %#v, %v", resumed, err)
+			}
+			unread := loadRun(t, fixture.store, pipelineRunID)
+			if unread.PullRequest.Checks.ReadError != forge.readError.Error() || !unread.WaitingOnRedTarget() {
+				t.Fatalf("failed reading = %#v, want the error recorded and the wait kept", unread.PullRequest)
+			}
+
+			forge.readError = nil
+			head := prior.PullRequest.Checks.HeadCommit
+			if !sameHead {
+				head = strings.Repeat("b", 40)
+			}
+			forge.reading = publish.CheckReading{HeadCommit: head, Files: []string{"feature.txt"}, Passing: 4}
+			resumed, err = reconciler.ResumeRedTargets(context.Background())
+			if err != nil || len(resumed) != 1 || resumed[0].Action != ActionWaitingOnTarget || !strings.Contains(resumed[0].Detail, "re-arm carry-out") {
+				t.Fatalf("passing reading: ResumeRedTargets() = %#v, %v", resumed, err)
+			}
+			recovered := loadRun(t, fixture.store, pipelineRunID)
+			checks := recovered.PullRequest.Checks
+			if checks.ReadError != "" || checks.HeadCommit != head || checks.Passing != 4 || len(checks.Failing) != 0 {
+				t.Fatalf("passing reading = %#v, want fresh checks replacing the unread state", checks)
+			}
+			if sameHead && (checks.Reruns != 1 || len(checks.RerunChecks) != 1 || checks.RerunChecks[0] != 4215) {
+				t.Fatalf("same head's re-runs = %#v, want the spent re-run preserved", checks)
+			}
+			if !sameHead && (checks.Reruns != 0 || len(checks.RerunChecks) != 0) {
+				t.Fatalf("new head's re-runs = %#v, want no re-runs carried from the old head", checks)
+			}
+			if !recovered.WaitingOnRedTarget() || recovered.PullRequest.MergeQueued || recovered.MergeDrop != nil || tracker.Record().Blocked {
+				t.Fatalf("publication = %#v, want it still waiting for the harness to re-arm", recovered.PullRequest)
+			}
+		})
+	}
+}
+
 // Once the filed item closes on a head still level with main whose checks now
 // pass, the watch's re-arm carry-out arms the merge with nobody deciding, and
 // spends no re-arm. While the item is open the Rearmer refuses and says what it

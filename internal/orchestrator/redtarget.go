@@ -581,9 +581,13 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 	if err != nil {
 		result := reconciliationOf(state, ActionWaitingOnTarget)
 		result.Detail = fmt.Sprintf("every item pull request %d waited on is closed, and its checks could not be read (%v), so it is left waiting and the next sweep asks again", published.Number, err)
-		return result, nil
+		return result, r.recordUnreadChecks(state, err)
 	}
 	checks := recordedChecks(reading, r.clock().Now())
+	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
+		checks.Reruns = prior.Reruns
+		checks.RerunChecks = append([]int64(nil), prior.RerunChecks...)
+	}
 	// A merge handed back from here carries this reading's account onto the
 	// item, not the one the wait began on.
 	handBack := func(reason string) (Reconciliation, error) {
@@ -612,6 +616,12 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 	case checks.Red():
 		return r.rerunEndedJobsAfterRedTarget(ctx, state, checks)
 	default:
+		published.Checks = &checks
+		state.PullRequest = &published
+		state.UpdatedAt = r.clock().Now()
+		if err := r.Store.Save(state); err != nil {
+			return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the checks of pull request %d on run %s: %w", published.Number, state.RunID, err)
+		}
 		result := reconciliationOf(state, ActionWaitingOnTarget)
 		result.Detail = fmt.Sprintf("every item pull request %d waited on for %s's red check is closed and its head is level with %s (%s), so the watch's re-arm carry-out arms its merge at its next pull",
 			published.Number, target, target, checks.Describe(target))
