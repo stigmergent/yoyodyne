@@ -315,9 +315,9 @@ checks:
 # default; an exact identifier such as claude-opus-5 pins a version. Persona
 # paths are relative to this .yoyodyne directory and must be Markdown inside it.
 # Delete an agent to remove it, edit one to change it.
-# Operator-directed recovery, 2026-10-02: Claude capacity is exhausted. Route all
-# roles through Codex because cross-provider failover does not yet cover run
-# invocations or inter-role exchanges. The adapter enforces each role's access.
+# Managers prefer Claude Fable and may fall back to Codex Astra when capacity
+# is unavailable (operator, 2026-10-02). Other roles retain the recovery routing
+# through Codex; cross-provider failover does not cover every invocation path.
 agents:
   architect:
     role: architect
@@ -341,8 +341,13 @@ agents:
   # docs/designs/program-manager.md; its passes fire on the triggers below.
   factory-flow-pm:
     role: program-manager
-    backend: codex
-    model: gpt-6.1-sol
+    backend: claude-code
+    model: fable
+    effort: high
+    failover:
+      enabled: true
+      model: gpt-6-astra
+      provider: codex
     instances: 1
     persona:
       version: v3
@@ -361,16 +366,26 @@ agents:
       on: [admissions, stoppages]
   development-manager:
     role: development-manager
-    backend: codex
-    model: gpt-6.1-sol
+    backend: claude-code
+    model: fable
+    effort: high
+    failover:
+      enabled: true
+      model: gpt-6-astra
+      provider: codex
     instances: 1
     persona:
       version: v2
       path: personas/development-manager.md
   product-manager:
     role: product-manager
-    backend: codex
-    model: gpt-6.1-sol
+    backend: claude-code
+    model: fable
+    effort: high
+    failover:
+      enabled: true
+      model: gpt-6-astra
+      provider: codex
     instances: 1
     persona:
       version: v2
