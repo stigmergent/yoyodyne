@@ -546,6 +546,12 @@ type ScheduleRearms interface {
 	CarryRearms(ctx context.Context, intakeHeld bool) ([]CarriedOut, error)
 }
 
+// ScheduleCarryOutNotes delivers pending tracker notes without retrying a
+// refused action or occupying a developer slot. It is satisfied by *CarryOut.
+type ScheduleCarryOutNotes interface {
+	DeliverNotes(context.Context) error
+}
+
 // ScheduleRecurring fires the configured recurring tasks, at most one per pass.
 // It is satisfied by Trigger.
 //
@@ -1079,6 +1085,9 @@ type Schedule struct {
 	// one line meant the successful attempt erased the account of the item nothing
 	// ever looked at.
 	CarryOutReadProblem string `json:"carry_out_read_problem,omitempty"`
+	// CarryOutNoteProblem says a permanent refusal's tracker note is still
+	// pending. It is independent of reading or attempting the refused action.
+	CarryOutNoteProblem string `json:"carry_out_note_problem,omitempty"`
 	// CarryOutUnattempted is the decisions of hers this pass found standing a poll
 	// interval or more after they were recorded with no pass having attempted
 	// them, each with why, and wrote onto the item. A decision the pass attempts
@@ -2275,6 +2284,7 @@ pulling:
 		// forge for, or one the forge dropped — is fired first, and in the pull's
 		// own thread: it is one merge request rather than a run, so it takes no slot
 		// and leaves nothing to wait out.
+		s.carryOutNotes(ctx, &schedule, pull)
 		s.carryOutRearms(ctx, &schedule, pull, held)
 		//
 		// A draining session that has stopped pulling into free seats does not
@@ -4287,6 +4297,17 @@ func (s Scheduler) carryOutRearms(ctx context.Context, schedule *Schedule, pull 
 	}
 }
 
+func (s Scheduler) carryOutNotes(ctx context.Context, schedule *Schedule, pull Pull) {
+	schedule.CarryOutNoteProblem = ""
+	notes, delivers := pull.CarryOut.(ScheduleCarryOutNotes)
+	if !delivers {
+		return
+	}
+	if err := notes.DeliverNotes(ctx); err != nil {
+		schedule.CarryOutNoteProblem = fmt.Sprintf("pending carry-out notes remain for a later pull: %v", err)
+	}
+}
+
 // joinProblem adds one account to a pass's line of them.
 func joinProblem(line, problem string) string {
 	if line == "" {
@@ -5922,6 +5943,9 @@ func (s Schedule) Render() string {
 	}
 	if s.CarryOutReadProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.CarryOutReadProblem)
+	}
+	if s.CarryOutNoteProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.CarryOutNoteProblem)
 	}
 	// A paused run the pass could not read for continuing is said beside the
 	// decisions, for the same reason: a continuation that quietly never happens

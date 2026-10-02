@@ -102,6 +102,7 @@ type CarryOutDecisions interface {
 	RecordCarryOutRefusal(ctx context.Context, workItemID string, refusal runstate.TriageCarryOut, at time.Time) (runstate.TriageCounters, error)
 	RecordCarryOutUnattempted(ctx context.Context, workItemID string, unattempted runstate.TriageCarryOut, at time.Time) (runstate.TriageCounters, error)
 	ClearCarryOut(ctx context.Context, workItemID, runID string, at time.Time) (runstate.TriageCounters, error)
+	DeliverCarryOutNotes(ctx context.Context, workItemID string, at time.Time, deliver func(context.Context, string) error) error
 }
 
 // CarryOutReruns is what the harness has already claimed of the re-run decisions.
@@ -201,6 +202,7 @@ type CarryOut struct {
 	// Notes appends permanent refusals to the tracker item as well as its
 	// durable triage record. The production harness wires its tracker here.
 	Notes interface {
+		Show(context.Context, string) (beads.WorkItem, error)
 		RecordOutcome(context.Context, string, string) (beads.WorkItem, error)
 	}
 	// Reruns and Runs are what has already been carried out of those decisions.
@@ -1268,7 +1270,7 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	}
 	write, stopWriting := recordContext(ctx)
 	defer stopWriting()
-	counters, err := c.Decisions.RecordCarryOutRefusal(write, task.WorkItemID, runstate.TriageCarryOut{
+	_, err := c.Decisions.RecordCarryOutRefusal(write, task.WorkItemID, runstate.TriageCarryOut{
 		Cause:     carried.Cause,
 		DecidedAt: task.DecidedAt,
 		RunID:     task.RunID,
@@ -1284,12 +1286,49 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 			task.WorkItemID, err)
 	}
 	if err == nil && carried.Cause != "" && c.Notes != nil {
-		finding, _ := counters.CarryOutOf(task.RunID)
-		if _, noteErr := c.Notes.RecordOutcome(write, task.WorkItemID, "Yoyodyne stopped carrying out the development manager's decision: "+finding.Describe()); noteErr != nil {
-			carried.RecordProblem = fmt.Sprintf("the permanent refusal is on the triage record but could not be appended to the item's notes: %v", noteErr)
+		if noteErr := c.deliverItemNotes(write, task.WorkItemID); noteErr != nil {
+			carried.RecordProblem = fmt.Sprintf("the permanent refusal is on the triage record but could not be appended to the item's notes; its note remains pending for a later pull: %v", noteErr)
 		}
 	}
 	return carried
+}
+
+// DeliverNotes retries tracker notes independently of the refused actions. It
+// includes closed docket entries, so a new decision cannot lose an earlier note.
+func (c CarryOut) DeliverNotes(ctx context.Context) error {
+	if c.Notes == nil {
+		return nil
+	}
+	entries, err := c.Docket.List()
+	if err != nil {
+		return fmt.Errorf("read the docket for pending carry-out notes: %w", err)
+	}
+	seen := make(map[string]bool)
+	var problems []error
+	for _, entry := range entries {
+		if entry.WorkItemID == "" || seen[entry.WorkItemID] {
+			continue
+		}
+		seen[entry.WorkItemID] = true
+		if err := c.deliverItemNotes(ctx, entry.WorkItemID); err != nil {
+			problems = append(problems, fmt.Errorf("deliver pending carry-out notes on %s: %w", entry.WorkItemID, err))
+		}
+	}
+	return errors.Join(problems...)
+}
+
+func (c CarryOut) deliverItemNotes(ctx context.Context, workItemID string) error {
+	return c.Decisions.DeliverCarryOutNotes(ctx, workItemID, c.now(), func(ctx context.Context, note string) error {
+		item, err := c.Notes.Show(ctx, workItemID)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(item.Notes, note) {
+			return nil
+		}
+		_, err = c.Notes.RecordOutcome(ctx, workItemID, note)
+		return err
+	})
 }
 
 // itemsInFlight names the work items with a run going. A decision about an item

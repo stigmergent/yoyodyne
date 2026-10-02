@@ -252,7 +252,10 @@ type TriageCounters struct {
 	// here. An item nothing has refused carries none, which is nearly every item.
 	// See triagecarryout.go.
 	CarryOuts []TriageCarryOut `json:"carry_outs,omitempty"`
-	UpdatedAt time.Time        `json:"updated_at"`
+	// PendingCarryOutNotes are the exact permanent-refusal notes still owed to
+	// the tracker item. They survive a finding being cleared or superseded.
+	PendingCarryOutNotes []string  `json:"pending_carry_out_notes,omitempty"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // Validate reports every contract violation in the record at once.
@@ -333,6 +336,7 @@ func (c TriageCounters) Validate() error {
 	problems = append(problems, validateTriageOverrides(c.Overrides)...)
 	problems = append(problems, validateTriageDecisions(c.Decisions)...)
 	problems = append(problems, validateTriageCarryOuts(c.CarryOuts)...)
+	problems = append(problems, validatePendingCarryOutNotes(c.PendingCarryOutNotes)...)
 	if c.UpdatedAt.IsZero() {
 		problems = append(problems, errors.New("updated at is required"))
 	}

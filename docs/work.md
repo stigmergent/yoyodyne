@@ -1595,7 +1595,11 @@ that moved from the harness's recorded commit, a superseded or missing decision,
 a missing stoppage record, and a publication no re-arm can make are these
 permanent causes. The item and her docket carry the refusal's own words and the
 ways forward: a re-run or an escalation, or recording a missing decision again
-with an override where the budget requires it. The refusal is delivered to her
+with an override where the budget requires it. The exact item note is saved
+with the refusal; if the tracker refuses its delivery, later pulls retry the
+note alone and check whether it is already there before appending it. Changing
+the decision or clearing the refusal does not discard an undelivered note.
+The refusal is delivered to her
 as a new stoppage even when the original stoppage was already delivered; later
 pulls neither attempt it nor deliver the same gate again. A new decision,
 including a newly recorded decision of the same kind, is attempted at the next

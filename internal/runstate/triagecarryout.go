@@ -376,8 +376,50 @@ func (s *TriageStore) RecordCarryOutRefusal(ctx context.Context, workItemID stri
 			return fmt.Errorf("invalid triage carry-out record: %w", err)
 		}
 		counters.CarryOuts = append(standing, prepared)
+		if prepared.Cause != "" {
+			note := "Yoyodyne stopped carrying out the development manager's decision: " + prepared.Describe()
+			counters.PendingCarryOutNotes = append(counters.PendingCarryOutNotes, note)
+		}
 		return nil
 	})
+}
+
+// DeliverCarryOutNotes holds the item's record lock while delivering its pending
+// notes, so concurrent pulls cannot append the same note. A failure leaves the
+// queue intact. The caller checks for notes already on the tracker before each
+// append, covering a write that landed but whose confirmation or local save failed.
+func (s *TriageStore) DeliverCarryOutNotes(ctx context.Context, workItemID string, at time.Time, deliver func(context.Context, string) error) error {
+	_, err := s.update(ctx, workItemID, at, func(counters *TriageCounters) error {
+		if len(counters.PendingCarryOutNotes) == 0 {
+			return errNoTriageChange
+		}
+		for _, note := range counters.PendingCarryOutNotes {
+			if err := deliver(ctx, note); err != nil {
+				return err
+			}
+		}
+		counters.PendingCarryOutNotes = nil
+		return nil
+	})
+	return err
+}
+
+func validatePendingCarryOutNotes(notes []string) []error {
+	var problems []error
+	if len(notes) > MaxTriageCarryOuts {
+		problems = append(problems, fmt.Errorf("%d pending carry-out notes exceed the bound of %d", len(notes), MaxTriageCarryOuts))
+	}
+	seen := make(map[string]bool)
+	for index, note := range notes {
+		if strings.TrimSpace(note) == "" || len(note) > MaxTriageCarryOutRefusalBytes+MaxTriageCarryOutClearsBytes+1024 {
+			problems = append(problems, fmt.Errorf("pending carry-out note %d is empty or exceeds its refusal and clearing text bounds", index))
+		}
+		if seen[note] {
+			problems = append(problems, fmt.Errorf("pending carry-out note %d is already queued", index))
+		}
+		seen[note] = true
+	}
+	return problems
 }
 
 // RecordCarryOutUnattempted writes down that no pass has attempted one recorded

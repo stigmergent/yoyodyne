@@ -12,6 +12,11 @@ been shown the original stopped run. No later pull retries that decision until
 she changes it. There is no retry interval for these causes and no configuration
 can make the same decision retry them.
 
+The exact note owed to the item is saved with the refusal. A tracker that cannot
+take the note leaves it pending for later pulls, which retry the note alone and
+check for an append that already landed before writing it again. A new decision
+or a cleared finding does not discard a pending note.
+
 | Recorded cause | What the harness found | What can move it |
 | --- | --- | --- |
 | `worktree-gone` | The preserved checkout was retired or is missing, or the run recorded none to continue. | A re-run from the target branch, or an escalation about the change that was lost. |

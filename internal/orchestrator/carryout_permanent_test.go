@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -16,6 +18,90 @@ import (
 type countedRepair struct {
 	RepairContinuer
 	attempts int
+}
+
+type recoveringCarryOutNotes struct {
+	*orchestratortest.Tracker
+	failures int
+	landed   bool
+	writes   int
+}
+
+func (n *recoveringCarryOutNotes) RecordOutcome(ctx context.Context, id, note string) (beads.WorkItem, error) {
+	n.writes++
+	if n.failures > 0 {
+		n.failures--
+		if n.landed {
+			_, _ = n.Tracker.RecordOutcome(ctx, id, note)
+			n.Item.Notes += note
+		}
+		return beads.WorkItem{}, errors.New("the tracker did not confirm the note")
+	}
+	item, err := n.Tracker.RecordOutcome(ctx, id, note)
+	n.Item.Notes += note
+	return item, err
+}
+
+func TestAPermanentRefusalNoteIsRetriedWithoutRetryingTheAction(t *testing.T) {
+	t.Parallel()
+	for _, landed := range []bool{false, true} {
+		name := "append refused"
+		if landed {
+			name = "append landed but confirmation failed"
+		}
+		t.Run(name, func(t *testing.T) {
+			harness := newContinueHarness(t, continuableState())
+			continuer := harness.continuer()
+			continuer.Remains = &looked{survival: gitworktree.Survival{BranchExists: true}}
+			repairer := &countedRepair{RepairContinuer: continuer}
+			notes := &recoveringCarryOutNotes{Tracker: harness.tracker, failures: 1, landed: landed}
+			watch := harness.carryOut()
+			watch.Repairer, watch.Notes = repairer, notes
+			watch.Clock = laterClock{after: time.Minute}
+			harness.docket.close(triage.Key(triage.ClassStoppedRun, docketedRunID), runstate.TriageDecisionRepair, docketedNow)
+			first, _, err := watch.Carry(context.Background(), theOneOutstanding(t, watch))
+			if err != nil || first.Cause != triage.CarryOutWorktreeGone || !strings.Contains(first.RecordProblem, "remains pending") {
+				t.Fatalf("first refusal = %+v, %v; want the note failure recorded", first, err)
+			}
+			counters, err := harness.runs.Triage().Counters(docketedItem)
+			if err != nil || len(counters.PendingCarryOutNotes) != 1 {
+				t.Fatalf("durable pending notes = %+v, %v; want the note saved with the refusal", counters, err)
+			}
+			note := counters.PendingCarryOutNotes[0]
+			if !strings.Contains(note, counters.CarryOuts[0].Refusal) || !strings.Contains(note, "re-run or an escalation") {
+				t.Fatalf("pending note lacks the refusal or decisions: %s", note)
+			}
+			// Rebuild the carry-out and its store view as a later process would.
+			next := harness.carryOut()
+			next.Repairer, next.Notes = repairer, notes
+			next.Clock = laterClock{after: 24 * time.Hour}
+			queue := newScheduleHarness()
+			scheduler := Scheduler{Open: func(ctx context.Context) (Pull, error) {
+				pull, err := queue.open(ctx)
+				pull.CarryOut = next
+				return pull, err
+			}}
+			for pull := 0; pull < 3; pull++ {
+				if schedule, err := scheduler.Schedule(context.Background()); err != nil || schedule.CarryOutNoteProblem != "" || len(schedule.Started) != 0 {
+					t.Fatalf("later pull = %+v, %v; want only the pending note delivered", schedule, err)
+				}
+			}
+			counters, err = harness.runs.Triage().Counters(docketedItem)
+			if err != nil || len(counters.PendingCarryOutNotes) != 0 || len(counters.CarryOuts) != 1 || counters.CarryOuts[0].Attempts != 1 {
+				t.Fatalf("after delivery = %+v, %v; want the pending note cleared and refusal untouched", counters, err)
+			}
+			if repairer.attempts != 1 || len(notes.NoteRecords) != 1 || notes.NoteRecords[0] != note {
+				t.Fatalf("action attempts = %d, notes = %+v; want one action and one exact note", repairer.attempts, notes.NoteRecords)
+			}
+			wantWrites := 2
+			if landed {
+				wantWrites = 1
+			}
+			if notes.writes != wantWrites {
+				t.Fatalf("note writes = %d, want %d", notes.writes, wantWrites)
+			}
+		})
+	}
 }
 
 func (c *countedRepair) Continue(ctx context.Context, request RepairContinueRequest) (RepairContinueResult, error) {
