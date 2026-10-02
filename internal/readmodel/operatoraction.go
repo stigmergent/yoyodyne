@@ -24,8 +24,8 @@ package readmodel
 // decision is the one typed record that says a stopped run needs a person
 // rather than a repair, a re-run, or a wait, and it stands while it is the
 // decision on the item's latest stopped run. The brake's hold is not one of
-// them while the harness is working it; once it is escalated to the operator it
-// is his, and it is read from the intake hold beside the switches and named on
+// them while the harness is working it; once it is escalated it
+// is the Lead Product Manager's, and it is read from the intake hold beside the switches and named on
 // the attention line there, as the held intake it is.
 //
 // The fifth is read from the amendment log and the recurring passes: an owning
@@ -33,6 +33,12 @@ package readmodel
 // finding per pass, standing while any proposal in it is undecided. It is
 // derived in amendments.go and joins the others at the read model's reading and
 // at the channel's.
+//
+// Raising a finding for the operator does not make it his. Whose it is is the
+// ownership registry's answer (internal/ownership): his only where the account
+// that raised it names a reason on the closed list, and otherwise the Lead
+// Product Manager's, or for a batch the owning role's. Until
+// yoyodyne-ifd.432.25.1 every finding here was his by construction.
 
 import (
 	"fmt"
@@ -40,18 +46,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// OperatorAction is one finding only the operator can act on: what is needed,
-// where it is recorded, and since when.
+// OperatorAction is one finding raised for the operator's hand: what is
+// needed, where it is recorded, and since when. Whose it is is the registry's
+// to say; see Owner.
 type OperatorAction struct {
 	// Key names the finding durably, so a surface that says each one once can
 	// remember having said it. A report makes one finding however many times it
 	// is handled, so the key is the report's; a stoppage makes one however many
 	// times it is decided, so the key is the run's.
 	Key string `json:"key"`
+	// Finding is which of the shapes the finding is — a handling, a critical
+	// report, an escalation, or an amendment batch — which is what the ownership
+	// registry reads to say whose it is; Role is the owning role that argued a
+	// batch, and empty on the rest.
+	Finding ownership.Finding `json:"finding"`
+	Role    domain.AgentRole  `json:"role,omitempty"`
 	// Subject is what the finding is named by where it is listed: the report,
 	// or the work item whose run stopped.
 	Subject string `json:"subject"`
@@ -104,6 +119,7 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 		case done && handling.NeedsOperator:
 			actions = append(actions, OperatorAction{
 				Key:        operatorActionKey(reported.ID),
+				Finding:    ownership.FindingHandling,
 				Subject:    reported.ID,
 				ReportID:   reported.ID,
 				WorkItemID: reported.WorkItemID,
@@ -117,6 +133,7 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 		case !done && reported.Severity == report.SeverityCritical:
 			actions = append(actions, OperatorAction{
 				Key:        operatorActionKey(reported.ID),
+				Finding:    ownership.FindingCriticalReport,
 				Subject:    reported.ID,
 				ReportID:   reported.ID,
 				WorkItemID: reported.WorkItemID,
@@ -223,6 +240,7 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 		}
 		actions = append(actions, OperatorAction{
 			Key:        escalationKey(run.RunID),
+			Finding:    ownership.FindingEscalation,
 			Subject:    workItemID,
 			RunID:      run.RunID,
 			WorkItemID: workItemID,
@@ -280,10 +298,17 @@ func (a OperatorAction) Whose() string {
 	return operatorActionAttention(a).Whose()
 }
 
+// Owner is whose the finding is, as the ownership registry resolves it: the
+// operator only for a reason on the closed list the account that raised it
+// names, and otherwise the role that settles it.
+func (a OperatorAction) Owner() Mover {
+	return operatorActionAttention(a).Mover
+}
+
 // Says is the finding as the attention line names it: what it is about, what
 // is needed, who found it, and where it is recorded.
 func (a OperatorAction) Says() string {
-	what := fmt.Sprintf("%s needs your hand: %s (found by %s; recorded in %s",
+	what := fmt.Sprintf("%s was raised for the operator's hand: %s (found by %s; recorded in %s",
 		a.Subject, singleLine(a.Needs, maxRefusalBytes), a.FoundBy, a.RecordedIn)
 	if item := strings.TrimSpace(a.WorkItemID); item != "" && item != a.Subject {
 		what += ", about " + item

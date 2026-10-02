@@ -155,6 +155,8 @@
       "kind": "amendment",
       "id": "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c",
       "mover": "architect",
+      "remedy": "nothing reaches the document until they or the operator decide it",
+      "capability": "yoyo amendment",
       "work_item_id": "yoyodyne-ifd.210",
       "amendment": {
         "schema_version": 1,
@@ -180,6 +182,8 @@
       "kind": "amendment",
       "id": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
       "mover": "architect",
+      "remedy": "nothing reaches the document until they or the operator decide it",
+      "capability": "yoyo amendment",
       "work_item_id": "yoyodyne-ifd.432.5",
       "amendment": {
         "schema_version": 1,
@@ -204,6 +208,8 @@
     {
       "kind": "held-work",
       "mover": "development-manager",
+      "remedy": "nothing pulls a stopped item until she decides what happens to it",
+      "capability": "yoyo triage",
       "held_work": {
         "awaiting": "decision",
         "count": 1
@@ -215,6 +221,8 @@
     {
       "kind": "held-work",
       "mover": "harness",
+      "remedy": "the decision is made, and what is outstanding is the harness acting on it",
+      "capability": "yoyo triage",
       "held_work": {
         "awaiting": "carry-out",
         "count": 1
@@ -226,6 +234,8 @@
     {
       "kind": "report",
       "mover": "product-manager",
+      "remedy": "reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up",
+      "capability": "report handling",
       "reports": {
         "collected": 14,
         "unhandled": 2,
@@ -241,6 +251,8 @@
       "kind": "conversation-carried-item",
       "id": "yoyodyne-ifd.188",
       "mover": "product-manager",
+      "remedy": "in conversation; no run will ever be started for it",
+      "capability": "the role's conversation",
       "work_item_id": "yoyodyne-ifd.188",
       "executor": "conversation:product-manager",
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",

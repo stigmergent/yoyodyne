@@ -118,7 +118,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			Ends:       reportFindingEnds,
 			Since:      moment.Add(-time.Hour),
 		}),
-			"report-1 needs your hand: add the hook to .claude/settings.json by hand (found by the Lead Product Manager, handling the report; recorded in the handling of report-1 recorded in chat-1, about yoyodyne-ifd.383)"},
+			"report-1 was raised for the operator's hand: add the hook to .claude/settings.json by hand (found by the Lead Product Manager, handling the report; recorded in the handling of report-1 recorded in chat-1, about yoyodyne-ifd.383)"},
 		AttentionProductDecision: {productDecisionAttention(triage.Entry{
 			RunID: "run-superseded", WorkItemID: "yoyodyne-ifd.428.34",
 			ProductDecision: &triage.ProductDecision{
@@ -298,8 +298,10 @@ func TestTheIntakeHoldsMoverMatchesTheHoldsOwnWording(t *testing.T) {
 		}},
 	} {
 		entry := intakeHoldAttention(hold)
-		if entry.Whose() != hold.Whose() {
-			t.Errorf("%s: whose = %q, want the hold's own %q", name, entry.Whose(), hold.Whose())
+		// The registry decides whose it is; what settles it is the hold's own
+		// wording.
+		if settles := hold.Settles(); !strings.Contains(entry.Whose(), " — "+settles) {
+			t.Errorf("%s: whose = %q, want the hold's own %q", name, entry.Whose(), settles)
 		}
 		if !strings.HasPrefix(entry.Whose(), entry.Mover.Possessive()+" — ") {
 			t.Errorf("%s: mover %q does not open the hold's wording %q", name, entry.Mover, entry.Whose())
@@ -327,7 +329,7 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		"unasked": {runstate.State{RunID: "run-5", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
 			Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 1}}, MoverDevelopmentManager},
 		"unmerged with another account": {runstate.State{RunID: "run-6", PullRequest: &runstate.PullRequest{Number: 1},
-			PublishFailure: "confirm the pull request merged: the forge did not answer"}, MoverOperator},
+			PublishFailure: "confirm the pull request merged: the forge did not answer"}, MoverDevelopmentManager},
 		// A merge withdrawn for its target's red check waits on the item filed for
 		// it, and the harness takes it up once that closes (yoyodyne-m5p).
 		"waiting on the target's red check": {redTargetState(), MoverHarness},
@@ -457,7 +459,7 @@ func TestAttentionJSONCarriesTheRecordAndTheDerivedSentences(t *testing.T) {
 	// the sentences out is read from its fields alone.
 	entry := directiveAttention(directive.Directive{ID: "directive-1", Unresolved: "which?"})
 	var decoded Attention
-	if err := json.Unmarshal([]byte(`{"kind":"directive","id":"directive-1","mover":"operator","directive":{"schema_version":0,"id":"directive-1","product_id":"","kind":"","received_by":"","received_at":"0001-01-01T00:00:00Z","text":"","unresolved":"which?"}}`), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(`{"kind":"directive","id":"directive-1","mover":"product-manager","directive":{"schema_version":0,"id":"directive-1","product_id":"","kind":"","received_by":"","received_at":"0001-01-01T00:00:00Z","text":"","unresolved":"which?"}}`), &decoded); err != nil {
 		t.Fatalf("a document without the sentences: %v", err)
 	}
 	if decoded.What() != entry.What() {
@@ -509,8 +511,10 @@ func TestEveryMoverHasAPossessive(t *testing.T) {
 	if MoverOf(domain.RoleDevelopmentManager) != MoverDevelopmentManager || MoverOf("") != MoverUnnamed || MoverOf("nobody-in-particular") != MoverUnnamed {
 		t.Fatal("MoverOf does not fold roles onto the vocabulary")
 	}
-	if carriedItemAttention("item-1", domain.WorkItemExecutor("conversation")).Whose() != "the role it names — in conversation; no run will ever be started for it" {
-		t.Fatal("a bare conversation marker does not name the unnamed role")
+	// A bare marker names no role, so the registry cannot classify the item:
+	// it is the Lead Product Manager's to classify, never the operator's.
+	if carriedItemAttention("item-1", domain.WorkItemExecutor("conversation")).Whose() != "the Lead Product Manager's — classify this entry" {
+		t.Fatal("a bare conversation marker is not the Lead Product Manager's to classify")
 	}
 }
 

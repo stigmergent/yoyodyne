@@ -34,11 +34,11 @@ func TestTheBrakesRecordRidesItsOwnHoldAndNoOther(t *testing.T) {
 	if held.HeldBy != IntakeHolderBrake || !held.Braked() || len(held.Brake.Blocked) != 3 {
 		t.Fatalf("Brake() = %#v, want the brake's hold carrying its trip", held)
 	}
-	if held.WaitsOnAPerson() {
-		t.Fatal("a fresh brake hold waits on a person, want it the development manager's or the harness's")
+	if held.Brake.Escalated() {
+		t.Fatal("a fresh brake hold reads as escalated")
 	}
-	if whose := held.Whose(); !strings.HasPrefix(whose, "the development manager's") {
-		t.Fatalf("Whose() = %q, want the development manager named while she decides", whose)
+	if settles := held.Settles(); !strings.HasPrefix(settles, "she decides what happens to it") || strings.Contains(settles, "'s — ") {
+		t.Fatalf("Settles() = %q, want her decision as what settles it, with no owner named", settles)
 	}
 
 	// Another process reads the same record.
@@ -65,8 +65,8 @@ func TestTheBrakesRecordRidesItsOwnHoldAndNoOther(t *testing.T) {
 	if !decided.Brake.ProbeDue(summonedAt) {
 		t.Fatal("ProbeDue() = false after a decision to probe, want a probe due at once")
 	}
-	if whose := decided.Whose(); !strings.HasPrefix(whose, "the harness's") {
-		t.Fatalf("Whose() = %q, want the harness named once she decided on a probe", whose)
+	if settles := decided.Settles(); !strings.HasPrefix(settles, "the development manager decided on a probe run") {
+		t.Fatalf("Settles() = %q, want the probe she decided on", settles)
 	}
 	probing, err := store.ReviseBrake(func(brake *IntakeBrake) error {
 		brake.Probe = &IntakeProbe{WorkItemID: "yoyodyne-ifd.410", StartedAt: summonedAt.Add(2 * time.Minute)}
@@ -89,8 +89,8 @@ func TestTheBrakesRecordRidesItsOwnHoldAndNoOther(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecideBrake(escalate) error = %v", err)
 	}
-	if !escalated.WaitsOnAPerson() || !strings.HasPrefix(escalated.Whose(), "the operator's") {
-		t.Fatalf("escalated hold = %q, waits on a person = %t; want the operator named", escalated.Whose(), escalated.WaitsOnAPerson())
+	if !escalated.Brake.Escalated() || escalated.Settles() != "the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it" {
+		t.Fatalf("escalated hold = %q, escalated = %t; want her escalation said with no recipient named", escalated.Settles(), escalated.Brake.Escalated())
 	}
 	if escalated.Brake.ProbeDue(summonedAt.Add(time.Hour)) {
 		t.Fatal("ProbeDue() = true on an escalated hold, want no probe however long the cooldown has run out")
@@ -112,8 +112,8 @@ func TestTheBrakesRecordRidesItsOwnHoldAndNoOther(t *testing.T) {
 		t.Fatalf("DecideBrake() on the operator's hold error = %v, want %v", err, ErrNoBrakeHold)
 	}
 	operators, _, _ := store.Held()
-	if operators.Braked() || !operators.WaitsOnAPerson() || operators.Whose() != "the operator's — nothing new is chosen until `yoyo release` lifts it" {
-		t.Fatalf("the operator's hold = %#v, whose %q; want it theirs and untouched", operators, operators.Whose())
+	if operators.Braked() || operators.HeldBy != IntakeHolderOperator || operators.Settles() != "nothing new is chosen until `yoyo release` lifts it" {
+		t.Fatalf("the operator's hold = %#v, settles %q; want it theirs and untouched", operators, operators.Settles())
 	}
 	// And the harness's own release does not lift it either.
 	if _, lifted, err := store.ReleaseBrake("the harness", time.Now()); err != nil || lifted {
@@ -188,7 +188,7 @@ func TestTheHarnessEscalatingAtTheBoundIsRecordedApartFromHerDecision(t *testing
 	}
 	// While the loop goes round, every surface names it: which cycle, and when
 	// the harness stops asking.
-	if whose := held.Whose(); !strings.Contains(whose, "summons-and-probe cycle 1 of at most 4") || !strings.Contains(whose, "after 4 probes blocked") {
+	if whose := held.Settles(); !strings.Contains(whose, "summons-and-probe cycle 1 of at most 4") || !strings.Contains(whose, "after 4 probes blocked") {
 		t.Fatalf("Whose() = %q, want the loop and its bound named", whose)
 	}
 	if trip.CycleBoundReached() {
@@ -212,22 +212,22 @@ func TestTheHarnessEscalatingAtTheBoundIsRecordedApartFromHerDecision(t *testing
 	if err != nil {
 		t.Fatalf("ReviseBrake() error = %v", err)
 	}
-	if !escalated.Brake.Escalated() || !escalated.Brake.EscalatedByHarness() || !escalated.WaitsOnAPerson() {
-		t.Fatalf("escalated = %#v, want a hold that waits on a person by the harness's escalation", escalated.Brake)
+	if !escalated.Brake.Escalated() || !escalated.Brake.EscalatedByHarness() {
+		t.Fatalf("escalated = %#v, want a hold escalated by the harness", escalated.Brake)
 	}
 	if escalated.Brake.ProbeDue(escalatedAt.Add(24 * time.Hour)) {
 		t.Fatal("a probe is due under a hold the harness escalated, want none however long the cooldown has run out")
 	}
-	whose := escalated.Whose()
-	for _, want := range []string{"the operator's", "the harness escalated it after 4 summons-and-probe cycles", "yoyodyne-5", "the checks failed on main", "yoyo release"} {
+	whose := escalated.Settles()
+	for _, want := range []string{"the harness escalated it after 4 summons-and-probe cycles", "yoyodyne-5", "the checks failed on main", "yoyo release"} {
 		if !strings.Contains(whose, want) {
-			t.Fatalf("Whose() = %q, want it to carry %q", whose, want)
+			t.Fatalf("Settles() = %q, want it to carry %q", whose, want)
 		}
 	}
-	if strings.Contains(whose, "the development manager escalated it") {
-		t.Fatalf("Whose() = %q, want the escalation attributed to the harness rather than to her", whose)
+	if strings.Contains(whose, "the development manager escalated it") || strings.Contains(whose, "operator") {
+		t.Fatalf("Settles() = %q, want the escalation attributed to the harness, naming no recipient", whose)
 	}
-	if standing := escalated.Standing(); !strings.Contains(standing, "the harness escalated it to the operator") || !strings.Contains(standing, "until somebody releases it") {
+	if standing := escalated.Standing(); !strings.Contains(standing, "the harness escalated it past the development manager") || !strings.Contains(standing, "until somebody releases it") {
 		t.Fatalf("Standing() = %q, want the harness's escalation and that a person ends it", standing)
 	}
 
@@ -240,7 +240,7 @@ func TestTheHarnessEscalatingAtTheBoundIsRecordedApartFromHerDecision(t *testing
 	if err != nil {
 		t.Fatalf("DecideBrake(release) after the harness escalated error = %v", err)
 	}
-	if whose := released.Whose(); !strings.Contains(whose, "decided to release it") {
+	if whose := released.Settles(); !strings.Contains(whose, "decided to release it") {
 		t.Fatalf("Whose() = %q, want her release read ahead of the harness's escalation", whose)
 	}
 

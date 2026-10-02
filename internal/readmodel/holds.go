@@ -66,6 +66,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -531,7 +532,8 @@ func UnlandedAccount(run runstate.State) string {
 	return account
 }
 
-// StoppageMover is who moves next on one stopped run: the harness where it is
+// StoppageMover is who moves next on one stopped run, as the ownership
+// registry resolves a stoppage: the harness where it is
 // an approved change the environment stopped whose branch is still there
 // (triage.IntegrationResumable), or where a triage decision about it stands
 // that the harness has still to carry out; and the development manager
@@ -544,23 +546,14 @@ func UnlandedAccount(run runstate.State) string {
 // found is what the repository held of the run's change, and nil where nothing
 // looked, which answers from the run's own removal flag.
 func StoppageMover(run runstate.State, found *triage.Found, awaitingCarryOut bool) Mover {
-	if run.IntegrationStop != nil && triage.IntegrationResumable(found, run.BranchRemoved) {
-		return MoverHarness
-	}
-	if awaitingCarryOut {
-		return MoverHarness
-	}
-	// A check stage its bound stopped is continued by the harness at its checks
-	// until its continuations are spent, with nobody deciding anything.
-	if run.HarnessContinuesCheckStage() {
-		return MoverHarness
-	}
-	// A first silent-stream stall is continued by the harness itself, once, with
-	// nobody deciding anything; a second is hers.
-	if run.HarnessContinuesStall() {
-		return MoverHarness
-	}
-	return MoverDevelopmentManager
+	return ownership.Resolve(ownership.Entry{
+		Kind:             ownership.KindStoppage,
+		ID:               run.RunID,
+		WorkItemID:       run.WorkItemID,
+		Stopped:          &run,
+		Found:            found,
+		AwaitingCarryOut: awaitingCarryOut,
+	}).Owner
 }
 
 // latestPerItem is the runs a rule matches, one per work item. One item can have

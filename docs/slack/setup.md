@@ -130,8 +130,9 @@ improved that this project never edited, and
 — a report the Lead Product Manager handled as yours, one filed at critical
 severity, a stopped run the development manager escalated to you, or the batch
 of recommendations an owning role argued on a recurring pass over the changes
-proposed to its documents — which is
-tagged to you by member id as well, since it is yours to act on. The stale build, the
+proposed to its documents — which is tagged to you by member id as well where
+the ownership registry makes it yours, which is only for a reason on its closed
+list the finding names. The stale build, the
 released claim, the improvement, and each finding are sent once rather than
 repeated, and at
 most one improvement message goes per reading however many the reading found;
@@ -140,18 +141,15 @@ stood past six hours, because it is the one state a person ends early; the
 stall is sent again with every heartbeat it stands, tagged to those members by
 id in the channel as well, because a line that has stopped for reasons nobody
 can name is the one state that gets louder rather than quieter; and the stopped
-line is asked once per state per person. A brake hold
-handed to you — by the development manager, or by the harness once its
-summons-and-probe loop has gone round its configured number of times — is
-tagged the same way each hour, and sent directly once it has stood two hours;
-the brake's trip is sent directly the once, the moment it is recorded, naming
-the runs it counted and `yoyo release`; and either escalation — hers or the
-harness's — is also sent directly the once, the moment it is recorded. Removing the scope costs those direct
-messages and nothing else: the stale-build message, the hold, the released
-claim, the stopped line, the improvement, and each finding are in the channel
-either way, the
-stall and the brake hold are still tagged there, and the stall is in the durable
-record `yoyo status` reads back.
+line is asked once per state per person. A brake hold is not sent directly:
+whose it is comes from the ownership registry — the development manager's
+while she decides it, the harness's while it acts, and the Lead Product
+Manager's once she or the harness escalates it — and none of those is yours, so
+the trip and either escalation are said in the channel once, naming whose it
+is. Removing the scope costs those direct messages and nothing else: the
+stale-build message, the hold, the released claim, the stopped line, the
+improvement, and each finding are in the channel either way, the stall is still
+tagged there, and the stall is in the durable record `yoyo status` reads back.
 
 `im:history` and the `message.im` event beside it are what carry what you say in
 a direct message with the app back: your reply to an ask, and a message there
@@ -665,11 +663,12 @@ closes on who it is waiting on, in the words `yoyo status` puts on its
 attention line — for a held intake, the hold's own:
 yours for one you placed, the development manager's or the harness's for one
 the brake is working — naming which summons-and-probe cycle it is on and at
-what cycle the harness stops asking — and yours once it is escalated, by her or
-by the harness at that bound. That last one is the one state here that gets
-louder as it stands: a brake hold that waits on you is tagged to you by member
-id every hour, a `warning` while it is young and `critical` and sent to you
-directly once it has stood two hours, until intake is released. It stops the
+what cycle the harness stops asking — and the Lead Product Manager's once it is
+escalated, by her or by the harness at that bound, since the ownership registry
+gives an escalation to the Lead Product Manager, the role above the development manager, rather than to you. A brake hold the
+registry made yours would be tagged to you by member id every hour, a
+`warning` while it is young and `critical` and sent to you directly once it had
+stood two hours; today it makes none yours. It stops the
 moment the state clears, and says nothing about the clearing — the release, the
 session opening, or the run it starts says that itself.
 
@@ -1520,7 +1519,7 @@ read the full record from the command line whenever the digest is not enough.
 | `slack refused chat.postMessage: missing_scope` | The app was installed before the manifest's scopes were complete. Reinstall it from *OAuth & Permissions*. |
 | `a reply could not be marked as <mark>` | The same missing scope, on a reply rather than on a thread's opener: the answer in the thread said what happened and the reaction saying where the directive stands could not go on. Reinstall from *OAuth & Permissions*. A mark that is missed is not set later — what carries the account is the thread. |
 | `the reply that asked for this could not be marked as settled` | The outcome was said in the thread and tagged to whoever asked; only the mark on their own message could not be moved. Same remedy, same reason it costs nothing else. |
-| `a direct conversation with <member> could not be opened` | Usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`, or a member id that is not in this workspace. The messages this affects are the ones that report the harness itself degraded — a stale session build, the harness having started nothing at all, the provider holding every role, the brake having held intake, a brake hold escalated to you by the development manager or by the harness at the bound on its summons-and-probe loop, a brake hold that has waited on you for two hours, and a claim the harness gave back — and the findings that need the operator's hand; all of them are recorded either way; reinstall from *OAuth & Permissions* and the next one reaches them. |
+| `a direct conversation with <member> could not be opened` | Usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`, or a member id that is not in this workspace. The messages this affects are the ones that report the harness itself degraded — a stale session build, the harness having started nothing at all, the provider holding every role, a claim the harness gave back — and the findings the ownership registry makes the operator's; all of them are recorded either way; reinstall from *OAuth & Permissions* and the next one reaches them. |
 | `the stopped line could not be put to <member>` | The same refusal on the ask: usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`. Reinstall from *OAuth & Permissions* and the next heartbeat asks. Reporting into the channel is unaffected, and until it is fixed the stopped line is said there and nobody is asked. |
 | A decision reply that is never answered | The app can open the direct message but cannot read the reply: `im:history` and the `message.im` event are what carry it back. Reinstall from the current manifest. Nothing was recorded, so answer again once it is. |
 | `the watch session's build <sha> is not a revision this product's repository holds` | Said once per build, and not a fault. How old a `yoyo work --watch` session is is measured by counting what has landed in the repository since its binary was built, and that only means anything where the product this sink reports on is Yoyodyne's own source. For any other product the comparison is not this sink's to make, so it says so once and stays quiet. |

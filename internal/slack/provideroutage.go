@@ -75,7 +75,7 @@ func (f *HarnessFeed) outageDeliveries(ctx context.Context, cursor Cursor, held 
 		Notification: notify.FromProviderOutage(notify.ProviderOutage{
 			Says:  held.outage.Says(),
 			Since: held.outage.Since,
-			Mover: readmodel.ReasonProviderAway.Whose(),
+			Mover: readmodel.OutageWhose(held.outage),
 			// The four lines without the banner, which this message's own first
 			// sentence already is.
 			Standing: f.standingLines(ctx),

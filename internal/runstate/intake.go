@@ -59,7 +59,7 @@ const (
 	// IntakeHolderBrake is the harness's own failure-storm brake placing the
 	// operator's switch after runs kept blocking. What lifts it is the harness
 	// itself — on the development manager's decision, or on a probe run that
-	// lands — unless she has escalated it to the operator; see intakebrake.go.
+	// lands — unless it has been escalated past her; see intakebrake.go.
 	IntakeHolderBrake IntakeHolder = "brake"
 )
 
@@ -149,23 +149,15 @@ func (h IntakeHold) Probing(workItemID string) bool {
 	return h.Braked() && h.Brake.Probing() && h.Brake.Probe.WorkItemID == strings.TrimSpace(workItemID)
 }
 
-// WaitsOnAPerson reports a hold nothing but a person lifts: the operator's own,
-// a brake hold from before the brake worked its own holds, and a brake hold
-// escalated to the operator — by the development manager, or by the harness
-// once its summons-and-probe loop has gone round the configured number of
-// times. Every other brake hold is the harness's to lift.
-func (h IntakeHold) WaitsOnAPerson() bool {
-	return !h.Braked() || h.Brake.Escalated()
-}
-
-// Whose is whose move the hold is, worded once here for every surface that
-// puts a held intake on an attention line. The operator's hold is theirs, and a
-// brake hold is whoever its own record says.
-func (h IntakeHold) Whose() string {
+// Settles is what ends the hold, worded once here for every surface that puts a
+// held intake on an attention line. It names no owner: whose move the hold is
+// is the ownership registry's answer (internal/ownership), which puts its own
+// possessive in front of this.
+func (h IntakeHold) Settles() string {
 	if h.Braked() {
-		return h.Brake.Whose()
+		return h.Brake.Settles()
 	}
-	return "the operator's — nothing new is chosen until `yoyo release` lifts it"
+	return "nothing new is chosen until `yoyo release` lifts it"
 }
 
 // Standing is what happens to the hold next, as the clause that follows Says in

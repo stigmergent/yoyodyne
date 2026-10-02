@@ -680,16 +680,16 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"admitted items not startable now",
 			"of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1; and 3 ready, waiting for a developer slot; 3 slots, all taken",
 			`<span class="stage-unit">3 ready, waiting for a developer slot; 3 slots, all taken</span>`,
-			"1 item here is the operator's — 1 waits on an unresolved directive; everything else is somebody else's to move. Needs a human:",
+			"Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one. Needs a human:",
 			// What waits on a person, counted per mover in the model's order: the
 			// operator's is the figure, and each role's and the harness's are
 			// beside it, out of the whole the terminal prints. The label opens
 			// the list.
 			`<button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>`,
-			`<span class="figure">1</span>`,
-			`<span class="unit">thing waiting on the operator</span>`,
-			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
-			"Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2.",
+			`<span class="figure">0</span>`,
+			`<span class="unit">things waiting on the operator</span>`,
+			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
+			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2.",
 			"22 runs reached the target branch",
 			// A stopped run is said as what it ended as, never as a wait it is
 			// still in.
@@ -714,9 +714,10 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		},
 		"held": {
 			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage window until 18:50Z (most)", "next: the harness asks again when the provider's usage window lifts; whose: nobody's", "Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
-			// One thing waiting, and it is the operator's: the figure says so and
-			// there is no breakdown to give.
-			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on the operator.",
+			// One thing waiting, and it is the harness's — the capacity hold, as
+			// the ownership registry gives it — so the operator's figure is zero
+			// and the breakdown names whose it is.
+			`<span class="figure">0</span>`, `<span class="unit">things waiting on the operator</span>`, `<span class="detail">of 1 thing waiting in all; the harness's: 1</span>`, "Needs a human: nothing waiting on the operator; waiting on others: the harness's: 1.",
 		},
 		// A failed poll backs the page off: it says when it asks again, later
 		// than its ordinary clock.

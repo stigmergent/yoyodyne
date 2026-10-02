@@ -214,9 +214,10 @@ func TestReportsAndProposalsAreSaidOnceInTheOrderTheyWereRecorded(t *testing.T) 
 	harness.poll(t, cursors, notify.KindReportFiled, notify.KindOperatorAction)
 }
 
-// A finding that needs the operator's own hand is said to him once — directly,
-// and tagged by member id — the pass after it is recorded, and never again while
-// it stands: `yoyo status` names it. Two records make one: a report handled as
+// A finding that needs the operator's own hand — one whose handling names a
+// reason on the closed list — is said to him once, directly, and tagged by
+// member id, the pass after it is recorded, and never again while it stands:
+// `yoyo status` names it. Two records make one: a report handled as
 // needing him, and a critical report nobody has handled. A later handling of the
 // same report that says nothing of the kind ends it, silently; and the same
 // report handled as needing him again is a second finding, said once more.
@@ -229,7 +230,7 @@ func TestAFindingForTheOperatorIsSaidToHimOnceDirectly(t *testing.T) {
 
 	// The product manager handles it as needing the operator: the finding is
 	// recorded the moment the handling is, and said on the next pass.
-	harness.handle(t, "report-0123456789abcdef0123456789abcde0", "add the PreToolUse hook to .claude/settings.json by hand", true, moment.Add(time.Hour))
+	harness.handle(t, "report-0123456789abcdef0123456789abcde0", "beyond-grant: add the PreToolUse hook to .claude/settings.json by hand", true, moment.Add(time.Hour))
 	batch, err := harness.feed.Poll(context.Background(), cursors)
 	if err != nil {
 		t.Fatalf("Poll() error = %v", err)
@@ -278,7 +279,7 @@ func TestAFindingForTheOperatorIsSaidToHimOnceDirectly(t *testing.T) {
 	}
 
 	// Handled as needing him again, it is a finding again, said once more.
-	harness.handle(t, "report-0123456789abcdef0123456789abcde0", "the hook was removed by a settings sync; it has to go back", true, moment.Add(3*time.Hour))
+	harness.handle(t, "report-0123456789abcdef0123456789abcde0", "beyond-grant: the hook was removed by a settings sync; it has to go back", true, moment.Add(3*time.Hour))
 	cursors = harness.poll(t, cursors, notify.KindOperatorAction)
 	harness.poll(t, cursors)
 }
@@ -300,7 +301,7 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 	decision := runstate.TriageDecision{
 		Decision:     runstate.TriageDecisionEscalate,
 		RunID:        stopped.RunID,
-		Reason:       "the target branch diverged from the forge; only the operator can say which history is right",
+		Reason:       "diverged-history: the target branch diverged from the forge; only the operator can say which history is right",
 		DecidedBy:    "development-manager",
 		Conversation: "chat-0123456789abcdef0123456789abcdef",
 		Turn:         7,
@@ -352,10 +353,10 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 	}
 }
 
-// The batch an owning role argued on a recurring pass is one decision list, and
-// it reaches the operator the way every finding does: once, directly and tagged,
-// through the operator-action message, naming each proposal and what the owner
-// recommends. It ends, silently, once the operator has decided every proposal
+// The batch an owning role argued on a recurring pass is one decision list,
+// said once through the operator-action message, naming each proposal and what
+// the owner recommends. It is the owning role's decision, so the registry does
+// not make it the operator's: it is said in the channel, not to him directly. It ends, silently, once the operator has decided every proposal
 // in it.
 func TestAnOwnersArguedBatchIsSaidToTheOperatorOnce(t *testing.T) {
 	t.Parallel()
@@ -388,8 +389,8 @@ func TestAnOwnersArguedBatchIsSaidToTheOperatorOnce(t *testing.T) {
 			findings = append(findings, delivery)
 		}
 	}
-	if len(findings) != 1 || !findings[0].Direct || !findings[0].Tag {
-		t.Fatalf("findings = %#v, want the batch said once, directly and tagged", findings)
+	if len(findings) != 1 || findings[0].Direct || findings[0].Tag {
+		t.Fatalf("findings = %#v, want the batch said once, in the channel and untagged", findings)
 	}
 	message, err := notify.Render(findings[0].Notification.Topic, findings[0].Notification.Speaker, findings[0].Notification.Event)
 	if err != nil {
@@ -445,13 +446,14 @@ func TestAFindingFromBeforeTheWatermarkIsReadPast(t *testing.T) {
 }
 
 // The 17:56Z shape, replayed: the brake trips on three runs, and within one
-// poll the trip is said to the operator directly and tagged by member id,
-// naming each run with its item and what stopped it, and the verb that lifts
-// the hold — once, however many passes follow. The development manager
-// escalating it to him is the moment it becomes his, and that is said to him
-// once more. The release is said once, by whom. His own hold is said to the
-// channel alone, because he placed it.
-func TestABrakeTripIsSaidToTheOperatorDirectlyOnceAndItsEscalationOnceMore(t *testing.T) {
+// poll the trip is said to the channel, naming each run with its item and what
+// stopped it, and the verb that lifts the hold — once, however many passes
+// follow. The development manager escalating it is said once more. Neither is
+// the operator's — the registry gives the trip to her and the escalation to
+// the Lead Product Manager — so neither is taken to him directly or tagged.
+// The release is said once, by whom. His own hold is said to the channel
+// alone, because he placed it.
+func TestABrakeTripIsSaidOnceAndItsEscalationOnceMore(t *testing.T) {
 	t.Parallel()
 
 	harness := newTestHarness(t, time.Time{})
@@ -483,8 +485,8 @@ func TestABrakeTripIsSaidToTheOperatorDirectlyOnceAndItsEscalationOnceMore(t *te
 	if len(held) != 1 {
 		t.Fatalf("deliveries = %#v, want the brake trip said once", batch.Deliveries)
 	}
-	if !held[0].Direct || !held[0].Tag {
-		t.Fatalf("trip = %#v, want it said to the operator directly and tagged by member id", held[0])
+	if held[0].Direct || held[0].Tag {
+		t.Fatalf("trip = %#v, want it said to the channel alone", held[0])
 	}
 	message, err := notify.Render(held[0].Notification.Topic, held[0].Notification.Speaker, held[0].Notification.Event)
 	if err != nil {
@@ -503,8 +505,7 @@ func TestABrakeTripIsSaidToTheOperatorDirectlyOnceAndItsEscalationOnceMore(t *te
 	cursors := harness.poll(t, harness.start(), notify.KindIntakeHeld)
 	cursors = harness.poll(t, cursors)
 
-	// She escalates it to him: said to him once, directly and tagged, naming
-	// that she did.
+	// She escalates it: said once more, to the channel, naming that she did.
 	if _, err := harness.intake.DecideBrake(runstate.BrakeDecisionEscalate, "the checks fail on main and only the operator can say why", "development-manager conversation chat-1, turn 4", moment.Add(10*time.Minute)); err != nil {
 		t.Fatalf("DecideBrake() error = %v", err)
 	}
@@ -513,14 +514,14 @@ func TestABrakeTripIsSaidToTheOperatorDirectlyOnceAndItsEscalationOnceMore(t *te
 		t.Fatalf("Poll() error = %v", err)
 	}
 	escalated := kinded(batch, notify.KindIntakeHeld)
-	if len(escalated) != 1 || !escalated[0].Direct || !escalated[0].Tag {
-		t.Fatalf("deliveries = %#v, want her escalation said to the operator once, directly and tagged", batch.Deliveries)
+	if len(escalated) != 1 || escalated[0].Direct || escalated[0].Tag {
+		t.Fatalf("deliveries = %#v, want her escalation said once, to the channel alone", batch.Deliveries)
 	}
 	message, err = notify.Render(escalated[0].Notification.Topic, escalated[0].Notification.Speaker, escalated[0].Notification.Event)
 	if err != nil {
 		t.Fatalf("render the escalation: %v", err)
 	}
-	if !strings.Contains(message.Body, "the development manager escalated it to the operator") {
+	if !strings.Contains(message.Body, "the development manager escalated it, so it stays held") {
 		t.Fatalf("escalation reads as %q, which does not say she escalated it", message.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindIntakeHeld)

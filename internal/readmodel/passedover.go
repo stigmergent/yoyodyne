@@ -461,7 +461,7 @@ var passedOverMoves = map[runstate.PassedOverClass]string{
 	runstate.PassedOverAlreadyTried:          "nobody's — the session tries them again once they have cooled",
 	runstate.PassedOverAlreadyInFlight:       "nobody's — the runs carrying them finish, and the queue is read again as each of them does",
 	runstate.PassedOverCoveredByChildren:     "nobody's — the children are the work, and what covers them closes as they land",
-	runstate.PassedOverPausedByDirective:     "the operator's — the work stays paused until the directive is resolved",
+	runstate.PassedOverPausedByDirective:     "the Lead Product Manager's — she ends the directive or carries it into a document or an item, and the work stays paused until it is resolved",
 	runstate.PassedOverSequencedBehindWork:   "nobody's — each is pulled at the first pull where the run it would have raced has ended",
 	runstate.PassedOverPrerequisiteUnmet:     "the development manager's — the item asks for something the tree does not have, and it is docketed rather than dispatched",
 	runstate.PassedOverLeftForAnotherSlot:    "nobody's — a developer slot with no preference takes them in the Lead Product Manager's order, and a preferring slot falls back to them once its label's work is exhausted",
