@@ -969,9 +969,12 @@ sink with the rest of the product and starts it again whenever it dies, within
 the supervisor's bounds, so the timer is no longer yours.
 [`docs/slack/setup.md`](slack/setup.md#6-start-the-sink) has the rest of it.
 
-**What each severity means in the channel.** `critical` is what reaches you
-wherever you are, so it is kept for what is yours to act on or already costing
-somebody: a line stopped for hours, the provider holding every role, a stoppage
+**What each severity means in the channel.** `critical` is kept for what
+requires an act only a person can perform or is already costing somebody.
+Severity alone does not decide ownership or direct delivery: an unhandled
+critical report is the Lead Product Manager's, while an operator-owned finding
+reaches you directly. The critical states include a line stopped for hours,
+the provider holding every role, a stoppage
 whose cause only a person can fix on the machine — a target branch that diverged
 from the remote's, a credential the remote refused, a primary checkout carrying
 state the harness does not own. `warning` is a real risk or a real decision that
@@ -1536,7 +1539,9 @@ makes one: the Lead Product Manager handling a report with `"needs":
 stopped run the development manager escalated to you, and the batch of
 recommendations an owning role argued on a recurring pass over the changes
 proposed to its documents — one message per pass, listing each proposal with
-what its owner recommends and why, for you to decide with `yoyo amendment`. The message says what is
+what its owner recommends and why. The decisions belong to that owner;
+recording them with `yoyo amendment` still needs a person's hand until owning
+roles deciding amendments (yoyodyne-ifd.437.14) lands. The message says what is
 needed, who found it, where it is recorded, and what ends it, so you can go and
 read the whole of it:
 

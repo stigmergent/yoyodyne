@@ -3221,8 +3221,9 @@ again on 2026-09-21 when all three were one diverged target.
 
 **The brake's hold does not wait on you while the harness is still working
 it.** She decides what happens to it — to
-release it, to keep it and probe the line, or to escalate it to you — and the
-watching session acts on the decision at its next poll. `brake_cooldown` is how
+release it, to keep it and probe the line, or to escalate it to the Lead Product
+Manager — and the watching session acts on the decision at its next poll.
+`brake_cooldown` is how
 long the brake waits for that decision before it decides on evidence instead:
 once it has passed with nothing recorded, the session starts one probe run under
 the hold, and the probe landing reopens intake while the probe blocking keeps it
@@ -3240,8 +3241,9 @@ blocked probe summons her again and restarts the cooldown, so the brake goes
 round — one of her turns and one probe run per cooldown — and before the bound
 nothing about it got louder unless she escalated it. `brake_escalation_cycles`
 is how many of those summons-and-probe cycles the harness goes round before it
-escalates the hold to you itself: the cycle that reaches it is not put to her
-again, no further probe starts, and the channel receives
+escalates the hold to the Lead Product Manager itself: the cycle that reaches
+it is not put to the development manager again, no further probe starts, and
+the channel receives
 [one message](reporting.md#a-brake-hold-the-harness-escalates), without an
 operator tag or direct message, naming the cycles spent and what stopped the
 last probe and assigning the hold to the Lead Product Manager. It is a
@@ -7001,8 +7003,8 @@ A `merge` recommendation names the proposal it folds into; the record has no
 merge of its own, so it is carried out as one approval and one decline whose
 reason names the other. A proposal you decide between her pass and your reading
 is dropped from the batch wherever the batch is read — `yoyo status` derives it
-from the sweep records and the amendment log together — so the batch is always
-what you still have to decide rather than what she once said, and a batch whose
+from the sweep records and the amendment log together — so the batch always
+names what is still undecided rather than what she once said, and a batch whose
 every proposal is decided stops being named. The same cadence works for the
 Lead Product Manager over the brief and the goals; nothing
 about the mechanism is the architect's except that her documents are where
@@ -7010,9 +7012,9 @@ proposals accumulate.
 
 Whether the queue is draining is answered the way the pile's is: `yoyo status`
 carries the undecided count and the oldest undecided proposal's age on every
-reading, and names the queue on the needs-a-human line once that age passes a
-week, as the operator's — a queue this old says the task is not keeping up, or
-is not enabled.
+reading, and names the queue under the Lead Product Manager's waiting entries
+once that age passes a week. She settles why the recurring task that argues
+the proposals is not keeping up, or why none is enabled.
 
 ### A program manager instance's passes
 
