@@ -41,11 +41,14 @@ const (
 type PullRequestChecks struct {
 	// HeadCommit is the head the checks ran on, which is what makes the reading
 	// about one commit rather than about the request whatever it later carries.
-	HeadCommit string         `json:"head_commit"`
-	ReadAt     time.Time      `json:"read_at"`
-	Failing    []FailingCheck `json:"failing,omitempty"`
-	Pending    int            `json:"pending,omitempty"`
-	Passing    int            `json:"passing,omitempty"`
+	HeadCommit string    `json:"head_commit"`
+	ReadAt     time.Time `json:"read_at"`
+	// ReadError records an unsuccessful attempt. Any earlier reading remains
+	// for its head's re-run accounting, but says nothing about the checks now.
+	ReadError string         `json:"read_error,omitempty"`
+	Failing   []FailingCheck `json:"failing,omitempty"`
+	Pending   int            `json:"pending,omitempty"`
+	Passing   int            `json:"passing,omitempty"`
 	// BehindBy is how many commits the target branch carries that the head does
 	// not, which is what an update onto the target would bring in.
 	BehindBy int `json:"behind_by,omitempty"`
@@ -161,7 +164,7 @@ func (f FailingCheck) namesNoFile() bool {
 }
 
 // Red reports a reading with a check that failed.
-func (c PullRequestChecks) Red() bool { return len(c.Failing) > 0 }
+func (c PullRequestChecks) Red() bool { return c.ReadError == "" && len(c.Failing) > 0 }
 
 // FailedInTheJob reports a red reading every one of whose failing checks is a
 // job the forge ended itself (FailingCheck.InTheJob).
@@ -209,6 +212,9 @@ func (c *PullRequestChecks) RecordRerun() {
 // ChangeFails reports a failing check whose annotations name a file the change
 // touches, which is the change's own failure rather than one it met.
 func (c PullRequestChecks) ChangeFails() bool {
+	if c.ReadError != "" {
+		return false
+	}
 	for _, failing := range c.Failing {
 		if len(failing.OnChange) > 0 {
 			return true
@@ -223,6 +229,9 @@ func (c PullRequestChecks) ChangeFails() bool {
 // reason the outcome vocabulary is: the docket and the attention line must not
 // word one reading two ways.
 func (c PullRequestChecks) Describe(targetBranch string) string {
+	if c.ReadError != "" {
+		return fmt.Sprintf("checks unread: %s; attempted %s", c.ReadError, c.ReadAt.UTC().Format(time.RFC3339))
+	}
 	target := targetBranch
 	if strings.TrimSpace(target) == "" {
 		target = "its target"
@@ -290,7 +299,7 @@ func endedAs(conclusion string) string {
 // Validate rejects a reading that cannot describe a real one.
 func (c PullRequestChecks) Validate() error {
 	var problems []error
-	if !commitPattern.MatchString(c.HeadCommit) {
+	if !commitPattern.MatchString(c.HeadCommit) && !(c.HeadCommit == "" && strings.TrimSpace(c.ReadError) != "") {
 		problems = append(problems, errors.New("checks head_commit is invalid"))
 	}
 	if c.ReadAt.IsZero() {

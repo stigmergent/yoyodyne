@@ -973,6 +973,12 @@ func (g GitHub) api(ctx context.Context, endpoint string) (execution.ProcessResu
 // apiMethod is api with the request's method named, for the few requests that
 // ask the forge to do something rather than to say something.
 func (g GitHub) apiMethod(ctx context.Context, method, endpoint string) (execution.ProcessResult, error) {
+	return g.apiQuery(ctx, method, endpoint)
+}
+
+// apiQuery lets a read select the fields it needs inside gh, after gh has
+// decoded the whole response and before the process runner bounds its output.
+func (g GitHub) apiQuery(ctx context.Context, method, endpoint string, options ...string) (execution.ProcessResult, error) {
 	url, err := g.remoteURL(ctx, g.remoteName())
 	if err != nil {
 		return execution.ProcessResult{}, err
@@ -983,7 +989,7 @@ func (g GitHub) apiMethod(ctx context.Context, method, endpoint string) (executi
 	}
 	return g.Runner.Run(ctx, execution.Command{
 		Name:     g.binary(),
-		Args:     []string{"api", "--method", method, endpoint},
+		Args:     append([]string{"api", "--method", method, endpoint}, options...),
 		Dir:      g.Dir,
 		Env:      append(execution.ForgeEnvironment(nil), "GH_REPO="+repository),
 		Timeout:  g.timeout(),

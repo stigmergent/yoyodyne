@@ -316,11 +316,20 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		state runstate.State
 		mover Mover
 	}{
+<<<<<<< HEAD
 		"unrecorded":                 {runstate.State{RunID: "run-1", Branch: "b"}, MoverHarness},
 		"queued":                     {runstate.State{RunID: "run-2", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}}, MoverForge},
 		"queued with failing checks": {runstate.State{RunID: "run-red", PullRequest: &runstate.PullRequest{Number: 700, MergeQueued: true, Checks: &runstate.PullRequestChecks{Failing: []runstate.FailingCheck{{Name: "build"}}}}}, MoverHarness},
 		"re-armed after a drop":      {runstate.State{RunID: "run-3", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}, MergeDrop: &dropped}, MoverForge},
 		"dropped":                    {runstate.State{RunID: "run-4", PullRequest: &runstate.PullRequest{Number: 1}, MergeDrop: &dropped}, MoverDevelopmentManager},
+=======
+		"unrecorded": {runstate.State{RunID: "run-1", Branch: "b"}, MoverHarness},
+		"queued":     {runstate.State{RunID: "run-2", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}}, MoverForge},
+		"queued with unread checks": {runstate.State{RunID: "run-unread", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true,
+			Checks: &runstate.PullRequestChecks{ReadAt: moment, ReadError: "unexpected end of JSON input"}}}, MoverHarness},
+		"re-armed after a drop": {runstate.State{RunID: "run-3", PullRequest: &runstate.PullRequest{Number: 1, MergeQueued: true}, MergeDrop: &dropped}, MoverForge},
+		"dropped":               {runstate.State{RunID: "run-4", PullRequest: &runstate.PullRequest{Number: 1}, MergeDrop: &dropped}, MoverDevelopmentManager},
+>>>>>>> c007b07d (yoyodyne: yoyodyne-ifd.429.27 The queued-merge check reads the forge's check state without failing on)
 		// A request nothing ever asked the forge to merge is the development
 		// manager's to decide rather than a person's to merge by hand
 		// (yoyodyne-ifd.429.31).
@@ -387,6 +396,7 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
 func TestQueuedMergeAttentionNamesJobRerunsBeforeWithdrawal(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -424,6 +434,18 @@ func TestQueuedMergeAttentionNamesJobRerunsBeforeWithdrawal(t *testing.T) {
 				}
 			}
 		})
+=======
+func TestUnreadQueuedChecksAndOwedStepsWaitOnTheHarness(t *testing.T) {
+	t.Parallel()
+	state := runstate.State{RunID: "run-unread", WorkItemID: "task", PullRequest: &runstate.PullRequest{Number: 732, MergeQueued: true,
+		Checks: &runstate.PullRequestChecks{ReadAt: moment, ReadError: "unexpected end of JSON input"}}}
+	entry := awaitingForgeAttention(state)
+	if entry.Mover != MoverHarness || !strings.Contains(entry.What(), "checks unread: unexpected end of JSON input") || !strings.Contains(entry.Whose(), "next `yoyo reconcile` sweep") {
+		t.Fatalf("unread publication = %+v; %s; %s", entry, entry.What(), entry.Whose())
+	}
+	if owed := owedStepAttention(state); owed.Mover != MoverHarness {
+		t.Fatalf("owed step mover = %s", owed.Mover)
+>>>>>>> c007b07d (yoyodyne: yoyodyne-ifd.429.27 The queued-merge check reads the forge's check state without failing on)
 	}
 }
 

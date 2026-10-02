@@ -2605,17 +2605,25 @@ handed back, to the development manager's docket, only when the change cannot
 be replayed: a local promotion, a run whose branch, worktree, approval, or
 sessions are gone, a request the forge closed, a head level with its target
 failing some other way, or checks failing on the change itself. A reading of
-the checks the forge could not give leaves the record as it stands for the next
+the checks the forge could not give records the unread state and its error on
+the publication and leaves the merge's disposition as it stands for the next
 sweep.
 
 A check that annotates no file says nothing by its annotations about whose
 failure it is: a head behind its target failing only such checks is brought up
 to date, and if it still fails once level with its target it is confirmed as
 above — against the target's own head, or its log — and filed as the target's
-failure and waited on, or handed back as the change's. A reading the forge could not give leaves the merge queued, says
-so, and writes nothing — a check state nobody read is not a red one. A merge
-nobody has read the checks of yet is docketed saying exactly that rather than
-as approved and queued with nothing beside it.
+failure and waited on, or handed back as the change's. A reading the forge could not give leaves the merge queued and records its
+check state as unread, with the error and when the reading was attempted, on
+the publication (`read_error` under `checks` in the run record). A check state
+nobody read is not a red one, and an earlier reading is not reported as the
+current state. The publication appears under `Waiting on the harness` on
+`yoyo status`, saying `checks unread` with the error and naming the next
+`yoyo reconcile` sweep as what reads the checks again. Nothing about a failed
+read asks the operator to decide anything. A later successful reading replaces
+the unread state; a merge nobody has attempted to read the checks of yet is
+docketed saying exactly that rather than as approved and queued with nothing
+beside it.
 
 Three settle-path outcomes leave a publication outstanding, each
 with its own line on the work item. A merge the forge **dropped**, where the
@@ -3723,7 +3731,9 @@ has the rule.
   reading has failed checks to settle — with the checks the last sweep read
   beside it, since a merge
   held for checks that will not pass is [not left queued](#recovering-interrupted-runs)
-  — the development manager's once it has dropped one, the development
+  — the harness's while a queued merge's check state is unread, with the error
+  and the next sweep named; a finished run that still owes a reconcile step is
+  also the harness's — the development manager's once it has dropped one, the development
   manager's too for a request nothing ever asked it to merge, which is on her
   docket to arm or re-run rather than yours to merge by hand, and the harness's
   for a promotion whose record holds no request at all — the next

@@ -1243,6 +1243,10 @@ func TestGitHubChecksReadsTheHeadItsChecksAndHowFarBehindItIs(t *testing.T) {
 	if reading.BehindBy != 31 {
 		t.Errorf("behind by = %d, want how far main has moved on without the head", reading.BehindBy)
 	}
+	comparison := runner.matching("compare/")[0]
+	if !contains(comparison, "--jq") || !contains(comparison, "{ahead_by: .ahead_by}") {
+		t.Errorf("comparison args = %v, want the distance selected before output is retained", comparison)
+	}
 
 	// A comparison that says nothing about the distance is not a head level with
 	// its base.

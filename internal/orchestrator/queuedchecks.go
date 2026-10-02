@@ -87,8 +87,8 @@ const ActionUpdating ReconcileAction = "updating"
 // are read, written onto the publication, and decided on.
 //
 // A reconciler wired without check access reads the merge as it always did. A
-// reading that fails leaves the merge queued and says so, and nothing is
-// written: a check state nobody could read is not a red one.
+// reading that fails leaves the merge queued and records the failed read:
+// a check state nobody could read is not a red one.
 func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State) (Reconciliation, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
@@ -100,7 +100,7 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	reading, err := r.Checks.Checks(ctx, published.Number, target)
 	if err != nil {
 		result.Detail += fmt.Sprintf("; its checks could not be read (%v), so it is left queued and the next sweep reads them again", err)
-		return result, nil
+		return result, r.recordUnreadChecks(state, err)
 	}
 	checks := recordedChecks(reading, r.clock().Now())
 	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
@@ -156,6 +156,26 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 		// the target's own failure, filed as the target's (redtarget.go).
 		return r.waitOnRedTarget(ctx, state, checks, reading.Files, false)
 	}
+}
+
+// recordUnreadChecks keeps a failed read on the publication, including a
+// failure before the forge could name the head. Re-run accounting survives a
+// failed read and is carried forward only if the next read names the same head.
+func (r Reconciler) recordUnreadChecks(state runstate.State, problem error) error {
+	published := *state.PullRequest
+	var checks runstate.PullRequestChecks
+	if published.Checks != nil {
+		checks = *published.Checks
+	}
+	checks.ReadAt = r.clock().Now().UTC()
+	checks.ReadError = problem.Error()
+	published.Checks = &checks
+	state.PullRequest = &published
+	state.UpdatedAt = checks.ReadAt
+	if err := r.Store.Save(state); err != nil {
+		return fmt.Errorf("record the unread checks of pull request %d on run %s: %w", published.Number, state.RunID, err)
+	}
+	return nil
 }
 
 // rerunFailedJobs asks the forge to run every failed check of a reading again,
@@ -405,35 +425,41 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 // A reading of the checks the forge could not give decides the drop neither
 // way. The record is left as it stands, still queued, and the next sweep asks
 // the forge again — the same rule a merge still held follows.
-func (r Reconciler) replayDroppedLanding(ctx context.Context, state runstate.State, observed publish.PullRequest) (Reconciliation, bool, error) {
+func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.State, observed publish.PullRequest) (Reconciliation, bool, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
-	if r.Checks == nil || unreplayable(state) != "" || !strings.EqualFold(observed.State, "OPEN") {
+	if r.Checks == nil || unreplayable(*state) != "" || !strings.EqualFold(observed.State, "OPEN") {
 		return Reconciliation{}, false, nil
 	}
-	result := reconciliationOf(state, ActionQueued)
+	result := reconciliationOf(*state, ActionQueued)
 	reading, err := r.Checks.Checks(ctx, published.Number, target)
 	if err != nil {
 		result.Detail = fmt.Sprintf("the forge holds no merge for pull request %d any more, and its checks could not be read (%v), so whether its head can be brought up to date is not known; the record is left as it stands and the next sweep asks again",
 			published.Number, err)
-		return result, true, nil
+		return result, true, r.recordUnreadChecks(*state, err)
 	}
 	checks := recordedChecks(reading, r.clock().Now())
+	if prior := published.Checks; prior != nil && prior.HeadCommit == checks.HeadCommit {
+		checks.Reruns = prior.Reruns
+		checks.RerunChecks = append([]int64(nil), prior.RerunChecks...)
+	}
+	// Carry the successful reading back to the caller even when it settles the
+	// drop instead of replaying it, so a previous read error does not survive.
+	published.Checks = &checks
+	state.PullRequest = &published
 	// A head level with its target that failed on no file its change touches
 	// failed on the target, and the queue dropping it is the same fact the sweep
 	// withdrawing it would have been: filed as the target's, and waited on.
 	if checks.BehindBy == 0 && checks.Red() && !checks.ChangeFails() && !checks.FailedInTheJob() && r.Filer != nil {
-		waiting, err := r.waitOnRedTarget(ctx, state, checks, reading.Files, true)
+		waiting, err := r.waitOnRedTarget(ctx, *state, checks, reading.Files, true)
 		return waiting, true, err
 	}
 	if checks.BehindBy == 0 || checks.ChangeFails() {
 		return Reconciliation{}, false, nil
 	}
-	published.Checks = &checks
-	state.PullRequest = &published
-	result = reconciliationOf(state, ActionQueued)
+	result = reconciliationOf(*state, ActionQueued)
 	result.Detail = fmt.Sprintf("the forge holds no merge for pull request %d any more; %s", published.Number, checks.Describe(target))
-	updated, err := r.updateQueuedHead(ctx, state, result, true)
+	updated, err := r.updateQueuedHead(ctx, *state, result, true)
 	return updated, true, err
 }
 

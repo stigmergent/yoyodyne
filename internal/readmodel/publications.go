@@ -45,8 +45,9 @@ func AwaitingForge(states []runstate.State) []runstate.State {
 // what is left as the operator's is an unmerged request whose record carries
 // some other account and no drop. All are settled by the same sweep once the
 // forge records the merge, and the sentence Attention.Whose derives from the
-// record says so. A merge the sweep withdrew because its checks failed on the
-// target itself is the harness's too: it waits on the items filed for that
+// record says so. A queued merge whose checks could not be read is the
+// harness's until the next sweep reads them. A merge the sweep withdrew because
+// its checks failed on the target itself is the harness's too: it waits on the items filed for that
 // check, and the harness takes it up once they close (yoyodyne-m5p).
 func awaitingForgeAttention(state runstate.State) Attention {
 	// The predicate that selects a state here requires the promotion to be
@@ -71,6 +72,8 @@ func awaitingForgeAttention(state runstate.State) Attention {
 		published := *state.PullRequest
 		publication.PullRequest = &published
 		switch {
+		case published.MergeQueued && published.Checks != nil && published.Checks.ReadError != "":
+			mover = MoverHarness
 		case published.MergeQueued:
 			mover = MoverForge
 			if published.Checks != nil && published.Checks.Red() {
