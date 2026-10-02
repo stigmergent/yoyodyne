@@ -18,9 +18,9 @@ package chat
 // provider adds its own framing, the JSON the request is encoded in escapes
 // the text, and a reply's reasoning is kept in the session without ever reaching
 // the harness. That is why the budget is a quarter of the ceiling rather than
-// most of it. Tool traffic is not among what goes unmeasured: a conversation's
-// turns are sent with no tools allowed, so no tool call or result sits in the
-// session beside what the harness counted.
+// most of it. Provider-side inspection calls and results are also unmeasured
+// when an adapter permits read-only tools. This budget is therefore a prompt
+// and reply estimate, not a complete bound on the resumed provider session.
 //
 // A compaction is the rebuild a crossing makes, applied to the provider that is
 // already holding the conversation: the turn is sent with no session to resume,

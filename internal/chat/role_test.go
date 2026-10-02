@@ -40,7 +40,7 @@ func TestEveryConversationalRoleCarriesItsOwnContractAheadOfThePersona(t *testin
 			t.Fatalf("%s persona is not introduced as subordinate: persona at %d, subordination at %d", role, personaAt, subordinationAt)
 		}
 		// The one rule no role's contract may lose, whatever else it says.
-		if !strings.Contains(prompt, "no filesystem, command, or network tools") {
+		if !strings.Contains(prompt, "Your role is read-only") {
 			t.Fatalf("%s contract does not refuse tools: %q", role, authority.Contract)
 		}
 		// With no persona the prompt is the contract and nothing but it, save the

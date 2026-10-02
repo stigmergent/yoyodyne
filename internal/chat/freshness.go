@@ -71,9 +71,8 @@ type Briefing struct {
 
 // Ground is the repository and the tracker as the harness can see them: where a
 // conversation's picture comes from, and what it is compared against to say how
-// old that picture is. Like Work, it is the harness's own hand — the product
-// manager still has no filesystem, no commands, and no network, and nothing
-// here gives it any.
+// old that picture is. Like Work, it is performed by the harness independently
+// of any read-only inspection tools the role's backend supplies.
 //
 // It is optional. A conversation without one still discusses the product; it
 // simply cannot say what has moved or take a new picture, and it says so rather

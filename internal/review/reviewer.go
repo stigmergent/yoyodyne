@@ -104,11 +104,11 @@ type Request struct {
 	// evidence: a constraint the change could have edited would be no constraint.
 	// It is empty for a repository that records none.
 	Invariants string
-	// WorktreePath is the directory the reviewer's own process runs in: the
-	// developer's worktree at work-item scope, and the repository the branch
-	// lives in at branch scope. It is a working directory rather than evidence —
-	// the reviewer has no tools and cannot read it — and the change it judges is
-	// always the supplied patch.
+	// WorktreePath identifies the repository context available for inspection:
+	// the developer's worktree at work-item scope, or the repository holding the
+	// named commits at branch scope. An adapter may launch from another directory
+	// to avoid loading repository configuration. Branch reviewers must inspect
+	// the named commits rather than assume this checkout contains the candidate.
 	WorktreePath string
 	// Landing is what the developer claimed its change does to the work item,
 	// already rendered by the caller that holds the claim. It is untrusted
@@ -669,11 +669,11 @@ func reviewContract(scope Scope) string {
 	}
 	return reviewIntroduction(scope) + `
 
-The supplied architectural invariants, ` + contextNoun + `, patch, and check results are the only evidence available to you. You have no filesystem or command tools. Do not attempt to inspect any other local data.
+Review the supplied architectural invariants, ` + contextNoun + `, patch, and check results. Use only the inspection tools explicitly supplied by the backend; if none are supplied, reason solely from the delivered evidence. Permitted inspection is limited to relevant repository context: callers, interfaces, tests, and documentation. For a branch review, the working directory may be checked out on another branch: inspect the named head and base commits with read-only Git commands and do not assume the current checkout is the candidate. For a work-item review, inspect the supplied worktree and its uncommitted changes. Do not change files, execute checks that write, reach external services, inspect unrelated local data, or request broader permissions. State what you cannot verify.
 
 Architectural invariants supplied above the untrusted evidence are this repository's own durable constraints, delivered by the harness from the architect's files rather than by the developer, and they hold ` + invariantAuthority + `. Judge the change against every one of them. A change that violates a delivered invariant is not approvable: report it as a finding that names the invariant by its id, at major severity or higher. A change that creates, amends, retires, or edits an invariant is a finding for the same reason, because only the architect may. Your view of them is a selected set rather than all of them, so never report the invariants as a whole as satisfied.
 
-Reconcile the change against the documentation you can see, in the patch and in the ` + contextNoun + `. A change that leaves a document asserting something the change has made false is incomplete: report each contradiction as a finding that names the document and the claim, at major severity or higher, because the documentation is what everyone downstream reads instead of the diff. Your evidence is bounded here too — a claim in a file this change does not touch is not visible to you, so never report the documentation as a whole as consistent.
+Reconcile the change against the documentation you can see, in the patch and in the ` + contextNoun + `. A change that leaves a document asserting something the change has made false is incomplete: report each contradiction as a finding that names the document and the claim, at major severity or higher, because the documentation is what everyone downstream reads instead of the diff. Name the documents you actually inspected; never report documentation you did not inspect as consistent.
 ` + grantScrutiny(scope) + landingScrutiny(scope) + liveCopyScrutiny(scope) + executionScrutiny(scope) + approvalScrutiny(scope) + escalationScrutiny(scope) + `
 Your verdict is a decision your role's authority covers, and it is never put to the operator for approval. ` + terms.DecideAndReport + `
 
@@ -1137,16 +1137,15 @@ func renderDeletions(deleted []gitworktree.DeletedFile, location evidenceLocatio
 
 // renderOmittedEvidence says where a file the patch could not show is
 // delivered whole, so the omission is evidence somebody can open rather than a
-// name. The reviewer itself has no tools and cannot open anything, and the
-// sentence says so: what it is for is the person following the review — the
-// operator reading the verdict, or whoever considers the item afterwards — who
-// can open the fixture the bound kept out and judge it themselves.
+// name. Both a reviewer with inspection tools and a person following the
+// review can locate the full fixture; a backend without tools keeps using the
+// supplied description.
 func renderOmittedEvidence(location evidenceLocation) string {
 	if location.Directory == "" && location.HeadCommit == "" {
 		return ""
 	}
 	var rendered strings.Builder
-	rendered.WriteString("\nEach of them is delivered whole outside this patch, where a person can open it — you cannot, having no tools, and are not asked to. ")
+	rendered.WriteString("\nEach of them is delivered whole outside this patch, where a person can open it. You may inspect it only if your backend supplies read-only tools. ")
 	switch {
 	case location.Worktree && location.HeadCommit != "":
 		rendered.WriteString(fmt.Sprintf("The worktree at %s holds every one of them as the change leaves it, and a file already committed is at tip commit %s as `git show %s:<path>`.\n",

@@ -119,23 +119,25 @@ func optionLevel(contract commandContract, args []string, option string) string 
 func invocationsToCheck(t *testing.T) map[string][]string {
 	t.Helper()
 	invocations := make(map[string][]string)
-	for name, sessionID := range map[string]string{"a fresh session": "", "a resumed session": "session-1"} {
-		runner := &fakeRunner{results: []execution.ProcessResult{{
-			Status: execution.ProcessSucceeded,
-			Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`),
-		}}}
-		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-			RunID:            testRunID,
-			Role:             domain.RoleDeveloper,
-			WorkingDirectory: "/worktree",
-			Prompt:           "do the work",
-			SystemPrompt:     "the contract",
-			SessionID:        sessionID,
-			Model:            "gpt-5",
-		}); err != nil {
-			t.Fatalf("Run() error = %v", err)
+	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer} {
+		for name, sessionID := range map[string]string{"a fresh session": "", "a resumed session": "session-1"} {
+			runner := &fakeRunner{results: []execution.ProcessResult{{
+				Status: execution.ProcessSucceeded,
+				Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`),
+			}}}
+			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+				RunID:            testRunID,
+				Role:             role,
+				WorkingDirectory: t.TempDir(),
+				Prompt:           "do the work",
+				SystemPrompt:     "the contract",
+				SessionID:        sessionID,
+				Model:            "gpt-5",
+			}); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			invocations[string(role)+" "+name] = runner.commands[0].Args
 		}
-		invocations[name] = runner.commands[0].Args
 	}
 	return invocations
 }

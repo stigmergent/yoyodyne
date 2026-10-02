@@ -393,70 +393,21 @@ func TestATerminalWithNoCountsCarriesNoUsage(t *testing.T) {
 	}
 }
 
-// The sandbox an invocation runs under is decided by what the role's tool
-// posture requires and by nothing else. There is no permission mode on a request
-// for a caller to name one with, so this is the whole of the mapping: a
-// worktree-write role gets a sandbox it can edit in, and a read-only one does
-// not.
+// Every known role maps to its native sandbox; unknown roles never inherit one.
 func TestTheSandboxIsWhatTheRolesPostureRequires(t *testing.T) {
 	t.Parallel()
-
-	for _, test := range []struct {
-		name string
-		role domain.AgentRole
-		want string
-	}{
-		{name: "a developer", role: domain.RoleDeveloper, want: sandboxWorkspaceWrite},
-		// The built-in Codex descriptor claims only the worktree-write posture, so
-		// no built-in invocation is a reviewer. This is the branch a provider a
-		// project declared on this adapter reaches when it claims the read-only
-		// posture, and it must not be a writable worktree.
-		{name: "a role whose posture is read-only", role: domain.RoleReviewer, want: sandboxReadOnly},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			runner := &fakeRunner{results: []execution.ProcessResult{{
-				Status: execution.ProcessSucceeded,
-				Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"{}"}}`),
-			}}}
-			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
-				RunID:            testRunID,
-				Role:             test.role,
-				WorkingDirectory: "/worktree",
-				Prompt:           "do the work",
-			}); err != nil {
-				t.Fatalf("Run() error = %v", err)
-			}
-			if got := sandboxArgument(t, runner.commands[0].Args); got != test.want {
-				t.Fatalf("sandbox = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
-// Every role the harness has is decided here, one way or the other: mapped onto
-// a sandbox, or refused because this provider has nothing to hold it to. A role
-// this adapter neither maps nor refuses is one an invocation meets only after
-// work has been claimed, which is the opposite of a policy refused where the
-// configuration is validated.
-func TestEveryRoleTheHarnessHasIsDecided(t *testing.T) {
-	t.Parallel()
-
 	for _, role := range domain.Roles() {
-		sandbox, err := sandboxFor(role)
-		switch {
-		case err != nil && sandbox != "":
-			t.Errorf("role %q was refused and given sandbox %q", role, sandbox)
-		case err == nil && sandbox != sandboxReadOnly && sandbox != sandboxWorkspaceWrite:
-			t.Errorf("role %q mapped to sandbox %q, which is not one this adapter asks for", role, sandbox)
+		want := sandboxReadOnly
+		if role == domain.RoleDeveloper {
+			want = sandboxWorkspaceWrite
+		}
+		got, err := sandboxFor(role)
+		if err != nil || got != want {
+			t.Errorf("sandboxFor(%q) = (%q, %v), want %q", role, got, err, want)
 		}
 	}
-	// And nothing may reach the setting that would let an agent write anywhere on
-	// the machine: it is unreachable from here rather than merely unused.
-	for _, role := range domain.Roles() {
-		if sandbox, _ := sandboxFor(role); sandbox == "danger-full-access" {
-			t.Errorf("role %q reached the sandbox that is not a bound", role)
-		}
+	if got, err := sandboxFor("unknown"); err == nil || got != "" {
+		t.Fatalf("unknown role = (%q, %v), want refusal", got, err)
 	}
 }
 
@@ -504,6 +455,44 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 				t.Fatalf("the provider was started for a request that should have been refused: %#v", runner.commands)
 			}
 		})
+	}
+}
+
+// A resume must receive the same read-only policy as a new invocation, even
+// when the saved provider session was created with broader permissions.
+func TestRunReadOnlyRolesOnFreshAndResumedInvocations(t *testing.T) {
+	t.Parallel()
+	for _, role := range domain.Roles() {
+		if backendapi.PostureFor(role) != backendapi.PostureReadOnly {
+			continue
+		}
+		for _, session := range []string{"", "existing-session"} {
+			t.Run(string(role)+"/"+session, func(t *testing.T) {
+				t.Parallel()
+				runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
+				_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "inspect and advise", SessionID: session})
+				if err != nil {
+					t.Fatal(err)
+				}
+				command := runner.commands[0]
+				if _, err := os.Stat(command.Dir); !os.IsNotExist(err) {
+					t.Fatalf("launch directory left behind: %q (%v)", command.Dir, err)
+				}
+				args := command.Args
+				if got := sandboxArgument(t, args); got != sandboxReadOnly {
+					t.Fatalf("sandbox = %q, want read-only", got)
+				}
+				joined := strings.Join(args, " ")
+				for _, required := range []string{"--ignore-user-config", `approval_policy="never"`, `web_search="disabled"`, "agents.enabled=false", "orchestrator.mcp.enabled=false"} {
+					if !strings.Contains(joined, required) {
+						t.Errorf("args %q missing %q", args, required)
+					}
+				}
+				if session != "" && strings.Index(joined, `approval_policy="never"`) > strings.Index(joined, "resume") {
+					t.Fatal("read-only policy appears after resume")
+				}
+			})
+		}
 	}
 }
 
@@ -1177,5 +1166,119 @@ func TestRunRefusesAnEffortLevel(t *testing.T) {
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("a refused request launched %d process(es)", len(runner.commands))
+	}
+}
+
+// Provider failure still removes the isolated directory, and repository paths
+// remain absolute after moving the CLI outside the checkout.
+func TestReadOnlyLaunchCleanupAndRelativeRepository(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(cwd, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{errors: []error{errors.New("provider failed")}}
+	_, err = (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: relative, Prompt: "review"})
+	if err == nil || !strings.Contains(err.Error(), "provider failed") {
+		t.Fatalf("error = %v", err)
+	}
+	command := runner.commands[0]
+	if command.Dir == repository {
+		t.Fatal("launched in repository")
+	}
+	if _, err := os.Stat(command.Dir); !os.IsNotExist(err) {
+		t.Fatalf("launch directory not removed: %v", err)
+	}
+	canonical, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(runner.prompts[0], canonical) {
+		t.Fatalf("prompt lacks canonical repository %q", canonical)
+	}
+}
+
+func TestReadOnlyLaunchRejectsTemporaryDirectoryInsideRepository(t *testing.T) {
+	repository := t.TempDir()
+	t.Setenv("TMPDIR", repository)
+	_, _, err := prepareReadOnlyLaunch(repository)
+	if err == nil {
+		t.Fatal("accepted a launch inside the repository")
+	}
+	entries, readErr := os.ReadDir(repository)
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("failed preparation leaked directory: %v, %v", entries, readErr)
+	}
+}
+
+func TestReadOnlyEnvironmentRetainsAuthWithoutControlChannels(t *testing.T) {
+	t.Setenv("CODEX_HOME", "/provider-home")
+	t.Setenv("CODEX_CONTROL_SOCKET", "/control")
+	t.Setenv("OPENAI_BASE_URL", "http://unexpected")
+	t.Setenv("SSH_AUTH_SOCK", "/ssh-agent")
+	env := strings.Join(readOnlyEnvironment(""), "\n")
+	if !strings.Contains(env, "CODEX_HOME=/provider-home") {
+		t.Fatal("provider home lost")
+	}
+	for _, name := range []string{"CODEX_CONTROL_SOCKET=", "OPENAI_BASE_URL=", "SSH_AUTH_SOCK="} {
+		if strings.Contains(env, name) {
+			t.Errorf("retained %s", name)
+		}
+	}
+	if env := strings.Join(readOnlyEnvironment("/selected-account"), "\n"); !strings.Contains(env, "CODEX_HOME=/selected-account") || strings.Contains(env, "CODEX_HOME=/provider-home") {
+		t.Fatalf("wrong account environment: %s", env)
+	}
+}
+
+func TestReadOnlyLaunchRejectsSiblingTemporaryDirectoryInSameCheckout(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{".git", "nested", "tmp"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TMPDIR", filepath.Join(root, "tmp"))
+	if _, _, err := prepareReadOnlyLaunch(filepath.Join(root, "nested")); err == nil {
+		t.Fatal("accepted temporary directory inside same checkout")
+	}
+}
+
+func TestReadOnlyLaunchRequiresDirectory(t *testing.T) {
+	t.Parallel()
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := prepareReadOnlyLaunch(file); err == nil {
+		t.Fatal("accepted file as inspection directory")
+	}
+}
+
+func TestReadOnlyRelativeProviderHomeKeepsRepositoryResolution(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	runner := &fakeRunner{errors: []error{errors.New("provider failed")}}
+	_, _ = (Backend{Runner: runner, ConfigDir: "account-home"}).Run(context.Background(), backendapi.RunRequest{RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: repository, Prompt: "review"})
+	if len(runner.commands) != 1 {
+		t.Fatal("provider did not start")
+	}
+	canonical, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "CODEX_HOME=" + filepath.Join(canonical, "account-home")
+	found := false
+	for _, value := range runner.commands[0].Env {
+		if value == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("provider environment lost %q", want)
 	}
 }

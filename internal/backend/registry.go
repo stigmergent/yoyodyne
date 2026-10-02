@@ -25,20 +25,15 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// Posture is what a role needs of a provider: whether the agent filling it edits
-// a worktree or reasons over bounded evidence with no tools at all. It is the
-// policy half of the capability question, and it is separate from the role
-// because it is the thing a backend actually has to be able to do -- a provider
-// that cannot refuse every tool cannot run a reviewer safely, whatever it says
-// about supporting the role.
+// Posture is the access a role needs from its provider. Developers may edit a
+// worktree; other roles may inspect evidence without modifying it. Adapters may
+// enforce read-only access more narrowly, including by disabling tools entirely.
 type Posture string
 
 const (
-	// PostureReadOnly is an agent that reasons over the evidence it was handed
-	// and reaches outside it for nothing. It requires a backend that can refuse
-	// every tool, including nominally read-only ones: what the posture prevents
-	// is injected evidence reading unrelated local files and sending them to a
-	// provider.
+	// PostureReadOnly permits inspection without filesystem changes, network
+	// access from tools, or permission escalation. It does not promise filesystem
+	// read isolation: a native read-only sandbox may read outside the repository.
 	PostureReadOnly Posture = "read-only"
 	// PostureWorktreeWrite is an agent whose work is editing a worktree. It
 	// requires a backend that can scope writes to that worktree.
@@ -60,8 +55,8 @@ func (p Posture) Valid() bool {
 
 // PostureFor is what a role needs of whatever backend runs it. The developer is
 // the only role whose work is editing a worktree; each of the others decides
-// something the harness then carries out on its behalf, so none of them is given
-// a tool at all. Roles are listed rather than inverted, so a role nobody has
+// something the harness then carries out on its behalf, so their tools cannot
+// perform those mutations. Roles are listed rather than inverted, so a role nobody has
 // decided a posture for answers with no posture instead of inheriting the
 // developer's.
 func PostureFor(role domain.AgentRole) Posture {
@@ -147,16 +142,8 @@ func (d Descriptor) SupportsPosture(posture Posture) bool {
 	return false
 }
 
-// BuiltInDescriptors are the providers this build ships. Claude Code serves
-// every role and is the default for all of them; Codex is documented as not
-// matching every Claude Code feature and serves the two roles inside a run —
-// which is the same statement that used to live as a switch on the backend
-// identifier and is now the one place it is made. Both name an adapter this
-// build carries, so both are providers a run can actually be started on.
-//
-// A descriptor states what its provider can be held to and not what would be
-// convenient, because everything downstream is derived from it: a posture
-// claimed here is a posture nothing later checks again.
+// BuiltInDescriptors describes the providers this build can launch. Both serve
+// every role; their adapters enforce each role's required access independently.
 func BuiltInDescriptors() []Descriptor {
 	return []Descriptor{
 		{
@@ -191,24 +178,8 @@ func BuiltInDescriptors() []Descriptor {
 				ToolControl:       true,
 				LocalAuth:         true,
 			},
-			Roles: []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer},
-			// Worktree-write only. Codex scopes writes to a directory, which is
-			// what the developer's posture asks for; what it has no setting for is
-			// the read-only posture as this harness defines it. Its read-only
-			// sandbox stops writes and network and still lets the agent read the
-			// machine, and reading unrelated local files and sending them to a
-			// provider is precisely what the read-only posture exists to prevent.
-			// So the descriptor claims the posture Codex can be held to and not the
-			// role's convenience: a reviewer configured on Codex is refused when the
-			// configuration loads, naming the posture, rather than run under a
-			// sandbox that does not hold it.
-			//
-			// This is a statement about Codex's sandbox rather than about the
-			// adapter, which this build now ships. An adapter that later achieves
-			// the posture's actual property — no filesystem read outside the
-			// evidence it was handed — is what would make the read-only claim true,
-			// and it is the same line either way.
-			Postures: []Posture{PostureWorktreeWrite},
+			Roles:    domain.Roles(),
+			Postures: Postures,
 			BuiltIn:  true,
 		},
 	}

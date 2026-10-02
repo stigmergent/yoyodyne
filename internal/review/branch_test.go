@@ -159,7 +159,7 @@ func TestTheBranchContractDoesNotJudgeAgainstAWorkItem(t *testing.T) {
 		"The schema is closed",
 		"never report the invariants as a whole as satisfied",
 		"A change that creates, amends, retires, or edits an invariant is a finding",
-		"never report the documentation as a whole as consistent",
+		"never report documentation you did not inspect as consistent",
 	} {
 		if !strings.Contains(branch, protocol) || !strings.Contains(workItem, protocol) {
 			t.Errorf("%q is not shared by both scopes", protocol)

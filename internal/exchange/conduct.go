@@ -51,7 +51,7 @@ type Reports interface {
 	Append(reported report.Report) error
 }
 
-// Voice is the answering half of the channel: one toolless provider invocation
+// Voice is the answering half of the channel: one read-only provider invocation
 // that puts a question to a role and returns its judgment. It is an interface so
 // that what conducts an exchange does not depend on which provider answers, and
 // so a test can conduct a whole thread without one.

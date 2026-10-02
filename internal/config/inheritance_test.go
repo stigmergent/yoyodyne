@@ -210,9 +210,9 @@ func TestInvalidInheritanceFailsClosed(t *testing.T) {
 			problem: "must declare both version and path",
 		},
 		{
-			name:    "invalid role and backend combination",
+			name:    "inherited effort unsupported by backend",
 			config:  minimalProjectConfig + "agents:\n  architect:\n    backend: codex\n",
-			problem: `does not support role "architect"`,
+			problem: `provider "codex" accepts no effort level`,
 		},
 		{
 			// A typo in an agents block is the way an unknown role actually

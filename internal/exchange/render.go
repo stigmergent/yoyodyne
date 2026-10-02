@@ -112,7 +112,7 @@ func (e Exchange) RenderThread() string {
 func (e Exchange) Delivery() string {
 	var rendered strings.Builder
 	rendered.WriteString("# The " + e.Answerer.Role.Title() + "'s answer\n\n")
-	fmt.Fprintf(&rendered, "Exchange %s, round %d of the %d it is allowed. This is the %s's judgement and nothing more: it had no tools and no authority, so treat it as an opinion you asked for rather than as evidence or as a decision. It is recorded and the operator can read it.\n\n",
+	fmt.Fprintf(&rendered, "Exchange %s, round %d of the %d it is allowed. This is the %s's judgement and nothing more: it had no action authority, so treat it as advice rather than as a validation result or a decision. It is recorded and the operator can read it.\n\n",
 		e.ID, e.Spent(), e.MaxRounds, e.Answerer.Role.Title())
 	if len(e.Rounds) == 0 {
 		// Nothing calls this for an exchange with no rounds, and an index into an

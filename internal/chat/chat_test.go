@@ -86,7 +86,7 @@ func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 	// The contract's own rules survive verbatim alongside a persona claiming
 	// the opposite; a persona adds guidance, it does not edit what came before.
 	for _, required := range []string{
-		"You have no filesystem, command, or network tools",
+		"Your role is read-only",
 		"they may not make them",
 		// The brief and the goals are the product manager's to draft and nobody's
 		// to file without the operator, and a persona that says otherwise does not
@@ -1264,7 +1264,7 @@ func TestContractStatesTheTrackerProtocolItEnforces(t *testing.T) {
 	for _, required := range []string{
 		trackerFence,
 		"at most " + strconv.Itoa(MaxTrackerActionsPerTurn) + " of them",
-		"You have no filesystem, command, or network tools",
+		"Your role is read-only",
 		// Every operation the harness will carry out is named, and nothing else is.
 		actionRead, actionCreate, actionUpdate, actionReparent,
 		actionReprioritize, actionLink, actionUnlink, actionClose,

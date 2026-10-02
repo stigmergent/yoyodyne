@@ -19,10 +19,8 @@ import (
 // The harness performs, the roles decide. The developer's phase is what causes
 // a branch to be pushed and a pull request to be opened, and the reviewer's
 // approving verdict is what causes it to be merged — but the harness executes
-// both, and neither role is given a credential, a tool, or a request for
-// either. On the reviewer's side that is a boundary rather than an arrangement:
-// it runs with no tools at all, so the role whose verdict authorizes the merge
-// has no way to perform one, and its verdict reaches the target branch only
+// both. The reviewer's adapter prevents writes and tool network access, so the
+// role whose verdict authorizes the merge cannot perform one, and its verdict reaches the target branch only
 // through the checks, the independence evidence, and the fast-forward rule that
 // already gate integration. The developer's side is weaker and the design says
 // so: it has a shell, so what keeps it from pushing is its sandbox and its

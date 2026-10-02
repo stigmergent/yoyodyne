@@ -212,9 +212,8 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		Branch:     branchScope(change),
 		Context:    branchContext(change),
 		Invariants: invariants.Text(),
-		// The reviewer's own process runs in the repository the branch lives in.
-		// It has no tools, so this is where it is rather than what it reads: the
-		// change it judges is the patch it was handed.
+		// The repository holds the named commits; its current checkout need not
+		// be the reviewed branch. The review contract distinguishes the two.
 		WorktreePath: b.Repository,
 		Changes:      change.Changes,
 		RedactValues: b.RedactValues,

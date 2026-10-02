@@ -264,7 +264,7 @@ func TestReviewAsksForDocumentationTheChangeContradicts(t *testing.T) {
 		"report each contradiction as a finding that names the document and the claim",
 		// The limit is part of the instruction: a diff-scoped reviewer must not
 		// claim the documentation it never saw is consistent.
-		"never report the documentation as a whole as consistent",
+		"never report documentation you did not inspect as consistent",
 	} {
 		if !strings.Contains(provider.request.SystemPrompt, want) {
 			t.Errorf("review contract is missing %q: %q", want, provider.request.SystemPrompt)

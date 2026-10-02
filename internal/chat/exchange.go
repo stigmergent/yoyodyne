@@ -10,7 +10,7 @@ package chat
 // exchange afterwards rather than being the wire.
 //
 // Nothing about the conversation's own authority changes. What comes back is
-// judgement with no tools behind it and no authority in it, so a role that acts
+// judgement with no action authority in it, so a role that acts
 // on an answer is doing exactly what it could already do on its own opinion —
 // which is the point of a channel that moves opinion and nothing else.
 

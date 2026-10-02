@@ -564,9 +564,7 @@ func TestTheEligibleSubstitutionIsMadeAsItAlwaysWas(t *testing.T) {
 }
 
 // writesOnlyRegistry is a project naming one provider that scopes writes to a
-// worktree and cannot express no tools at all — which is the shape of a real
-// provider rather than an invented one, and the shape the reviewer's posture
-// exists to refuse.
+// worktree but does not declare read-only access, which the reviewer requires.
 func writesOnlyRegistry(t *testing.T) *backend.Registry {
 	t.Helper()
 

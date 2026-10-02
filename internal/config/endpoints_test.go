@@ -134,26 +134,21 @@ func TestTheEndpointPoolHonoursTheAccountBudgets(t *testing.T) {
 	}
 }
 
-// An endpoint the asking role may not be served on is refused before any
-// rotation, with the reason named. The answer does not vary by account, so a
-// pool that passed over each endpoint in turn would report a budget where the
-// answer is a posture.
-func TestThePoolRefusesAnEndpointTheRoleMayNotBeServedOn(t *testing.T) {
+// A configured Codex reviewer can be selected from a matching account pool.
+func TestThePoolServesACodexReviewer(t *testing.T) {
 	t.Parallel()
-
 	cfg := pooledConfig(t, "")
-	// Codex holds the developer's posture and not the reviewer's, which is the
-	// discriminator capability validation already knows.
 	reviewer := cfg.Agents["reviewer"]
 	reviewer.Backend = domain.BackendCodex
 	cfg.Agents["reviewer"] = reviewer
-
-	_, err := cfg.ChooseEndpoint(builtInRegistry(t), "/state", "reviewer", backend.Endpoint{}, nil)
-	if err == nil {
-		t.Fatal("ChooseEndpoint() served a reviewer on a provider that cannot hold the read-only posture")
+	cfg.Accounts["one"] = Account{Provider: domain.BackendCodex}
+	cfg.Accounts["two"] = Account{Provider: domain.BackendCodex}
+	choice, err := cfg.ChooseEndpoint(builtInRegistry(t), "/state", "reviewer", backend.Endpoint{}, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), `cannot hold the "read-only" tool access`) {
-		t.Fatalf("ChooseEndpoint() = %v, want the posture named", err)
+	if choice.Endpoint.Provider != domain.BackendCodex {
+		t.Fatalf("provider = %q, want Codex", choice.Endpoint.Provider)
 	}
 
 	// An agent nothing configured has no endpoint either, which is refused rather
@@ -346,5 +341,27 @@ agents:
 	}
 	if provider := pooled.AccountProvider("one"); provider != domain.BackendClaudeCode {
 		t.Fatalf("AccountProvider(%q) = %q, want a pooled home that names no provider read as Claude Code's", "one", provider)
+	}
+}
+
+func TestThePoolRefusesADeclaredProviderMissingReadOnlyAccess(t *testing.T) {
+	t.Parallel()
+	cfg := pooledConfig(t, "")
+	terminal, failed := true, true
+	registry, err := backend.NewRegistry(map[domain.Backend]backend.ProviderPlugin{"writes-only": {
+		Adapter:  domain.BackendCodex,
+		Roles:    []domain.AgentRole{domain.RoleReviewer},
+		Postures: []backend.Posture{backend.PostureWorktreeWrite},
+		Dialect:  backend.DialectSpec{Rules: []backend.DialectRule{{Answer: backend.AnswerRefused, Terminal: &terminal, Failed: &failed}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := cfg.Agents["reviewer"]
+	reviewer.Backend = "writes-only"
+	cfg.Agents["reviewer"] = reviewer
+	_, err = cfg.ChooseEndpoint(registry, "/state", "reviewer", backend.Endpoint{}, nil)
+	if err == nil || !strings.Contains(err.Error(), `cannot hold the "read-only" tool access`) {
+		t.Fatalf("ChooseEndpoint() = %v, want posture refusal before account rotation", err)
 	}
 }

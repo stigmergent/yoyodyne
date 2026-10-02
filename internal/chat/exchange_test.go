@@ -59,7 +59,7 @@ func TestAskingAnotherRoleAnswersInsideTheSameReply(t *testing.T) {
 	}
 	// The delivery says the exchange is judgement rather than evidence, and where
 	// the thread stands against its cap.
-	for _, wanted := range []string{"had no tools and no authority", "round 1 of the 10"} {
+	for _, wanted := range []string{"had no action authority", "round 1 of the 10"} {
 		if !strings.Contains(provider.requests[1].Prompt, wanted) {
 			t.Fatalf("delivery is missing %q: %q", wanted, provider.requests[1].Prompt)
 		}
@@ -201,7 +201,7 @@ func TestTheAnsweringPromptCarriesNoAuthorityAtAll(t *testing.T) {
 	for _, wanted := range []string{
 		"You are the architect for this product",
 		"the designs, the decision records, and the architectural invariants",
-		"You have no filesystem, command, or network tools",
+		"Your role is read-only",
 		"A reply carrying any harness block at all is refused whole",
 	} {
 		if !strings.Contains(prompt, wanted) {

@@ -1086,17 +1086,19 @@ func TestPipelineRefusesAutomaticIntegrationThatIsNotGatedByAReviewer(t *testing
 			want:    "automatic integration requires at least one reviewer agent",
 		},
 		{
-			// Codex serves the reviewer role and cannot be held to the posture
-			// that role requires, so the configuration is refused before the
-			// pipeline's own gate is reached. Both refusals stop the run before
-			// anything is claimed, and this is the one an operator actually sees;
-			// the gate underneath it is held by
-			// TestValidateReviewPolicyRefusesAReviewerNothingCanLaunch.
+			// A declared provider can still omit the posture the reviewer needs.
 			name: "reviewer agent on a backend that cannot hold the reviewer's posture",
 			degrade: func(pipeline *Pipeline) {
-				pipeline.Config.Agents["reviewer"] = config.AgentConfig{Role: domain.RoleReviewer, Backend: domain.BackendCodex, Model: testReviewerModel, Instances: 1}
+				terminal, failed := true, true
+				pipeline.Config.Providers = map[string]backend.ProviderPlugin{"writes-only": {
+					Adapter:  domain.BackendCodex,
+					Roles:    []domain.AgentRole{domain.RoleReviewer},
+					Postures: []backend.Posture{backend.PostureWorktreeWrite},
+					Dialect:  backend.DialectSpec{Rules: []backend.DialectRule{{Answer: backend.AnswerRefused, Terminal: &terminal, Failed: &failed}}},
+				}}
+				pipeline.Config.Agents["reviewer"] = config.AgentConfig{Role: domain.RoleReviewer, Backend: "writes-only", Model: testReviewerModel, Instances: 1}
 			},
-			want: `backend "codex" cannot hold the "read-only" tool access`,
+			want: `backend "writes-only" cannot hold the "read-only" tool access`,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

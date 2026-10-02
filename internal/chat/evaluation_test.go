@@ -255,7 +255,7 @@ func TestTheContractCarriesResearchAndEvaluation(t *testing.T) {
 		research.Fence,
 		evaluation.Fence,
 		"admits no work, changes no document, and approves nothing",
-		"all through the bounded blocks below, all performed by the harness rather than by you",
+		"Tracker operations, document writes, and configured research sources remain available only through the bounded harness blocks below",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("the product manager's contract does not carry %q", required)

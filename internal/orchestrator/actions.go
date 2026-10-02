@@ -143,7 +143,7 @@ func deliverySteps() []deliveryStep {
 		{
 			action: action.Action[*activeRun]{
 				Name:    "candidate.review",
-				Summary: "obtain one independent verdict on the change from a reviewer with no tools",
+				Summary: "obtain one independent verdict on the change from a reviewer with read-only access",
 				Wraps:   "(*activeRun).reviewChange",
 				Capabilities: []capability.Capability{
 					capability.RepositoryRead,

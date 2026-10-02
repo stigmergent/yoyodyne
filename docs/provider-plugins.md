@@ -2,20 +2,22 @@
 
 Yoyo runs agents through a provider — a coding CLI or a harness that speaks to a
 model API. Two are in the vocabulary and this build ships an adapter for both:
-Claude Code, which serves every role, and Codex, which is the developer's alone
-because its sandbox cannot hold the tool access every other role requires
+Claude Code and Codex, which can serve every role. Developers use a worktree-write
+sandbox. Reviewers and management roles use read-only access: Claude Code refuses
+all tools, while Codex permits inspection under its native read-only sandbox with
+network access, escalation, and external integrations disabled
 ([capability validation](#capability-validation)).
 
-No Codex CLI version is yet recorded as supported. The only real stream
-recorded so far, from codex-cli 0.159.2, never reached the provider, so it shows
-how that version starts a session and reports reconnecting, and nothing of how
-it replies, counts tokens, or ends a turn. The adapter reads what that stream
-shows: the session it starts, and its reconnect notices as the provider
-retrying rather than as the run failing. It does not yet read a 0.159.2 reply
-or ending, so a run on that version fails naming the CLI's version and the
-first event the adapter did not recognize, rather than as a run that ended
-without a terminal event. The recorded streams, and what is still missing from
-them, are in `internal/backend/codex/testdata/streams`.
+The recorded codex-cli 0.159.2 streams cover session startup, reconnect notices,
+a provider reply, token usage, and a completed turn. Failed turns and shell,
+patch, and tool items still lack recorded live streams; see
+`internal/backend/codex/testdata/streams/README.md`. Separate bounded local probes
+of that CLI version verify read-only launch settings and native resume against a
+mock provider, configuration isolation against a fake MCP server, and native
+sandbox refusal of a file write and a localhost network connection. A mock
+provider also issued a real Code Mode call: a nested shell read succeeded and
+a nested file write was denied before the CLI completed its reply. Those probes
+do not certify every future CLI version or constitute a live model review.
 
 A project can declare a provider of its own in its configuration, without forking
 this repository or rebuilding the binary. **What a declaration supplies is the
@@ -175,32 +177,46 @@ install would give this build one.
 ## Capability validation
 
 A declared provider states which roles it serves and which kinds of tool access
-it can hold them to. Both are checked when your configuration loads, before any
-work is assigned — the same check a built-in gets, and the reason `codex` is refused for
-an `architect` agent.
+it can hold them to. Both are checked when configuration loads, before any work
+is assigned. The same check applies to built-in providers.
 
 The two kinds of tool access are:
 
-- `read-only` — the agent reasons over the evidence it was handed and reaches
-  outside it for nothing. It requires a provider that can refuse *every* tool,
-  including nominally read-only ones. Every role but the developer needs this.
+- `read-only` — the agent may reason over supplied evidence and inspect the local
+  repository without changing it. Every role but the developer needs this.
+  Claude Code enforces the stricter empty-tool variant; Codex permits native
+  read-only inspection and disables tool network access and external integrations.
 - `worktree-write` — the agent's work is editing a worktree, and the provider
   must be able to scope writes to it. The developer needs this.
 
 A provider that declares only `read-only` is refused for a developer agent, and
-one that declares only `worktree-write` is refused for a reviewer. Declaring a
-capability you do not have is how a role meant to have no tools gets a shell, so
-declare what is true.
+one that declares only `worktree-write` is refused for a reviewer. A declaration
+cannot change the launch policy enforced by its compiled adapter.
 
-The built-ins are held to it too, and Codex is the worked example: it declares
-`worktree-write` and not `read-only`. Its read-only sandbox stops writes and
-network, and still lets the agent read the machine — and reading unrelated local
-files and sending them to a provider is the thing `read-only` tool access exists
-to prevent. So `codex` is refused for a `reviewer` agent, with the refusal naming
-the tool access rather than the role. That is a fact about the sandbox rather than
-about what this build carries: it held before the Codex adapter landed and holds
-after it, and the way to make the read-only claim true is an adapter that
-achieves the property rather than a line that asserts it.
+Both built-ins declare both kinds of access. For read-only roles, the Codex
+adapter fixes `--sandbox read-only` and `approval_policy="never"` on fresh and
+resumed invocations. It ignores user configuration and execution-policy rules,
+launches from an empty temporary directory outside the repository, and supplies
+the repository's absolute path in the prompt. Project configuration cannot add
+MCP servers through the inspected repository. The adapter disables apps, plugins,
+hooks, browser and computer use, image generation, automatic skill dependencies,
+subagents, and other external integrations. Authentication remains in the
+provider's own `CODEX_HOME`; the harness does not copy credentials. Read-only
+invocations ignore that account's `config.toml`, so custom model endpoints defined
+only in that file are unavailable even though native authentication files remain
+in use. Native session
+IDs and resume remain in use, with the launch policy reapplied each turn.
+
+This is a write and network boundary, not confinement of reads to an evidence
+bundle or to the repository. Codex may inspect other locally readable files.
+Its model-visible Code Mode tools may remain available. The CLI may write its own
+session and authentication state; the read-only policy applies to agent execution.
+Managed organizational configuration remains an installation authority and must
+be compatible with the adapter's restrictions. The installed 0.159.2 exec command
+has no supported Plan-mode switch, so the harness supplies an analysis-only
+instruction rather than claiming native Plan mode. An installation that rejects
+the required flags or settings fails the invocation; the adapter does not retry
+with weaker permissions.
 
 The same check stands behind a substitution. When a turn is moved off the model
 it asked for — because that model's capacity window closed — the endpoint it

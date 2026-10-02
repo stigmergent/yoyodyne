@@ -14,11 +14,8 @@ package orchestrator
 // configuration is meant to earn. Letting the pipeline build the request is the
 // only way to see that.
 //
-// The reviewer stays on the other provider, because Codex is developer-only by
-// capability: its sandbox scopes writes to a directory and has no setting for the
-// read-only posture an advisory role requires, so a Codex reviewer is refused
-// where the configuration is validated. That refusal is asserted beside the
-// review policy in pipeline_test.go and is not restated here.
+// This test keeps the reviewer on the other provider to exercise mixed-provider
+// dispatch while the developer uses the Codex worktree-write sandbox.
 
 import (
 	"context"
