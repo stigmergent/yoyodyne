@@ -2,6 +2,7 @@ package execution
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,36 @@ import (
 	"testing"
 	"time"
 )
+
+func TestOSProcessRunnerPreservesRawObjectBytes(t *testing.T) {
+	t.Parallel()
+	command := helperCommand("raw-object", "")
+	want := []byte("binary\x00\xff\r\nno final newline")
+	var output bytes.Buffer
+	command.RawStdout = &output
+	result, err := (OSProcessRunner{}).Run(context.Background(), command, nil)
+	if err != nil || result.Status != ProcessSucceeded {
+		t.Fatalf("Run = %#v, %v", result, err)
+	}
+	if !bytes.Equal(output.Bytes(), want) || result.Stdout != "" {
+		t.Fatalf("object bytes = %q; line output = %q", output.Bytes(), result.Stdout)
+	}
+}
+
+type refusingRawOutput struct{ err error }
+
+func (w refusingRawOutput) Write(data []byte) (int, error) { return 0, w.err }
+
+func TestOSProcessRunnerReportsARawObjectWriteFailure(t *testing.T) {
+	t.Parallel()
+	command := helperCommand("raw-object", "")
+	want := errors.New("object data exceeded its bound")
+	command.RawStdout = refusingRawOutput{want}
+	command.Timeout = time.Minute
+	if _, err := (OSProcessRunner{}).Run(context.Background(), command, nil); !errors.Is(err, want) {
+		t.Fatalf("raw write failure = %v", err)
+	}
+}
 
 func TestOSProcessRunnerSuccessAndRedaction(t *testing.T) {
 	t.Parallel()
@@ -614,6 +645,9 @@ func TestProcessHelper(t *testing.T) {
 		secret = args[separator+2]
 	}
 	switch mode {
+	case "raw-object":
+		os.Stdout.Write([]byte("binary\x00\xff\r\nno final newline"))
+		os.Exit(0)
 	case "success":
 		fmt.Printf("result %s\n", secret)
 		fmt.Fprintln(os.Stderr, "warning")

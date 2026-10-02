@@ -43,7 +43,7 @@ one](#optional-publishing-and-auto-merge). The other commands (`yoyo help`
 lists them) are for administration and recovery.
 
 **Quick start.** With [Beads](https://github.com/gastownhall/beads) and
-[Claude Code](https://code.claude.com/docs) installed, and Go 1.24 or newer:
+[Claude Code](https://code.claude.com/docs) installed, and Go 1.25 or newer:
 
 ```sh
 go install github.com/mason-bryant/yoyodyne/cmd/yoyo@latest
@@ -87,7 +87,7 @@ is for.
 Go module path is still `github.com/mason-bryant/yoyodyne`, which installs
 through GitHub's redirect.
 
-**With Go 1.24 or newer:**
+**With Go 1.25 or newer:**
 
 ```sh
 go install github.com/mason-bryant/yoyodyne/cmd/yoyo@latest
@@ -163,7 +163,7 @@ or repairs an installation from what `yoyo setup --json` and `yoyo doctor
 **What you need.** Git and a repository with at least one commit;
 [Beads](https://github.com/gastownhall/beads) (`bd`), the tracker every role
 reads and writes; and [Claude Code](https://code.claude.com/docs), installed and
-signed in. Go 1.24 or newer only if you install with `go install` or build from
+signed in. Go 1.25 or newer only if you install with `go install` or build from
 source. For pull requests, also a Git remote and [`gh`](https://cli.github.com)
 signed in with `gh auth login`; without them nothing is pushed.
 

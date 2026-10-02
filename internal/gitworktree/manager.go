@@ -3617,7 +3617,10 @@ func (m *Manager) validateRepository(ctx context.Context) error {
 }
 
 func (m *Manager) isDirty(ctx context.Context, path string) (bool, error) {
-	result, err := m.run(ctx, "-C", path, "status", "--porcelain", "--untracked-files=all")
+	// Status is an inspection, including during checkout restoration. Do not
+	// let its optional index refresh turn that read into a pathname-based write.
+	environment := append(execution.GitEnvironment(nil), "GIT_OPTIONAL_LOCKS=0")
+	result, err := m.runWithEnvironment(ctx, environment, "-C", path, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return false, err
 	}

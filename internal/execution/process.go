@@ -63,6 +63,10 @@ type Command struct {
 	Dir   string
 	Env   []string
 	Stdin io.Reader
+	// RawStdout receives exact bytes instead of line-oriented, redacted output.
+	// It is for repository object data, never provider output. The caller owns
+	// the writer and its size bound; stderr and process budgets still apply.
+	RawStdout io.Writer
 	// Timeout is the total budget: how long the process may run at all,
 	// whatever it is doing. It is the right and only bound for a short command
 	// whose duration is known, such as a Git invocation.
@@ -282,7 +286,17 @@ func (r OSProcessRunner) Run(ctx context.Context, command Command, observer Outp
 	scanErrors := make(chan error, 2)
 	var scanners sync.WaitGroup
 	scanners.Add(2)
-	go scanOutput(stdout, StreamStdout, clock, command.Redactor, outputs, scanErrors, stopProcess, &scanners)
+	if command.RawStdout == nil {
+		go scanOutput(stdout, StreamStdout, clock, command.Redactor, outputs, scanErrors, stopProcess, &scanners)
+	} else {
+		go func() {
+			defer scanners.Done()
+			if _, err := io.Copy(command.RawStdout, stdout); err != nil {
+				scanErrors <- err
+				stopProcess()
+			}
+		}()
+	}
 	go scanOutput(stderr, StreamStderr, clock, command.Redactor, outputs, scanErrors, stopProcess, &scanners)
 	go func() {
 		scanners.Wait()

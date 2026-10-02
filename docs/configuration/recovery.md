@@ -749,6 +749,34 @@ nothing over. It re-enters the stopped run's
 own repair loop: the same branch, the same worktree, the same developer session,
 and the reviewer's findings handed back exactly as they were written.
 
+An outstanding recovery decision keeps that checkout and branch out of the
+maintenance sweep, even when a gate refused to carry the decision out. If the
+checkout is already missing, a recorded repair may restore it at its recorded
+path from the surviving branch. The branch must still point to the exact
+completed commit the harness recorded and pass its ownership checks. Restoration
+keeps the run identifier, developer session, and consumed budgets. Check approval
+is cleared durably before restoration writes the checkout; a run stopped at review
+returns through checks before review can proceed.
+An unfinished restoration is also recorded before writing. After a restart,
+the harness requires a complete, clean checkout at the recorded revision before
+it clears that record and continues the same decision.
+
+Restoration never overwrites an existing path or forces a branch out of another
+checkout. A missing or changed branch, unverifiable ownership, an unfinished
+developer attempt, or work captured separately on a preserved-work ref refuses
+branch-only restoration. Missing uncommitted work is never reported recovered.
+The decision remains standing, no continuation is spent, and the development
+manager decides what follows.
+
+Restoration writes through opened directory handles, so replacing the checkout
+root with a symlink cannot redirect the files outside it. Git supplies the
+committed objects without creating the checkout. Existing index and export files
+are replaced with new files, preserving the contents of files hard-linked
+elsewhere. Checkout filters selected by the recorded tree's attributes refuse
+restoration because committed objects cannot prove those filters' output was
+recovered; unused filter definitions do not refuse restoration. Such a refusal leaves
+the branch and recovery decision available for the development manager.
+
 **What it may hand the run is the grant the development manager already
 recorded**, and it spends nothing of its own. Deciding `repair` is what takes the
 item's grant — `repair_grant_attempts` rounds, truncated there to what the round

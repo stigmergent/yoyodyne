@@ -2495,7 +2495,12 @@ type State struct {
 	// apart is what lets an interrupted cleanup be resumed and what keeps a
 	// preserved-artifact claim truthful.
 	WorktreeRemoved bool `json:"worktree_removed,omitempty"`
-	BranchRemoved   bool `json:"branch_removed,omitempty"`
+	// CheckoutRestorePending is written before a repair restores a missing
+	// checkout and cleared only after the whole checkout has been verified.
+	// A process interrupted during Git's add cannot pass a partial directory
+	// off as the preserved worktree on its next invocation.
+	CheckoutRestorePending bool `json:"checkout_restore_pending,omitempty"`
+	BranchRemoved          bool `json:"branch_removed,omitempty"`
 	// ArtifactsRetiredBy names the run that superseded this one, on a run whose
 	// artifacts were retired by triage rather than cleaned up after a promotion
 	// of its own. It is the second way a removal is earned, and the reason it is
@@ -3371,6 +3376,9 @@ func (s State) Validate() error {
 		if s.CheckFailure != nil {
 			problems = append(problems, errors.New("checks_passed and check_failure cannot both describe the current attempt"))
 		}
+	}
+	if s.CheckoutRestorePending && (!s.Status.Terminal() || s.ChecksPassed != nil) {
+		problems = append(problems, errors.New("an unfinished checkout restoration requires a stopped run with verification credit cleared"))
 	}
 	if s.PathRefusal != nil {
 		if err := s.PathRefusal.Validate(); err != nil {

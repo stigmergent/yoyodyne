@@ -159,8 +159,8 @@ fi
 step "prerequisites: the build requirement the README states"
 go_directive="$(sed -n 's/^go \([0-9.]*\)$/\1/p' "$repository/go.mod")"
 printf 'go.mod declares go %s\n' "$go_directive"
-case "$go_directive" in (1.24*) pass "README's \"Go 1.24 or newer\" matches go.mod" ;;
-  (*) fail "README says Go 1.24 or newer, go.mod declares $go_directive" ;; esac
+case "$go_directive" in (1.25*) pass "README's \"Go 1.25 or newer\" matches go.mod" ;;
+  (*) fail "README says Go 1.25 or newer, go.mod declares $go_directive" ;; esac
 
 step "1. install the binary"
 origin="$(git -C "$repository" remote get-url origin 2>/dev/null || echo "(none)")"
