@@ -240,7 +240,7 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 		t.Fatalf("docket = %#v, want the stoppage docketed as one the harness continues (run error %v)", docket.entries, runErr)
 	}
 	rendered := docket.entries[0].Render()
-	for _, want := range []string{"Check stage stopped by load", "not by the change", "the harness continues it itself", "Next mover: the harness", "make race"} {
+	for _, want := range []string{"Check stage did not finish", "cause remains unresolved", "the harness continues it itself", "Next mover: the harness", "make race"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("docket entry does not say %q:\n%s", want, rendered)
 		}
@@ -503,7 +503,7 @@ func TestAStageStoppedPastItsContinuationsIsLeftToTheDevelopmentManager(t *testi
 	if state.HarnessContinuesCheckStage() {
 		t.Fatal("a run continued to the bound is still continued by the harness")
 	}
-	if says := state.CheckStageStopSays(); !strings.Contains(says, "which is its bound") || !strings.Contains(says, "development manager's decision") {
+	if says := state.CheckStageStopSays(); !strings.Contains(says, "allowance is exhausted") || !strings.Contains(says, "development manager's decision") {
 		t.Fatalf("stop says %q, want the bound spent and the decision the development manager's", says)
 	}
 	refused := state

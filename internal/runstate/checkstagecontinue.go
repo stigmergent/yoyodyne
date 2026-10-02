@@ -1,23 +1,7 @@
 package runstate
 
-// A check stage the bound stopped, and the harness continuing it at its checks.
-//
-// execution.check_stage_timeout ends a stage that runs past it, and a stage
-// that ends there judged nothing: no check failed, nothing was handed back to
-// the developer, and the change on the branch is exactly what the attempt left.
-// What stops a stage there is nearly always the machine rather than the change —
-// three runs' race suites beside each other on one laptop — so until
-// yoyodyne-ifd.429.25 the ending cost the most of anything on the line: repair
-// was refused for want of a failure to hand back, resumption covers only
-// approved changes, and the only thing that fired was a re-run from the target
-// branch that redid the development and spent the item's re-run budget, while
-// the finished change sat on its branch.
-//
-// So the harness continues such a run itself: at its checks, on the same branch
-// and worktree and the change it already has, with no developer invoked and no
-// review round, repair grant, or re-run spent. This is what the run's record
-// says about that — the continuations it has had, the bound on them, and the
-// one sentence every surface says the continuation in.
+// Check and stage timeouts share bounded continuations. Load can explain a
+// slow check, but cannot prove the change did not cause it to hang.
 
 import (
 	"errors"
@@ -34,9 +18,47 @@ import (
 // stoppage is the development manager's, as every such stoppage was before.
 const MaxCheckStageContinuations = 2
 
+// CheckTimeAllowance is reserved before execution, not after it. Its limit
+// is pinned once at twice the stage's maximum load-scaled bound. Reservations
+// survive a crash even when no completion was recorded.
+type CheckTimeAllowance struct {
+	LimitSeconds    int64 `json:"limit_seconds"`
+	ReservedSeconds int64 `json:"reserved_seconds"`
+}
+
+// CheckContinuationCount includes both automatic and decided continuations.
+func (s State) CheckContinuationCount() int {
+	count := len(s.CheckStageContinuations)
+	for _, continuation := range s.RepairContinuations {
+		if continuation.CheckStage {
+			count++
+		}
+	}
+	return count
+}
+
+// CheckAllowanceSays is the durable upper bound on time already allowed,
+// including stages interrupted before they could record what they spent.
+func (s State) CheckAllowanceSays() string {
+	if s.CheckTimeAllowance == nil {
+		return "no cumulative time allowance was recorded"
+	}
+	return fmt.Sprintf("%s of %s cumulative check time allowance reserved",
+		time.Duration(s.CheckTimeAllowance.ReservedSeconds)*time.Second,
+		time.Duration(s.CheckTimeAllowance.LimitSeconds)*time.Second)
+}
+
+func (s State) CheckAllowanceExhausted() bool {
+	return s.CheckTimeAllowance != nil && s.CheckTimeAllowance.ReservedSeconds >= s.CheckTimeAllowance.LimitSeconds
+}
+
 // CheckStageContinuation is one continuation of this run at its checks by the
 // harness, after the stage bound stopped it.
 type CheckStageContinuation struct {
+	// Stage preserves the tested revision, load and limits before a new stage
+	// replaces the current one. Older records omit it.
+	Stage           *CheckStage `json:"stage,omitempty"`
+	ReservedSeconds int64       `json:"reserved_seconds,omitempty"`
 	// Command is the check the bound stopped the stage during.
 	Command     string    `json:"command,omitempty"`
 	ContinuedAt time.Time `json:"continued_at"`
@@ -50,6 +72,9 @@ type CheckStageContinuation struct {
 // Validate reports every contract violation in the record at once.
 func (c CheckStageContinuation) Validate() error {
 	var problems []error
+	if c.Stage != nil {
+		if err := c.Stage.Validate(); err != nil { problems = append(problems, fmt.Errorf("stage: %w", err)) }
+	}
 	if c.ContinuedAt.IsZero() {
 		problems = append(problems, errors.New("continued_at is required"))
 	}
@@ -69,6 +94,11 @@ func (c CheckStageContinuation) Validate() error {
 // record's account of the harness having continued it at its checks.
 func (s State) validateCheckStageContinuations() []error {
 	var problems []error
+	if allowance := s.CheckTimeAllowance; allowance != nil {
+		if allowance.LimitSeconds <= 0 || allowance.ReservedSeconds < 0 || allowance.ReservedSeconds > allowance.LimitSeconds {
+			problems = append(problems, errors.New("check time allowance must have a positive limit and reservations within that limit"))
+		}
+	}
 	if len(s.CheckStageContinuations) > MaxCheckStageContinuations {
 		problems = append(problems, fmt.Errorf("%d check stage continuations are recorded, which exceeds the bound of %d", len(s.CheckStageContinuations), MaxCheckStageContinuations))
 	}
@@ -90,7 +120,7 @@ func (s State) validateCheckStageContinuations() []error {
 func (s State) StoppedAtStageBound() bool {
 	return s.Status == StatusTimedOut &&
 		s.Phase == PhaseChecking &&
-		s.CheckStage != nil && s.CheckStage.StoppedAtBound &&
+		s.CheckStage != nil && (s.CheckStage.StoppedAtBound || s.CheckStage.StoppedAtCheckBound) &&
 		s.Integration == nil
 }
 
@@ -114,7 +144,7 @@ func (s State) HarnessContinuesCheckStage() bool {
 	if strings.TrimSpace(s.CheckStageContinuationRefused) != "" {
 		return false
 	}
-	return len(s.CheckStageContinuations) < MaxCheckStageContinuations
+	return s.CheckContinuationCount() < MaxCheckStageContinuations && !s.CheckAllowanceExhausted()
 }
 
 // CheckStageLoadThreshold is the condition the harness waits for before it
@@ -129,17 +159,18 @@ func (s State) CheckStageStopSays() string {
 	if !s.StoppedAtStageBound() {
 		return ""
 	}
-	stopped := "the check stage was stopped by load at its execution.check_stage_timeout bound, not by the change: nothing was judged and nothing was handed back to the developer"
+	stopped := "the check did not finish within its time limit; load may have contributed, but its cause remains unresolved and nothing was judged"
+	stopped += "; " + s.CheckAllowanceSays()
 	if s.HarnessContinuesCheckStage() {
 		return fmt.Sprintf(
 			"%s; the harness continues it itself, re-running the checks on the change the run already has, on the same branch and worktree, at the next pull with a developer slot free and %s — no developer is invoked and no review round, repair grant, or re-run is spent (continuation %d of %d)",
-			stopped, CheckStageLoadThreshold, len(s.CheckStageContinuations)+1, MaxCheckStageContinuations)
+			stopped, CheckStageLoadThreshold, s.CheckContinuationCount()+1, MaxCheckStageContinuations)
 	}
 	if refused := strings.TrimSpace(s.CheckStageContinuationRefused); refused != "" {
 		return fmt.Sprintf("%s; the harness's continuation of it was refused — %s — so what happens to it next is the development manager's decision", stopped, refused)
 	}
-	if len(s.CheckStageContinuations) >= MaxCheckStageContinuations {
-		return fmt.Sprintf("%s; the harness has already continued it at its checks %d times, which is its bound, so what happens to it next is the development manager's decision", stopped, len(s.CheckStageContinuations))
+	if s.CheckContinuationCount() >= MaxCheckStageContinuations || s.CheckAllowanceExhausted() {
+		return fmt.Sprintf("%s; automatic continuation stopped after %d continuations because its count or cumulative time allowance is exhausted; the branch, worktree and developer session are preserved, and what happens to it next is the development manager's decision", stopped, s.CheckContinuationCount())
 	}
 	return stopped + "; its branch or worktree is gone, so the harness cannot continue it, and what happens to it next is the development manager's decision"
 }

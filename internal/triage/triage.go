@@ -1773,7 +1773,7 @@ func (e Entry) Render() string {
 	}
 	rendered.WriteString(e.renderStopRequested())
 	if e.CheckStageStop != "" {
-		rendered.WriteString(indented("Check stage stopped by load", e.CheckStageStop))
+		rendered.WriteString(indented("Check stage did not finish", e.CheckStageStop))
 		if e.CheckStageFailure != "" {
 			rendered.WriteString(indented("Where the bound stopped it", e.CheckStageFailure))
 		}

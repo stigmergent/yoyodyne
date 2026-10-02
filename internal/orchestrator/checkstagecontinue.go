@@ -264,12 +264,16 @@ func continuedAtChecks(prior runstate.State, reason string, now time.Time) runst
 	}
 	continued.CheckStageContinuations = append(append([]runstate.CheckStageContinuation{}, prior.CheckStageContinuations...),
 		runstate.CheckStageContinuation{
+			Stage:             prior.CheckStage,
+			ReservedSeconds:   checkAllowanceReserved(prior),
 			Command:           command,
 			ContinuedAt:       now,
 			Reason:            reason,
 			SupersededFailure: prior.Failure,
 		})
 	continued.Failure = ""
+	continued.Environmental = nil
+	continued.StopClass = ""
 	continued.Status = runstate.StatusRunning
 	continued.Phase = runstate.PhaseChecking
 	continued.CompletedAt = nil
@@ -348,8 +352,15 @@ func checkStageContinueReason(prior runstate.State) string {
 		during = " during " + prior.CheckStage.Command
 	}
 	return fmt.Sprintf(
-		"Continued at its checks: the check stage of run %s was stopped by load at its execution.check_stage_timeout bound%s, which judged nothing, so the harness continued the run itself at its checks on the change it already has, on the same branch and in the same worktree, with no developer attempt (continuation %d of %d). No review round, repair grant, or re-run was spent on it.",
-		prior.RunID, during, len(prior.CheckStageContinuations)+1, runstate.MaxCheckStageContinuations)
+		"Continued at its checks: the check stage of run %s did not finish within its time limit%s; load may have contributed, but its cause remains unresolved. The harness continues the same change on the same branch and worktree, with no developer attempt (continuation %d of %d; %s). No review round, repair grant, or re-run was spent on it.",
+		prior.RunID, during, prior.CheckContinuationCount()+1, runstate.MaxCheckStageContinuations, prior.CheckAllowanceSays())
+}
+
+func checkAllowanceReserved(state runstate.State) int64 {
+	if state.CheckTimeAllowance == nil {
+		return 0
+	}
+	return state.CheckTimeAllowance.ReservedSeconds
 }
 
 func (c CheckStageContinuer) validate() error {

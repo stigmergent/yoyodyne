@@ -672,6 +672,9 @@ func (c RepairContinuer) carriedOut(workItemID string) (int, error) {
 // and, once it is gone, says so and names the re-run — the same answer the
 // docket gives on the same stoppage, by the same rule.
 func continuableRepair(prior runstate.State, found triage.Found) error {
+	if prior.StoppedAtStageBound() && (prior.CheckContinuationCount() >= runstate.MaxCheckStageContinuations || prior.CheckAllowanceExhausted()) {
+		return errors.New(prior.CheckStageStopSays())
+	}
 	if prior.IntegrationStop != nil {
 		if !triage.IntegrationResumable(&found, false) {
 			return errors.New(triage.IntegrationGoneSays(prior.RunID, found.Describe()) +
@@ -797,6 +800,8 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 			SupersededBlocker: prior.Blocker,
 			Stall:             stalled,
 			CheckStage:        prior.StoppedAtStageBound(),
+			StoppedStage:      prior.CheckStage,
+			CheckReservedSeconds: checkAllowanceReserved(prior),
 		})
 	if !stalled && !prior.StoppedAtStageBound() {
 		continued.RepairAttempts = prior.RepairAttempts + 1

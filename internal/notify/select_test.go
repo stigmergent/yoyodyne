@@ -1241,7 +1241,7 @@ func TestAStageTheBoundStoppedIsSaidAsLoadWithTheHarnessContinuingIt(t *testing.
 		t.Fatalf("fixture = %#v, want a run the harness continues at its checks", after)
 	}
 	body := say(after)
-	for _, want := range []string{"the harness's", "stopped by load", "not by the change", "the harness continues it itself"} {
+	for _, want := range []string{"the harness's", "did not finish", "cause remains unresolved", "the harness continues it itself"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the ending is said as %q, which does not say %q", body, want)
 		}

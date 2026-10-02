@@ -38,7 +38,8 @@ type Result struct {
 	// about how close a suite is to the ceiling: a check that grows past the
 	// budget kills work that was passing, and the only warning is the two
 	// numbers side by side before it happens.
-	Timeout time.Duration `json:"timeout"`
+	Timeout           time.Duration `json:"timeout"`
+	ConfiguredTimeout time.Duration `json:"configured_timeout"`
 	// StageTimeout is the bound on the whole stage this check ran in, and
 	// StageElapsed is what the stage had spent when this check ended. They are
 	// recorded on every check for the reason the per-check pair is: a stage
@@ -90,6 +91,9 @@ type Request struct {
 	// machine's load grows as the load does and never takes back time a check
 	// was already given. Unbounded still wins over it.
 	StageBound func() time.Duration
+	// CheckBound scales the runner's configured budget before each check. It
+	// may refuse before execution if the durable time allowance cannot be saved.
+	CheckBound func(command string, configured time.Duration) (time.Duration, error)
 }
 
 type Runner struct {
@@ -171,6 +175,17 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 				stageTimeout = bound
 			}
 		}
+		checkTimeout := timeout
+		if request.CheckBound != nil {
+			var err error
+			checkTimeout, err = request.CheckBound(safeCommand, timeout)
+			if err != nil {
+				return results, lastAccepted, err
+			}
+			if checkTimeout <= 0 {
+				return results, lastAccepted, errors.New("check bound must be positive")
+			}
+		}
 		if request.Started != nil {
 			request.Started(safeCommand, stageElapsed)
 		}
@@ -193,10 +208,11 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 					StartedAt:  now,
 					FinishedAt: now,
 				},
-				Timeout:        timeout,
-				StageTimeout:   stageTimeout,
-				StageElapsed:   stageElapsed,
-				StoppedByStage: true,
+				Timeout:           checkTimeout,
+				ConfiguredTimeout: timeout,
+				StageTimeout:      stageTimeout,
+				StageElapsed:      stageElapsed,
+				StoppedByStage:    true,
 			}
 			results = append(results, result)
 			if err := emitCompleted(request.RunID, sequence, clock, sink, result); err != nil {
@@ -205,8 +221,8 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			lastAccepted = sequence.Last()
 			break
 		}
-		budget := timeout
-		boundByStage := stageTimeout > 0 && remaining < timeout
+		budget := checkTimeout
+		boundByStage := stageTimeout > 0 && remaining <= checkTimeout
 		if boundByStage {
 			budget = remaining
 		}
@@ -261,12 +277,13 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		}
 		passed := processResult.Status == execution.ProcessSucceeded
 		result := Result{
-			Command:      safeCommand,
-			Process:      processResult,
-			Passed:       passed,
-			Timeout:      timeout,
-			StageTimeout: stageTimeout,
-			StageElapsed: clock.Now().Sub(stageStarted),
+			Command:           safeCommand,
+			Process:           processResult,
+			Passed:            passed,
+			Timeout:           checkTimeout,
+			ConfiguredTimeout: timeout,
+			StageTimeout:      stageTimeout,
+			StageElapsed:      clock.Now().Sub(stageStarted),
 			// A check killed on time under a budget the stage cut short was
 			// stopped by the stage, whatever its own budget would have allowed.
 			StoppedByStage: boundByStage && processResult.Status == execution.ProcessTimedOut,
@@ -289,16 +306,17 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 // toward its own.
 func emitCompleted(runID string, sequence *execution.Sequence, clock execution.Clock, sink func(execution.Event) error, result Result) error {
 	return emit(runID, sequence, clock, sink, execution.EventCommandCompleted, map[string]any{
-		"command":          result.Command,
-		"kind":             "check",
-		"passed":           result.Passed,
-		"status":           result.Process.Status,
-		"exit_code":        result.Process.ExitCode,
-		"elapsed":          result.Elapsed().String(),
-		"timeout":          result.Timeout.String(),
-		"stage_elapsed":    result.StageElapsed.String(),
-		"stage_timeout":    result.StageTimeout.String(),
-		"stopped_by_stage": result.StoppedByStage,
+		"command":            result.Command,
+		"kind":               "check",
+		"passed":             result.Passed,
+		"status":             result.Process.Status,
+		"exit_code":          result.Process.ExitCode,
+		"elapsed":            result.Elapsed().String(),
+		"timeout":            result.Timeout.String(),
+		"configured_timeout": result.ConfiguredTimeout.String(),
+		"stage_elapsed":      result.StageElapsed.String(),
+		"stage_timeout":      result.StageTimeout.String(),
+		"stopped_by_stage":   result.StoppedByStage,
 	})
 }
 
