@@ -308,10 +308,22 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		Admitted:     reply.AdmittedWork(),
 	}
 	if err != nil {
-		return turn, notWoken(err)
+		// A tracker block may exhaust its correction rounds while the other
+		// blocks still landed. Keep the pass's valid account beside that refusal.
+		// Storage and provider failures remain failures of the turn.
+		if _, refused := err.(*chat.TrackerError); !refused {
+			return turn, notWoken(err)
+		}
 	}
 	turn.Result, turn.ResultProblem = readSweep(role, reply.Text)
-	if refusal := reply.LaneReport.Refusal(); refusal != "" {
+	refusal := reply.RefusalProblems()
+	if err != nil {
+		if refusal != "" {
+			refusal += "; "
+		}
+		refusal += err.Error()
+	}
+	if refusal != "" {
 		if turn.ResultProblem == "" {
 			turn.ResultProblem = refusal
 		} else {

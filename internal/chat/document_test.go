@@ -200,10 +200,7 @@ func TestADocumentFiledOutsideTheArtifactHomesIsRefusedAtTheActionLayer(t *testi
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Write the goals up.")
-	var refusal *DocumentError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want a refused document", err)
-	}
+	requireBlockRefusal(t, reply, err, "yoyodyne-artifact")
 	if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
 		t.Fatalf("a document filed outside the homes was recorded: %#v", session.Writes())
 	}
@@ -229,11 +226,8 @@ func TestADocumentFiledInAnotherKindsHomeIsRefusedAtTheActionLayer(t *testing.T)
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Write the design up.")
-	var refusal *DocumentError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want a refused document", err)
-	}
-	if !strings.Contains(err.Error(), config.DefaultDesigns) {
+	problem := requireBlockRefusal(t, reply, err, "yoyodyne-artifact")
+	if !strings.Contains(problem, config.DefaultDesigns) {
 		t.Fatalf("the refusal does not name where a design is filed: %v", err)
 	}
 	if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
@@ -282,7 +276,7 @@ func TestARevisionOfAnotherRolesDocumentIsRefusedBeforeTheOperatorIsAsked(t *tes
 	// The product manager owns the goals, not the designs.
 	session := openTestSession(t, options)
 	reply, err := session.Send(context.Background(), "Narrow the second design decision.")
-	var refusal *DocumentError
+	var refusal *AuthorityError
 	if err == nil || !errors.As(err, &refusal) {
 		t.Fatalf("Send() error = %v, want a refused document", err)
 	}
@@ -346,11 +340,8 @@ func TestAConversationWithNoArtifactStoreOffersNoWriteAndRefusesOne(t *testing.T
 	if strings.Contains(SystemPrompt(domain.RoleProductManager, testAdmission, nil, ""), artifact.WriteFence) {
 		t.Fatal("a conversation with no artifact store offered the write contract")
 	}
-	_, err := session.Send(context.Background(), "Write the goals up.")
-	var refusal *DocumentError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want a refused document", err)
-	}
+	reply, err := session.Send(context.Background(), "Write the goals up.")
+	requireBlockRefusal(t, reply, err, "yoyodyne-artifact")
 }
 
 func TestADocumentSurvivesTheProcessThatWroteIt(t *testing.T) {

@@ -210,13 +210,10 @@ func TestAnEscalationWithNoReportIsRefusedAndChangesNothing(t *testing.T) {
 			}}
 			options := triageOptions(t, tracker, nil, testCase.reply)
 			options.Reports = &fakeReports{}
-			_, err := openTestSession(t, options).Send(context.Background(), "Work the docket.")
-			escalation := &EscalationError{}
-			if !errors.As(err, &escalation) {
-				t.Fatalf("Send() error = %v, want an escalation refusal", err)
-			}
-			if escalation.WorkItemID != "yoyodyne-ifd.90" {
-				t.Fatalf("the refusal names %q", escalation.WorkItemID)
+			reply, err := openTestSession(t, options).Send(context.Background(), "Work the docket.")
+			problem := requireBlockRefusal(t, reply, err, "yoyodyne-tracker")
+			if !strings.Contains(problem, "yoyodyne-ifd.90") {
+				t.Fatalf("the refusal names %q", problem)
 			}
 			if len(tracker.blocked) != 0 || len(tracker.updates) != 0 {
 				t.Fatalf("a refused escalation changed the tracker: blocked %#v, updates %#v", tracker.blocked, tracker.updates)

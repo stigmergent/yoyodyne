@@ -120,6 +120,8 @@ const (
 	// actions the block asked for where the harness could count them, and the
 	// refusal in the words the role is given back.
 	EventTrackerBlockRefused EventType = "tracker.block.refused"
+	// EventReplyBlockRefused records a block rejected without losing other blocks.
+	EventReplyBlockRefused EventType = "reply.block.refused"
 	// A refused block the harness has stopped trying to have corrected: the turn
 	// it started to get the actions re-issued had its own block refused, or the
 	// refusal before this one was still unanswered when this one arrived. It is

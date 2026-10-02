@@ -276,7 +276,7 @@ func TestSplitReplySeparatesActingFromProposing(t *testing.T) {
 	if !errors.As(err, &unreadable) {
 		t.Fatalf("splitReply() error = %v, want a TrackerError", err)
 	}
-	if parsed.Prose != strings.TrimSpace(broken) || len(parsed.Actions) != 0 || len(parsed.Proposals) != 0 {
+	if parsed.Prose != "Closing it." || len(parsed.Actions) != 0 || len(parsed.Proposals) != 0 {
 		t.Fatalf("a refused block yielded %q, %#v, %#v", parsed.Prose, parsed.Actions, parsed.Proposals)
 	}
 }

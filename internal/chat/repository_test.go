@@ -364,12 +364,9 @@ func TestAnUnreadableRepositoryBlockIsReported(t *testing.T) {
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Change CLAUDE.md.")
-	var unreadable *RepositoryError
-	if !errors.As(err, &unreadable) {
-		t.Fatalf("Send() error = %v, want a RepositoryError", err)
-	}
-	if !strings.Contains(unreadable.Error(), `action "write" is not one the harness performs`) {
-		t.Fatalf("error = %q", unreadable)
+	problem := requireBlockRefusal(t, reply, err, "yoyodyne-repository")
+	if !strings.Contains(problem, `action "write" is not one the harness performs`) {
+		t.Fatalf("refusal = %q", problem)
 	}
 	if len(reader.asked) != 0 {
 		t.Fatalf("a refused block still read %d path(s)", len(reader.asked))

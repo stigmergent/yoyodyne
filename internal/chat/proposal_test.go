@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -244,11 +243,8 @@ func TestPlacedProposalsAreCheckedAgainstTheTrackerBeforeTheOperatorIsAsked(t *t
 		session := openTestSession(t, options)
 
 		reply, err := session.Send(context.Background(), "what follows?")
-		var unplaced *ProposalPlacementError
-		if !errors.As(err, &unplaced) {
-			t.Fatalf("Send() error = %v, want a placement failure", err)
-		}
-		if !strings.Contains(err.Error(), "yoyodyne-ifd.4.4") {
+		problem := requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
+		if !strings.Contains(problem, "yoyodyne-ifd.4.4") {
 			t.Fatalf("Send() error = %v, want it to name the missing dependency", err)
 		}
 		// The answer is still the operator's to read, and nothing was recorded as
@@ -296,9 +292,10 @@ func TestPlacedProposalsAreCheckedAgainstTheTrackerBeforeTheOperatorIsAsked(t *t
 		}}})
 		session := openTestSession(t, options)
 
-		if _, err := session.Send(context.Background(), "what follows?"); err == nil ||
-			!strings.Contains(err.Error(), "no work tracker is configured") {
-			t.Fatalf("Send() error = %v", err)
+		reply, err := session.Send(context.Background(), "what follows?")
+		problem := requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
+		if !strings.Contains(problem, "no work tracker is configured") {
+			t.Fatalf("refusal = %q", problem)
 		}
 		if len(session.Proposals()) != 0 {
 			t.Fatalf("an unconfirmed proposal is awaiting a decision: %#v", session.Proposals())

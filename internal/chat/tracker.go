@@ -849,17 +849,14 @@ func renderRefusedTrackerBlock(refused *TrackerError) string {
 // same message, how many rounds of tracker actions it has left, and that a
 // second refusal goes to the operator rather than back to the role.
 //
-// It says nothing else the reply asked for happened either, because it did not:
-// a reply whose tracker block is refused is taken no further apart than its
-// reports, so any proposal, question, read, memory, or lane report it carried is
-// lost with the block and is the role's to ask for again beside the actions.
+// Other valid blocks have already been carried out and must not be repeated.
 func renderHandedBackTrackerBlock(refused *TrackerError, roundsLeft int) string {
 	var rendered strings.Builder
 	rendered.WriteString(renderRefusedTrackerBlock(refused))
 	rendered.WriteString("# Continue\n\n")
 	rendered.WriteString("The harness is handing this back to you as a further round of the same message, so you can put it right before you finish answering. ")
 	fmt.Fprintf(&rendered, "This message has %d round(s) of tracker actions left. ", roundsLeft)
-	rendered.WriteString("Apart from any report it filed, nothing else your last reply asked the harness for was taken up either — proposals, questions, reads, memories, a lane report — so ask again for anything in it you still want. ")
+	rendered.WriteString("Other valid blocks in your last reply were carried out. Correct only the refused tracker block; do not repeat the other blocks. ")
 	rendered.WriteString("A block refused again is handed to the operator rather than back to you.\n")
 	return rendered.String()
 }

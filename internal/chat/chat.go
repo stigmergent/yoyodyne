@@ -882,7 +882,9 @@ type Evidence struct {
 // Reply is one answer from the product manager, with anything it proposed and
 // the evidence for the turn that produced it.
 type Reply struct {
-	Text string `json:"text"`
+	// BlockRefusals names blocks refused without losing the rest of the reply.
+	BlockRefusals []BlockRefusal `json:"block_refusals,omitempty"`
+	Text          string         `json:"text"`
 	// Proposals are the work items this turn proposed that are awaiting the
 	// operator's decision. They are recorded, not created: a reply that carries
 	// proposals has changed nothing about the queue.
@@ -1397,55 +1399,21 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			reply.Text = appendProse(reply.Text, answer)
 			return reply, err
 		}
-		parsed, err := splitReply(s.state.Role, answer)
+		parsed, parseProblem := splitReply(s.state.Role, answer)
 		reply.Text = appendProse(reply.Text, parsed.Prose)
-		// What was reported is collected before anything else is decided about
-		// the turn, and a report that could not be read is noted rather than
-		// returned: the rest of the answer is unaffected by either.
-		s.collectReply(&reply, parsed)
-		// A tracker block the harness would not read is recorded, and handed back
-		// to the role that sent it as a further round of this same message, so it
-		// can re-issue the actions before its reply ends rather than waiting for
-		// somebody to relay the refusal. A refusal is what that round of actions
-		// came to, so it spends a round like any other result.
-		//
-		// Two cases are not handed back, and each ends the message as a refused
-		// block always has — the answer above is real, the turn is returned as
-		// failed, and nothing in the block was carried out. A refusal with one
-		// still unanswered goes to the operator, which is what a block refused
-		// again on the round it was handed back in comes to. And one on the last
-		// round has no round to be handed back in, so it waits for the role's next
-		// turn and the wakeup the harness owes it.
+		// Authority is checked even for unreadable blocks, before any writes.
+		if problem := s.authorize(parsed); problem != nil {
+			return reply, problem
+		}
+		if problem := s.authorizeCarried(parsed); problem != nil {
+			return reply, problem
+		}
 		var refused *TrackerError
-		if errors.As(err, &refused) {
-			trackerRounds++
-			handBack := s.state.RefusedBlock == nil && trackerRounds < maxTrackerRounds
-			if problem := s.recordRefusedTrackerBlock(refused, handBack); problem != nil || !handBack {
-				return reply, errors.Join(err, problem)
+		errors.As(parseProblem, &refused)
+		if refused == nil {
+			if settled := s.settleRefusedTrackerBlock(len(parsed.Actions) > 0); settled != nil {
+				return reply, settled
 			}
-			reply.HandedBack = append(reply.HandedBack, refused.Error())
-			prompt = renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
-			continue
-		}
-		// The block was readable, so a refusal waiting on a correction has had one.
-		// It is settled here rather than after the rest of the parse is judged:
-		// what a recorded refusal is owed is a block the harness can read, and a
-		// reply whose proposals or research would not decode still sent one.
-		//
-		// Whether it asked for anything is the other half. A turn the harness woke
-		// that came back with no tracker action at all has ended the correction with
-		// the actions still lost, and the settling is what says so.
-		if settled := s.settleRefusedTrackerBlock(len(parsed.Actions) > 0); settled != nil {
-			return reply, errors.Join(err, settled)
-		}
-		if err != nil {
-			return reply, err
-		}
-		// What this role has no authority for is refused before any of it is
-		// recorded or carried out. The answer is readable and the turn was paid
-		// for, so both are returned; what the role asked for is simply not done.
-		if err := s.authorize(parsed); err != nil {
-			return reply, err
 		}
 
 		// A document is refused at the action layer before anything about it is
@@ -1455,8 +1423,53 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// repository nothing and costs the operator a decision they were never
 		// asked for.
 		if err := s.refuseWrites(parsed.Writes); err != nil {
-			return reply, &DocumentError{Role: s.state.Role, Err: err}
+			if errors.Is(err, artifact.ErrUnauthorized) {
+				return reply, &AuthorityError{Role: s.state.Role, Refused: "a document to be written", Reason: err.Error()}
+			}
+			parsed.Refusals = append(parsed.Refusals, blockRefusal(artifact.WriteFence, &DocumentError{Role: s.state.Role, Err: err}))
+			parsed.Writes = nil
 		}
+		// What a proposal says the work is for is checked first, because it needs
+		// nothing but the goals already read: an operator asked to approve work
+		// under a goal nothing states is being asked to approve traceability that
+		// does not exist, and the approval is spent by the time the creation
+		// refuses it.
+		if err := s.verifyProposalGoals(parsed.Proposals); err != nil {
+			parsed.Refusals = append(parsed.Refusals, blockRefusal(proposalFence, &ProposalGoalError{Err: err}))
+			parsed.Proposals = nil
+		}
+		// What a proposal says done means is checked next, for the same reason
+		// and at the same cost: a done-condition naming a document no run may
+		// write is work no run can finish, and the operator would be approving it.
+		if err := s.verifyProposalConditions(parsed.Proposals); err != nil {
+			parsed.Refusals = append(parsed.Refusals, blockRefusal(proposalFence, &ProposalConditionError{Err: err}))
+			parsed.Proposals = nil
+		}
+		// What a proposal is placed against is confirmed to exist before the
+		// operator is asked about any of it. A block naming an item nobody created
+		// proposes nothing, exactly as an unreadable one does.
+		if err := s.verifyProposalReferences(ctx, parsed.Proposals); err != nil {
+			parsed.Refusals = append(parsed.Refusals, blockRefusal(proposalFence, &ProposalPlacementError{Err: err}))
+			parsed.Proposals = nil
+		}
+		// Escalating without the required report is a validation failure of the
+		// tracker block, rather than authority to refuse unrelated blocks.
+		if problem := refuseUnreportedEscalation(parsed); problem != nil {
+			parsed.Refusals = append(parsed.Refusals, blockRefusal(trackerFence, problem))
+			parsed.Actions = nil
+		}
+		// Record a tracker refusal before carrying out other blocks, so a read
+		// or ask reaching its budget cannot skip the refusal's durable record.
+		trackerHandBack := false
+		if refused != nil {
+			trackerRounds++
+			trackerHandBack = s.state.RefusedBlock == nil && trackerRounds < maxTrackerRounds &&
+				(parsed.Ask == nil || asksTaken < s.options.askRounds())
+			if problem := s.recordRefusedTrackerBlock(refused, trackerHandBack); problem != nil {
+				return reply, errors.Join(parseProblem, problem)
+			}
+		}
+		s.collectReply(&reply, parsed)
 		// A concern is recorded before anything else is decided about the turn: it
 		// is the product manager declining to propose, and what it declined to
 		// propose is evidence whether or not the rest of the turn holds together.
@@ -1465,25 +1478,10 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if err != nil {
 			return reply, err
 		}
-		// What a proposal says the work is for is checked first, because it needs
-		// nothing but the goals already read: an operator asked to approve work
-		// under a goal nothing states is being asked to approve traceability that
-		// does not exist, and the approval is spent by the time the creation
-		// refuses it.
-		if err := s.verifyProposalGoals(parsed.Proposals); err != nil {
-			return reply, &ProposalGoalError{Err: err}
-		}
-		// What a proposal says done means is checked next, for the same reason
-		// and at the same cost: a done-condition naming a document no run may
-		// write is work no run can finish, and the operator would be approving it.
-		if err := s.verifyProposalConditions(parsed.Proposals); err != nil {
-			return reply, &ProposalConditionError{Err: err}
-		}
-		// What a proposal is placed against is confirmed to exist before the
-		// operator is asked about any of it. A block naming an item nobody created
-		// proposes nothing, exactly as an unreadable one does.
-		if err := s.verifyProposalReferences(ctx, parsed.Proposals); err != nil {
-			return reply, &ProposalPlacementError{Err: err}
+		for _, refusal := range parsed.Refusals {
+			if problem := s.recordBlockRefusal(&reply, refusal); problem != nil {
+				return reply, problem
+			}
 		}
 		// What each proposal looks like among the work already admitted is judged
 		// before any of it is recorded, so a proposal that is work the tracker
@@ -1659,6 +1657,9 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 						return reply, err
 					}
 				}
+				if refused != nil {
+					return reply, parseProblem
+				}
 				break
 			}
 			asksTaken++
@@ -1667,6 +1668,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			reply.Exchanges = append(reply.Exchanges, asked.round)
 			continuation += asked.delivery
 			chargeTo = asked.chargeTo
+		}
+		if refused != nil {
+			if !trackerHandBack {
+				if continuation != "" {
+					reply.ResultsCarriedOver = true
+					if problem := s.carryResults(continuation); problem != nil {
+						return reply, errors.Join(parseProblem, problem)
+					}
+				}
+				return reply, parseProblem
+			}
+			reply.HandedBack = append(reply.HandedBack, refused.Error())
+			continuation += renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
 		}
 		if continuation == "" {
 			break
@@ -1715,7 +1729,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// A reply the record cut last turn is the first thing this one is told, so
 	// the role can restate what the record lost; see replycut.go.
 	cutsTold := len(s.state.ReplyCuts) > 0
-	prompt = renderReplyCuts(s.state.ReplyCuts) + prompt
+	prompt = renderReplyCuts(s.state.ReplyCuts) + s.state.PendingTrackerResults + prompt
 	s.turnCuts = nil
 	// The repository documents, the tracker's own text, and the operator's words
 	// all go to the provider, so anything recognizably sensitive is redacted on
@@ -2142,10 +2156,13 @@ func (s *Session) recordOperatorMessage(message string) error {
 // decides nothing — a report the harness could not read costs the turn nothing,
 // so it travels as its own problem rather than as the turn's error.
 type parsedReply struct {
-	Prose     string
-	Actions   []TrackerAction
-	Proposals []Proposal
-	Concerns  []Concern
+	Carried          map[string]bool
+	AuthorityProblem error
+	Refusals         []BlockRefusal
+	Prose            string
+	Actions          []TrackerAction
+	Proposals        []Proposal
+	Concerns         []Concern
 	// Queries are the questions this reply asked the harness to put to the
 	// configured research sources, and Evaluation the recommendation it recorded.
 	// Most replies carry neither.
@@ -2179,15 +2196,8 @@ type parsedReply struct {
 	ReportProblem error
 }
 
-// splitReply separates one answer into the prose the operator reads, the tracker
-// actions it asked for, the work items it proposed, and the reports it filed. A
-// tracker or proposal block the harness cannot read leaves the rest of the
-// answer as prose and reports a typed failure: nothing in an unreadable block is
-// carried out or recorded, and the answer itself is still the operator's to
-// read. The report block is the exception at both ends: it is taken out first,
-// and one that cannot be read leaves everything else to be taken apart exactly
-// as it would have been.
-func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
+// splitSingleReply decodes an isolated block with its existing strict decoder.
+func splitSingleReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	rest, reports, reportErr := report.Extract(answer)
 	parsed := parsedReply{Reports: reports, ReportProblem: reportErr}
 	// The lane report is taken out next and, like the report block, a lane report
@@ -2908,6 +2918,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		s.reportRepositoryReads(out, reply)
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
+		s.reportBlockRefusals(out, reply)
 		s.reportMemories(out, reply)
 		// What became of its lane report, because a refused one leaves the report
 		// before it standing and the operator reading this has to know which.
@@ -3854,7 +3865,6 @@ func (s *Session) turnPrompt(message string, picture *PictureAge) string {
 	// the turn rather than stated in the contract because which sources exist is
 	// this project's own, and it moves.
 	prompt.WriteString(s.renderResearchSources())
-	prompt.WriteString(s.state.PendingTrackerResults)
 	prompt.WriteString("# Operator message\n\n")
 	prompt.WriteString(message)
 	return prompt.String()

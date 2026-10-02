@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -114,12 +113,9 @@ func TestADoneConditionNamingAnUngrantedDesignIsRefusedAtEveryDoorIntoTheQueue(t
 		session := openTestSession(t, options)
 
 		reply, err := session.Send(context.Background(), "what follows")
-		var unmeetable *ProposalConditionError
-		if !errors.As(err, &unmeetable) {
-			t.Fatalf("Send() error = %v, want a ProposalConditionError", err)
-		}
+		problem := requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
 		for _, want := range wanted {
-			if !strings.Contains(err.Error(), want) {
+			if !strings.Contains(problem, want) {
 				t.Fatalf("refusal %q never says %q", err, want)
 			}
 		}

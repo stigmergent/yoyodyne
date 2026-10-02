@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -559,16 +558,13 @@ func TestWorkProposedUnderAGoalTheGoalsDoNotStateIsNotPutToTheOperator(t *testin
 	options.Goals = recordedGoals(recordedGoal)
 
 	reply, err := openTestSession(t, options).Send(context.Background(), "what about a marketplace")
-	var unrecorded *ProposalGoalError
-	if !errors.As(err, &unrecorded) {
-		t.Fatalf("Send() error = %v, want a ProposalGoalError", err)
-	}
+	problem := requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
 	// The operator is never asked. An approval that the creation then refuses has
 	// already spent the decision it was asking for.
 	if len(reply.Proposals) != 0 {
 		t.Fatalf("proposals = %#v", reply.Proposals)
 	}
-	if !strings.Contains(err.Error(), "Grow the ecosystem.") {
+	if !strings.Contains(problem, "Grow the ecosystem.") {
 		t.Fatalf("error = %v", err)
 	}
 }

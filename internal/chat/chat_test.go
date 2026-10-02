@@ -800,8 +800,9 @@ func TestNothingIsCreatedWithoutAnApproval(t *testing.T) {
 		options.Tracker = tracker
 		session := openTestSession(t, options)
 		reply, err := session.Send(context.Background(), "what next?")
-		if err == nil || !strings.Contains(err.Error(), "description is required") {
-			t.Fatalf("Send() error = %v", err)
+		problem := requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
+		if !strings.Contains(problem, "description is required") {
+			t.Fatalf("refusal = %q", problem)
 		}
 		// The answer is still the operator's to read, and nothing about an
 		// unreadable proposal turns into one.
