@@ -577,8 +577,14 @@ func TestChatResolvesTheConfiguredProductManager(t *testing.T) {
 	if agent.Role != domain.RoleProductManager {
 		t.Fatal("no product-manager agent is configured; chat would have nobody to talk to")
 	}
-	if agent.Backend != domain.BackendClaudeCode {
-		t.Fatalf("product-manager backend = %q, want %q", agent.Backend, domain.BackendClaudeCode)
+	// The operator owns provider and model selection; chat must preserve the
+	// configured values rather than depend on this project's current choices.
+	configured, ok := resolved.Config.Agents["product-manager"]
+	if !ok || configured.Role != domain.RoleProductManager {
+		t.Fatal("the project's product-manager entry is missing or has the wrong role")
+	}
+	if agent.Backend != configured.Backend || agent.Model != configured.Model {
+		t.Fatalf("product-manager endpoint = %q/%q, want configured %q/%q", agent.Backend, agent.Model, configured.Backend, configured.Model)
 	}
 	if err := config.ValidateModelSelector(agent.Model); err != nil {
 		t.Fatalf("product-manager model: %v", err)
