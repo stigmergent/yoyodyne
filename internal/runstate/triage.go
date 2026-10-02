@@ -745,6 +745,28 @@ func (s *TriageStore) Counters(workItemID string) (TriageCounters, error) {
 	return s.load(id)
 }
 
+// LockCounters reads a decision while preventing another process from replacing
+// it until release is called. Artifact retirement holds this lock through its
+// repository mutation so a recovery grant cannot arrive between the decision
+// check and the removal it was meant to prevent. The caller must not update the
+// same item's triage record while holding it.
+func (s *TriageStore) LockCounters(ctx context.Context, workItemID string) (TriageCounters, func(), error) {
+	id := strings.TrimSpace(workItemID)
+	if id == "" {
+		return TriageCounters{}, nil, errors.New("a work item is required to lock its triage counters")
+	}
+	release, err := s.lock(ctx, id)
+	if err != nil {
+		return TriageCounters{}, nil, err
+	}
+	counters, err := s.load(id)
+	if err != nil {
+		release()
+		return TriageCounters{}, nil, err
+	}
+	return counters, release, nil
+}
+
 // RecordReviewRound counts one round against a work item and reports what the
 // item now stands at. It never refuses: a round is something that happened
 // rather than something being asked for, and a cap that could stop it being
