@@ -1520,16 +1520,8 @@ func stoppedRun(state runstate.State) bool {
 // The three conditions the death itself carries are runstate.DiedInItsOwnProcess,
 // asked there rather than restated here because the hold the pull reads asks the
 // same question of the same record; what is added here is the artifacts test.
-// preservedDeath answers it from the run's own flags, and is what the carry-out
-// guards ask of a stoppage already docketed; diedHolding answers it from the
-// repository, and is what decides whether a death is docketed at all, as the
-// hold decides it.
-func preservedDeath(state runstate.State) bool {
-	return state.DiedInItsOwnProcess() && state.Artifacts().Preserved()
-}
-
-// diedHolding is preservedDeath with the artifacts test answered by a look in
-// the repository.
+// diedHolding answers it from the repository, for both the docket and the
+// guards that carry out a decision about that stoppage.
 func diedHolding(state runstate.State, found triage.Found) bool {
 	return state.DiedInItsOwnProcess() && found.Holds()
 }
@@ -1762,7 +1754,7 @@ func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, f
 		// Whether the session this run stopped in can simply be carried on is read
 		// from the same predicate the repair carry-out admits a stall by, so the
 		// entry cannot offer a continuation the verb then refuses.
-		SessionResumable: continuableStall(state),
+		SessionResumable: continuableStall(state) && !found.Unknown && found.BranchThere && found.WorktreeThere,
 		// And where it is carried on, from the predicate that decides the phase the
 		// carry-out puts the run back at, for the same reason.
 		ResumesAt: resumesAtOf(state),

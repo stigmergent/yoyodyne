@@ -287,16 +287,19 @@ func (w conversationWork) Progress(_ context.Context, workItemID string) (chat.R
 }
 
 // Price reports what one work item cost, broken down by the runs made for it.
-// Like Progress and Changes it reads the durable run records and nothing else,
-// which is what makes it answerable for an item closed long ago: the run state
+// The price reads the durable run records, which is what makes it answerable
+// for an item closed long ago: the run state
 // and the event logs those runs wrote are still here, and the cost in them is
-// what the provider reported rather than an estimate from a price table.
-func (w conversationWork) Price(_ context.Context, workItemID string) (chat.ItemPrice, error) {
+// what the provider reported rather than an estimate from a price table. What
+// survives beside that price is asked of the repository as the hold asks it.
+func (w conversationWork) Price(ctx context.Context, workItemID string) (chat.ItemPrice, error) {
 	price, err := w.store.Price(workItemID)
 	if err != nil {
 		return chat.ItemPrice{}, err
 	}
-	return priceOf(price), nil
+	prices := []runstate.ItemPrice{price}
+	readmodel.LookForPrices(ctx, w.remains, w.store, prices)
+	return priceOf(prices[0]), nil
 }
 
 // Changes reports what the most recent recorded run of a work item changed. It

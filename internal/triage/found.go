@@ -80,6 +80,9 @@ func (f Found) stamp() string { return f.At.UTC().Format(time.RFC3339) }
 // for one sentence about what the run left.
 func (f Found) Describe() string {
 	if !f.Recorded() {
+		if f.Unknown {
+			return "what remains of the change was not checked: " + f.Unchecked
+		}
 		return "the run recorded no branch and no worktree, so there was nothing of its change to look for"
 	}
 	var parts []string
@@ -90,6 +93,25 @@ func (f Found) Describe() string {
 		parts = append(parts, fmt.Sprintf("worktree %s (%s)", f.WorktreePath, f.WorktreeState()))
 	}
 	return strings.Join(parts, "; ")
+}
+
+// DescribeRemains is the shared short answer a surface gives about preservation.
+// An unreadable repository never establishes that a change was removed.
+func (f Found) DescribeRemains() string {
+	switch {
+	case f.Unknown:
+		return "work possibly preserved, not checked"
+	case !f.Recorded():
+		return "no artifacts recorded"
+	case !f.Looked() && f.Holds():
+		return "work preserved, not checked"
+	case !f.Looked():
+		return "work removed, not checked"
+	case f.Holds():
+		return "work preserved, checked"
+	default:
+		return "work removed, checked"
+	}
 }
 
 // Validate bounds what a durable record may carry of a look.

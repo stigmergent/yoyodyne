@@ -1325,3 +1325,30 @@ func TestAnIntegrationStopIsClassifiedFromTheStepsOwnCauseAndNeverFromAFailedRec
 		t.Fatal("stepCauseOf() did not read the step's own cause back")
 	}
 }
+
+func TestResumeChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
+	t.Parallel()
+	for _, there := range []bool{true, false} {
+		state := approvedStoppedState()
+		state.BranchRemoved, state.WorktreeRemoved = there, there
+		if there {
+			state.ArtifactsRetiredBy = priorRunID
+		}
+		harness := newResumeHarness(t, approvedStoppedState())
+		if err := harness.runs.Save(state); err != nil {
+			t.Fatal(err)
+		}
+		resumer := harness.resumer()
+		resumer.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		result, err := resumer.Resume(context.Background(), resumeRequest())
+		if (err == nil) != there || result.Resumed != there || (len(harness.started) > 0) != there {
+			t.Fatalf("Resume() = %#v, %v, want resumed %t", result, err, there)
+		}
+		if there && (result.WorktreeRestored || len(harness.ownership.restored) != 0) {
+			t.Fatal("a present checkout was restored because of its removal flag")
+		}
+		if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
+			t.Fatalf("refusal does not name what was checked: %v", err)
+		}
+	}
+}

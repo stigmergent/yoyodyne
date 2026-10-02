@@ -456,19 +456,10 @@ func (r RunSummary) Preserved() bool {
 // where it was not, it says the record's answer and that nothing looked, so a
 // flag is never read out as a check.
 func (r RunSummary) DescribeRemains() string {
-	found := r.Found
-	switch {
-	case found == nil || !found.Recorded():
-		return r.Artifacts().Describe()
-	case found.Unknown:
-		return "work possibly preserved, not checked"
-	case !found.Looked():
-		return r.Artifacts().Describe() + ", not checked"
-	case found.Holds():
-		return "work preserved, checked"
-	default:
-		return "work gone, checked"
+	if r.Found != nil {
+		return r.Found.DescribeRemains()
 	}
+	return r.Artifacts().Describe()
 }
 
 // CostKnown reports a run the recorded evidence could actually price.

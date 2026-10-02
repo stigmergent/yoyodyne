@@ -34,11 +34,9 @@ import (
 //
 // look is what the repository holds of a run's change, asked the way the docket,
 // the pull's hold, and `yoyo status` ask it (readmodel.Looking). It is asked of
-// one thing only — an approved change the environment stopped, as its ending is
-// said — because whether that run's branch is still there decides whether the
-// line names the resume or the re-run, and a sink catching up hours late reads a
-// record the repository may have moved on from. Nil answers from the run's own
-// record, which is what a sink wired without a repository has.
+// every ending that says what survives, because a sink catching up hours late
+// reads a record the repository may have moved on from. Nil is a reader without
+// a repository; a wired reader uses the same check as the hold.
 func FromRun(before, after runstate.State, look func(runstate.State) triage.Found) ([]Notification, error) {
 	if strings.TrimSpace(after.RunID) == "" {
 		return nil, nil
@@ -249,7 +247,11 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 	endedNow := !endedBadly(before) && endedBadly(after)
 	stoppageNow := !handedToAPerson(before) && handedToAPerson(after)
 	if endedNow || stoppageNow {
+		found := lookedAt(after, look)
 		remains := Detail{Remains: after.Artifacts().Describe()}
+		if found != nil {
+			remains.Remains = found.DescribeRemains() + "; " + found.Describe()
+		}
 		// An approved change the environment stopped is the one ending here whose
 		// move is neither a decision nor nothing: the harness resumes it, by a verb,
 		// once the cause has cleared. The table's clauses for both kinds below say
@@ -258,7 +260,6 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 		// carries and the repair verb refuses in. That holds while the run's branch
 		// is there; once it is gone the resume would refuse, so the line says what
 		// is gone and that a re-run is the way on, as those surfaces then do.
-		found := lookedAt(after, look)
 		// A stoppage is new when it is said, so no triage decision can stand about
 		// it yet and the carry-out the read model also distinguishes cannot arise.
 		mover := readmodel.StoppageMover(after, found, false)
@@ -359,12 +360,10 @@ func integrationMove(state runstate.State, resumable bool, found *triage.Found) 
 	return triage.IntegrationGoneSays(state.RunID, found.Describe())
 }
 
-// lookedAt is what the repository holds of an approved change the environment
-// stopped, asked once, and nil where nothing was wired to look or the run was
-// not stopped that way — which the read model answers from the run's own
-// removal flag, and which has no promotion to resume.
+// lookedAt asks once as an ending is said, and is nil only for a reader
+// without a repository lookup.
 func lookedAt(state runstate.State, look func(runstate.State) triage.Found) *triage.Found {
-	if state.IntegrationStop == nil || look == nil {
+	if look == nil {
 		return nil
 	}
 	found := look(state)

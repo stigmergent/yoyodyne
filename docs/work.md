@@ -983,10 +983,19 @@ run's branch and worktree were checked and there.
 [claim audit](operations.md#claims-with-nothing-working-on-them) and the note a
 release writes on the item, the triage docket entry — as the run stops, and again
 each time the docket is built into the development manager's context — `yoyo
-status`, and the dashboard's item card all ask the repository for the run's
+status`, `yoyo cost`, the Slack sink, the dashboard's item card, and the
+repair, re-run, and integration-resume guards all ask the repository for the run's
 branch and checkout at the moment they write, and each says which it found and
 when: `checked and there`, `checked and NOT there`, or `not checked` with the
-reason. None of them reads the removal flags as an answer. On 2026-09-23
+reason. Preservation is a fact of the repository, not of the removal flags: a branch
+or checkout still there is preserved work even when the flags say it was removed,
+and flags saying it was kept do not make a missing branch or checkout present.
+A guard that finds nothing names the branch and checkout it looked for; a look
+that fails says it could not check rather than declaring the change removed.
+A decided repair of a run stopped at its check-stage bound continues the same
+run at its checks on the finished change, recording the grant as carried out
+without another developer attempt or review round for the continuation.
+On 2026-09-23
 run-838ffc48's flags said its artifacts were gone and the claim audit released
 yoyodyne-ifd.432.10 saying only that nothing was working on it; the development
 manager crossed the item's re-run cap reasoning the run had preserved nothing,

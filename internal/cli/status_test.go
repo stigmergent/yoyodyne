@@ -902,7 +902,7 @@ func TestStatusSendsNobodyToTheResumeOnceAnIntegrationStopsBranchIsGone(t *testi
 	}
 	for _, want := range []string{
 		"integration stop: approved, then stopped at the integrating phase by the environment",
-		"branch is gone (work gone, checked), so a re-run is the way on",
+		"branch is gone (work removed, checked), so a re-run is the way on",
 		"a re-run is the way on",
 	} {
 		if !strings.Contains(rendered, want) {

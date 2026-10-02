@@ -276,7 +276,7 @@ func TestAClosedUnaskedPublicationIsOfferedOnlyTheRerun(t *testing.T) {
 	if message := publicationMessage(closed); !strings.Contains(message, "closed it unmerged") || strings.Contains(message, "re-arm") {
 		t.Fatalf("docket message = %q, want the re-run alone offered", message)
 	}
-	if err := stoppageIsOver(closed); err != nil {
+	if err := stoppageIsOver(closed, triage.Found{}); err != nil {
 		t.Fatalf("stoppageIsOver() = %v, want a closed request admitted to a re-run", err)
 	}
 	if _, _, err := rearmablePublication(closed); err == nil {

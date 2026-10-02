@@ -1980,8 +1980,9 @@ func resumesAnExistingChange(state runstate.State) bool {
 }
 
 // continuableStall reports a settled run whose provider the harness stopped
-// before anything was ever returned to its developer, with the session, branch,
-// and worktree it stopped in all still there.
+// before anything was ever returned to its developer, with its session, branch,
+// and worktree recorded. The docket and the continuation ask the repository
+// whether the branch and worktree are still there.
 //
 // It is the one stoppage that is owed a continuation and carries no repair
 // input. The harness stops a provider that has gone silent or run out of its
@@ -2034,9 +2035,6 @@ func continuableStall(state runstate.State) bool {
 		return false
 	}
 	if state.WorktreePath == "" || state.Branch == "" || state.BaseCommit == "" || state.TargetBranch == "" {
-		return false
-	}
-	if state.WorktreeRemoved || state.BranchRemoved {
 		return false
 	}
 	if handedBackRepair(state) {

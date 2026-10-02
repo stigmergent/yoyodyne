@@ -1058,8 +1058,8 @@ type Detail struct {
 	// a surface that classified a run for itself is a surface that can come to say
 	// a different word about it than `yoyo status` does.
 	//
-	// Remains is what the record says survives of that run's change, in the three
-	// fixed phrases the same read model renders, and is read by KindRunEnded and
+	// Remains is what the repository holds of that run's change, in the phrase
+	// and the description the shared lookup renders, and is read by KindRunEnded and
 	// by KindBlockerRecorded. Both kinds state it because "is my work gone" is the
 	// question a run that did not succeed is actually read for, and a stoppage
 	// somebody has to decide about is the case where the answer matters most.

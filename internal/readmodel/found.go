@@ -120,3 +120,32 @@ func boundUnchecked(reason string) string {
 	}
 	return reason[:cut] + "..."
 }
+
+// LookForPrices answers preservation beside each run's price from the same
+// repository lookup as the hold. The price itself remains event-log evidence.
+func LookForPrices(ctx context.Context, remains Remains, recorded Recorded, prices []runstate.ItemPrice) {
+	runs, err := recorded.Recorded()
+	byID := make(map[string]runstate.State, len(runs))
+	for _, run := range runs {
+		byID[run.RunID] = run
+	}
+	look := Looking(ctx, remains, nil)
+	for i := range prices {
+		for j := range prices[i].Runs {
+			price := &prices[i].Runs[j]
+			run, known := byID[price.RunID]
+			if !known {
+				reason := "the run record was not found"
+				if err != nil {
+					reason = fmt.Sprintf("the run records could not be read (%v)", err)
+				}
+				price.Found = &triage.Found{At: time.Now(), Unknown: true, Unchecked: boundUnchecked(reason)}
+				price.Remains = price.Found.DescribeRemains()
+				continue
+			}
+			found := look(run)
+			price.Found = &found
+			price.Remains = found.DescribeRemains()
+		}
+	}
+}

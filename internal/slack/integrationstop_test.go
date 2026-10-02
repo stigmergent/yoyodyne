@@ -81,3 +81,46 @@ func TestTheLineForAnIntegrationStopAsksTheRepositoryWhetherTheBranchSurvives(t 
 		}
 	}
 }
+
+func TestTheSlackEndingStatesPreservationFromTheRepositoryWhenFlagsDisagree(t *testing.T) {
+	t.Parallel()
+	for _, there := range []bool{true, false} {
+		harness := newTestHarness(t, time.Time{})
+		harness.feed.Standing = &readmodel.Sources{Remains: survival{BranchExists: there, WorktreePresent: there}}
+		state := harness.run(t, runstate.StatusFailed)
+		state.Branch, state.WorktreePath = "yoyodyne/task/abc", "/state/worktrees/task"
+		state.BranchRemoved, state.WorktreeRemoved = there, there
+		if there {
+			state.ArtifactsRetiredBy = "run-" + strings.Repeat("f", 32)
+		}
+		harness.record(t, state)
+		batch, err := harness.feed.Poll(context.Background(), harness.start())
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "work removed, checked"
+		if there {
+			want = "work preserved, checked"
+		}
+		said := false
+		for _, delivery := range batch.Deliveries {
+			if delivery.Notification.Event.Kind != notify.KindRunEnded {
+				continue
+			}
+			message, err := notify.Render(delivery.Notification.Topic, delivery.Notification.Speaker, delivery.Notification.Event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(message.Body, want) {
+				t.Fatalf("message = %s, want %s", message.Body, want)
+			}
+			if !strings.Contains(message.Body, state.Branch) || !strings.Contains(message.Body, state.WorktreePath) {
+				t.Fatalf("message does not name what was checked: %s", message.Body)
+			}
+			said = true
+		}
+		if !said {
+			t.Fatal("no run ending was said")
+		}
+	}
+}

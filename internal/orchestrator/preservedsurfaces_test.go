@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // run-838ffc48 on yoyodyne-ifd.432.10 is the case: a run that ended failed on a
@@ -108,6 +109,22 @@ func TestEverySurfaceReportsTheBranchARunsFlagsSayIsRemoved(t *testing.T) {
 	}
 	if !strings.HasPrefix(listed.Found.BranchState(), branchThere) {
 		t.Fatalf("status branch = %q, want it checked and there", listed.Found.BranchState())
+	}
+}
+
+func TestPreservationGuardsDoNotDeclareAnUnreadableRepositoryEmpty(t *testing.T) {
+	t.Parallel()
+	state := approvedStoppedState()
+	state.Blocker = ""
+	found := triage.Found{Branch: state.Branch, WorktreePath: state.WorktreePath, Unknown: true, Unchecked: "repository could not be read"}
+	if err := stoppageIsOver(state, found); err != nil {
+		t.Fatalf("stoppageIsOver() = %v, want an unknown change held", err)
+	}
+	if err := resumableStop(state, found); err == nil || !strings.Contains(err.Error(), found.Unchecked) {
+		t.Fatalf("resumableStop() = %v, want the failed look named", err)
+	}
+	if found.DescribeRemains() != "work possibly preserved, not checked" {
+		t.Fatalf("remains = %s", found.DescribeRemains())
 	}
 }
 
@@ -338,4 +355,58 @@ func (f flaggedFixture) flaggedRun(t *testing.T, workItemID string, index int, s
 		t.Fatalf("Create() run error = %v", err)
 	}
 	return state
+}
+
+// The same repository check reaches the guards and the cost listing. The flags
+// disagree in both directions: first a surviving branch marked removed, then
+// a deleted branch marked kept.
+func TestPreservationGuardsAndPricesFollowTheRepositoryRatherThanRemovalFlags(t *testing.T) {
+	t.Parallel()
+	fixture := newFlaggedFixture(t)
+	state := fixture.flaggedRun(t, "yoyodyne-flagged.8", 8, runstate.StatusFailed)
+	ctx := context.Background()
+	for _, there := range []bool{true, false} {
+		if !there {
+			runPipelineGit(t, fixture.repository, "branch", "-D", state.Branch)
+			state.BranchRemoved, state.WorktreeRemoved = false, false
+			state.ArtifactsRetiredBy = ""
+			if err := fixture.store.Save(state); err != nil {
+				t.Fatal(err)
+			}
+		}
+		found := readmodel.LookFor(ctx, fixture.worktrees, state)
+		if !found.Looked() || found.BranchThere != there || found.WorktreeThere {
+			t.Fatalf("found = %#v, want branch present %t and checkout gone", found, there)
+		}
+		if err := stoppageIsOver(state, found); (err == nil) != there {
+			t.Fatalf("stoppageIsOver() = %v, want admitted %t", err, there)
+		} else if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
+			t.Fatalf("refusal does not name what was checked: %v", err)
+		}
+		if err := rerunnable(state, found); (err == nil) != there {
+			t.Fatalf("rerunnable() = %v", err)
+		}
+		if kept := preservedOf(state, found); (kept.Branch != "") != there {
+			t.Fatalf("preserved = %#v", kept)
+		}
+		approved := approvedStoppedState()
+		approved.Branch, approved.WorktreePath = state.Branch, state.WorktreePath
+		approved.BranchRemoved, approved.WorktreeRemoved = state.BranchRemoved, state.WorktreeRemoved
+		if err := resumableStop(approved, found); (err == nil) != there {
+			t.Fatalf("resumableStop() = %v", err)
+		}
+		price, err := fixture.store.Price(state.WorkItemID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prices := []runstate.ItemPrice{price}
+		readmodel.LookForPrices(ctx, fixture.worktrees, fixture.store, prices)
+		want := "work removed, checked"
+		if there {
+			want = "work preserved, checked"
+		}
+		if len(prices[0].Runs) != 1 || prices[0].Runs[0].Remains != want || prices[0].Runs[0].Found == nil {
+			t.Fatalf("price = %#v, want %s", prices, want)
+		}
+	}
 }

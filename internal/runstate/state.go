@@ -2098,8 +2098,8 @@ type RepairContinuation struct {
 	Reason      string    `json:"reason"`
 	ContinuedAt time.Time `json:"continued_at"`
 	// SupersededBlocker is the durable blocker this re-entry cleared, in the
-	// words it was recorded in. It is absent only on a re-entry of a run that
-	// carried none, which nothing here produces.
+	// words it was recorded in. It is absent on a re-entry that carried none,
+	// such as a check-stage timeout.
 	SupersededBlocker string `json:"superseded_blocker,omitempty"`
 	// Returned says the round this continuation bought was environmentally
 	// refused, so the grant it came out of was never actually spent on anything.
@@ -2118,6 +2118,9 @@ type RepairContinuation struct {
 	// counter somebody forgot to move. The item's grant is still consumed, so one
 	// decision still buys one continuation and no more.
 	Stall bool `json:"stall,omitempty"`
+	// CheckStage says a decided repair continued checks the stage bound stopped.
+	// The developer already finished, so this continuation counts no attempt.
+	CheckStage bool `json:"check_stage,omitempty"`
 	// ByHarness says nobody decided this continuation: it is the harness carrying
 	// on a first silent-stream stall itself, which it does at most
 	// MaxHarnessStallContinuations times for one run. It spends no grant, so it
@@ -2128,6 +2131,10 @@ type RepairContinuation struct {
 // Validate reports every contract violation in the recorded continuation at once.
 func (c RepairContinuation) Validate() error {
 	var problems []error
+	if c.CheckStage && (c.Stall || c.ByHarness) {
+		problems = append(problems, errors.New("a decided check-stage continuation is neither a stall nor a harness grant"))
+	}
+
 	switch {
 	case c.ByHarness && (!c.Stall || c.GrantedAttempts != 0):
 		problems = append(problems, errors.New("a continuation the harness made itself carries on a stall and grants no repair attempt"))

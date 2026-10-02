@@ -288,6 +288,8 @@ type Rerunner struct {
 	// Preserved retires the stopped run's branch and worktree once the fresh run
 	// integrates. Optional; see PreservedRetirer.
 	Preserved PreservedRetirer
+	// Remains asks the repository what the stopped run still holds.
+	Remains readmodel.Remains
 	// Publications closes the pull request the stopped run left open, at the same
 	// moment and for the same reason: the fresh run has integrated, so that
 	// request carries work that has landed by another vehicle and will never
@@ -397,11 +399,10 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	if err != nil {
 		return result, fmt.Errorf("read the run the docket entry is about: %w", err)
 	}
-	// What the stoppage left behind is read from the run's record rather than
-	// from the entry, for the same reason the stoppage itself is: the entry says
-	// what was there when it was written, and an artifact removed since must not
-	// be recorded as one somebody could go and look at.
-	result.Preserved = preservedOf(prior)
+	// The entry and the removal flags describe earlier readings. Ask the
+	// repository what remains now before deciding what this re-run can carry.
+	found := readmodel.LookFor(ctx, r.Remains, prior)
+	result.Preserved = preservedOf(prior, found)
 	// The docket says what was true when the entry was made. What decides whether
 	// this stoppage may be run again is what is true now, so the run's own record
 	// is asked rather than the entry that describes it. Both this and the run in
@@ -417,7 +418,7 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 			return result, unspentRefusal(fmt.Errorf("run %s is recorded as %s rather than ended, so it is owed a continuation rather than a fresh run; a re-run is refused while anything of it is resumable",
 				prior.RunID, prior.Status))
 		}
-	} else if err := rerunnable(prior); err != nil {
+	} else if err := rerunnable(prior, found); err != nil {
 		return result, unspentRefusal(err)
 	}
 	if err := r.noRunInFlight(entry.WorkItemID); err != nil {
@@ -686,11 +687,11 @@ func docketedRaise(docket RerunDocket, priorRunID string) (triage.Entry, bool, e
 // succeeded — raising is what it was for — and carries no blocker, so the
 // stoppage rule refuses it; what makes it something a person decides about is
 // the raise itself, read from the run's own record.
-func rerunnable(prior runstate.State) error {
+func rerunnable(prior runstate.State, found triage.Found) error {
 	if prior.Status.Terminal() && prior.Escalated() {
 		return nil
 	}
-	return stoppageIsOver(prior)
+	return stoppageIsOver(prior, found)
 }
 
 // raiseReleased reports the item a raise parked having been released by its
@@ -756,20 +757,17 @@ func (e NoDocketedStoppageError) Error() string {
 // owed the rest of its own step, and one that ended with nothing anybody has to
 // decide about is not a stoppage at all.
 //
-// The second half is asked of the same two facts the docket makes an entry from,
-// and deliberately so. A blocker is nearly always what says a person owns this; a
-// run that died holding its change is the case where nothing recorded one and the
-// work is waiting all the same. An entry exists for either, so a condition that
-// asked only about the blocker would refuse the very stoppages the docket has
-// just started carrying — and refuse them past the lookup that found the entry,
-// which is the worst place to say no.
-func stoppageIsOver(prior runstate.State) error {
+// The docket and the decision establish which stoppage this action may carry
+// out. A blocker can survive removal of the change, and a change can survive a
+// run that recorded no blocker. Ask the repository for that second fact rather
+// than excluding terminal statuses whose flags or failure text happen to differ.
+func stoppageIsOver(prior runstate.State, found triage.Found) error {
 	if !prior.Status.Terminal() {
 		return fmt.Errorf("run %s is recorded as %s rather than ended, so it is owed a continuation rather than a fresh run; a re-run is refused while anything of it is resumable",
 			prior.RunID, prior.Status)
 	}
-	if strings.TrimSpace(prior.Blocker) == "" && !preservedDeath(prior) && !prior.PublicationUnasked() {
-		return fmt.Errorf("run %s ended carrying no durable blocker and left no change behind, so nothing about it stopped for a person to decide", prior.RunID)
+	if strings.TrimSpace(prior.Blocker) == "" && !found.Holds() && !prior.PublicationUnasked() {
+		return fmt.Errorf("run %s ended carrying no durable blocker and left no change behind, so nothing about it stopped for a person to decide: %s", prior.RunID, found.Describe())
 	}
 	return nil
 }
@@ -1183,7 +1181,7 @@ func pauseMet(outcome Outcome) string {
 // retired is kept with the reason, because an artifact nobody records is an
 // orphan nobody discovers.
 func (r Rerunner) settle(ctx context.Context, entry triage.Entry, prior runstate.State, outcome Outcome, result *RerunResult) runstate.PreservedArtifacts {
-	preserved := preservedOf(prior)
+	preserved := preservedOf(prior, readmodel.LookFor(ctx, r.Remains, prior))
 	// The fresh run having integrated is what retires everything the stopped run
 	// left: what it kept in this repository, and the pull request it published.
 	// So the vehicle the work landed by is read from the same outcome that
@@ -1402,15 +1400,15 @@ func (r Rerunner) recordRemoval(stopped runstate.State, freshRunID string, retir
 	return ""
 }
 
-// preservedOf is what the stopped run left behind, as its own record has it. A
+// preservedOf is what the repository holds of the stopped run. A
 // run whose artifacts the harness already removed has nothing to keep or retire,
 // and says so rather than describing what is gone as kept.
-func preservedOf(prior runstate.State) runstate.PreservedArtifacts {
+func preservedOf(prior runstate.State, found triage.Found) runstate.PreservedArtifacts {
 	preserved := runstate.PreservedArtifacts{Disposition: runstate.PreservedKept}
-	if !prior.BranchRemoved {
+	if found.BranchThere || found.Unknown {
 		preserved.Branch = prior.Branch
 	}
-	if !prior.WorktreeRemoved {
+	if found.WorktreeThere || found.Unknown {
 		preserved.WorktreePath = prior.WorktreePath
 	}
 	if preserved.Branch == "" && preserved.WorktreePath == "" {

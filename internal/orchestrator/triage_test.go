@@ -1824,7 +1824,7 @@ func TestARunThatDiedBeforeItClaimedItsItemIsDocketed(t *testing.T) {
 	}
 	// The rules that carried every other stoppage say nothing about this one,
 	// which is the whole of why it needed a class.
-	if stoppedRun(died) || preservedDeath(died) {
+	if stoppedRun(died) || diedHolding(died, triage.Found{}) {
 		t.Fatal("a pre-claim death now reads as a stoppage the older rules catch; this test no longer measures the gap")
 	}
 

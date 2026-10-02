@@ -6716,7 +6716,7 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	// And the repair is the verb that answers it (yoyodyne-ifd.132): the conflict
 	// is a repair input on the record, so a continuation hands it to the same
 	// developer rather than being refused.
-	if err := continuableRepair(state, triage.Found{}); err != nil {
+	if err := continuableRepair(state, triage.Found{BranchThere: true, WorktreeThere: true}); err != nil {
 		t.Fatalf("continuableRepair() error = %v, want a conflict the run could not hand back continuable", err)
 	}
 }

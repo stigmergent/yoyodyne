@@ -234,6 +234,7 @@ func buildIntegrationResumer(configPath string) (orchestrator.IntegrationResumer
 		// because it is what stopped the run once already.
 		Items:     parts.tracker(),
 		Worktrees: parts.worktrees,
+		Remains:   parts.worktrees,
 		// The same limit the reservation enforces, read before the run is made live
 		// so a full harness leaves it stopped rather than live with no room to go.
 		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
@@ -690,6 +691,7 @@ func rerunnerFrom(parts components) orchestrator.Rerunner {
 		// created it, which is what keeps the removal inside the ownership rules
 		// every other removal here is held to.
 		Preserved: parts.worktrees,
+		Remains:   parts.worktrees,
 		// The pull request it published is retired through the same forge client
 		// the sweep uses, so a publication closed at the moment of triage and one
 		// closed by a later `yoyo reconcile` are closed the same way and say the

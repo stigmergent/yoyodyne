@@ -23,6 +23,7 @@ package readmodel
 // dashboard and a script cannot come to count the parked runs differently.
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -193,7 +194,7 @@ const (
 // has served its account and model since it stopped. A run asleep on its
 // deadline is listed whatever the evidence says, because it is still asleep: it
 // asks again at its next probe, and `yoyo resume` asks now.
-func ReadCapacityBlocked(runs []runstate.State, refusals []runstate.UsageLimitExhaustion, now time.Time, unknownResetPause time.Duration, evidence CapacityEvidence) CapacityBlocked {
+func ReadCapacityBlocked(runs []runstate.State, refusals []runstate.UsageLimitExhaustion, now time.Time, unknownResetPause time.Duration, evidence CapacityEvidence, looks ...Look) CapacityBlocked {
 	blocked := CapacityBlocked{
 		Runs:          []CapacityBlockedRun{},
 		Conversations: []CapacityBlockedConversation{},
@@ -202,6 +203,9 @@ func ReadCapacityBlocked(runs []runstate.State, refusals []runstate.UsageLimitEx
 		entry, held := capacityBlockedRun(run)
 		if !held {
 			continue
+		}
+		if len(looks) > 0 && looks[0] != nil {
+			entry.Preserved = looks[0](run).Holds()
 		}
 		if refusal, named := stoppedRunRefusal(run, entry); named && entry.State == CapacityStateBlocked && evidence.Lifted(refusal) {
 			continue
@@ -418,7 +422,7 @@ func CapacityBlockedOf(sources Sources, now time.Time) CapacityBlocked {
 		refusals = listed
 	}
 	evidence, evidenceProblem := CapacityEvidenceOf(sources)
-	blocked := ReadCapacityBlocked(runs, refusals, now, sources.UnknownResetPause, evidence)
+	blocked := ReadCapacityBlocked(runs, refusals, now, sources.UnknownResetPause, evidence, Looking(context.Background(), sources.Remains, func() time.Time { return now }))
 	// The evidence clears stopped runs as well as conversations, so a failure to
 	// read it is said on both halves: each is a list that may be longer than it
 	// would have been.
