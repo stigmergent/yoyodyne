@@ -586,6 +586,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// was served on, which is what reads a refusal of them as lifted before the
 		// reset it quoted.
 		CapacityServed: parts.capacityServed,
+		UsageLimits:    parts.usageLimits,
 		// A promotion refused because the target branch will not catch up to the
 		// remote's is recorded against the product, so a watching session stops
 		// pulling items into the same refusal until the branches are settled.
@@ -617,7 +618,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// records as well as the configuration, and this is where both are in
 		// hand. A project with one account has nothing to choose between and gets
 		// the same answer the configuration alone would have given.
-		Accounts:   accountPool{config: cfg, stateRoot: parts.stateRoot, runs: parts.store},
+		Accounts:   accountPool{config: cfg, stateRoot: parts.stateRoot, runs: parts.store, usageLimits: parts.usageLimits, capacityServed: parts.capacityServed},
 		StateRoot:  parts.stateRoot,
 		Repository: parts.repository,
 		Config:     cfg,

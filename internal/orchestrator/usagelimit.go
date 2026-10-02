@@ -32,7 +32,7 @@ type UsageLimitRecorder interface {
 // recordUsageLimit writes down one refusal and reports only what went wrong
 // writing it. A caller with nothing to record to, or nothing to record, does
 // neither and says nothing.
-func recordUsageLimit(to UsageLimitRecorder, productID domain.ProductID, at time.Time, waiting string, limit *backend.UsageLimit) error {
+func recordUsageLimit(to UsageLimitRecorder, productID domain.ProductID, at time.Time, waiting string, endpoint backend.Endpoint, limit *backend.UsageLimit) error {
 	if to == nil || limit == nil {
 		return nil
 	}
@@ -42,6 +42,10 @@ func recordUsageLimit(to UsageLimitRecorder, productID domain.ProductID, at time
 		At:            at,
 		Waiting:       waiting,
 		Kind:          limit.Kind,
+		AccountWide:   limit.AccountWide,
+		Provider:      endpoint.Provider,
+		AccountAlias:  endpoint.AccountAlias,
+		Model:         endpoint.Model,
 	}
 	if !limit.ResetsAt.IsZero() {
 		resetsAt := limit.ResetsAt.UTC()

@@ -688,10 +688,11 @@ func agentEndpoints(cfg config.Config) []readmodel.AgentEndpoint {
 	endpoints := make([]readmodel.AgentEndpoint, 0, len(names))
 	for _, name := range names {
 		agent := cfg.Agents[name]
-		endpoint := readmodel.AgentEndpoint{Name: name, Provider: agent.Backend, Model: agent.Model}
+		endpoint := readmodel.AgentEndpoint{Name: name, Provider: agent.Backend, Model: agent.Model, AccountAlias: cfg.AgentAccountAlias(name)}
 		if alternate := agent.Failover.Alternate(); alternate != "" {
 			endpoint.Alternate = alternate
 			endpoint.AlternateProvider = agent.Failover.AlternateProvider(agent.Backend)
+			endpoint.AlternateAccountAlias = agent.Failover.AlternateAccount(endpoint.AccountAlias)
 		}
 		endpoints = append(endpoints, endpoint)
 	}
@@ -806,6 +807,29 @@ func developerEndpoints(cfg config.Config) []readmodel.AgentEndpoint {
 		mapped.Name = name + " (" + strings.TrimSpace(rule.Label) + ")"
 		mapped.Model = strings.TrimSpace(rule.Model)
 		endpoints = append(endpoints, mapped)
+	}
+	// Runs rotate over the pool rather than using the agent's fixed account.
+	aliases := cfg.AccountAliases()
+	if len(aliases) == 0 {
+		aliases = []string{cfg.AccountAlias()}
+	}
+	registry, err := cfg.ProviderRegistry()
+	if err != nil {
+		return endpoints
+	}
+	var pooled []readmodel.AgentEndpoint
+	for _, endpoint := range endpoints {
+		for _, alias := range aliases {
+			if _, err := cfg.EndpointFor(registry, "/", name, alias); err != nil {
+				continue
+			}
+			copy := endpoint
+			copy.AccountAlias = alias
+			pooled = append(pooled, copy)
+		}
+	}
+	if len(pooled) > 0 {
+		return pooled
 	}
 	return endpoints
 }

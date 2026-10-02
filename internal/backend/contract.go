@@ -207,7 +207,8 @@ type Observation struct {
 	// Kind is the provider's own name for the limit that was reached, carried as
 	// evidence rather than interpreted. It is meaningful only on
 	// AnswerLimitReached.
-	Kind string
+	Kind        string
+	AccountWide bool
 	// ResetsAt is when the provider said the condition lifts, meaningful only on
 	// AnswerLimitReached. Zero means the provider named no usable reset time,
 	// which is a fact about the provider rather than a wait the dialect may
@@ -314,7 +315,7 @@ func (o Observation) Record(result *RunResult) {
 		// The provider is still working on the attempt. It says nothing about
 		// capacity and nothing about the outcome, so nothing here changes.
 	case AnswerLimitReached:
-		result.UsageLimit = &UsageLimit{Kind: o.Kind, ResetsAt: o.ResetsAt}
+		result.UsageLimit = &UsageLimit{Kind: o.Kind, ResetsAt: o.ResetsAt, AccountWide: o.AccountWide}
 	case AnswerUnavailable:
 		result.ServerOverload = &ServerOverload{Detail: o.Detail}
 		result.TransientFailure = nil

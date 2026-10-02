@@ -411,6 +411,9 @@ func invocationArgs(request backend.RunRequest, sandbox string) []string {
 }
 
 func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned backend.RunResult, runErr error) {
+	if err := request.RestrictCapacityProbe(); err != nil {
+		return backend.RunResult{}, err
+	}
 	if b.Runner == nil {
 		return backend.RunResult{}, errors.New("Codex process runner is required")
 	}
@@ -426,6 +429,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	sandbox, err := sandboxFor(request.Role)
 	if err != nil {
 		return backend.RunResult{}, err
+	}
+	if request.CapacityProbe {
+		sandbox = sandboxReadOnly
 	}
 	// Codex has no per-tool control: what an agent may do is decided by the
 	// sandbox and by nothing else. A request naming tools is therefore refused
@@ -655,6 +661,9 @@ func (b Backend) installedVersion(ctx context.Context, configDir string) string 
 // so evidence that tried to talk its way past the contract is arguing with text
 // in the same message rather than with something above it.
 func composePrompt(request backend.RunRequest) string {
+	if request.CapacityProbe {
+		return backend.CapacityProbePrompt
+	}
 	prompt := request.Prompt
 	if strings.TrimSpace(request.SystemPrompt) != "" {
 		prompt = request.SystemPrompt + "\n\n" + prompt

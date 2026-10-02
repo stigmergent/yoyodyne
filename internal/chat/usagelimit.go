@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
@@ -155,7 +156,7 @@ type UsageLimits interface {
 // stoppages rather than as one that is still going. What is new information is a
 // refusal naming a different limit or model, or the same limit with a reset that
 // has moved, and either is written down.
-func (s *Session) noteUsageLimit(result backend.RunResult, err error, model, account string) error {
+func (s *Session) noteUsageLimit(result backend.RunResult, err error, model, account string, provider domain.Backend) error {
 	limit := refusedForUsageLimit(result, err)
 	if limit == nil || s.options.UsageLimits == nil {
 		return nil
@@ -173,6 +174,8 @@ func (s *Session) noteUsageLimit(result backend.RunResult, err error, model, acc
 		// manager are the same limit stopping different work.
 		Waiting:        fmt.Sprintf("the %s conversation %s", RoleTitle(s.state.Role), s.state.ConversationID),
 		Kind:           limit.Kind,
+		Provider:       provider,
+		AccountWide:    limit.AccountWide,
 		ConversationID: s.state.ConversationID,
 		Model:          strings.TrimSpace(model),
 		AccountAlias:   strings.TrimSpace(account),

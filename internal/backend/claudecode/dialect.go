@@ -306,9 +306,10 @@ func observeRateLimit(payload json.RawMessage) (backend.Observation, bool) {
 		return backend.Observation{Answer: backend.AnswerServed}, true
 	}
 	return backend.Observation{
-		Answer:   backend.AnswerLimitReached,
-		Kind:     info.RateLimitType,
-		ResetsAt: info.resetTime(),
+		Answer:      backend.AnswerLimitReached,
+		Kind:        info.RateLimitType,
+		ResetsAt:    info.resetTime(),
+		AccountWide: info.RateLimitType == "seven_day" || info.RateLimitType == "five_hour" || info.RateLimitType == "overage" || info.RateLimitType == "seven_day_overage_included",
 	}, true
 }
 

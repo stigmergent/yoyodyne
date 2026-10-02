@@ -71,7 +71,8 @@ const (
 	SpendPhaseConversation SpendPhase = "conversation"
 	// SpendPhaseExchange is one round of an inter-role ask, which is an
 	// invocation with neither a run nor a conversation behind it.
-	SpendPhaseExchange SpendPhase = "exchange"
+	SpendPhaseExchange      SpendPhase = "exchange"
+	SpendPhaseCapacityProbe SpendPhase = "capacity-probe"
 )
 
 // SpendPhases lists every phase there is, in the order a refusal names them.
@@ -82,6 +83,7 @@ func SpendPhases() []SpendPhase {
 		SpendPhaseRepair,
 		SpendPhaseConversation,
 		SpendPhaseExchange,
+		SpendPhaseCapacityProbe,
 	}
 }
 
@@ -179,10 +181,11 @@ type Spend struct {
 	// It is not the main thread it is held beside: a line naming that thread would
 	// put a side turn's cost on a conversation that never took it, and the two are
 	// separately answerable for what they spend.
-	ConversationID string `json:"conversation_id,omitempty"`
-	SideStreamID   string `json:"side_stream_id,omitempty"`
-	ExchangeID     string `json:"exchange_id,omitempty"`
-	BranchReviewID string `json:"branch_review_id,omitempty"`
+	ConversationID  string `json:"conversation_id,omitempty"`
+	SideStreamID    string `json:"side_stream_id,omitempty"`
+	ExchangeID      string `json:"exchange_id,omitempty"`
+	BranchReviewID  string `json:"branch_review_id,omitempty"`
+	CapacityProbeID string `json:"capacity_probe_id,omitempty"`
 	// What served the invocation. The backend and the requested model are what
 	// the harness asked for; the resolved model is what the provider reported
 	// actually serving it, which is the only durable evidence where the requested
@@ -347,13 +350,13 @@ func (s Spend) Validate() error {
 // two is a spend that would be counted twice by whoever reads it by either.
 func (s Spend) subjectProblem() error {
 	named := 0
-	for _, id := range []string{s.RunID, s.ConversationID, s.SideStreamID, s.ExchangeID, s.BranchReviewID} {
+	for _, id := range []string{s.RunID, s.ConversationID, s.SideStreamID, s.ExchangeID, s.BranchReviewID, s.CapacityProbeID} {
 		if strings.TrimSpace(id) != "" {
 			named++
 		}
 	}
 	if named != 1 {
-		return errors.New("a spend names exactly one of run_id, conversation_id, side_stream_id, exchange_id, and branch_review_id")
+		return errors.New("a spend names exactly one of run_id, conversation_id, side_stream_id, exchange_id, branch_review_id, and capacity_probe_id")
 	}
 	// A work item belongs to a run and to nothing else: an invocation with no run
 	// behind it served no assigned work, and saying it did would put money on an

@@ -198,6 +198,12 @@ func (c Config) agentAccountAlias(providers *backend.Registry, agentName string)
 // in, exactly as ChooseAccount reads it: a budget is the operator's limit on an
 // account, so it stays keyed on the account whichever endpoint is asking.
 func (c Config) ChooseEndpoint(providers *backend.Registry, stateRoot, agentName string, lastServed backend.Endpoint, spentUSD map[string]float64) (EndpointChoice, error) {
+	return c.ChooseAvailableEndpoint(providers, stateRoot, agentName, lastServed, spentUSD, nil)
+}
+
+// ChooseAvailableEndpoint narrows the ordinary pool to endpoints the harness
+// can currently use. The same provider, role, account, and budget checks apply.
+func (c Config) ChooseAvailableEndpoint(providers *backend.Registry, stateRoot, agentName string, lastServed backend.Endpoint, spentUSD map[string]float64, available func(backend.Endpoint) bool) (EndpointChoice, error) {
 	agent, named := c.Agents[strings.TrimSpace(agentName)]
 	if !named {
 		return EndpointChoice{}, fmt.Errorf("agent %q is not one this configuration names", agentName)
@@ -235,7 +241,17 @@ func (c Config) ChooseEndpoint(providers *backend.Registry, stateRoot, agentName
 		if !c.withinBudget(alias, spentUSD) {
 			continue
 		}
-		return c.EndpointFor(providers, stateRoot, agentName, alias)
+		choice, err := c.EndpointFor(providers, stateRoot, agentName, alias)
+		if err != nil {
+			return EndpointChoice{}, err
+		}
+		if available != nil && !available(choice.Endpoint) {
+			continue
+		}
+		return choice, nil
+	}
+	if available != nil {
+		return EndpointChoice{}, fmt.Errorf("no configured endpoint for %s has both provider capacity and remaining budget", agentName)
 	}
 	return EndpointChoice{}, c.noAccountLeft(eligible, spentUSD)
 }

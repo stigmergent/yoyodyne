@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -60,7 +61,9 @@ type accountPool struct {
 	runs *runstate.Store
 	// now is when the budget window is measured back from. It is a field because
 	// a budget that can only be exercised by waiting a week is one nothing tests.
-	now func() time.Time
+	now            func() time.Time
+	usageLimits    readmodel.UsageLimits
+	capacityServed readmodel.CapacityServedRecord
 }
 
 // ChooseAccount rotates the active half of the pool and honours the weekly
@@ -91,6 +94,10 @@ type accountPool struct {
 // as such, rather than an account that would have been chosen and refused
 // somewhere further in.
 func (p accountPool) ChooseAccount() (config.AccountEndpoint, error) {
+	return p.ChooseAccountForModel("")
+}
+
+func (p accountPool) ChooseAccountForModel(model string) (config.AccountEndpoint, error) {
 	lastServed, err := p.runs.LastAccountAlias()
 	if err != nil {
 		return config.AccountEndpoint{}, fmt.Errorf("read which account the last run was served by: %w", err)
@@ -119,8 +126,38 @@ func (p accountPool) ChooseAccount() (config.AccountEndpoint, error) {
 	// choosing over. That is the rotation the pool has always made; the day a run
 	// records its endpoint, the cursor is that record rather than this assembly.
 	agent := agentForRole(p.config, domain.RoleDeveloper)
+	if model != "" {
+		// Copy the map before narrowing this choice; parallel runs share the
+		// loaded configuration and may be asking for different mapped models.
+		agents := make(map[string]config.AgentConfig, len(p.config.Agents))
+		for name, configured := range p.config.Agents {
+			agents[name] = configured
+		}
+		agent.Model = model
+		agents[developer] = agent
+		p.config.Agents = agents
+	}
 	cursor := backend.Endpoint{Provider: agent.Backend, Model: agent.Model, AccountAlias: lastServed}
-	choice, err := p.config.ChooseEndpoint(providers, p.stateRoot, developer, cursor, spent)
+	var available func(backend.Endpoint) bool
+	if p.usageLimits != nil {
+		refusals, err := p.usageLimits.List()
+		if err != nil {
+			return config.AccountEndpoint{}, err
+		}
+		recorded, err := p.runs.Recorded()
+		if err != nil {
+			return config.AccountEndpoint{}, err
+		}
+		refusals = readmodel.MergeCapacityRefusals(refusals, readmodel.EndedRunCapacityRefusals(recorded))
+		evidence, problem := readmodel.ReadCapacityEvidence(p.capacityServed, nil)
+		if problem != "" {
+			return config.AccountEndpoint{}, fmt.Errorf("read provider capacity: %s", problem)
+		}
+		available = func(endpoint backend.Endpoint) bool {
+			return !readmodel.ReadEndpointCapacity(endpoint, refusals, evidence, p.clock(), p.config.Execution.UsageLimitUnknownResetPause.Duration(), nil).Waiting
+		}
+	}
+	choice, err := p.config.ChooseAvailableEndpoint(providers, p.stateRoot, developer, cursor, spent, available)
 	if err != nil {
 		return config.AccountEndpoint{}, err
 	}

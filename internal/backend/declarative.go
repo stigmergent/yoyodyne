@@ -91,6 +91,8 @@ type DialectRule struct {
 	// only on a limit-reached rule.
 	Kind      string `yaml:"kind,omitempty" json:"kind,omitempty"`
 	KindField string `yaml:"kind_field,omitempty" json:"kind_field,omitempty"`
+	// AccountWide identifies a provider window shared across the account's models.
+	AccountWide bool `yaml:"account_wide,omitempty" json:"account_wide,omitempty"`
 	// ResetField and ResetMatch are where the reset time is: a dotted path into
 	// the payload, or a regular expression over the prose with exactly one
 	// capturing group. Only one of them may be given, and only on a
@@ -148,6 +150,7 @@ func (d declarativeDialect) Observe(event ProviderEvent) (Observation, bool) {
 		switch rule.spec.Answer {
 		case AnswerLimitReached:
 			observation.Kind = rule.limitKind(event)
+			observation.AccountWide = rule.spec.AccountWide
 			observation.ResetsAt = rule.resetsAt(event)
 		case AnswerUnavailable, AnswerInterrupted, AnswerModelUnavailable, AnswerUnauthenticated, AnswerUnreachable, AnswerRefused:
 			// The provider's own account of the ending, bounded. The category
@@ -213,7 +216,7 @@ func compileRule(rule DialectRule) (compiledRule, []string) {
 // nothing would ever read, which is worth refusing rather than ignoring.
 func (r DialectRule) limitProblems() []string {
 	var problems []string
-	named := r.Kind != "" || r.KindField != "" || r.ResetField != "" || r.ResetMatch != "" || r.ResetFormat != ""
+	named := r.Kind != "" || r.KindField != "" || r.ResetField != "" || r.ResetMatch != "" || r.ResetFormat != "" || r.AccountWide
 	if named && r.Answer != AnswerLimitReached {
 		return append(problems, fmt.Sprintf("describes a limit but answers %q, and only %q carries a limit's name and reset time",
 			r.Answer, AnswerLimitReached))

@@ -310,7 +310,9 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 	// about the whole product rather than about this exchange. Failing to record
 	// it never replaces the refusal itself in what the round reports: the round is
 	// spent either way, and the exchange says so.
-	refusal := v.noteUsageLimit(question, result, err, served.Model)
+	refusedOn := choice.Endpoint
+	refusedOn.Model = served.Model
+	refusal := v.noteUsageLimit(question, result, err, refusedOn)
 	switch {
 	case err != nil:
 		return spoken, errors.Join(fmt.Errorf("the %s could not be reached: %w", chat.RoleTitle(question.Role), err), refusal)
@@ -330,7 +332,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 // on, for the reason a conversation turn records it: a refusal that names its
 // model can be read back as part of a hold over every role, and one that names
 // none cannot.
-func (v exchangeVoice) noteUsageLimit(question exchange.Question, result backend.RunResult, err error, model string) error {
+func (v exchangeVoice) noteUsageLimit(question exchange.Question, result backend.RunResult, err error, endpoint backend.Endpoint) error {
 	if result.UsageLimit == nil || (err == nil && !result.IsError) || v.usageLimits == nil {
 		return nil
 	}
@@ -340,8 +342,11 @@ func (v exchangeVoice) noteUsageLimit(question exchange.Question, result backend
 		At:            v.now(),
 		Waiting: fmt.Sprintf("the %s answering exchange %s, asked by the %s",
 			chat.RoleTitle(question.Role), question.ExchangeID, chat.RoleTitle(question.Asker)),
-		Kind:  result.UsageLimit.Kind,
-		Model: strings.TrimSpace(model),
+		Kind:         result.UsageLimit.Kind,
+		AccountWide:  result.UsageLimit.AccountWide,
+		Model:        strings.TrimSpace(endpoint.Model),
+		Provider:     endpoint.Provider,
+		AccountAlias: endpoint.AccountAlias,
 	}
 	if !result.UsageLimit.ResetsAt.IsZero() {
 		resetsAt := result.UsageLimit.ResetsAt.UTC()

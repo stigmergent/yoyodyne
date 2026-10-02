@@ -60,7 +60,8 @@ var developerTools = []string{"Bash", "Read", "Edit(/**)", "Write(/**)", "Glob",
 // The session mode a role's invocation runs under, one per posture. Which mode
 // a role gets is settled here and nowhere else: the request carries no mode, so
 // there is no caller who can name one and no path by which a role receives a
-// session somebody else chose for it.
+// session somebody else chose for it. Capacity probes are separate bounded
+// inspections and always use the mode that grants nothing.
 //
 // Neither is "plan", and that is the point of them. Plan mode is the
 // interactive layer's workflow rather than a permission: Claude Code puts its
@@ -362,6 +363,9 @@ func (Backend) Capabilities() backend.Capabilities {
 }
 
 func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
+	if err := request.RestrictCapacityProbe(); err != nil {
+		return backend.RunResult{}, err
+	}
 	if b.Runner == nil {
 		return backend.RunResult{}, errors.New("Claude Code process runner is required")
 	}
@@ -379,6 +383,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 
 	sessionMode := sessionModeFor(request.Role)
+	if request.CapacityProbe {
+		sessionMode = readOnlySessionMode
+	}
 	allowedTools := request.AllowedTools
 	if allowedTools == nil {
 		if readOnlyRole(request.Role) {
@@ -413,7 +420,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		"--permission-mode", sessionMode,
 		"--name", "yoyodyne-" + shortRunID(request.RunID),
 	}
-	if request.Role == domain.RoleDeveloper {
+	if request.Role == domain.RoleDeveloper && !request.CapacityProbe {
 		args = append(args, "--settings", developerSettings)
 	} else {
 		// Repository instruction files are evidence, not harness policy. Safe

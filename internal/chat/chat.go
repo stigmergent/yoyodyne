@@ -1945,7 +1945,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		// per distinct limit rather than one per attempt — and a turn that goes on
 		// to complete drops it, because failing a turn the provider served over a
 		// log write is the report deciding something, which it never does.
-		refusal = errors.Join(refusal, s.noteUsageLimit(result, err, served.Model, refusedOn.AccountAlias))
+		refusal = errors.Join(refusal, s.noteUsageLimit(result, err, served.Model, refusedOn.AccountAlias, refusedOn.Provider))
 		if !s.options.waitsOutUsageLimits() {
 			break
 		}

@@ -46,8 +46,8 @@ func TestAServingReportSupersedesAnExhaustedOne(t *testing.T) {
 	t.Parallel()
 
 	var result RunResult
-	Observation{Answer: AnswerLimitReached, Kind: "five_hour", ResetsAt: contractNow}.Record(&result)
-	if result.UsageLimit == nil || result.UsageLimit.Kind != "five_hour" {
+	Observation{Answer: AnswerLimitReached, Kind: "five_hour", ResetsAt: contractNow, AccountWide: true}.Record(&result)
+	if result.UsageLimit == nil || result.UsageLimit.Kind != "five_hour" || !result.UsageLimit.AccountWide {
 		t.Fatalf("UsageLimit = %#v, want the limit the provider reported", result.UsageLimit)
 	}
 	Observation{Answer: AnswerServed}.Record(&result)
