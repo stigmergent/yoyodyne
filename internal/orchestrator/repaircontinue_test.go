@@ -1395,6 +1395,7 @@ func TestRepairOfAStageTimeoutContinuesItsChecksOnThePreservedChange(t *testing.
 	state := continuableState()
 	state.Status, state.Phase = runstate.StatusTimedOut, runstate.PhaseChecking
 	state.Blocker = ""
+	state.Failure = "check stage reached its 30m0s execution.check_stage_timeout bound during make race"
 	state.ReviewFindingDetails, state.CheckFailure = nil, nil
 	state.ReviewFindings, state.ReviewDecision, state.ReviewSummary = 0, "", ""
 	state.CheckStage = &runstate.CheckStage{StartedAt: state.StartedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true}
