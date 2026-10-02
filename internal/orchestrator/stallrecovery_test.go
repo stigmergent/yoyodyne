@@ -146,7 +146,10 @@ func TestAutomaticStallContinuationRetentionEndsWhenTheObligationEnds(t *testing
 			s := continuableState()
 			s.RepairAttempts = 0
 			s.CheckFailure, s.ReviewFindingDetails = nil, nil
-			s.Environmental = &runstate.EnvironmentalRefusal{Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopStalled}
+			s.Environmental = &runstate.EnvironmentalRefusal{
+				Cause: runstate.CauseProcessVanished, ProviderStop: runstate.ProviderStopStalled,
+				RecordedAt: *s.CompletedAt, Settled: true,
+			}
 			h := newUndecidedHarness(t, s)
 			if !s.HarnessContinuesStall() {
 				t.Fatal("the fixture has no outstanding automatic stall continuation")
