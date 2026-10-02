@@ -45,7 +45,7 @@ func (s *CapacityProbeStore) Next() (map[string]time.Time, error) {
 		return nil, err
 	}
 	var record capacityProbeRecord
-	if _, err := decodeStrict(encoded, &record); err != nil {
+	if err := decodeStrictly(encoded, &record); err != nil {
 		return nil, err
 	}
 	if record.SchemaVersion != 1 || record.ProductID != s.productID {
