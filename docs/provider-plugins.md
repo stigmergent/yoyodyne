@@ -30,9 +30,10 @@ same protocol and reports its limits differently is reachable from configuration
 alone. Something that speaks a different protocol needs an adapter, which is a
 change to yoyo.
 
-A declaration that names no adapter, or one this build does not ship, is refused
-when the configuration loads. There is deliberately no way to declare a provider
-that validates and can never run.
+A custom provider declaration that names no adapter, or one this build does not
+ship, is refused when the configuration loads. Built-in executable overrides are
+the exception: specify only `binary` under `providers.codex` or
+`providers.claude-code`; their compiled adapter and capabilities remain in force.
 
 This document is what a provider plugin is, what it may and may not decide, and
 how one is written.
@@ -308,8 +309,8 @@ the one that instructs.
 
 ## Writing one
 
-Providers go under a top-level `providers:` key in your configuration, keyed by
-the backend identifier your agents will name. See
+Custom providers go under a top-level `providers:` key in your configuration,
+keyed by the backend identifier your agents will name. See
 [the configuration guide](configuration.md) for where that file lives.
 
 ```yaml
@@ -387,6 +388,9 @@ agents:
 ```
 
 ### Provider fields
+
+These fields describe custom providers. Built-in executable overrides accept
+only `binary`, as described in [executable setup and precedence](#executable-setup-and-precedence).
 
 | Field | Meaning |
 |---|---|
