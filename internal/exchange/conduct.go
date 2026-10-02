@@ -81,7 +81,9 @@ type Question struct {
 	Earlier []Round
 	// SessionID is the provider session this exchange has been answered in so
 	// far, empty on the first round.
-	SessionID string
+	SessionID           string
+	SessionBackend      domain.Backend
+	SessionAccountAlias string
 }
 
 // Spoken is what the answering side produced.
@@ -285,6 +287,10 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 	round.ConfigRevision = spoken.ConfigRevision
 	round.Build = spoken.Build
 	recorded.UpdatedAt = answered
+	previousBackend, previousAccount := previousSessionEndpoint(recorded.Rounds[:len(recorded.Rounds)-1])
+	if spoken.Backend != "" && (spoken.Backend != previousBackend || (spoken.AccountAlias != "" && spoken.AccountAlias != previousAccount)) {
+		recorded.AnswererSessionID = ""
+	}
 	if spoken.SessionID != "" {
 		recorded.AnswererSessionID = spoken.SessionID
 	}
@@ -551,16 +557,19 @@ func (c Conductor) speak(ctx context.Context, recorded Exchange, round Round) (S
 	// The rounds before this one are what has already been said; the round being
 	// taken is the question itself and is not part of it.
 	earlier := recorded.Rounds[:len(recorded.Rounds)-1]
+	sessionBackend, sessionAccount := previousSessionEndpoint(earlier)
 	spoken, err := c.Voice.Answer(ctx, Question{
-		ExchangeID: recorded.ID,
-		Role:       recorded.Answerer.Role,
-		Asker:      recorded.Asker.Role,
-		Round:      round.Number,
-		MaxRounds:  recorded.MaxRounds,
-		Question:   round.Question,
-		Context:    round.Context,
-		Earlier:    earlier,
-		SessionID:  recorded.AnswererSessionID,
+		ExchangeID:          recorded.ID,
+		Role:                recorded.Answerer.Role,
+		Asker:               recorded.Asker.Role,
+		Round:               round.Number,
+		MaxRounds:           recorded.MaxRounds,
+		Question:            round.Question,
+		Context:             round.Context,
+		Earlier:             earlier,
+		SessionID:           recorded.AnswererSessionID,
+		SessionBackend:      sessionBackend,
+		SessionAccountAlias: sessionAccount,
 	})
 	if err != nil {
 		return spoken, err
@@ -586,3 +595,14 @@ func singleLine(text string) string {
 }
 
 func money(amount float64) string { return fmt.Sprintf("$%.4f", amount) }
+
+// previousSessionEndpoint identifies the most recent answering invocation. A
+// failed round with no provider identity does not replace the session's owner.
+func previousSessionEndpoint(rounds []Round) (domain.Backend, string) {
+	for i := len(rounds) - 1; i >= 0; i-- {
+		if rounds[i].Backend != "" {
+			return rounds[i].Backend, rounds[i].AccountAlias
+		}
+	}
+	return "", ""
+}

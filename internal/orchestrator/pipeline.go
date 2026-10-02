@@ -1226,7 +1226,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		// occupies is read off the labels the item was pulled with, by the status
 		// as much as by the scheduler, and neither goes back to the tracker for it.
 		WorkItemLabels: append([]string(nil), item.Labels...),
-		Backend:        domain.BackendClaudeCode,
+		Backend:        p.developer().Backend,
 		// Which configuration set this run up is written with the run for the reason
 		// the title is: this is where the answer is in hand, everything that reads
 		// the record afterwards reads only the record, and a configuration is

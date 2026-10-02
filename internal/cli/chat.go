@@ -608,6 +608,9 @@ type preparedChat struct {
 	agent    config.AgentConfig
 	account  config.AccountEndpoint
 	provider chat.Backend
+	// runner builds adapters for other role invocations; nil keeps an
+	// explicitly injected backend.
+	runner   execution.ProcessRunner
 	store    *runstate.ConversationStore
 	memories *runstate.MemoryStore
 	// laneReports is where a program manager's lane report is kept.
@@ -710,11 +713,7 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 	if err != nil {
 		return preparedChat{}, fmt.Errorf("ask whether the %s backend is ready for %s agent %s: %w", agent.Backend, role, name, err)
 	}
-	// The refusals name the backend the agent is configured for rather than one
-	// provider for all of them. The login they hand back is Claude Code's, and
-	// that is not a gap: the three roles a conversation is held with are the
-	// management roles, and Codex serves neither of them, so every agent that
-	// reaches here runs on the Claude Code adapter.
+	// Availability and login remedies name the configured provider and account.
 	if !availability.Installed {
 		return preparedChat{}, errors.New(availability.NotInstalled(agent.Backend))
 	}
@@ -772,6 +771,7 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 		agent:       agent,
 		account:     account,
 		provider:    provider,
+		runner:      processRunner,
 		store:       store,
 		memories:    memories,
 		laneReports: laneReports,
@@ -914,7 +914,7 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// The inter-role ask channel, wired for the roles that are on it. A
 		// question one role cannot answer itself reaches the role that can through
 		// here, rather than through the operator or through a work item.
-		Exchanges:           conversationExchanges(parts, role, provider),
+		Exchanges:           conversationExchanges(parts, role, provider, p.runner),
 		AskRoundsPerMessage: cfg.Exchange.MaxRounds,
 		// The durable budget the development manager's triage decisions spend.
 		// It is wired for that role alone, like the docket those decisions are

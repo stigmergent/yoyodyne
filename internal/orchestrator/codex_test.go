@@ -80,6 +80,9 @@ func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
+	if state.Backend != domain.BackendCodex {
+		t.Fatalf("recorded backend = %q, want configured Codex provider", state.Backend)
+	}
 	if state.ProviderResolvedModel != codexResolvedModel {
 		t.Fatalf("recorded resolved model = %q, want the model the Codex stream named", state.ProviderResolvedModel)
 	}

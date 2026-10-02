@@ -1,6 +1,6 @@
 package cli
 
-// The provider side of a side conversation: one toolless invocation that puts a
+// The provider side of a side conversation: one read-only invocation that puts a
 // question to a role on its own side thread and brings back what it said.
 //
 // It is here rather than in `internal/sidestream` for the reason the exchange's
@@ -40,8 +40,8 @@ import (
 
 // sideTurnTimeout bounds one side turn. It is the exchange round's bound rather
 // than a conversation turn's: a side thread answers a question in prose with
-// nothing to look up, and a turn still running past this is one whoever asked is
-// waiting on for no reason they can see.
+// optional read-only inspection. A turn still running past this leaves the asker
+// waiting for no reason they can see.
 const sideTurnTimeout = 5 * time.Minute
 
 // sideVoice answers a side thread's turns under the agent configured for the
@@ -51,7 +51,8 @@ const sideTurnTimeout = 5 * time.Minute
 // the turn records that there was nobody to ask.
 type sideVoice struct {
 	config     config.Config
-	provider   chat.Backend
+	provider   chat.Backend // injected by tests that do not exercise adapter construction
+	runner     execution.ProcessRunner
 	repository string
 	// usageLimits is where a provider refusing this turn for want of capacity is
 	// written down. A side turn has no run to park and no conversation of its own
@@ -107,10 +108,7 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 		return sidestream.Spoken{}, fmt.Errorf("the %s agent %s is configured for %q conversations, so it holds no side threads; %s has nobody to answer it",
 			question.Role, name, v.config.AgentConversationMode(name), question.StreamID)
 	}
-	if agent.Backend != domain.BackendClaudeCode {
-		return sidestream.Spoken{}, fmt.Errorf("a side thread requires a claude-code agent, and the %s agent %s is configured for %q",
-			question.Role, name, agent.Backend)
-	}
+
 	prompt := execution.NewRedactor(v.redactValues...).Redact(renderSideQuestion(question))
 	// The turn is answered on the endpoint the agent is configured for, under the
 	// account its main conversation is held under: a side thread is that role
@@ -125,13 +123,23 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 	if err != nil {
 		return sidestream.Spoken{}, fmt.Errorf("resolve the endpoint the %s agent %s answers on: %w", question.Role, name, err)
 	}
+	if err := providers.EligibleFor(choice.Endpoint, question.Role); err != nil {
+		return sidestream.Spoken{}, fmt.Errorf("the %s agent %s cannot answer on its configured endpoint: %w", question.Role, name, err)
+	}
 	account := choice.Account
+	if question.SessionID != "" && (question.SessionBackend != choice.Endpoint.Provider || question.SessionAccountAlias != account.Alias) {
+		return sidestream.Spoken{}, fmt.Errorf("side thread %s has a session from another or unknown provider/account; start a new side thread because its prior questions cannot be rebuilt from the durable record", question.StreamID)
+	}
+	answeringProvider := v.provider
+	if v.runner != nil {
+		answeringProvider = providerBackendIn(v.config, choice.Endpoint.Provider, v.runner, account.Directory)
+	}
 	// The turn goes through the meter, so what it spends is one line in the cost
 	// log beside every other provider invocation the harness makes, charged to the
 	// side stream because that is the record it belongs to. The phase is the
 	// conversation's, which is where the design says a side thread is listed.
 	provider := spend.Metered{
-		Provider: v.provider,
+		Provider: answeringProvider,
 		Log:      v.spend,
 		Attribution: spend.Attribution{
 			ProductID:      v.productID,
@@ -161,9 +169,8 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 		Model:            agent.Model,
 		// The agent's effort level, kept by whichever model serves the turn.
 		Effort: strings.TrimSpace(agent.Effort),
-		// No tools at all, exactly as a conversation gets none. Whatever a side
-		// thread may read, it reads through the harness and never through a
-		// filesystem, a shell, or a network of its own.
+		// The adapter enforces the role's read-only access. A side reply
+		// carries advice rather than validation results or authority to act.
 		AllowedTools:     []string{},
 		Timeout:          sideTurnTimeout,
 		LastSequence:     question.LastSequence,
@@ -304,6 +311,7 @@ func (p preparedChat) sideThreads() (sidestream.Runner, error) {
 		Voice: sideVoice{
 			config:       cfg,
 			provider:     p.provider,
+			runner:       p.runner,
 			repository:   p.parts.repository,
 			usageLimits:  p.parts.usageLimits,
 			spend:        p.parts.spend,

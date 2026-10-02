@@ -116,6 +116,9 @@ func TestASideThreadKeptOpenTakesAnotherTurn(t *testing.T) {
 	}
 	// The second turn continued the provider session the first opened rather than
 	// starting a thread the record could not reconstruct.
+	if voice.asked[1].SessionBackend != first.Stream.Backend || voice.asked[1].SessionAccountAlias != first.Stream.AccountAlias {
+		t.Fatalf("session identity not forwarded: %+v", voice.asked[1])
+	}
 	if voice.asked[1].SessionID != "session-1" {
 		t.Fatalf("the second turn was taken in session %q, want the one the first turn opened", voice.asked[1].SessionID)
 	}
