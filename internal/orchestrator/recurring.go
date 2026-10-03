@@ -92,9 +92,11 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // RecurringClaims is the durable cadence: where a firing is claimed before it is
@@ -214,8 +216,10 @@ type Turn struct {
 	// Admitted the work items it admitted, by identifier. With Saved they are
 	// what the pass's record reads to say whether its findings left a trace.
 	// Both are carried whichever way the turn went, for the reason Saved is.
-	ReportsFiled int      `json:"reports_filed,omitempty"`
-	Admitted     []string `json:"admitted,omitempty"`
+	// Wording is what the read model flagged in the turn's text for a person.
+	Wording      []terms.Finding `json:"wording,omitempty"`
+	ReportsFiled int             `json:"reports_filed,omitempty"`
+	Admitted     []string        `json:"admitted,omitempty"`
 }
 
 // ErrRoleUnreachable reports a firing that failed before the role was asked
@@ -309,6 +313,8 @@ type RecurringSweep struct {
 // itself is of the forge, on the development manager's pass, and that reading
 // changes nothing on the forge either.
 type Trigger struct {
+	// Repository is where the render-time language check reads the terms register.
+	Repository string
 	// Tasks is the schedule as this pull read the configuration, keyed by the
 	// name each task is recorded under. It is passed in rather than read here for
 	// the reason every other configured value on a pull is: a cadence changed
@@ -1051,6 +1057,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		if already := savedByUnfinishedPasses(earlier); len(already) > 0 {
 			message += "\n\n" + alreadySavedMessage(already)
 		}
+		message += wordingMessage(earlier)
 		if untraced, found := lastUntracedPass(earlier); found {
 			message += "\n\n" + untracedMessage(untraced)
 		}
@@ -1072,6 +1079,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		}
 		// And so are the reports it filed and the work it admitted, which are
 		// the other two traces a finding can leave.
+		recorded.Wording = terms.MergeFindings(recorded.Wording, answered.Wording)
 		recorded.ReportsFiled += answered.ReportsFiled
 		for _, admitted := range answered.Admitted {
 			if admitted = strings.TrimSpace(admitted); admitted != "" && len(recorded.Admitted) < runstate.MaxSweepSavedWrites {
@@ -1189,6 +1197,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	}
 	recorded.EndedAt = t.now()
 	recorded.Result = merged
+	recorded.Wording = terms.MergeFindings(recorded.Wording, readmodel.ReadTextTerms(t.Repository).Pass(merged))
 	recorded.Failed = failed
 	// Read before the harness adds its own findings below: what is checked is
 	// whether what the role found left a trace, and the forge's notices are the

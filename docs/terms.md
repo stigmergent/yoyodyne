@@ -199,6 +199,16 @@ test names the wording it refuses as often as the wording it wants. The
 dashboard's script is read comments and all, because nothing cheap tells a
 comment from a string in a language the check does not parse.
 
+The same vocabulary is applied to what roles write for a person at render time
+by the read model: lane reports, post-mortems, digests, sweep and pass accounts,
+attention lines, and every message the Slack sink posts. A term without an
+entry or listed as replaced is flagged beside the original text, with the
+register's replacement where it supplies one. A newly replaced row takes effect
+without a code change too. A pass records its findings beside its account and
+the next pass is told what to correct; nothing rewrites the author's record.
+[Reporting](reporting.md#the-words-roles-write-for-a-person) says where the flags
+are shown and what is carried forward.
+
 A term of more than one word is looked for however its parts are spaced —
 `minute zero`, `minute-zero`, `minutezero`, and a `minute` a line wrap left with
 its `zero` on the next line are the same coinage and all four fail. That cuts

@@ -134,7 +134,7 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 	// A report is a role's own words, a program manager's digest among them, so
 	// each is printed with every work item it names beside its title. A tracker
 	// that cannot be listed costs the titles and nothing else.
-	writeReports(stdout, theme, collected, handled, gauge, reportTitles(*configPath))
+	writeReports(stdout, theme, collected, handled, gauge, reportTitles(*configPath), reportTerms(*configPath))
 	// Why the counts are missing is said once, under the listing, rather than
 	// under every report it affects.
 	switch {
@@ -174,12 +174,16 @@ func reportBuilds(configPath string) (report.Builds, error) {
 
 // writeReports prints each report dressed by its severity, with what became of
 // it plainly under it, and every work item either names beside its title.
-func writeReports(out io.Writer, theme console.Theme, collected []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles) {
+func writeReports(out io.Writer, theme console.Theme, collected []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, wording ...*readmodel.TextTerms) {
+	var words *readmodel.TextTerms
+	if len(wording) > 0 {
+		words = wording[0]
+	}
 	for _, reported := range collected {
-		text := titles.Cite(reported.RenderAgainst(gauge))
+		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), text))
 		if handling, done := handled[reported.ID]; done {
-			fmt.Fprint(out, titles.CiteAfter(text, handling.Render()))
+			fmt.Fprint(out, words.Render(titles.CiteAfter(text, handling.Render())))
 		}
 	}
 }
@@ -198,6 +202,18 @@ func reportTitles(configPath string) *readmodel.WorkItemTitles {
 	tracker := beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}
 	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: tracker, TrackerTimeout: chatTrackerTimeout})
 	return titles
+}
+
+func reportTerms(configPath string) *readmodel.TextTerms {
+	resolved, err := loadConfiguration(configPath)
+	if err != nil {
+		return nil
+	}
+	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
+	if err != nil {
+		return nil
+	}
+	return readmodel.ReadTextTerms(repository)
 }
 
 // reportStore resolves the same product-scoped pile every run appends to and

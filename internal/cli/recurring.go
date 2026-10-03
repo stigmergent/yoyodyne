@@ -56,9 +56,10 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Tasks: parts.config.RecurringTasks,
 		// Where a firing is claimed and paced, so one task fires once per cadence
 		// however many sessions are polling.
-		Claims:  parts.store.Sweeps(),
-		Reports: parts.store.Sweeps(),
-		Roles:   roleConversation{configPath: configPath, stderr: stderr},
+		Claims:     parts.store.Sweeps(),
+		Reports:    parts.store.Sweeps(),
+		Roles:      roleConversation{configPath: configPath, stderr: stderr},
+		Repository: parts.repository,
 		// The same pause every run, turn, and delivery reads. A firing is a
 		// provider invocation, so `yoyo pause` covers it exactly as it covers them.
 		Holds: parts.holds,
@@ -304,6 +305,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		// And the reports it filed and the work it admitted, the other two
 		// traces a finding can leave: a pass that reports findings and leaves
 		// none of the four is recorded as untraced.
+		Wording:      reply.Wording,
 		ReportsFiled: len(reply.Reports),
 		Admitted:     reply.AdmittedWork(),
 	}
@@ -511,7 +513,7 @@ func readSweeps(args []string, stdout, stderr io.Writer) int {
 	// number alone is read here with each item's title beside it. A tracker
 	// that cannot be listed costs the titles and nothing else.
 	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: parts.tracker(), TrackerTimeout: trackerCommandTimeout})
-	fmt.Fprint(stdout, renderSweeps(recorded, unreadable, *limit, titles))
+	fmt.Fprint(stdout, renderSweeps(recorded, unreadable, *limit, titles, readmodel.ReadTextTerms(parts.repository)))
 	if partial != nil {
 		// Said after the listing rather than before it, and on stderr, so what a
 		// reader is looking at stays on stdout whole: the sweeps above are real
@@ -541,7 +543,11 @@ func reportSweepFailure(stdout, stderr io.Writer, jsonOutput bool, err error) in
 // pile says so and says how to see the rest — the bound is what fits a terminal
 // rather than what the log holds, and a reader who cannot tell the difference is
 // a reader who thinks the schedule started yesterday.
-func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSweep, limit int, titles *readmodel.WorkItemTitles) string {
+func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSweep, limit int, titles *readmodel.WorkItemTitles, wording ...*readmodel.TextTerms) string {
+	var words *readmodel.TextTerms
+	if len(wording) > 0 {
+		words = wording[0]
+	}
 	var rendered strings.Builder
 	// Said first, and said whether or not there is anything else to show: a log
 	// that has lost a record is the thing a reader most needs to know before they
@@ -565,7 +571,7 @@ func renderSweeps(recorded []runstate.Sweep, unreadable []runstate.UnreadableSwe
 	for index := len(shown) - 1; index >= 0; index-- {
 		// Each pass is cited on its own, so an item two passes both name is
 		// titled in each of them rather than only in the newer.
-		rendered.WriteString(titles.Cite(renderSweep(shown[index])))
+		rendered.WriteString(words.Render(titles.Cite(renderSweep(shown[index]))))
 		if index > 0 {
 			rendered.WriteString("\n")
 		}

@@ -441,6 +441,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 	// standing that could differ, which is the disagreement only the operator
 	// could adjudicate. Every store here is one this sink already holds.
 	standing := &readmodel.Sources{
+		Repository:    repository,
 		Runs:          runs,
 		Stoppages:     runs,
 		Decisions:     runs.Triage(),

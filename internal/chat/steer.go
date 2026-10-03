@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 )
 
 // commandHelp is what the conversation understands besides talking. It is
@@ -279,7 +280,7 @@ func (s *Session) command(ctx context.Context, line string, out io.Writer) (bool
 		if err != nil {
 			fmt.Fprintf(out, "none of these is shown as handled: %v\n", err)
 		}
-		fmt.Fprint(out, renderCollectedReports(s.theme, reports, handled, s.buildGauge(), s.workItemTitles(), s.options.clock().Now()))
+		fmt.Fprint(out, renderCollectedReports(s.theme, reports, handled, s.buildGauge(), s.workItemTitles(), s.options.clock().Now(), readmodel.ReadTextTerms(s.options.Repository)))
 		fmt.Fprintln(out)
 		return false, nil
 	case "/work":

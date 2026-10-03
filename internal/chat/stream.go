@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/console"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -63,6 +64,10 @@ type replyStream struct {
 	mu    sync.Mutex
 	out   io.Writer
 	theme console.Theme
+	words *readmodel.TextTerms
+	// observed keeps line wraps and code fences for the check at the reply's
+	// ending. The stream's line-by-line dressing cannot recognize a wrapped term.
+	observed strings.Builder
 	// pending is text received without the newline that ends it. A part line is
 	// held rather than shown, so the dressing sees whole lines and the console
 	// never has to keep half of one above the operator's own.
@@ -90,11 +95,15 @@ type replyStream struct {
 // nothing where it may not be dressed at all. A nil stream is the ordinary case
 // rather than an error: every method below tolerates one, and the conversation
 // then writes the reply when it is finished, which is what it has always done.
-func newReplyStream(out io.Writer, theme console.Theme) *replyStream {
+func newReplyStream(out io.Writer, theme console.Theme, wording ...*readmodel.TextTerms) *replyStream {
 	if !theme.Permitted() {
 		return nil
 	}
-	return &replyStream{out: out, theme: theme}
+	var words *readmodel.TextTerms
+	if len(wording) > 0 {
+		words = wording[0]
+	}
+	return &replyStream{out: out, theme: theme, words: words}
 }
 
 // write shows one message from the product manager as it arrives.
@@ -134,6 +143,7 @@ func (r *replyStream) endMessage() {
 	}
 	r.flush()
 	if r.shown {
+		r.warnWording()
 		r.held = 1
 	}
 }
@@ -153,6 +163,7 @@ func (r *replyStream) end() bool {
 	r.flush()
 	r.ended = true
 	if r.shown {
+		r.warnWording()
 		// The blank line after the answer is the one the finished reply is
 		// written with, so what separates an answer from the next prompt is the
 		// same either way.
@@ -182,6 +193,7 @@ func (r *replyStream) cutOff() {
 		// and the failure is reported by the conversation like any other.
 		return
 	}
+	r.warnWording()
 	fmt.Fprintln(r.out, replyCutOff)
 	fmt.Fprintln(r.out)
 }
@@ -206,10 +218,12 @@ func (r *replyStream) interrupted() {
 	r.quoted = false
 	r.held = 0
 	if !r.shown {
+		r.observed.Reset()
 		// Nothing reached the screen, so there is no half answer to close off and
 		// the reissued attempt simply writes the first one there is.
 		return
 	}
+	r.warnWording()
 	fmt.Fprintln(r.out, replyInterrupted)
 	fmt.Fprintln(r.out)
 	// The next attempt opens its answer as the first one did. What the operator
@@ -232,6 +246,8 @@ func (r *replyStream) flush() {
 // show writes one finished line of the reply, or nothing where the line belongs
 // to a block the harness reads rather than the operator.
 func (r *replyStream) show(line string) {
+	r.observed.WriteString(line)
+	r.observed.WriteByte('\n')
 	if r.fenced {
 		if closesFence(line) {
 			r.fenced = false
@@ -260,6 +276,16 @@ func (r *replyStream) show(line string) {
 	// on the screen, with every escape inserted between characters that were
 	// already there.
 	fmt.Fprintln(r.out, r.dress(line))
+}
+
+func (r *replyStream) warnWording() {
+	if r.observed.Len() == 0 {
+		return
+	}
+	if warnings := r.words.Warnings(r.observed.String()); len(warnings) > 0 {
+		fmt.Fprintln(r.out, strings.Join(warnings, " "))
+	}
+	r.observed.Reset()
 }
 
 // dress is one line of the reply as it is shown. A code fence and everything

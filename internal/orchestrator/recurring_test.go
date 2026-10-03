@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 var recurringNow = time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)
@@ -49,6 +50,7 @@ type scriptedTurn struct {
 	saved    []runstate.SavedWrite
 	reports  int
 	admitted []string
+	wording  []terms.Finding
 }
 
 func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string) (Turn, error) {
@@ -66,7 +68,7 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 	r.answers = r.answers[1:]
 	return Turn{
 		ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem,
-		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted,
+		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted, Wording: answer.wording,
 	}, answer.err
 }
 

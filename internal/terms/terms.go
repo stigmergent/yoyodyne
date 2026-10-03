@@ -262,6 +262,10 @@ func Register(root string) ([]Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", RegisterPath, err)
 	}
+	return entriesIn(content), nil
+}
+
+func entriesIn(content string) []Entry {
 	var entries []Entry
 	for _, row := range tableUnder(content, RegisterHeading) {
 		entries = append(entries, Entry{
@@ -271,7 +275,7 @@ func Register(root string) ([]Entry, error) {
 			Line:       row.line,
 		})
 	}
-	return entries, nil
+	return entries
 }
 
 // Replaced reads the terms the register lists as replaced rather than
@@ -283,6 +287,10 @@ func Replaced(root string) ([]Replacement, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", RegisterPath, err)
 	}
+	return replacementsIn(content), nil
+}
+
+func replacementsIn(content string) []Replacement {
 	var replacements []Replacement
 	for _, row := range tableUnder(content, ReplacedHeading) {
 		replacement := Replacement{
@@ -295,7 +303,7 @@ func Replaced(root string) ([]Replacement, error) {
 		}
 		replacements = append(replacements, replacement)
 	}
-	return replacements, nil
+	return replacements
 }
 
 // codeSpan is one `path` in a table cell.

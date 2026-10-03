@@ -956,7 +956,9 @@ type Reply struct {
 	// changes nothing about the turn that carried it, exactly as it changes
 	// nothing about a run. ReportProblem names one that could not be read or
 	// could not be kept, because a lost report would otherwise be silence.
-	Reports       []report.Report `json:"reports,omitempty"`
+	Reports []report.Report `json:"reports,omitempty"`
+	// Wording is the read model's language findings for this turn, carried to its pass.
+	Wording       []terms.Finding `json:"wording,omitempty"`
 	ReportProblem string          `json:"report_problem,omitempty"`
 	// SpendProblem names what went wrong recording this answer's cost in the
 	// durable cost log. The turn is not failed over it: the provider has already
@@ -1395,10 +1397,12 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		reply.Evidence = s.Evidence()
 		if err != nil {
 			reply.Text = appendProse(reply.Text, answer)
+			reply.Wording = terms.MergeFindings(reply.Wording, s.replyWording(parsedReply{Prose: answer}))
 			return reply, err
 		}
 		parsed, err := splitReply(s.state.Role, answer)
 		reply.Text = appendProse(reply.Text, parsed.Prose)
+		reply.Wording = terms.MergeFindings(reply.Wording, s.replyWording(parsed))
 		// What was reported is collected before anything else is decided about
 		// the turn, and a report that could not be read is noted rather than
 		// returned: the rest of the answer is unaffected by either.
@@ -2888,7 +2892,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 			// changes: the dressing is inserted between characters that were
 			// already there. An answer that was read as it was written is not
 			// written a second time.
-			fmt.Fprintf(out, "\nproduct-manager> %s\n\n", s.theme.Reply(reply.Text))
+			fmt.Fprintf(out, "\nproduct-manager> %s\n\n", s.theme.Reply(s.RenderReply(reply.Text)))
 		}
 		// What the product manager did to the tracker is reported whether or not
 		// the turn ended well: the changes are already made, and an operator who
@@ -3068,7 +3072,7 @@ func (s *Session) speak(ctx context.Context, screen console.Console, message str
 	// the account of work in progress goes back to describing what the harness
 	// is doing between the rounds of it. Anywhere else the stream is nothing at
 	// all and the reply is written when it is finished.
-	stream := newReplyStream(screen, s.theme)
+	stream := s.replyStream(screen)
 	s.stream = stream
 	s.shownReply = false
 	defer func() {

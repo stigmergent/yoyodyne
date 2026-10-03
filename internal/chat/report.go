@@ -511,7 +511,11 @@ func reportedOn(subject report.Report) string {
 // A report is a role's own words, a program manager's digest among them, so
 // each is read with every work item it names beside its title: an item the
 // report named by number alone reaches the operator named.
-func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, now time.Time) string {
+func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, now time.Time, wording ...*readmodel.TextTerms) string {
+	var words *readmodel.TextTerms
+	if len(wording) > 0 {
+		words = wording[0]
+	}
 	if len(reports) == 0 {
 		return "reports: nothing has been reported.\n"
 	}
@@ -537,10 +541,10 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 		fmt.Fprintf(&rendered, "  %d earlier report(s) are not listed here.\n", len(reports)-len(listed))
 	}
 	for _, reported := range listed {
-		text := titles.Cite(reported.RenderAgainst(gauge))
+		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		rendered.WriteString(theme.Severity(console.Severity(reported.Severity), text))
 		if handling, done := handled[reported.ID]; done {
-			rendered.WriteString(titles.CiteAfter(text, handling.Render()))
+			rendered.WriteString(words.Render(titles.CiteAfter(text, handling.Render())))
 		}
 	}
 	if problem := gauge.Problem(); problem != "" {

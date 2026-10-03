@@ -339,7 +339,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	if err != nil {
 		// The answer travels with the failure. A turn that produced one is worth
 		// reading even when what it proposed could not be read.
-		return reportChatFailure(stdout, stderr, jsonOutput, role, &reply, err)
+		return reportChatFailure(stdout, stderr, jsonOutput, role, &reply, err, session.RenderReply)
 	}
 	if jsonOutput {
 		evidence := reply.Evidence
@@ -375,7 +375,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			ReportProblem:      reply.ReportProblem,
 		})
 	}
-	fmt.Fprintln(stdout, reply.Text)
+	fmt.Fprintln(stdout, session.RenderReply(reply.Text))
 	// A one-shot message has no console to ask, so what it may be dressed with is
 	// asked of the stream it is writing to. A redirected one is undressed, which
 	// is the same answer an interactive conversation over the same stream gives.
@@ -1265,7 +1265,11 @@ func chatTracker(runner execution.ProcessRunner, repository string) beads.Client
 
 // reportChatFailure reports a failed conversation, carrying whatever the turn
 // still produced. A reply is nil when the conversation never opened.
-func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.AgentRole, reply *chat.Reply, err error) int {
+func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.AgentRole, reply *chat.Reply, err error, wording ...func(string) string) int {
+	render := func(text string) string { return text }
+	if len(wording) > 0 {
+		render = wording[0]
+	}
 	output := chatOutput{Error: err.Error()}
 	if reply != nil {
 		evidence := reply.Evidence
@@ -1312,7 +1316,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		return 1
 	}
 	if output.Reply != "" {
-		fmt.Fprintln(stdout, output.Reply)
+		fmt.Fprintln(stdout, render(output.Reply))
 	}
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, output.HandedBack)

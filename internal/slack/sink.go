@@ -888,6 +888,9 @@ func (s *Sink) post(ctx context.Context, message Message) (string, error) {
 		return "", err
 	}
 	message.Text = s.citing.cite(ctx, message.Text)
+	if s.sources != nil {
+		message.Text = readmodel.ReadTextTerms(s.sources.Repository).Render(message.Text)
+	}
 	return s.api.Post(ctx, message)
 }
 
