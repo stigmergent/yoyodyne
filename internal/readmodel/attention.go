@@ -462,18 +462,19 @@ type Attention struct {
 	// assembled the entry, so the line a person reads names every item beside
 	// its title. It is not a field of the record: What and Whose are derived
 	// from the fields alone, and the titled sentences are carried beside them.
-	titles *WorkItemTitles
+	titles  *WorkItemTitles
+	wording *TextTerms
 }
 
 // CitedWhat is What with every work item it names shown beside its title.
 func (a Attention) CitedWhat() string {
-	return a.titles.Cite(a.What())
+	return a.wording.Render(a.titles.Cite(a.What()))
 }
 
 // CitedWhose is Whose with every work item it names shown beside its title,
 // read after What, so an item the line has already titled is not titled twice.
 func (a Attention) CitedWhose() string {
-	return a.titles.CiteAfter(a.CitedWhat(), a.Whose())
+	return a.wording.Render(a.titles.CiteAfter(a.CitedWhat(), a.Whose()))
 }
 
 // Named reports an entry the attention line prints by name wherever it falls

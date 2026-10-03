@@ -475,6 +475,41 @@ surface is titled: a program manager's blockers in `yoyo status --json` and the
 lane report the dashboard's card reads, and the attention entries, which carry
 the titled sentences beside the derived ones as `said_what` and `said_whose`.
 
+## The words roles write for a person
+
+What a role writes for a person is held to [the terms register](terms.md),
+just as the documents and the strings in the code are. The read model checks
+a program manager's lane report and post-mortem, a digest, a sweep or pass
+account, and the words on the attention line as they are shown. Every message
+the Slack sink posts passes through the same check, including replies and
+direct messages. A word the register permits is left alone; a known coined
+word with no entry, or one listed as replaced, is flagged beside the text:
+
+```text
+The provider's posture changed. [wording: "posture" was replaced; write tool access, meaning the tools a role may use]
+```
+
+The flag names the word and the wording to write instead, using the register's
+replacement where it gives one. It stays readable without colour or emphasis.
+The author’s text stays as written: the check adds the flag at render time,
+and changes no lane report, collected report, or pass account. The raw accounts
+in `yoyo reports --json` and `yoyo sweeps --json` remain the author’s words.
+
+A recurring pass records its language findings beside its account, under
+`wording`, including those from the lane reports and digests its turns wrote.
+The next pass of that task that takes a turn is told which words to correct.
+A firing that takes no turn does not consume that reminder, and a language
+finding stops no work and asks no person to approve anything.
+
+The register is read from the product's repository when text is rendered, so
+changing a row takes effect on the next reading without rebuilding the harness.
+A project with no `docs/terms.md` has no register to apply; a register that exists
+but cannot be read is named beside the text as a check that could not be made.
+The vocabulary and spelling rules are the document check's: fenced code is
+left alone, and words broken by a line wrap or joined by a hyphen are read the
+same way. The check catches known words; a word coined this morning still needs
+a reviewer to notice it.
+
 ## What agents report, and where it reaches you
 
 An agent used to be able to reach you only by failing. A spent repair budget

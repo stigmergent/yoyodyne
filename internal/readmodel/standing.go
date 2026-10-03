@@ -216,6 +216,8 @@ type Gates interface {
 // that this derivation can be exercised without a state directory, which is the
 // only way a format nobody may break gets a fixture that holds it.
 type Sources struct {
+	// Repository is where the current terms register is read at render time.
+	Repository    string
 	Runs          Runs
 	Conversations Conversations
 	Tracker       Tracker
@@ -675,7 +677,8 @@ type Standing struct {
 	// rendered lines put beside each number they carry. It is nil where the
 	// tracker could not be listed, and the lines then carry the numbers as the
 	// records wrote them rather than calling every one unknown.
-	Titles *WorkItemTitles `json:"-"`
+	Titles  *WorkItemTitles `json:"-"`
+	wording *TextTerms
 }
 
 // maxUndecidedReportAge is how long the oldest report nobody has decided about
@@ -936,8 +939,10 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// tracker that cannot be listed costs the titles and nothing else: the lines
 	// above are all still true without them.
 	standing.Titles, _ = ReadWorkItemTitles(ctx, sources)
+	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
 		standing.NeedsHuman[index].titles = standing.Titles
+		standing.NeedsHuman[index].wording = standing.wording
 	}
 	for index := range standing.ProgramManagers {
 		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)

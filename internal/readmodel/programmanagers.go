@@ -223,13 +223,14 @@ func ReadProgramManagers(sources Sources) ([]ProgramManager, string) {
 	}
 	sort.Strings(agents)
 	now := sources.now()
+	wording := ReadTextTerms(sources.Repository)
 	derived := make([]ProgramManager, 0, len(agents))
 	for _, agent := range agents {
 		instance, problem := deriveProgramManager(sources, instances[agent], records, passes, now)
 		if problem != "" {
 			problems = append(problems, problem)
 		}
-		derived = append(derived, instance)
+		derived = append(derived, wordingProgramManager(instance, wording))
 	}
 	return derived, strings.Join(problems, "; ")
 }
@@ -322,12 +323,13 @@ func ReadProgramManagerReport(sources Sources, agent string) (ProgramManagerRepo
 		// the surface a person reads it on.
 		titles, _ := ReadWorkItemTitles(context.Background(), sources)
 		answer.Instance = citeProgramManager(answer.Instance, titles)
+		wording := ReadTextTerms(sources.Repository)
 		remaining := make([]string, 0, len(current.Report.Remaining))
 		for _, entry := range current.Report.Remaining {
-			remaining = append(remaining, titles.Cite(entry))
+			remaining = append(remaining, wording.Render(titles.Cite(entry)))
 		}
 		answer.Report = &LaneReportText{
-			Summary:        titles.Cite(current.Report.Summary),
+			Summary:        wording.Render(titles.Cite(current.Report.Summary)),
 			Remaining:      remaining,
 			Version:        current.Version,
 			Pass:           current.Stamp.Pass,

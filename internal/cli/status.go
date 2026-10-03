@@ -675,6 +675,7 @@ func standingSources(configPath string) readmodel.Sources {
 		sources.Tracker = unreadableTracker{fmt.Errorf("resolve product repository: %w", err)}
 		return sources
 	}
+	sources.Repository = repository
 	sources.Tracker = withListingRecord(beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}, listings)
 	return sources
 }

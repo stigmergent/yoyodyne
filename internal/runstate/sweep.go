@@ -46,6 +46,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // SweepSchemaVersion is 1 and has never changed. It is versioned independently
@@ -371,6 +372,9 @@ type Sweep struct {
 	// one to move. It is absent on every other pass, and on every record written
 	// before it existed.
 	Untraced bool `json:"untraced,omitempty"`
+	// Wording is the read model's findings about what this pass wrote for a person.
+	// The next pass is told these corrections; Result and the lane report stay intact.
+	Wording []terms.Finding `json:"wording,omitempty"`
 	// Steps is what the harness's own maintenance pass did, one entry per step in
 	// the order it took them, each saying whether it ran, was skipped, or failed,
 	// and why. A step that was skipped says so rather than being left out,
