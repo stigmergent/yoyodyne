@@ -306,6 +306,11 @@ func options(reason readmodel.Reason) []string {
 			"leave it; the session is reading the store again on its own",
 			"the store needs a person; hold intake until somebody has looked at it",
 		}
+	case readmodel.ReasonSessionBlocked:
+		return []string{
+			"leave it; the watch retries starts at each poll when the reported condition clears",
+			"hold intake while the reported start failure is investigated",
+		}
 	case readmodel.ReasonSessionIdle:
 		return []string{
 			"what is ready is blocked on something; look at the queue before anything else is admitted",

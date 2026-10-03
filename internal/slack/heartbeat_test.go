@@ -1433,6 +1433,10 @@ func TestABlockedLineSaysWhatIsStoppingItAndWhatEndsIt(t *testing.T) {
 
 	cursors := harness.poll(t, harness.start(), notify.KindWatchBlocked)
 	harness.now = stalled.Add(9 * time.Hour)
+	batch := harness.batch(t, cursors)
+	if batch.Asking == nil || batch.Asking.Stopped != stopped || len(batch.Asking.Options) < 2 {
+		t.Fatalf("asking = %+v, want the recorded refusal with answers to offer", batch.Asking)
+	}
 	said := harness.say(t, cursors, notify.KindLineWaiting)
 	for _, fact := range []string{stopped, "9 hours", "5 items"} {
 		if !strings.Contains(said.Body, fact) {

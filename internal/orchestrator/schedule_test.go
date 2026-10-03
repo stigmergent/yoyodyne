@@ -6664,10 +6664,11 @@ func TestWatchingNamesADirtyPrimaryCheckoutRatherThanIdlingOverIt(t *testing.T) 
 	}
 	// Blocked while it stood rather than idle, said once across the three polls it
 	// stood for, and idle only afterwards — over a queue that really was empty by
-	// then, which is the one time that word is true.
+	// then, which is the one time that word is true. The first item resumes
+	// selection; the second records the next fill of the single developer slot.
 	want := []runstate.WatchState{
 		runstate.WatchWatching, runstate.WatchBlocked, runstate.WatchResumed,
-		runstate.WatchIdle, runstate.WatchStopped,
+		runstate.WatchWatching, runstate.WatchIdle, runstate.WatchStopped,
 	}
 	if got := sessions.states(); !sameStates(got, want) {
 		t.Fatalf("recorded states = %v, want %v", got, want)
