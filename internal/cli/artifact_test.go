@@ -680,8 +680,9 @@ func TestRulesRecordingExistingIntentAreListedAndShownWithoutOperatorApproval(t 
 				}
 			}
 			if intent == artifact.IntentConsistent {
+				body := "## Rules\n\n- Notes may be replaced."
 				if _, err := store.Amend(domain.RoleProductManager, "operating-rules", artifact.Amendment{
-					Intent: artifact.IntentFundamental, Reason: "yoyodyne-ifd.433.19 - new intent",
+					Body: &body, Intent: artifact.IntentFundamental, Reason: "yoyodyne-ifd.433.19 - new intent",
 				}, time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)); err != nil {
 					t.Fatal(err)
 				}

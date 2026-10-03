@@ -244,9 +244,15 @@ func TestRulesRecordingExistingIntentStartApprovedUnderTheirCreationReason(t *te
 				return
 			}
 			// Delegation does not erase a later change of fundamental intent.
+			bodies := []string{
+				"## Rules\n\n- Work item notes are append-only.",
+				"## Rules\n\n- Work item notes may be replaced.",
+				"## Rules\n\n- The notes of a work item may be replaced.",
+			}
 			for index, intent := range []Intent{IntentConsistent, IntentFundamental, IntentConsistent} {
+				body := bodies[index]
 				amended, err := store.Amend(domain.RoleProductManager, created.ID, Amendment{
-					Intent: intent, Reason: "yoyodyne-ifd.433.19 - rules revised",
+					Body: &body, Intent: intent, Reason: "yoyodyne-ifd.433.19 - rules revised",
 				}, moment().Add(time.Duration(index+1)*time.Hour))
 				if err != nil {
 					t.Fatal(err)
