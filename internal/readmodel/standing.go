@@ -473,6 +473,7 @@ type Refused struct {
 	WorkItemID string `json:"work_item_id"`
 	Title      string `json:"title,omitempty"`
 	Reason     string `json:"reason"`
+	SaidReason string `json:"said_reason,omitempty"`
 	// Kind is which pile the refusal puts the item in, from the queue's own
 	// closed vocabulary. It is carried for the surface that shows where admitted
 	// work accumulates, so that surface counts the piles from the reading that
@@ -968,8 +969,9 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	for _, run := range standing.CapacityBlocked.Runs {
 		name(run.WorkItemID)
 	}
-	for _, item := range standing.NotStartable {
+	for index, item := range standing.NotStartable {
 		name(item.WorkItemID)
+		standing.NotStartable[index].SaidReason = standing.Titles.Cite(item.Reason)
 	}
 	for _, item := range standing.AdmittedItems {
 		name(item.WorkItemID)

@@ -125,6 +125,7 @@ type ProgramManagerClaim struct {
 	What      string `json:"what"`
 	WaitingOn Mover  `json:"waiting_on"`
 	Cites     string `json:"cites"`
+	SaidCites string `json:"said_cites,omitempty"`
 	Reason    string `json:"reason"`
 }
 
@@ -354,9 +355,20 @@ func citeProgramManager(instance ProgramManager, titles *WorkItemTitles) Program
 	claims := make([]ProgramManagerClaim, 0, len(instance.Claims))
 	for _, claim := range instance.Claims {
 		claim.What = titles.Cite(claim.What)
+		claim.Reason = titles.Cite(claim.Reason)
+		claim.SaidCites = ""
+		if said := titles.Cite(claim.Cites); said != claim.Cites {
+			claim.SaidCites = said
+		}
 		claims = append(claims, claim)
 	}
 	instance.Blockers, instance.Claims = blockers, claims
+	requests := make([]runstate.RestartRequest, len(instance.RestartRequests))
+	copy(requests, instance.RestartRequests)
+	for index := range requests {
+		requests[index].Reason = titles.Cite(requests[index].Reason)
+	}
+	instance.RestartRequests = requests
 	return instance
 }
 

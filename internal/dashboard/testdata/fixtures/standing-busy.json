@@ -324,6 +324,7 @@
         "phase": "cleaning_up"
       },
       "what": "cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished",
+      "said_what": "cleanup of the branch and worktree for (P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222) is not finished",
       "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it",
       "label": "run not finished"
     },
@@ -370,6 +371,7 @@
       "work_item_id": "yoyodyne-ifd.188",
       "executor": "conversation:product-manager",
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",
+      "said_what": "(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188) is admitted for \"conversation:product-manager\" rather than a developer run",
       "whose": "the Lead Product Manager's — in conversation; no run will ever be started for it",
       "label": "work in conversation"
     }

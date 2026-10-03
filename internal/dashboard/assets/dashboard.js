@@ -1264,9 +1264,14 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   // Names are rendered by the read model from the current tracker reading.
+  function citedText(record, text) {
+    var said = record.said_text || {};
+    return Object.prototype.hasOwnProperty.call(said, text) ? said[text] : text;
+  }
+
   function workItemName(id, citation) {
     var names = model.standing && model.standing.work_item_names || {};
-    return names[id] || (citation && /^(\(P[0-4][,)]|title unavailable \()/.test(citation) ? citation : "title unavailable (" + id + ")");
+    return Object.prototype.hasOwnProperty.call(names, id) ? names[id] : (citation && /^(\(P[0-4][,)]|title unavailable \()/.test(citation) ? citation : "title unavailable (" + id + ")");
   }
 
   function itemOpener(id, text, className) {
@@ -1371,7 +1376,7 @@ var standingWarningAgeSeconds = 5 * 60;
       );
     }
     var refused = standing.not_startable_problem ? [] : standing.not_startable;
-    var withReason = function (item) { return { id: item.work_item_id, title: item.title, detail: heldSince(item, standing) + item.reason }; };
+    var withReason = function (item) { return { id: item.work_item_id, title: item.title, detail: heldSince(item, standing) + (item.said_reason || item.reason) }; };
     switch (kind) {
       case "admitted":
         return listing("Admitted", "every admitted item, in the Lead Product Manager's order", standing.not_startable_problem, whatToDoAboutTheQueue(), "No work item is admitted.",
@@ -1576,7 +1581,7 @@ var standingWarningAgeSeconds = 5 * 60;
       facts.push(run.unknown_cost ? "cost unknown (" + run.unknown_cost + ")" : "cost " + money(run.cost_usd || 0));
     }
     if (run.reason) {
-      facts.push("reason: " + run.reason);
+      facts.push("reason: " + citedText(item, run.reason));
     }
     if (run.branch) {
       facts.push("branch: " + run.branch);
@@ -1599,16 +1604,16 @@ var standingWarningAgeSeconds = 5 * 60;
     document.getElementById("card-note").textContent = "read " + clock(item.observed_at);
     var fields = document.getElementById("card-fields");
     clear(fields);
-    fields.appendChild(field("Id", item.id, "card-field-id"));
-    fields.appendChild(field("Title", item.title));
+    fields.appendChild(field("Id", item.citation || workItemName(item.id), "card-field-id"));
+    fields.appendChild(field("Title", citedText(item, item.title)));
     fields.appendChild(field("Status", item.status));
     fields.appendChild(field("Priority", item.priority === undefined || item.priority === null ? "" : "P" + item.priority + " (0 is the most urgent, 4 the least)"));
     fields.appendChild(field("Labels", (item.labels || []).join(", ")));
-    fields.appendChild(field("Parent", item.parent, "card-field-id"));
-    fields.appendChild(field("Description", item.description, "card-field-prose"));
-    fields.appendChild(field("Design", item.design, "card-field-prose"));
-    fields.appendChild(field("Acceptance criteria", item.acceptance_criteria, "card-field-prose"));
-    fields.appendChild(field("Notes", item.notes, "card-field-prose"));
+    fields.appendChild(field("Parent", citedText(item, item.parent), "card-field-id"));
+    fields.appendChild(field("Description", citedText(item, item.description), "card-field-prose"));
+    fields.appendChild(field("Design", citedText(item, item.design), "card-field-prose"));
+    fields.appendChild(field("Acceptance criteria", citedText(item, item.acceptance_criteria), "card-field-prose"));
+    fields.appendChild(field("Notes", citedText(item, item.notes), "card-field-prose"));
     fields.appendChild(runField(item));
     section("card", "ready");
   }
@@ -1677,7 +1682,7 @@ var standingWarningAgeSeconds = 5 * 60;
   function entryFields(entry) {
     var fields = document.getElementById("card-fields");
     clear(fields);
-    var add = function (label, value, className) { fields.appendChild(field(label, value, className)); };
+    var add = function (label, value, className) { fields.appendChild(field(label, citedText(entry, value), className)); };
     var addItem = function (label, id) {
       var row = el("div", "card-field card-field-id");
       row.appendChild(el("dt", null, label));
@@ -1738,7 +1743,7 @@ var standingWarningAgeSeconds = 5 * 60;
         var request = publication.pull_request;
         add("Pull request", request ? "#" + request.number + " " + request.url + (request.state ? " (" + request.state + ")" : "") + (request.merge_queued ? ", merge queued" : "") : "none recorded");
         if (publication.merge_drop) {
-          add("Merge dropped", dayAndClock(publication.merge_drop.at) + ": " + publication.merge_drop.reason, "card-field-prose");
+          add("Merge dropped", dayAndClock(publication.merge_drop.at) + ": " + citedText(entry, publication.merge_drop.reason), "card-field-prose");
         }
         break;
       case "degraded-service":
@@ -1932,7 +1937,7 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     var entry = found[0];
     heading.textContent = entry.label;
-    note.textContent = (entry.id || entry.work_item_id || entry.label) + " · read " + clock(standing.observed_at);
+    note.textContent = (entry.kind === "conversation-carried-item" ? workItemName(entry.work_item_id || entry.id) : citedText(entry, entry.id || entry.work_item_id || entry.label)) + " · read " + clock(standing.observed_at);
     entryFields(entry);
     section("card", "ready");
   }
@@ -2024,7 +2029,7 @@ var standingWarningAgeSeconds = 5 * 60;
       return blocker.what + " — " + moverLabel(blocker.waiting_on) + " move; cites " + blocker.cites + ", " + (citedRecords[blocker.record] || blocker.record);
     }), text ? "none the record bears out" : "none: there is no report to name one"));
     fields.appendChild(listField("Not blockers", (instance.claims || []).map(function (claim) {
-      return claim.what + " — " + moverLabel(claim.waiting_on) + " move; cites " + claim.cites + ", and blocks nothing: " + claim.reason;
+      return claim.what + " — " + moverLabel(claim.waiting_on) + " move; cites " + (claim.said_cites || claim.cites) + ", and blocks nothing: " + claim.reason;
     }), text ? "none: the record bears out every blocker it names" : "none: there is no report to name one"));
     var written = "";
     if (text) {

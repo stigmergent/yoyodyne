@@ -12,5 +12,6 @@
   "design": "",
   "acceptance_criteria": "The card and both pop-ups render from fixtures in every state; every value is escaped under the existing content security policy; a grouping with no items says so.",
   "notes": "Goal served: the harness's surfaces read clearly.",
-  "citation": "(P2, dashboard) Work item details are viewable from the dashboard (yoyodyne-ifd.432.1)"
+  "citation": "(P2, dashboard) Work item details are viewable from the dashboard (yoyodyne-ifd.432.1)",
+  "said_text": {"yoyodyne-ifd.432": "title unavailable (yoyodyne-ifd.432)"}
 }

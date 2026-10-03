@@ -57,7 +57,7 @@ func TestTextThatIsNotABareIdentifierIsLeftAlone(t *testing.T) {
 		beads.WorkItem{ID: "yoyodyne-ifd.1.22", Title: "Something numbered like a Go version"},
 	))
 	for _, text := range []string{
-				"waited 3.5 hours for the provider",
+		"waited 3.5 hours for the provider",
 		"Go 1.22 and Python 3.5; version 27.93",
 		"it cost $27.93 across 3 runs",
 		"cached 27.93% of input",
@@ -220,7 +220,7 @@ func TestCitationIncludesCurrentPriorityLabelsAndTheWholeTitle(t *testing.T) {
 	item := beads.WorkItem{ID: "yoyodyne-ifd.432.28", Priority: 1, Labels: []string{"reliability", "dashboard"}, Title: strings.Repeat("A long title ", 12)}
 	titles := NewWorkItemTitles([]beads.WorkItem{item})
 	want := "(P1, reliability, dashboard) " + strings.TrimSpace(item.Title) + " (yoyodyne-ifd.432.28)"
-	if got := titles.Cite("blocked on " + item.ID); got != "blocked on " + want {
+	if got := titles.Cite("blocked on " + item.ID); got != "blocked on "+want {
 		t.Fatalf("Cite() = %q, want %q", got, "blocked on "+want)
 	}
 	item.Priority = 3
@@ -264,5 +264,50 @@ func TestStandingNamesComeFromTheCurrentTrackerRatherThanTheClaim(t *testing.T) 
 	standing := ReadStanding(context.Background(), sources)
 	if got := standing.WorkItemNames["yoyodyne-ifd.434.9"]; got != "(P0) Price a resumed session at what it moved by (yoyodyne-ifd.434.9)" {
 		t.Fatalf("current name = %q", got)
+	}
+}
+
+func TestAParenthesizedNumberInATitleDoesNotChangeTheCitedItem(t *testing.T) {
+	t.Parallel()
+	item := beads.WorkItem{ID: "yoyodyne-ifd.432.28", Title: "Extend the earlier work (434.9, yoyodyne-ifd.434.9) with current labels", Priority: 1}
+	titles := NewWorkItemTitles(append(titledItems(), item))
+	citation := "(P1) Extend the earlier work (434.9, yoyodyne-ifd.434.9) with current labels (yoyodyne-ifd.432.28)"
+	if got := titles.Cite(citation); got != citation {
+		t.Fatalf("Cite() = %q, want %q", got, citation)
+	}
+}
+
+func TestCardProseUsesTheSameResolverWithoutChangingTheRecord(t *testing.T) {
+	t.Parallel()
+	titles := NewWorkItemTitles(titledItems())
+	record := struct {
+		Reason string `json:"reason"`
+	}{Reason: "Waiting on yoyodyne-ifd.12"}
+	shown := titles.CitedText(record)
+	if got := shown[record.Reason]; got != "Waiting on (P0) Pause on a provider usage limit (yoyodyne-ifd.12)" {
+		t.Fatalf("shown reason = %q", got)
+	}
+	if record.Reason != "Waiting on yoyodyne-ifd.12" {
+		t.Fatal("the author record changed")
+	}
+}
+
+func TestALaneClaimAndRestartReasonExpandWorkWithoutChangingItsReferences(t *testing.T) {
+	t.Parallel()
+	titles := NewWorkItemTitles(titledItems())
+	instance := ProgramManager{
+		Claims:          []ProgramManagerClaim{{What: "Waiting on yoyodyne-ifd.12", Cites: "yoyodyne-ifd.12", Reason: "yoyodyne-ifd.434.9 is unfinished"}},
+		RestartRequests: []runstate.RestartRequest{{Reason: "needed for yoyodyne-ifd.12"}},
+	}
+	shown := citeProgramManager(instance, titles)
+	claim := shown.Claims[0]
+	if claim.Cites != "yoyodyne-ifd.12" || claim.SaidCites != titles.Name(claim.Cites) {
+		t.Fatalf("claim reference = %+v", claim)
+	}
+	if claim.Reason != titles.Name("yoyodyne-ifd.434.9")+" is unfinished" || shown.RestartRequests[0].Reason != "needed for "+titles.Name("yoyodyne-ifd.12") {
+		t.Fatalf("shown lane prose = %+v", shown)
+	}
+	if instance.Claims[0].Reason != "yoyodyne-ifd.434.9 is unfinished" || instance.RestartRequests[0].Reason != "needed for yoyodyne-ifd.12" {
+		t.Fatal("the recorded lane prose changed")
 	}
 }

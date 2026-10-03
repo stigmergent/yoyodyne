@@ -5530,12 +5530,12 @@ the harness promoted, most recent promotion first, with the wall clock beside
 the money:
 
 ```text
-item                     shipped                  cost   elapsed    paused  runs  title
-yoyodyne-ifd.239         09 20 2026 14:26       $26.00    19d01h      none     2  bin/yoyo-status retires: deleted or a one-line wrapper for muscle memory
-yoyodyne-ifd.366         09 20 2026 11:33       $42.05    51m08s      none     1  Conversation-side tracker writes retry like the pipeline's
-yoyodyne-ifd.12          08 17 2026 23:58     ≥ $4.50     4h02m     3h01m     3  Pause on a provider usage limit
+shipped                  cost   elapsed    paused  runs  item
+09 20 2026 14:26       $26.00    19d01h      none     2  (P2) bin/yoyo-status retires: deleted or a one-line wrapper for muscle memory (yoyodyne-ifd.239)
+09 20 2026 11:33       $42.05    51m08s      none     1  (P2) Conversation-side tracker writes retry like the pipeline's (yoyodyne-ifd.366)
+08 17 2026 23:58     ≥ $4.50     4h02m     3h01m     3  (P1) Pause and resume work when the provider reports a usage limit (yoyodyne-ifd.12)
 ----------------------------------------------------------------------------------
-TOTAL (3 of 402)                             ≥ $72.55    19d05h     3h01m     6
+TOTAL (3 of 402)     ≥ $72.55    19d05h     3h01m     6
 ```
 
 Ten items unless a number says otherwise, and `0` lists every one; `--limit`
@@ -5543,9 +5543,10 @@ bounds it too, because it is a listing. An item is shipped when a run of it
 recorded promoting its work — the durable evidence a
 [promotion](work.md#publishing-and-the-merge-that-follows-it) leaves on the
 run — so an item closed as evidence, or closed by
-hand, is not in it, and the tracker is not consulted at all: the ledger answers
-from the run records wherever they are. `--json` carries the same rows, each
-with the whole of its price join under `price`.
+hand, is not in it. The ledger answers from the run records wherever they are;
+the names are rendered from the tracker when the table is produced, with current
+priority, labels, title, and full identifier. `--json` carries the raw ledger
+rows, each with the whole of its price join under `price`.
 
 **The cost is the item's, not the run's.** It is what `yoyo cost` reports for
 the same item: every run made for it at the provider's own figure, the
@@ -5572,9 +5573,9 @@ honest answer to how long it took.
 
 **An unknown is said to be unknown.** A promoting run that has not recorded
 completing — still cleaning up, or dead in it — says `unknown` under elapsed and
-makes the total elapsed a floor; a run recorded before titles were carried
-leaves the title as "(no run recorded the title)"; neither is ever reported as
-nothing. Every moment here is one the records already keep — the runs' started,
+makes the total elapsed a floor. An item the tracker cannot read is shown as
+`title unavailable (full-id)`; its recorded cost and time remain in the table.
+Every moment here is one the records already keep — the runs' started,
 claimed, and completed times, and the wait seconds each run commits as it
 waits — so nothing is bookkept for this ledger alone.
 

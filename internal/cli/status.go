@@ -359,9 +359,11 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	var account strings.Builder
 	printWatch(&account, watched)
 	printStalls(&account, stalls)
-	titles := reportTitles(*configPath)
+	var titles *readmodel.WorkItemTitles
 	if standing != nil {
 		titles = standing.Titles
+	} else {
+		titles = reportTitles(*configPath)
 	}
 	printRunHistory(&account, history, workItemID, *failedOnly, titles)
 	if counters != nil {
@@ -1618,7 +1620,7 @@ first, ten unless a number says otherwise and 0 for every one: each with what it
 cost the provider across every run made for it, the failed and repair attempts
 included; the wall clock from the first claim to the promotion; how much of that
 it spent parked on a provider usage limit or the operator's hold; how many runs
-it took; and its title as the run that shipped it recorded it. Elapsed and
+it took; and its current priority, labels, title, and full id from the tracker. Elapsed and
 paused are two figures on purpose, so an item that spent three of its four hours
 waiting reads as what it was. Totals across the listing close it. An item is
 shipped when a run of it recorded promoting its work; a run with no surviving

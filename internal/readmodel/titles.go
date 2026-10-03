@@ -6,6 +6,7 @@ package readmodel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -22,7 +23,7 @@ const untitledWorkItem = "no title recorded"
 
 // renderedCitation recognizes the format this resolver previously produced,
 // so a second rendering refreshes it rather than adding another citation.
-var renderedCitation = regexp.MustCompile(`\(P[0-4](?:, [^()\n]*)?\) [^\n]*? \(([A-Za-z0-9][A-Za-z0-9._-]*)\)|title unavailable \(([A-Za-z0-9][A-Za-z0-9._-]*)\)`)
+var renderedCitation = regexp.MustCompile(`\(P[0-4](?:, [^()\n]*)?\) [^\n]*? \(([A-Za-z0-9][A-Za-z0-9_-]*-[a-z0-9]+(?:\.[0-9]+)*)\)|title unavailable \(([A-Za-z0-9][A-Za-z0-9_-]*-[a-z0-9]+(?:\.[0-9]+)*)\)`)
 
 // candidateToken is a run of the characters an identifier is made of. Each one
 // is then classified; most are ordinary words and are passed over.
@@ -151,6 +152,43 @@ func (w *WorkItemTitles) Name(id string) string {
 	return fmt.Sprintf("(P%d%s) %s (%s)", item.Priority, labels, title, id)
 }
 
+// CitedText carries the prose a card shows beside its raw record. Identifiers
+// used to navigate or query remain raw; a surface projects this map when it
+// displays a field, so role-written reasons and notes use the same resolver.
+func (w *WorkItemTitles) CitedText(record any) map[string]string {
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return nil
+	}
+	var fields any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil
+	}
+	texts := map[string]string{}
+	var collect func(any)
+	collect = func(value any) {
+		switch value := value.(type) {
+		case string:
+			if cited := w.Cite(value); cited != value {
+				texts[value] = cited
+			}
+		case []any:
+			for _, entry := range value {
+				collect(entry)
+			}
+		case map[string]any:
+			for _, entry := range value {
+				collect(entry)
+			}
+		}
+	}
+	collect(fields)
+	if len(texts) == 0 {
+		return nil
+	}
+	return texts
+}
+
 // Cite expands identifiers in prose, including every later mention of an item.
 // Commands, paths, links, quantities, and explicit version numbers stay intact.
 func (w *WorkItemTitles) Cite(text string) string {
@@ -174,6 +212,25 @@ func (w *WorkItemTitles) Cite(text string) string {
 					idStart, idEnd = span[4], span[5]
 				}
 				id := text[idStart:idEnd]
+				// A title may itself cite another full identifier. Prefer an
+				// exact current citation over the first parenthesized id in it.
+				if w != nil {
+					lineEnd := strings.IndexByte(text[span[0]:], '\n')
+					if lineEnd < 0 {
+						lineEnd = len(text) - span[0]
+					}
+					for _, token := range candidateToken.FindAllStringIndex(text[span[0]:span[0]+lineEnd], -1) {
+						candidate := text[span[0]+token[0] : span[0]+token[1]]
+						if _, known := w.items[candidate]; !known {
+							continue
+						}
+						name := w.Name(candidate)
+						if strings.HasPrefix(text[span[0]:], name) {
+							id, span[1] = candidate, span[0]+len(name)
+							break
+						}
+					}
+				}
 				if full, _ := w.identify(id); full != "" {
 					id = full
 				}
@@ -199,7 +256,7 @@ func (w *WorkItemTitles) Cite(text string) string {
 		if w != nil {
 			title := strings.Join(strings.Fields(w.titles[id]), " ")
 			if title != "" {
-				for _, echo := range []string{title, singleLine(title, 100)} {
+				for _, echo := range []string{title, singleLine(title, 100), singleLine(title, 160)} {
 					if strings.HasPrefix(text[end:], " ("+echo+")") {
 						end += len(echo) + 3
 					}
@@ -239,9 +296,9 @@ func (w *WorkItemTitles) CiteAfter(prior, text string) string {
 // an item.
 func (w *WorkItemTitles) identify(token string) (string, bool) {
 	if w != nil {
-	if _, known := w.titles[token]; known {
-		return token, true
-	}
+		if _, known := w.titles[token]; known {
+			return token, true
+		}
 	}
 	root, rest, _ := strings.Cut(token, ".")
 	if rest != "" {

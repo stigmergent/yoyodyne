@@ -244,6 +244,7 @@
       "work_item_id": "yoyodyne-ifd.188",
       "executor": "conversation:product-manager",
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",
+      "said_what": "(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188) is admitted for \"conversation:product-manager\" rather than a developer run",
       "whose": "the Lead Product Manager's — in conversation; no run will ever be started for it",
       "label": "work in conversation"
     }
