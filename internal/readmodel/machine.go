@@ -78,7 +78,7 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 			previous := observations[i-1]
 			gap := watchGap{from: previous.At, to: observation.At}
 			switch {
-			case observation.At.Sub(previous.At) > time.Minute:
+			case observation.At.Sub(previous.At) > runstate.MachineObservationWindow:
 				availability.unobserved = append(availability.unobserved, gap)
 			case !previous.Watching && observation.At.After(previous.At):
 				availability.down = append(availability.down, gap)
@@ -86,11 +86,12 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 		}
 	}
 	// A sample establishes presence at that look. Only consecutive looks within
-	// the supervisor's minute cadence bound an interval; a missing next look
+	// the shared observation window bound an interval, allowing the collector's
+	// poll and processing delays after its minimum interval. A missing next look
 	// cannot keep a down sample in effect through the present or a restart.
 	if len(observations) > 0 {
 		last := observations[len(observations)-1]
-		if now.After(last.At) && (!last.Watching || now.Sub(last.At) > time.Minute) {
+		if now.After(last.At) && (!last.Watching || now.Sub(last.At) > runstate.MachineObservationWindow) {
 			availability.unobserved = append(availability.unobserved, watchGap{from: last.At, to: now})
 		}
 	}

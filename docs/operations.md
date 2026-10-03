@@ -260,15 +260,17 @@ Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1
 
 The services section also shows the last machine sleep and wake, in local time
 with the zone named, and the last recorded interval without the harness
-watching. On macOS the supervisor reads `pmset -g log` once a minute and keeps
+watching. On macOS the supervisor reads `pmset -g log` about once a minute and keeps
 the OS transitions in `products/<product>/supervisor/machine.jsonl`, including
 sleep and wake while it was down. Dark wakes count as wakes because processes
 can run during them. The same log records whether the scheduler held its lease
 when the supervisor looked. Sampled downtime is counted only between consecutive
-looks no more than a minute apart. A down sample without a following look, or a
-longer gap between looks, leaves the unsampled interval unknown; absence of a
-look is not proof that the harness was down. The services section names the last
-such gap separately from recorded downtime.
+looks no more than two minutes apart. Collection waits at least a minute between
+looks; the shared two-minute observation window allows the supervisor's
+five-second poll after each tick, processing time and timer delays. A down sample
+without a following look, or a gap beyond that window, leaves the unsampled
+interval unknown; absence of a look is not proof that the harness was down. The
+services section names the last such gap separately from recorded downtime.
 An unavailable OS history or a product with no observations says so. On other
 platforms OS sleep history is currently unavailable. A sleep without a matching
 wake is shown with its duration unknown, rather than counted through the present.

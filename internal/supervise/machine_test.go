@@ -70,3 +70,28 @@ func TestSupervisorBackfillsPowerHistoryAndKeepsItAcrossRestart(t *testing.T) {
 		t.Fatalf("unavailable history: %+v, %v", history, err)
 	}
 }
+
+func TestSupervisorRecordsConsecutiveLooksAfterPollAndProcessingDelays(t *testing.T) {
+	t.Parallel()
+	store, err := runstate.NewSupervisionStore(t.TempDir(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 9, 30, 16, 52, 0, 0, time.UTC)
+	interval := runstate.MachineObservationInterval + DefaultPoll + 250*time.Millisecond
+	supervisor := Supervisor{Records: store, Children: []Child{&fakeChild{name: config.ServiceScheduler}},
+		PowerHistory: func(context.Context) ([]runstate.PowerEvent, error) { return nil, nil },
+	}
+	for i := 0; i < 3; i++ {
+		supervisor.observeMachine(context.Background(), start.Add(time.Duration(i)*interval))
+	}
+	history, err := store.MachineHistory()
+	if err != nil || len(history) != 3 {
+		t.Fatalf("delayed observations: %+v, %v", history, err)
+	}
+	for i, observation := range history {
+		if observation.Watching || !observation.At.Equal(start.Add(time.Duration(i)*interval)) {
+			t.Fatalf("lost the scheduler-down look: %+v", observation)
+		}
+	}
+}

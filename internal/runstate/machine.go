@@ -20,6 +20,15 @@ type PowerEvent struct {
 	Source string    `json:"source"`
 }
 
+const (
+	// MachineObservationInterval is the minimum time between supervisor looks.
+	MachineObservationInterval = time.Minute
+	// MachineObservationWindow bounds the interval consecutive looks can
+	// establish. The extra minute allows the supervisor's poll after each tick,
+	// processing and timer delays; longer gaps leave presence unknown.
+	MachineObservationWindow = 2 * MachineObservationInterval
+)
+
 // MachineObservation records OS power history and the scheduler lease as the
 // supervisor saw them. A missing observation is unknown, never proof of sleep.
 type MachineObservation struct {

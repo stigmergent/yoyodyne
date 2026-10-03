@@ -68,7 +68,7 @@ type machineRecords interface {
 
 func (s *Supervisor) observeMachine(ctx context.Context, now time.Time) {
 	store, ok := s.Records.(machineRecords)
-	if !ok || s.PowerHistory == nil || (!s.lastMachineLook.IsZero() && now.Before(s.lastMachineLook.Add(time.Minute))) {
+	if !ok || s.PowerHistory == nil || (!s.lastMachineLook.IsZero() && now.Before(s.lastMachineLook.Add(runstate.MachineObservationInterval))) {
 		return
 	}
 	if s.lastMachineLook.IsZero() {

@@ -129,3 +129,44 @@ func TestStaleSchedulerSamplesDoNotEstablishDowntimeThroughAnObservationGap(t *t
 		})
 	}
 }
+
+func TestSchedulerDowntimeAllowsTheSupervisorsPollingDelay(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 9, 30, 13, 52, 0, 0, time.UTC)
+	for _, interval := range []time.Duration{
+		runstate.MachineObservationInterval + time.Second,
+		runstate.MachineObservationInterval + 5*time.Second + 250*time.Millisecond,
+		runstate.MachineObservationWindow,
+	} {
+		t.Run(interval.String(), func(t *testing.T) {
+			now := start.Add(2 * interval)
+			availability := ReadWatchAvailability(Sources{Machine: machineHistory{[]runstate.MachineObservation{
+				{At: start}, {At: start.Add(interval)}, {At: now, Watching: true},
+			}}, Now: func() time.Time { return now }})
+			if availability.LastGap != 2*interval || availability.ObservationProblem != "" {
+				t.Fatalf("consecutive delayed looks lost downtime: %+v", availability)
+			}
+			cause := availability.Cause(start, now, "owed-pass")
+			if !strings.Contains(cause.Why, "scheduler was observed down") || cause.Problem != "" {
+				t.Fatalf("missed pass lost observed downtime: %+v", cause)
+			}
+			rendered := (Standing{Services: &Services{Recorded: true, SupervisorRunning: true, Availability: &availability}}).RenderServices()
+			if !strings.Contains(rendered, "last interval without the harness watching: "+(2*interval).Round(time.Second).String()) {
+				t.Fatalf("services lost observed downtime: %s", rendered)
+			}
+		})
+	}
+}
+
+func TestSchedulerObservationsBeyondTheWindowRemainUnknown(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 9, 30, 13, 52, 0, 0, time.UTC)
+	now := start.Add(runstate.MachineObservationWindow + time.Nanosecond)
+	availability := ReadWatchAvailability(Sources{Machine: machineHistory{[]runstate.MachineObservation{
+		{At: start}, {At: now, Watching: true},
+	}}, Now: func() time.Time { return now }})
+	cause := availability.Cause(start, now, "owed-pass")
+	if availability.LastGap != 0 || cause.Why != "" || !strings.Contains(cause.Problem, "whether the harness was watching is unknown") {
+		t.Fatalf("a gap beyond the observation window became downtime: %+v, %+v", availability, cause)
+	}
+}
