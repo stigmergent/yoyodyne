@@ -258,6 +258,7 @@ func (r Root) mutation(relative string) (*PinnedRoot, string, string, error) {
 // OpenAppend creates missing parents and opens a confined append descriptor.
 // The caller supplies modes because output logs need different permissions from
 // repository documents. Closing the root does not invalidate the file handle.
+// Files with additional hard links are refused before any bytes are appended.
 func (r Root) OpenAppend(relative string, file, directory fs.FileMode) (*os.File, error) {
 	pinned, target, _, err := r.mutation(relative)
 	if err != nil {
@@ -272,6 +273,7 @@ func (r Root) OpenAppend(relative string, file, directory fs.FileMode) (*os.File
 }
 
 // Truncate cuts and syncs an existing confined file; it creates nothing.
+// Files with additional hard links are refused before changing their size.
 func (r Root) Truncate(relative string, size int64) (string, error) {
 	pinned, target, absolute, err := r.mutation(relative)
 	if err != nil {

@@ -7,9 +7,69 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
+
+func TestInPlaceMutationsRefuseHardLinkReplacement(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []struct {
+		name   string
+		mutate func(Root) error
+	}{
+		{"append", func(root Root) error {
+			file, err := root.OpenAppend("docs/target", 0o600, 0o700)
+			if err != nil {
+				return err
+			}
+			_, err = file.WriteString("changed")
+			return errors.Join(err, file.Close())
+		}},
+		{"truncate", func(root Root) error {
+			_, err := root.Truncate("docs/target", 0)
+			return err
+		}},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			t.Parallel()
+			root, outside := repository(t)
+			target := filepath.Join(root.Path(), "docs", "target")
+			sentinel := filepath.Join(outside, "sentinel")
+			writeFile(t, target, "original")
+			writeFile(t, sentinel, "keep")
+			before := treeSnapshot(t, outside)
+			called := false
+			root.beforeMutation = func() {
+				called = true
+				replaced := make(chan error)
+				go func() {
+					if err := os.Rename(target, target+"-held"); err != nil {
+						replaced <- err
+						return
+					}
+					replaced <- os.Link(sentinel, target)
+				}()
+				if err := <-replaced; err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := operation.mutate(root)
+			if !called {
+				t.Fatal("mutation did not reach the replacement barrier")
+			}
+			if err == nil || !strings.Contains(err.Error(), "hard link") {
+				t.Errorf("mutation error = %v, want refusal of the shared inode", err)
+			}
+			if after := treeSnapshot(t, outside); !reflect.DeepEqual(before, after) {
+				t.Errorf("mutation escaped through a hard link: before = %v, after = %v", before, after)
+			}
+			if got := readFile(t, target+"-held"); got != "original" {
+				t.Errorf("original inode changed: %q", got)
+			}
+		})
+	}
+}
 
 // Independent callers creating one missing parent must all open the same
 // append inode. Tracker writes use this descriptor for an advisory lock before

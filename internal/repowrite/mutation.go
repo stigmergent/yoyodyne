@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+var errInPlaceWritesUnsupported = errors.New("this platform cannot inspect file hard links before in-place writing")
+
 // resolve follows contained links using the held root. Absolute links into the
 // root are translated to relative names for os.Root, which rejects absolute
 // links itself. The returned name is used only with directory handles: topology
@@ -97,17 +99,22 @@ func (r *PinnedRoot) ReplaceFile(relative string, content []byte, mode, director
 
 // OpenAppend hands back a descriptor confined at open time; replacing any path
 // component afterwards cannot redirect the descriptor's subsequent writes.
+// Shared inodes are refused because another hard link may name an external file.
 func (r *PinnedRoot) OpenAppend(relative string, file, directory fs.FileMode) (*os.File, error) {
 	return r.openFile(relative, appendFlags, file, directory)
 }
 
 // OpenReadWrite opens the stable inode shared by advisory lock holders. It never
 // truncates or replaces that inode, so queued claimants lock the same file.
+// The inode must have only one hard link, just as for an append descriptor.
 func (r *PinnedRoot) OpenReadWrite(relative string) (*os.File, error) {
 	return r.openFile(relative, os.O_RDWR|os.O_CREATE, 0o600, 0o700)
 }
 
 func (r *PinnedRoot) openFile(relative string, flags int, file, directory fs.FileMode) (*os.File, error) {
+	if !inPlaceWritesSupported {
+		return nil, errInPlaceWritesUnsupported
+	}
 	target, err := r.resolve(relative)
 	if err != nil {
 		return nil, err
@@ -125,13 +132,22 @@ func (r *PinnedRoot) openFile(relative string, flags int, file, directory fs.Fil
 	// replace the file whose inode advisory lock holders must keep sharing.
 	for attempt := 0; ; attempt++ {
 		opened, err := parent.root.OpenFile(filepath.Base(target), flags, file)
+		if err == nil {
+			if err := singleLinkFile(opened); err != nil {
+				return nil, errors.Join(err, opened.Close())
+			}
+			return opened, nil
+		}
 		if flags&os.O_CREATE == 0 || !errors.Is(err, fs.ErrNotExist) || attempt == 9 {
-			return opened, err
+			return nil, err
 		}
 	}
 }
 
 func (r *PinnedRoot) Truncate(relative string, size int64) error {
+	if !inPlaceWritesSupported {
+		return errInPlaceWritesUnsupported
+	}
 	target, err := r.resolve(relative)
 	if err != nil {
 		return err
@@ -140,7 +156,10 @@ func (r *PinnedRoot) Truncate(relative string, size int64) error {
 	if err != nil {
 		return err
 	}
-	err = file.Truncate(size)
+	err = singleLinkFile(file)
+	if err == nil {
+		err = file.Truncate(size)
+	}
 	if err == nil {
 		err = file.Sync()
 	}

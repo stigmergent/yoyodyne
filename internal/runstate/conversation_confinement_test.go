@@ -7,11 +7,67 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
+
+func TestConversationEventAppendRefusesHardLinkReplacement(t *testing.T) {
+	t.Parallel()
+	store := newConversationStore(t, t.TempDir())
+	conversation := testConversation(t)
+	event, err := execution.NewEvent(conversation.ConversationID, 1, conversation.StartedAt, execution.EventAgentMessage, "test", map[string]string{"message": "changed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(event); err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.eventPathForConversation(conversation.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	sentinel := filepath.Join(outside, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := conversationTreeSnapshot(t, outside)
+	called := false
+	store.beforeMutation = func() {
+		called = true
+		replaced := make(chan error)
+		go func() {
+			if err := os.Rename(path, path+"-held"); err != nil {
+				replaced <- err
+				return
+			}
+			replaced <- os.Link(sentinel, path)
+		}()
+		if err := <-replaced; err != nil {
+			t.Fatal(err)
+		}
+	}
+	err = store.AppendEvent(event)
+	if !called {
+		t.Fatal("event append did not reach the replacement barrier")
+	}
+	if err == nil || !strings.Contains(err.Error(), "hard link") {
+		t.Errorf("append error = %v, want refusal of the shared inode", err)
+	}
+	if after := conversationTreeSnapshot(t, outside); !reflect.DeepEqual(before, after) {
+		t.Errorf("event append escaped through a hard link: before = %v, after = %v", before, after)
+	}
+	if held, err := os.ReadFile(path + "-held"); err != nil || string(held) != string(original) {
+		t.Errorf("original event log changed: %q, %v", held, err)
+	}
+}
 
 func TestConversationMutationsKeepThePinnedDirectoryAfterReplacement(t *testing.T) {
 	t.Parallel()
