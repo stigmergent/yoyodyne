@@ -8,9 +8,8 @@ import (
 )
 
 // appendFlags open a file for appending and refuse a symlink standing where it
-// goes. O_NOFOLLOW applies to the final component only, which is exactly the
-// gap left over once every component above it has been resolved: the open fails
-// with a link there rather than writing through it.
+// goes. Directory traversal is confined by os.Root; O_NOFOLLOW additionally
+// refuses a link planted at the resolved final component before the open.
 const appendFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND | syscall.O_NOFOLLOW
 
 // truncateFlags open an existing file to cut it, refusing a link at the final

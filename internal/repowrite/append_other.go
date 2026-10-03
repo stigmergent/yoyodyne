@@ -5,9 +5,9 @@ package repowrite
 import "os"
 
 // Refusing to follow a link at the final component is O_NOFOLLOW on the Unix
-// hosts Yoyodyne supports. Elsewhere the resolution above is the whole of the
-// answer, which leaves the link-planted-after-the-check case open on a platform
-// this harness is not run on.
+// hosts Yoyodyne supports. Elsewhere os.Root still confines the open, including
+// a link planted after resolution. Platforms without that guarantee are refused
+// by OpenPinnedRoot before any mutation.
 const appendFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
 
 const truncateFlags = os.O_WRONLY
