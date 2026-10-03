@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,28 @@ import (
 	"testing"
 	"time"
 )
+
+func TestProcessResultRecordsOutputClosureOnlyWhenObserved(t *testing.T) {
+	t.Parallel()
+	for _, closedAt := range []time.Time{{}, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)} {
+		result := ProcessResult{OutputClosedAt: closedAt}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, present := fields["OutputClosedAt"]; present == closedAt.IsZero() {
+			t.Fatalf("encoded result = %s, want output closure recorded only when observed", encoded)
+		}
+		var restored ProcessResult
+		if err := json.Unmarshal(encoded, &restored); err != nil || !restored.OutputClosedAt.Equal(closedAt) {
+			t.Fatalf("output closure round trip = %v, %v, want %v", restored.OutputClosedAt, err, closedAt)
+		}
+	}
+}
 
 func TestOSProcessRunnerPreservesRawObjectBytes(t *testing.T) {
 	t.Parallel()

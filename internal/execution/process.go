@@ -138,7 +138,7 @@ type ProcessResult struct {
 	// OutputClosedAt records when both output streams finished draining,
 	// separately from FinishedAt: closing output does not mean the process
 	// exited, and its budgets keep running while it is waited for.
-	OutputClosedAt time.Time `json:",omitempty"`
+	OutputClosedAt time.Time `json:",omitzero"`
 	// OutputTruncation is the marker standing where the retained output above
 	// was cut, naming the bound and the record holding the whole. It is empty
 	// when nothing was cut, so its presence is the fact and its text is what to

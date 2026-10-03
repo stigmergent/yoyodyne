@@ -1922,9 +1922,9 @@ worktree — ends the run, and it still says the harness stopped the provider.
 **The total budget and the wait after a reply hold until the process exits.**
 A process that closes both its output streams is still waited for under those
 bounds, and reaching either ends its process tree just as it would while the
-streams were open. The idle bound stops applying once both streams close,
-because there is no output left to wait for. The process result records when
-the streams closed as `OutputClosedAt`, separately from when the process
+streams were open. The limit on waiting without output stops applying once both
+streams close, because there is no output left to wait for. The process result
+records when the streams closed as `OutputClosedAt`, separately from when the process
 finished, so a process that closed its output and kept running says so.
 These clocks use Go's runtime timers: on systems whose monotonic clock pauses
 during machine sleep, their budgets pause too. The recorded start and finish

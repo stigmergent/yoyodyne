@@ -54,6 +54,7 @@
             "process": {
               "ExitCode": 0,
               "FinishedAt": "\u003ctime\u003e",
+              "OutputClosedAt": "\u003ctime\u003e",
               "StartedAt": "\u003ctime\u003e",
               "Status": "succeeded",
               "Stderr": "",
