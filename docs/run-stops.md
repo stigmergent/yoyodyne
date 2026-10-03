@@ -243,9 +243,9 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).gateProtectedPaths` | `phase-error` | 1 | Creates a path refusal before checks; shared repairs decide handback or terminal stop. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).integrate` | `classified-stop` | 4 | Refuses promotion lease, target settlement, or integration failure; any completed promotion stands. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).finish` | `call:complete` | 1 | Completes before proof-based cleanup and separate landing checks. |
-| `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `call:fail` | 5 | Refuses unrecorded publication or outcome, item, or state write failures; otherwise succeeds. |
-| `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `classified-stop` | 5 | Refuses unrecorded publication or outcome, item, or state write failures; otherwise succeeds. |
-| `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `status-write` | 2 | Refuses unrecorded publication or outcome, item, or state write failures; otherwise succeeds. |
+| `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `call:fail` | 6 | Refuses unrecorded publication, an unsaved landing configuration comparison, or outcome, item, or state write failures; otherwise succeeds. |
+| `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `classified-stop` | 6 | Refuses unrecorded publication, an unsaved landing configuration comparison, or outcome, item, or state write failures; otherwise succeeds. |
+| `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `status-write` | 2 | Refuses unrecorded publication, an unsaved landing configuration comparison, or outcome, item, or state write failures; otherwise succeeds. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).stop` | `call:fail` | 2 | Dispatches pauses separately from terminal usage windows, escalation, stops, and ordinary failure. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).stop` | `call:escalate` | 1 | Dispatches pauses separately from terminal usage windows, escalation, stops, and ordinary failure. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).escalate` | `call:fail` | 4 | Succeeds without promotion and parks the item; failures of that account end failed. |

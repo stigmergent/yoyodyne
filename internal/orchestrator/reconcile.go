@@ -818,7 +818,6 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: state.PublishFailure}
 		return r.settleDroppedMerge(ctx, state)
 	}
-	published.MergeQueued = false
 	detail := fmt.Sprintf("the forge merged pull request %d into %s", published.Number, state.Integration.TargetBranch)
 	var catchup *gitworktree.Catchup
 	var comparison configComparison
@@ -839,6 +838,10 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 			return reconciliationOf(state, ActionUnsettled), compareErr
 		}
 	}
+	// Saving the comparison must retain the outstanding merge settlement.
+	// Otherwise a failed finding delivery sends the next sweep straight to
+	// ordinary cleanup, skipping the forge outcome and consumed branch removal.
+	published.MergeQueued = false
 	// The run that integrated the change left the closure to this answer, so this
 	// note is where an operator learns how the publication of it ended. It is
 	// written before the run is settled: a sweep that stopped in between leaves

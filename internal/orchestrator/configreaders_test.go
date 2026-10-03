@@ -353,19 +353,31 @@ func TestAQueuedLandingComparesRunningBuildsWhenItsMergeIsConfirmed(t *testing.T
 			reconciler.Repository = fixture.repository
 			reconciler.ConfigFiles = files
 			reconciler.ConfigReaders = store
+			readsBeforeRetry := 0
 			if test.refuseNote {
 				reconciler.Tracker = &refuseConfigFindingOnce{WorkTracker: fixture.tracker}
 				first, err := reconciler.Reconcile(context.Background())
 				if err != nil || len(first) != 1 || !strings.Contains(first[0].Failure, "configuration finding refused") {
 					t.Fatalf("refused finding = %+v, %v", first, err)
 				}
-				if state := loadRun(t, fixture.store, outcome.RunID); !state.PullRequest.MergeQueued || fixture.tracker.Record().Closed {
-					t.Fatal("settlement forgot the undelivered finding")
+				state := loadRun(t, fixture.store, outcome.RunID)
+				if !state.PullRequest.MergeQueued || !state.PullRequest.Merged || state.PullRequest.MergeCommit != merge || fixture.tracker.Record().Closed {
+					t.Fatalf("settlement forgot the undelivered finding: pull request %+v, closed %t", state.PullRequest, fixture.tracker.Record().Closed)
+				}
+				if !state.Outstanding() || state.ConfigComparison == nil || !state.ConfigComparison.Pending || state.ConfigComparison.DeliveryFailure != "configuration finding refused" {
+					t.Fatalf("pending comparison was lost: %+v", state.ConfigComparison)
+				}
+				if state.ConfigComparison.TargetCommit != merge || state.ConfigComparison.PreviousTargetCommit != previous {
+					t.Fatalf("saved comparison names the wrong revisions: %+v", state.ConfigComparison)
+				}
+				if _, err := os.Stat(outcome.WorktreePath); err != nil {
+					t.Fatalf("artifacts were removed before finding delivery: %v", err)
 				}
 				// Delivery retries the saved comparison without reading newer files
 				// or requiring the older service still to be running.
 				reconciler.ConfigReaders = nil
 				reconciler.ConfigFiles = nil
+				readsBeforeRetry = len(files.reads)
 			}
 			results, err := reconciler.Reconcile(context.Background())
 			if err != nil || len(results) != 1 || results[0].Action != ActionCompleted || results[0].Failure != "" {
@@ -394,6 +406,15 @@ func TestAQueuedLandingComparesRunningBuildsWhenItsMergeIsConfirmed(t *testing.T
 				t.Fatalf("comparison reads = %+v, want previous %s and confirmed merge %s", files.reads, previous, merge)
 			}
 			settled := loadRun(t, fixture.store, outcome.RunID)
+			if settled.Outstanding() || settled.PullRequest.MergeQueued || settled.ConfigComparison.Pending || !fixture.tracker.Record().Closed {
+				t.Fatalf("delivered comparison did not finish settlement: %+v", settled)
+			}
+			if test.refuseNote && len(files.reads) != readsBeforeRetry {
+				t.Fatal("retry replaced the saved comparison by rereading the configuration")
+			}
+			if branch := publishedCommit(t, fixture.remote, outcome.Branch); branch != "" {
+				t.Fatalf("finding delivery skipped removal of the merged remote branch: %s", branch)
+			}
 			if settled.Integration.PreviousTargetCommit != previous || settled.Integration.TargetCommit != outcome.Integration.TargetCommit {
 				t.Fatal("comparison changed the promotion's recorded revisions")
 			}
