@@ -578,14 +578,14 @@ func (s *Session) buildGauge() *report.Gauge {
 // reportFiled tells the operator what the role reported while it was answering,
 // and what happened to a report that could not be kept. It prints nothing when
 // there was nothing to report, which is the ordinary case.
-func reportFiled(out io.Writer, theme console.Theme, role domain.AgentRole, reply Reply) {
+func reportFiled(out io.Writer, theme console.Theme, role domain.AgentRole, reply Reply, render func(string) string) {
 	if len(reply.Reports) == 0 && reply.ReportProblem == "" {
 		return
 	}
 	if len(reply.Reports) > 0 {
 		fmt.Fprintf(out, "The %s reported %d thing(s) for you:\n", RoleTitle(role), len(reply.Reports))
 		for _, reported := range reply.Reports {
-			fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), reported.Render()))
+			fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), render(reported.Render())))
 		}
 	}
 	if reply.ReportProblem != "" {

@@ -389,7 +389,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	printChatEvaluation(stdout, reply.Evaluation, reply.EvaluationProblem)
 	printChatExchanges(stdout, role, reply.Exchanges)
 	printChatAdmitted(stdout, reply.Admitted)
-	printChatReports(stdout, theme, role, reply.Reports, reply.ReportProblem)
+	printChatReports(stdout, theme, role, reply.Reports, reply.ReportProblem, session.RenderReply)
 	// Everything unanswered and everything undecided is listed rather than only
 	// what this turn raised or proposed: an answer or a decision arrives as its
 	// own message, so what the operator has to be able to name is the whole of
@@ -1327,7 +1327,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	printChatEvaluation(stdout, output.Evaluation, output.EvaluationProblem)
 	printChatExchanges(stdout, role, output.Exchanges)
 	printChatAdmitted(stdout, output.Admitted)
-	printChatReports(stdout, theme, role, output.Reports, output.ReportProblem)
+	printChatReports(stdout, theme, role, output.Reports, output.ReportProblem, render)
 	printChatConcerns(stdout, theme, role, output.Concerns)
 	printChatProposals(stdout, role, output.Proposals)
 	printChatWrites(stdout, role, output.Writes)
@@ -1547,14 +1547,14 @@ func printChatEvaluation(writer io.Writer, recorded *evaluation.Evaluation, prob
 // while it answered. It is printed for a one-shot message as well as a
 // conversation: the report is already collected, and one that is only in the
 // pile is one nobody has been told about yet.
-func printChatReports(writer io.Writer, theme console.Theme, role domain.AgentRole, reports []report.Report, problem string) {
+func printChatReports(writer io.Writer, theme console.Theme, role domain.AgentRole, reports []report.Report, problem string, render func(string) string) {
 	if len(reports) == 0 && problem == "" {
 		return
 	}
 	if len(reports) > 0 {
 		fmt.Fprintf(writer, "\nThe %s reported %d thing(s) for you:\n", chat.RoleTitle(role), len(reports))
 		for _, reported := range reports {
-			fmt.Fprint(writer, theme.Severity(console.Severity(reported.Severity), reported.Render()))
+			fmt.Fprint(writer, theme.Severity(console.Severity(reported.Severity), render(reported.Render())))
 		}
 	}
 	if problem != "" {

@@ -70,3 +70,29 @@ func TestTheConversationReportsListingFlagsADigestsWords(t *testing.T) {
 		t.Fatalf("digest = %q, want the register's correction beside it", text)
 	}
 }
+
+func TestAnInteractiveConversationFlagsADigestAsSoonAsItIsFiled(t *testing.T) {
+	t.Parallel()
+	const message = "digest: the posture changed"
+	answer := reportReply("A digest was filed.", `{"severity":"note","message":"`+message+`"}`)
+	for _, open := range []func(io.Reader, io.Writer) console.Console{
+		testConsole,
+		func(in io.Reader, out io.Writer) console.Console { return dressed(in, out) },
+	} {
+		collected := &fakeReports{}
+		options := testOptions(t, &replyingBackend{fragments: []string{answer}, reply: answer})
+		options.Repository, options.Reports = "../..", collected
+		session := openTestSession(t, options)
+		var out strings.Builder
+		if err := session.Converse(context.Background(), open(strings.NewReader("what changed?\n/exit\n"), &out)); err != nil {
+			t.Fatal(err)
+		}
+		text := escapes.ReplaceAllString(out.String(), "")
+		if !strings.Contains(text, message) || strings.Count(text, `[wording: "posture" was replaced; write tool access`) != 1 {
+			t.Fatalf("immediate report output = %q, want the report and its replacement flag", text)
+		}
+		if len(collected.appended) != 1 || collected.appended[0].Message != message {
+			t.Fatalf("stored report = %+v, want the author's unchanged message", collected.appended)
+		}
+	}
+}

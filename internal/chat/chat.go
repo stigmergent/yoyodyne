@@ -2937,7 +2937,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// it is about to ask about, so the operator reads what already happened
 		// first and is not answering a prompt while unaware of it.
 		s.reportAdmitted(out, reply)
-		reportFiled(out, s.theme, s.state.Role, reply)
+		reportFiled(out, s.theme, s.state.Role, reply, s.RenderReply)
 		// What the product manager would not propose is put to the operator before
 		// anything else about the turn is settled, including a turn that went on to
 		// fail: a question it declined to answer for itself is the one thing here
