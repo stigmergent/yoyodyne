@@ -294,6 +294,7 @@ type Sources struct {
 	// them all off — a part the supervisor has left down is the one state here
 	// that nothing else reports.
 	Supervision Supervision
+	Machine     MachineHistory
 	// ConfigReaders is what each running part of the product recorded, as it
 	// started, about the configuration keys its build reads, compared against
 	// the file each reads now. It is optional, and a reading without it says

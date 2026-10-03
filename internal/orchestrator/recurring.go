@@ -390,8 +390,9 @@ type Trigger struct {
 	// undecided ones against the woken role's own documents, which are put to
 	// it in the wake. Optional: a trigger wired without one puts no proposals to
 	// anybody, which is what every pass did until the queue had a cadence.
-	Amendments RecurringAmendments
-	Clock      execution.Clock
+	Amendments   RecurringAmendments
+	Clock        execution.Clock
+	Availability func(from, to time.Time, task string) readmodel.GapCause
 }
 
 // RecurringBreakage is the report pile as a missed cadence files into it. It is
@@ -409,12 +410,14 @@ type RecurringBreakage interface {
 // Trigger says which; Every is the interval a miss is measured against — the
 // schedule's own, or PassEventMissAfter for the events.
 type RecurringDue struct {
-	Task     string
-	Role     domain.AgentRole
-	Every    time.Duration
-	At       time.Time
-	Trigger  runstate.PassTrigger
-	Instance bool
+	Task         string
+	Role         domain.AgentRole
+	Every        time.Duration
+	At           time.Time
+	Trigger      runstate.PassTrigger
+	Instance     bool
+	LastFired    time.Time
+	ScheduleNote string
 }
 
 // key is what a miss is recorded once under: the task, or the instance and the
@@ -448,7 +451,9 @@ type RecurringMiss struct {
 	// Severity is how the miss is said. Empty records it in the sweep log and
 	// says it to nobody, which is the operator's own pause: a stop somebody
 	// placed on purpose is not breakage.
-	Severity report.Severity
+	Severity     report.Severity
+	LastFired    time.Time
+	ScheduleNote string
 }
 
 // RecurringCadence is the schedule read without firing it, and the miss
@@ -471,8 +476,30 @@ type recurringFinder interface {
 	Find(task string) (runstate.SweepClaim, bool, error)
 }
 
-// Cadence reports when each enabled task is next due. It claims nothing, so a
-// session that reads it and then fires still meets the claim as the due check.
+func (t Trigger) adopted(ctx context.Context, finder recurringFinder, name string, every time.Duration) (runstate.SweepClaim, bool, error) {
+	if store, ok := t.Claims.(interface {
+		Adopt(context.Context, string, time.Duration, time.Time) (runstate.SweepClaim, bool, error)
+	}); ok {
+		return store.Adopt(ctx, name, every, t.now())
+	}
+	return finder.Find(name)
+}
+
+func scheduleEvidence(due *RecurringDue, claim runstate.SweepClaim) {
+	due.LastFired = claim.FiredAt
+	if claim.Every != due.Every || claim.CadenceAt.IsZero() {
+		due.At = time.Time{}
+		due.ScheduleNote = "schedule adoption timing is unavailable; the age of the last firing does not establish overdue time under the current cadence"
+		return
+	}
+	due.At = claim.NextDue(due.Every)
+	if claim.CadenceUncertain {
+		due.ScheduleNote = "earlier schedule adoption timing is unavailable; overdue time is measured only from the harness's first observation at " + claim.CadenceAt.Local().Format("2006-01-02 15:04 MST")
+	}
+}
+
+// Cadence records adoption of changed intervals and reports when each enabled
+// task is next due. It claims no firing; Fire still meets the atomic due check.
 func (t Trigger) Cadence(ctx context.Context) ([]RecurringDue, error) {
 	finder, readable := t.Claims.(recurringFinder)
 	if !readable {
@@ -486,13 +513,13 @@ func (t Trigger) Cadence(ctx context.Context) ([]RecurringDue, error) {
 			continue
 		}
 		due := RecurringDue{Task: name, Role: task.Role, Every: task.Every.Duration(), Trigger: runstate.PassTriggerSchedule}
-		claimed, found, err := finder.Find(name)
+		claimed, found, err := t.adopted(ctx, finder, name, due.Every)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("read when the recurring task %s is due: %w", name, err))
 			continue
 		}
 		if found && !claimed.FiredAt.IsZero() {
-			due.At = claimed.NextDue(due.Every)
+			scheduleEvidence(&due, claimed)
 		}
 		dues = append(dues, due)
 	}
@@ -516,7 +543,14 @@ func (t Trigger) instanceCadence(ctx context.Context, finder recurringFinder, ag
 	if !triggers.Defined() {
 		return nil, nil
 	}
-	claimed, found, err := finder.Find(agent)
+	var claimed runstate.SweepClaim
+	var found bool
+	var err error
+	if every := triggers.Every.Duration(); every > 0 {
+		claimed, found, err = t.adopted(ctx, finder, agent, every)
+	} else {
+		claimed, found, err = finder.Find(agent)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read when the program manager instance %s is due: %w", agent, err)
 	}
@@ -525,7 +559,7 @@ func (t Trigger) instanceCadence(ctx context.Context, finder recurringFinder, ag
 	if every := triggers.Every.Duration(); every > 0 {
 		due := RecurringDue{Task: agent, Role: domain.RoleProgramManager, Every: every, Trigger: runstate.PassTriggerSchedule, Instance: true}
 		if fired {
-			due.At = claimed.NextDue(every)
+			scheduleEvidence(&due, claimed)
 		}
 		dues = append(dues, due)
 	}
@@ -605,7 +639,7 @@ func (t Trigger) Missed(ctx context.Context, missed RecurringMiss) error {
 		}
 	}
 	now := t.now()
-	problem := boundedProblem([]string{missed.says(now)})
+	problem := boundedProblem([]string{missed.says(now) + missed.scheduleAge(now)})
 	var problems []error
 	if err := t.Reports.Append(runstate.Sweep{
 		Task:      missed.Task,
@@ -646,7 +680,7 @@ func (m RecurringMiss) subject() string {
 // it has stood, and what kept it.
 func (m RecurringMiss) says(now time.Time) string {
 	late := now.Sub(m.Due).Round(time.Minute)
-	due := m.Due.UTC().Format(time.RFC3339)
+	due := m.Due.Local().Format("2006-01-02 15:04 MST")
 	if !m.Instance {
 		return fmt.Sprintf(
 			"the recurring task %s, due every %s, fell due at %s and had not fired %s later, so its %s's standing look was not taken: %s; nothing was asked, and it fires at the first pass that reaches it once that clears",
@@ -660,6 +694,24 @@ func (m RecurringMiss) says(now time.Time) string {
 	return fmt.Sprintf(
 		"a missed pass of the program manager instance %s: its schedule, every %s, fell due at %s and no pass had been taken %s later: %s; nothing was asked, and it passes at the first pull that reaches it once that clears",
 		m.Task, m.Every, due, late, m.Why)
+}
+
+func (m RecurringMiss) scheduleAge(now time.Time) string {
+	var said string
+	if !m.LastFired.IsZero() {
+		said = fmt.Sprintf("; last actual firing was %s (%s ago); overdue under the effective schedule: %s", m.LastFired.Local().Format("2006-01-02 15:04 MST"), now.Sub(m.LastFired).Round(time.Minute), now.Sub(m.Due).Round(time.Minute))
+	}
+	if m.ScheduleNote != "" {
+		said += "; " + m.ScheduleNote
+	}
+	return said
+}
+
+func (t Trigger) MissCause(from, to time.Time, task string) readmodel.GapCause {
+	if t.Availability == nil {
+		return readmodel.GapCause{}
+	}
+	return t.Availability(from, to, task)
 }
 
 // reportMiss files the miss as the harness's own report. It names the task and
@@ -689,7 +741,7 @@ func (t Trigger) reportMiss(missed RecurringMiss, now time.Time) error {
 // missedReportMessage is the two sentences a missed cadence is said in: what
 // has not fired and what kept it, and what that costs while it stands.
 func missedReportMessage(missed RecurringMiss, now time.Time) string {
-	why := strings.Join(strings.Fields(missed.Why), " ")
+	why := strings.Join(strings.Fields(missed.Why+missed.scheduleAge(now)), " ")
 	if limit := report.MaxMessageBytes / 2; len(why) > limit {
 		cut := limit
 		for cut > 0 && !utf8.RuneStart(why[cut]) {
@@ -700,11 +752,11 @@ func missedReportMessage(missed RecurringMiss, now time.Time) string {
 	if missed.Instance {
 		return fmt.Sprintf("The program manager instance %s has not taken its %s since it fell due at %s, %s ago: %s. "+
 			"Its lane is not being looked at while it stands, and the pass is taken on its own at the first pull that reaches it once that clears.",
-			missed.Task, missed.trigger().Describe(), missed.Due.UTC().Format(time.RFC3339), now.Sub(missed.Due).Round(time.Minute), why)
+			missed.Task, missed.trigger().Describe(), missed.Due.Local().Format("2006-01-02 15:04 MST"), now.Sub(missed.Due).Round(time.Minute), why)
 	}
 	return fmt.Sprintf("The recurring task %s has not fired since it fell due at %s, %s ago: %s. "+
 		"The %s's standing look is not being taken while it stands, and the task fires on its own at the first pass that reaches it once that clears.",
-		missed.Task, missed.Due.UTC().Format(time.RFC3339), now.Sub(missed.Due).Round(time.Minute), why, missed.Role)
+		missed.Task, missed.Due.Local().Format("2006-01-02 15:04 MST"), now.Sub(missed.Due).Round(time.Minute), why, missed.Role)
 }
 
 // RecurringDocket is the triage docket rendered as the development manager's
@@ -1202,6 +1254,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		problems = append(problems, f.finish(!failed && fired.Turns > 0))
 	}
 	recorded.EndedAt = t.now()
+	if failed && t.Availability != nil {
+		if cause := t.Availability(recorded.StartedAt, recorded.EndedAt, name); cause.Why != "" {
+			problems = append(problems, "observations during the stopped response: "+cause.Why)
+		} else {
+			problems = append(problems, "no machine sleep, harness downtime or wait behind another pass was established during the stopped response")
+		}
+	}
 	recorded.Result = merged
 	recorded.Wording = terms.MergeFindings(recorded.Wording, readmodel.ReadTextTerms(t.Repository).Pass(merged))
 	recorded.Failed = failed

@@ -258,6 +258,23 @@ Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 
+The services section also shows the last machine sleep and wake, in local time
+with the zone named, and the last recorded interval without the harness
+watching. On macOS the supervisor reads `pmset -g log` once a minute and keeps
+the OS transitions in `products/<product>/supervisor/machine.jsonl`, including
+sleep and wake while it was down. Dark wakes count as wakes because processes
+can run during them. The same log records whether the scheduler held its lease
+when the supervisor looked. Downtime boundaries are observations, with up to a
+minute between looks; absence of a look is not proof that the harness was down.
+An unavailable OS history or a product with no observations says so. On other
+platforms OS sleep history is currently unavailable. A sleep without a matching
+wake is shown with its duration unknown, rather than counted through the present.
+
+The JSON reading carries these values under `standing.services.availability`:
+`last_sleep`, `last_wake`, `last_gap` (a duration in nanoseconds), and `problem`
+where the history could not be read whole. Watch-session stop and start records
+give downtime boundaries more precisely when they are available.
+
 A product no supervisor has run for prints no such line. `--json` carries the
 same under `standing.services`: the binary's build as the record's `deployed`,
 and each part's `build`, `build_since`, `restarts`, `restarted_at`, and, while a

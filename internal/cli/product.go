@@ -450,6 +450,9 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		PID:         os.Getpid(),
 		Build:       p.build(),
 		RestartHold: hold,
+		PowerHistory: func(ctx context.Context) ([]runstate.PowerEvent, error) {
+			return supervise.ReadPowerHistory(ctx, p.runner)
+		},
 		// The children are started from the binary that started the supervisor,
 		// so that file is the build each of them is moved onto when it is
 		// deployed over.

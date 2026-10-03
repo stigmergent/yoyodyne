@@ -659,6 +659,7 @@ func standingSources(configPath string) readmodel.Sources {
 	}
 	if store, err := runstate.NewSupervisionStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Supervision = store
+		sources.Machine = store
 	}
 	// The program manager instances, and everything their status is derived
 	// from.

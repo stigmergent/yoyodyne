@@ -29,6 +29,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/landing"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/review"
@@ -353,11 +354,13 @@ type IntakeHolds interface {
 }
 
 type Pipeline struct {
-	Tracker   WorkTracker
-	Worktrees WorktreeManager
-	Store     StateStore
-	Backend   backend.Backend
-	Checks    CheckRunner
+	// Availability reads the same OS and scheduler observations as services.
+	Availability func(from, to time.Time, task string) readmodel.GapCause
+	Tracker      WorkTracker
+	Worktrees    WorktreeManager
+	Store        StateStore
+	Backend      backend.Backend
+	Checks       CheckRunner
 	// Load is the machine's load, read as each check begins to scale the check
 	// stage's bound the way a local Git command's budget is scaled. Optional: a
 	// pipeline without one — or on a platform that cannot report the load —
@@ -3675,6 +3678,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			a.observeDevelopEnded(ctx, err)
 			return err
 		}
+		responseStarted := a.pipeline.clock().Now()
 		providerResult, err := a.attemptDevelopment(ctx, prompt, sessionID)
 		// A run its hosting watch session stopped for a redeploy keeps what the
 		// attempt left: the session it established, which is what the session that
@@ -3749,6 +3753,29 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			}
 		}
 		transient, died := diedTransiently(providerResult.TransientFailure, providerResult.Process.Status, providerResult.IsError, err)
+		_, bounded := providerStopReason(providerResult.Process.Status)
+		if (died || (bounded && err != nil)) && a.pipeline.Availability != nil {
+			from := providerResult.Process.StartedAt
+			if from.IsZero() {
+				from = responseStarted
+			}
+			a.state.LastSequence = max(a.state.LastSequence, providerResult.LastEvent)
+			detail := transient.Detail
+			if !died {
+				detail = err.Error()
+			}
+			account, causeErr := a.responseCause(domain.RoleDeveloper, detail, from, providerResult.Process.FinishedAt)
+			if causeErr != nil {
+				a.observeDevelopEnded(ctx, causeErr)
+				return causeErr
+			}
+			providerResult.LastEvent = a.state.LastSequence
+			if died {
+				transient.Detail = account
+			} else {
+				err = fmt.Errorf("%w; %s", err, strings.TrimPrefix(account, detail+"; "))
+			}
+		}
 		if !refusedForLimit && !refusedForOverload && !a.mayRelaunch(died) {
 			// The relaunch budget is spent, which is the right bound for a provider
 			// dying in ways nobody can classify. A death that is plainly a dropped
@@ -7252,6 +7279,7 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		if err := a.holdForOperator(ctx); err != nil {
 			return "", err
 		}
+		responseStarted := a.pipeline.clock().Now()
 		decision, reported, err := a.attemptReview(ctx)
 		// A review the provider refused because nobody is logged into it or nobody
 		// can reach it was never made, and it is answered before anything is
@@ -7303,6 +7331,11 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// developer death spends, and a run that spends the budget here stops with
 		// the provider named rather than the change.
 		if transient, died := diedTransiently(reported.transientFailure, reported.processStatus, false, err); died {
+			var causeErr error
+			transient.Detail, causeErr = a.responseCause(domain.RoleReviewer, transient.Detail, responseStarted, a.pipeline.clock().Now())
+			if causeErr != nil {
+				return "", causeErr
+			}
 			if !a.mayRelaunch(true) {
 				// Past the budget a plainly recoverable death is still not a verdict,
 				// and it costs more here than anywhere: the change is built, checked,
@@ -7327,6 +7360,14 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// change waiting to be judged is untouched by it. Continuing that run
 		// costs one more review; failing it would cost the whole change.
 		if reason, stopped := providerStopReason(reported.processStatus); stopped && err != nil {
+			if a.pipeline.Availability != nil {
+				detail := err.Error()
+				account, causeErr := a.responseCause(domain.RoleReviewer, detail, responseStarted, a.pipeline.clock().Now())
+				if causeErr != nil {
+					return "", causeErr
+				}
+				err = fmt.Errorf("%w; %s", err, strings.TrimPrefix(account, detail+"; "))
+			}
 			resumable, recordErr := a.recordProviderStop(reason)
 			if recordErr != nil {
 				return "", recordErr

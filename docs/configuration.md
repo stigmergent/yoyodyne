@@ -6868,7 +6868,8 @@ problem names the cause. Each cause is also reported differently:
 - **No session was running** when the task fell due. This is reported at
   `warning`, since whoever stopped the harness knows. If this session did open
   late but then found the task held by one of the causes above, that cause is
-  what gets named.
+  what gets named. With supervisor history available, a session opening after
+  the due time alone does not prove that no earlier session was running.
 - **The operator's pause** is recorded and reported to nobody.
 - **Nothing recorded.** No cause was found at or after the time the task fell
   due, for example because the session spent the interval somewhere other than
@@ -6876,6 +6877,30 @@ problem names the cause. Each cause is also reported differently:
   task, and is reported at `critical`. It never names a hold from before the task
   fell due, because that describes the pass before the gap and not its cause. A
   task's own firing is never named as what kept it.
+
+When supervisor observations are available, a miss names the machine's sleep
+from OS power history, an observed interval with the scheduler down, or the
+recurring pass it waited behind. More than one may apply to the same gap. Sleep
+and observed downtime are warnings; waiting behind another pass is reported at
+critical severity. An unfinished pass whose ending is missing is identified as
+uncertain rather than treated as proof that it held the whole gap. The last
+pass's failure is not the cause of a later miss. A stopped provider response
+also carries the observations available during that response; absence of sleep
+evidence does not turn a transport failure into a claim about the machine.
+These observations remain in the run's event log even if a later attempt
+recovers and completes the run.
+
+The harness records the interval it adopts and when it first reads a changed
+one. A new cadence owes nothing before that observation: its due time is the
+later of the last firing plus the new interval and the observation time.
+Reading the same interval after a restart retains that time. A missed-pass
+account gives the age of the last actual firing separately from time overdue
+under this effective schedule. Older records with no adoption evidence say
+that earlier timing is unavailable and measure lateness only from the first
+observation; the age of an old firing cannot establish missed obligations under
+the current interval. This applies to shortening and lengthening intervals and
+to program manager instances' schedule triggers. Event triggers keep their own
+settling and minimum-interval rules.
 
 The cadence is not moved by a miss. The task is still due, and fires on its own at
 the first pull that reaches it once the cause clears.

@@ -175,13 +175,19 @@ type SweepClaim struct {
 	// configuration is a new cadence, which is the honest answer: nothing knows
 	// the new name is the old one.
 	Task string `json:"task"`
-	// FiredAt is when the most recent firing was claimed, and is what the next
-	// one is due from. Firings counts them, which is what a report of a schedule
-	// is read for: a task that has fired forty times and a task nothing has ever
-	// woken look identical without it.
+	// FiredAt is when the most recent firing was claimed. The next is due from
+	// it, subject to the adoption time below. Firings counts them, which is what
+	// a report of a schedule is read for: a task that has fired forty times and
+	// a task nothing has ever woken look identical without it.
 	FiredAt   time.Time `json:"fired_at"`
 	Firings   int       `json:"firings"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Every and CadenceAt record the interval the harness adopted and when it
+	// first read it. A new interval never owes a pass before that observation.
+	Every     time.Duration `json:"every,omitempty"`
+	CadenceAt time.Time     `json:"cadence_at,omitempty"`
+	// CadenceUncertain marks an older claim that carried no adoption evidence.
+	CadenceUncertain bool `json:"cadence_uncertain,omitempty"`
 	// Problem is what stopped the last firing, and is cleared by one that worked.
 	// A claim carrying one is a cadence that is running and producing nothing,
 	// which is a state somebody has to be able to find without reading a log of
@@ -210,13 +216,17 @@ func (c SweepClaim) Due(every time.Duration, now time.Time) bool {
 	if c.FiredAt.IsZero() {
 		return true
 	}
-	return !now.Before(c.FiredAt.Add(every))
+	return !now.Before(c.NextDue(every))
 }
 
 // NextDue is when this task fires again, for a report that says what a schedule
 // is going to do rather than only what it has done.
 func (c SweepClaim) NextDue(every time.Duration) time.Time {
-	return c.FiredAt.Add(every)
+	due := c.FiredAt.Add(every)
+	if c.Every == every && c.CadenceAt.After(due) {
+		due = c.CadenceAt
+	}
+	return due
 }
 
 // Validate reports every contract violation in the claim at once.
@@ -239,6 +249,9 @@ func (c SweepClaim) Validate() error {
 	}
 	if c.UpdatedAt.IsZero() {
 		problems = append(problems, errors.New("updated at is required"))
+	}
+	if c.Every < 0 || (c.Every > 0 && c.CadenceAt.IsZero()) || (c.Every == 0 && !c.CadenceAt.IsZero()) {
+		problems = append(problems, errors.New("a recorded cadence requires a positive interval and its adoption time together"))
 	}
 	if len(c.Problem) > MaxSweepTextBytes {
 		problems = append(problems, fmt.Errorf("problem is %d bytes, limit is %d", len(c.Problem), MaxSweepTextBytes))
@@ -895,6 +908,30 @@ func (s *SweepStore) Root() string { return s.root }
 // actually are.
 func (s *SweepStore) Path() string { return filepath.Join(s.root, "sweeps.jsonl") }
 
+// Adopt records when a running harness first reads a changed cadence. It does
+// not claim a firing or settle one in flight. Reading the same cadence after a
+// restart retains the original adoption time.
+func (s *SweepStore) Adopt(ctx context.Context, task string, every time.Duration, at time.Time) (SweepClaim, bool, error) {
+	if err := domain.ValidateIdentifier("recurring task name", task); err != nil {
+		return SweepClaim{}, false, err
+	}
+	if every <= 0 || at.IsZero() {
+		return SweepClaim{}, false, errors.New("adopting a cadence requires its interval and observation time")
+	}
+	release, err := s.lock(ctx, task)
+	if err != nil {
+		return SweepClaim{}, false, err
+	}
+	defer release()
+	claim, found, err := s.load(task)
+	if err != nil || !found || claim.Every == every {
+		return claim, found, err
+	}
+	claim.CadenceUncertain = claim.Every == 0
+	claim.Every, claim.CadenceAt = every, at.UTC()
+	return claim, true, s.save(task, claim)
+}
+
 // Claim records that a task is firing now, and refuses one whose interval has
 // not passed. It is written before the turns are taken, which is what makes the
 // refusal mean anything: a claim recorded afterwards would leave the window
@@ -940,6 +977,11 @@ func (s *SweepStore) Claim(ctx context.Context, task string, every time.Duration
 	claimed.Firings++
 	claimed.FiredAt = at
 	claimed.UpdatedAt = at
+	if claimed.Every != every {
+		claimed.Every = every
+		claimed.CadenceAt = at
+	}
+	claimed.CadenceUncertain = false
 	// Cleared as the firing starts rather than as it ends, so a claim carrying a
 	// problem is always the most recent firing's and never one left behind by a
 	// firing two cadences ago.

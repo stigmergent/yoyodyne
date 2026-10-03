@@ -4045,6 +4045,7 @@ func (s Scheduler) fire(ctx context.Context, schedule *Schedule, pull Pull) recu
 			// notice already.
 			held.why = strings.TrimSpace(task.Problem)
 			held.refused = true
+			held.fired = task.Task
 		default:
 			held.why = fmt.Sprintf("the pass took its one firing for the recurring task %s", task.Task)
 			held.fired = task.Task
@@ -4179,9 +4180,10 @@ func (s Scheduler) nextFiring(ctx context.Context, pull Pull) (time.Duration, bo
 // should have happened and did not, which is the thing the operator's own
 // maintenance job found on 2026-09-14 and the harness never said.
 //
-// What kept it is this session's to say, in this order: a hold this session
-// found at or after the task fell due; no session was running when it fell due,
-// if this one opened after; and otherwise that nothing was recorded keeping it.
+// What kept it comes from OS sleep history, scheduler presence and the other
+// passes recorded during the gap. An operator's pause is still quiet. A caller
+// without those observations can report this session's holds, but the previous
+// firing's failure is not evidence about this gap.
 // The harness holding its own schedule is breakage and is
 // said at critical, which is what puts it in front of the operator; no session
 // running is a warning, since whoever stopped the harness knows; and the
@@ -4204,7 +4206,7 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 		if recorded, found := watch.missed[due.key()]; found && recorded.Equal(due.At) {
 			continue
 		}
-		miss := RecurringMiss{Task: due.Task, Role: due.Role, Every: due.Every, Due: due.At, Trigger: due.Trigger, Instance: due.Instance}
+		miss := RecurringMiss{Task: due.Task, Role: due.Role, Every: due.Every, Due: due.At, Trigger: due.Trigger, Instance: due.Instance, LastFired: due.LastFired, ScheduleNote: due.ScheduleNote}
 		// A hold this session found at or after the task fell due is what kept it,
 		// even where the session opened after that: a session that opened late and
 		// then could not fire for hours was kept by that, not by the gap before it.
@@ -4215,7 +4217,24 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 		// confident wrong reason where the honest one is that nothing was recorded.
 		// A pass's one firing is never what kept the task that took it.
 		held := watch.held.why != "" && !watch.held.at.Before(due.At) && watch.held.fired != due.Task
+		observed := readmodel.GapCause{}
+		if reader, ok := cadence.(interface {
+			MissCause(time.Time, time.Time, string) readmodel.GapCause
+		}); ok {
+			observed = reader.MissCause(due.At, now, due.Task)
+		}
 		switch {
+		case held && watch.held.quiet:
+			miss.Why = watch.held.why
+		case observed.Why != "":
+			miss.Why = observed.Why
+			miss.Severity = report.SeverityWarning
+			if observed.Waiting {
+				miss.Severity = report.SeverityCritical
+			}
+		case observed.Checked:
+			miss.Why = "the watch session did not reach its schedule while the task was due; no machine sleep, harness downtime or wait behind another pass was established for this gap"
+			miss.Severity = report.SeverityCritical
 		case held:
 			miss.Why = watch.held.why
 			miss.Severity = watch.held.said()

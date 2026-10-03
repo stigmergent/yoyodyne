@@ -128,6 +128,7 @@ var recoverablePhrases = []string{
 	// is "Connection closed mid-response", which is the specimen the relaunch
 	// budget was built from.
 	"connection closed",
+	"computer went to sleep mid-response",
 	"closed by remote host",
 	"remote end hung up unexpectedly",
 	"unexpected eof",
