@@ -5,6 +5,7 @@ package execution
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,6 +49,38 @@ func TestOSProcessRunnerTimeoutTerminatesDescendantsHoldingPipes(t *testing.T) {
 	}
 	if _, statErr := os.Stat(marker); statErr == nil {
 		t.Fatal("the descendant holding the pipes ran to its own end; the timeout never reached it")
+	}
+}
+
+func TestOSProcessRunnerTimeoutTerminatesDescendantsAfterOutputCloses(t *testing.T) {
+	t.Parallel()
+	read, witness, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Close()
+	defer witness.Close()
+	budget := newHeldBudget()
+	runner := OSProcessRunner{budget: budget.arm, outputClosed: budget.spend}
+	// fd 0 carries a pipe the test reads. The child keeps it open after
+	// closing stdout and stderr, and writes only if it survives the group
+	// kill. EOF on this pipe proves the child has ended; checking a marker
+	// immediately after the parent exited would prove nothing about it.
+	// The explicit <&0 keeps a noninteractive shell from replacing the
+	// background child's fd 0 with /dev/null.
+	result, err := runner.Run(context.Background(), Command{
+		Name:    "/bin/sh",
+		Args:    []string{"-c", "( exec 1>&- 2>&-; sleep 5; echo survived >&0 ) <&0 & exec 1>&- 2>&-; wait"},
+		Stdin:   witness,
+		Timeout: time.Hour,
+	}, nil)
+	witness.Close()
+	left, readErr := io.ReadAll(read)
+	if err != nil || result.Status != ProcessTimedOut {
+		t.Fatalf("Run() = %#v, %v, want the budget to end the tree after EOF", result, err)
+	}
+	if readErr != nil || len(left) != 0 {
+		t.Fatalf("the descendant outlived the group kill: %q, %v", left, readErr)
 	}
 }
 
