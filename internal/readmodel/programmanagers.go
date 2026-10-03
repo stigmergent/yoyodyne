@@ -346,9 +346,6 @@ func ReadProgramManagerReport(sources Sources, agent string) (ProgramManagerRepo
 // citeProgramManager is an instance with every work item its report's
 // blockers name shown beside its title.
 func citeProgramManager(instance ProgramManager, titles *WorkItemTitles) ProgramManager {
-	if titles == nil {
-		return instance
-	}
 	blockers := make([]ProgramManagerBlocker, 0, len(instance.Blockers))
 	for _, blocker := range instance.Blockers {
 		blocker.What = titles.Cite(blocker.What)

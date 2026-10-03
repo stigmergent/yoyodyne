@@ -339,7 +339,7 @@ func New(options Options) (*Sink, error) {
 		},
 	}
 	if read := sourcesTitles(options.Standing); read != nil {
-		sink.citing = &titleIndex{read: read, now: options.Now}
+		sink.citing = &titleIndex{read: read}
 	}
 	// A sink with somewhere to record a directive steers, and one with the durable
 	// conversation behind it carries what somebody says to the product manager;

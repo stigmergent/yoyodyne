@@ -426,47 +426,34 @@ it again with `/work` when you want it retried.
 
 ## Every work item beside its title
 
-A work item's identifier is always shown with its title. Wherever the harness
-puts text in front of a person — the four lines of `yoyo status` and the
-needs-a-human line among them, a program manager's lane report and the card the
-dashboard opens on it, a pass's account in `yoyo sweeps`, the report pile a
-program manager's digest is filed into (`yoyo reports` and `/reports`), and
-every message the Slack sink posts — each identifier in it is shown beside the
-item's title, in plain words:
+Every work item named to a person is shown with its current priority and
+labels first, then its title, then its full identifier:
 
 ```text
-Blocked on 434.9 (Price a resumed session at what it moved by) and 434.3 (Say the provider's reset in local time).
+(P1, reliability) Price a resumed session at what it moved by (yoyodyne-ifd.434.9)
 ```
 
-That holds whoever wrote the text. On 2026-09-26 a lane report named work as
-"434.9 and 434.3", with nothing saying what either was. The roles are told to
-name an item by what it is, and a surface that printed whatever a role wrote
-would still let the next bare number through, so the titles are put in by the
-read model as the text is shown rather than trusted to the writer.
+An item with no labels shows only its priority in the first parentheses. The
+whole title is shown, with whitespace joined into one line. This applies to
+`yoyo status`, the dashboard and its cards, Slack messages, lane reports,
+`yoyo sweeps`, digests in `yoyo reports` and `/reports`, report handlings, and
+needs-a-human lines. Conversation replies are expanded too, including replies
+shown as they arrive.
 
-Closed items are titled too. Most of what a report or a pass names has
-closed by the time anybody reads it, and `bd list` given no status leaves
-closed work out, so the titles are read from a listing that asks for every
-status; a test against `bd` itself holds that a closed item comes back with
-its title.
+A role can cite an identifier without copying the item's title, priority, or
+labels. The read model resolves those fields from the tracker when the page or
+message is produced, including closed items. Every mention receives the complete
+citation, even when the text names the item more than once. A citation rendered
+again uses the current fields. Slack reads the tracker after pacing each post;
+it does not reuse a previous message's priority or labels.
 
-An identifier the tracker holds nothing under is shown as `(unknown to the
-tracker)` rather than dropped or left bare. That applies to anything shaped
-like one of this tracker's identifiers — `yoyodyne-ifd.434.9`, or `ifd.434.9`
-where one root carries that hash. A bare dotted number like `434.9` is read as
-an item only where the tracker holds exactly one item it could name, because a
-dotted number is also a version, a price, a duration, or an address: `3.5 hours`
-and `$27.93` are left alone, and so is anything in a path, a link, or between
-backticks, where a title put into the middle would break what somebody is meant
-to type.
-
-An item is titled once per piece of text: text that already says the title is
-left as written, and a later mention of an item already titled is left bare. The
-title is cut to a line where it runs longer. Where the tracker cannot be listed
-the text is shown as it was written, because calling every number unknown over
-a listing that failed would be false. The Slack sink lists the tracker at most
-once a minute rather than once a message, so an item admitted in the last minute
-can reach the channel by its number until the next listing.
+An unreadable or missing item remains visible as `title unavailable (full-id)`.
+A tracker failure costs the names, never the page or message, and every lookup
+has a deadline. Full identifiers and uniquely resolvable shortened identifiers
+are expanded. A bare dotted number is expanded only where exactly one item
+matches it; quantities, explicit versions such as `Go 1.22`, paths, links, and
+code are left intact. If the tracker is unreadable, ambiguous bare numbers
+remain as written.
 
 The records themselves are not changed. A lane report, a report, and a pass's
 account are kept exactly as their author wrote them, and `yoyo reports --json`

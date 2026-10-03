@@ -356,12 +356,18 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
 	}
-	printWatch(stdout, watched)
-	printStalls(stdout, stalls)
-	printRunHistory(stdout, history, workItemID, *failedOnly)
-	if counters != nil {
-		printItemTriage(stdout, *counters, caps.Overridden(counters.Overrides))
+	var account strings.Builder
+	printWatch(&account, watched)
+	printStalls(&account, stalls)
+	titles := reportTitles(*configPath)
+	if standing != nil {
+		titles = standing.Titles
 	}
+	printRunHistory(&account, history, workItemID, *failedOnly, titles)
+	if counters != nil {
+		printItemTriage(&account, *counters, caps.Overridden(counters.Overrides))
+	}
+	fmt.Fprint(stdout, titles.Cite(account.String()))
 	if triageFailure != "" {
 		fmt.Fprintln(stderr, triageFailure)
 	}
@@ -1103,7 +1109,7 @@ func describeTriagePasses(counters runstate.TriageCounters) string {
 // each named for what they are and printed under the run they belong to rather
 // than in a column, because a reason is a sentence somebody wrote and a column
 // wide enough for one would leave no room for anything else.
-func printRunHistory(writer io.Writer, history runstate.RunHistory, workItemID string, failedOnly bool) {
+func printRunHistory(writer io.Writer, history runstate.RunHistory, workItemID string, failedOnly bool, names ...*readmodel.WorkItemTitles) {
 	if history.Recorded == 0 {
 		fmt.Fprintln(writer, "the harness has no recorded runs, so there is nothing to report")
 		return
@@ -1116,8 +1122,12 @@ func printRunHistory(writer io.Writer, history runstate.RunHistory, workItemID s
 		describeRunSelection(workItemID, failedOnly), len(history.Runs), history.Matched, history.Recorded)
 	reasoned := false
 	for _, run := range history.Runs {
+		item := run.WorkItemID
+		if len(names) > 0 {
+			item = names[0].Name(item)
+		}
 		fmt.Fprintf(writer, "%s %s started %s [%s] %s\n",
-			run.RunID, run.WorkItemID, run.StartedAt.UTC().Format(time.RFC3339),
+			run.RunID, item, run.StartedAt.UTC().Format(time.RFC3339),
 			renderRunState(run), renderSummaryCost(run))
 		if printRunReasons(writer, run) {
 			reasoned = true

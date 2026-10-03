@@ -33,9 +33,9 @@ func TestTheReportListingShowsEveryItemBesideItsTitle(t *testing.T) {
 	})
 	rendered := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, nil, nil, titles, fixedClock{}.Now())
 	for _, want := range []string{
-		"434.9 (Price a resumed session at what it moved by)",
-		"434.3 (Say the provider's reset in local time)",
-		"yoyodyne-ifd.999.1 (unknown to the tracker)",
+		"(P0) Price a resumed session at what it moved by (yoyodyne-ifd.434.9)",
+		"(P0) Say the provider's reset in local time (yoyodyne-ifd.434.3)",
+		"title unavailable (yoyodyne-ifd.999.1)",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("renderCollectedReports() = %q, want it to carry %q", rendered, want)

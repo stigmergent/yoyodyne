@@ -43,6 +43,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -95,7 +97,7 @@ func reportShipped(configPath string, count int, jsonOutput bool, stdout, stderr
 	if jsonOutput {
 		return writeJSON(stdout, stderr, shippedOutput{Ledger: ledger})
 	}
-	printShipped(stdout, ledger)
+	printShipped(stdout, ledger, reportTitles(configPath))
 	return 0
 }
 
@@ -111,7 +113,7 @@ var shippedRule = strings.Repeat("-", 82)
 
 // printShipped renders the ledger in the shape the spend report established:
 // header, a row a line, a rule, a TOTAL row, then what the figures mean.
-func printShipped(writer io.Writer, ledger runstate.ShippedLedger) {
+func printShipped(writer io.Writer, ledger runstate.ShippedLedger, names ...*readmodel.WorkItemTitles) {
 	if ledger.Shipped == 0 {
 		fmt.Fprintln(writer, "the harness has no recorded run that promoted its work, so nothing has shipped")
 		return
@@ -125,14 +127,18 @@ func printShipped(writer io.Writer, ledger runstate.ShippedLedger) {
 		elapsedUnknown int
 	)
 	for _, item := range ledger.Items {
+		id, title := item.WorkItemID, renderShippedTitle(item.Title)
+		if len(names) > 0 {
+			id, title = "", names[0].Name(item.WorkItemID)
+		}
 		fmt.Fprintf(writer, shippedRow,
-			item.WorkItemID,
+			id,
 			renderSpendMoment(item.ShippedAt),
 			renderTotal(item.Price.TotalUSD, item.Price.UnknownRuns),
 			renderElapsed(item),
 			renderPaused(item.Paused()),
 			strconv.Itoa(len(item.Price.Runs)),
-			renderShippedTitle(item.Title),
+			title,
 		)
 		total += item.Price.TotalUSD
 		unpriced += item.Price.UnknownRuns

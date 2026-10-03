@@ -86,6 +86,7 @@ type WorkItem struct {
 	ObservedAt time.Time `json:"observed_at"`
 
 	ID                 string   `json:"id"`
+	Citation           string   `json:"citation"`
 	Title              string   `json:"title"`
 	Status             string   `json:"status"`
 	Priority           int      `json:"priority"`
@@ -174,6 +175,7 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 	item := WorkItem{
 		ObservedAt:         now,
 		ID:                 found.ID,
+		Citation:           NewWorkItemTitles([]beads.WorkItem{found}).Name(found.ID),
 		Title:              found.Title,
 		Status:             found.Status,
 		Priority:           found.Priority,

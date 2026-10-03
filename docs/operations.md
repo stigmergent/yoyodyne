@@ -3670,9 +3670,10 @@ Waiting on the harness (1):
   1 admitted item awaits carry-out of a decision already recorded — the harness's — the decision is made, and what is outstanding is the harness acting on it
 ```
 
-Every work item the lines name is shown beside its title, the first time the
-lines name it, including an item named inside a reason or a directive; one the
-tracker does not hold says so. [Reporting](reporting.md#every-work-item-beside-its-title)
+Every work item the lines name is shown as `(priority, labels) title (full id)`,
+including items inside reasons and directives. The tracker supplies the current
+fields when the lines are produced; an unreadable item keeps its id with
+`title unavailable` beside it. [Reporting](reporting.md#every-work-item-beside-its-title)
 has the rule.
 
 - **Running** is the developer runs in flight, each with its item, the phase it
@@ -5106,7 +5107,8 @@ in between.
 Admitted, Held back, Startable, Running, Landed — and of each pile under one
 (`held after a stopped run`, `developing`, and the rest; the week's landed line is a
 grouping of its own beside today's) ends in a chevron and opens a list of the
-work items in it, by title, with the id under each and the pipeline's own word
+work items in it, with their current priority, labels, title, and full id in
+one citation, and the pipeline's own word
 for it beside: the refusal for a held-back item — for one held after a stopped
 run, opened by since when it has been held and how long ago that was, in the
 reader's zone, as `yoyo status` says it, and listed oldest hold first — the
