@@ -54,7 +54,7 @@ func parsePowerEvent(line string) (runstate.PowerEvent, bool, error) {
 	if !sleep && !wake {
 		return runstate.PowerEvent{}, false, nil
 	}
-	at, err := time.Parse("2006-01-02 15:04:05 -0700", strings.Join(fields[:3], " "))
+	at, err := time.Parse("2006-01-02 15:04:05 -0700", fields[0]+" "+fields[1]+" "+fields[2])
 	if err != nil {
 		return runstate.PowerEvent{}, false, fmt.Errorf("read OS power timestamp: %w", err)
 	}
