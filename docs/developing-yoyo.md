@@ -623,7 +623,7 @@ tracker's own exports — `.beads/interactions.jsonl` and `.beads/issues.jsonl`
 — do not count as a dirty tree and are never committed: they are derived from
 a store that is authoritative elsewhere, the archives a release ships are not
 built from them (the notes are drafted from one, and are committed before the
-cut), a harness running beside the cut rewrites them continuously and the
+cut), a harness running beside the cut refreshes them for readers and the
 walkthrough this gate runs rewrites them itself, so refusing on them would
 stall most days of a daily cadence and committing them would be a commit
 `main` cannot take. They are excluded from the tree check and left where they

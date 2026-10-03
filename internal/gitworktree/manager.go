@@ -213,6 +213,7 @@ type Manager struct {
 	pushRemote            string
 	allowedPrimaryChanges map[string]struct{}
 	currentExports        []string
+	prepareExports        func(context.Context) error
 	// timeout is the local Git budget a caller named, and zero where it left
 	// the budget to the default, which localTimeout then scales by the load.
 	timeout time.Duration
@@ -249,6 +250,9 @@ type Options struct {
 	// They are read by a run and never written by one, so each is held out of the
 	// change the run makes.
 	CurrentExports []string
+	// PrepareExports refreshes the primary snapshots before they are copied.
+	// A failure refuses the copy, so a run is never given a stale export as current.
+	PrepareExports func(context.Context) error
 	// Timeout bounds one local Git command, as named. Zero leaves it to the
 	// default, which is scaled by the machine's load per command: see
 	// defaultTimeout for why a fixed figure was killing Git under a loaded
@@ -1188,6 +1192,7 @@ func New(options Options) (*Manager, error) {
 		pushRemote:            pushRemote,
 		allowedPrimaryChanges: allowedPrimaryChanges,
 		currentExports:        currentExports,
+		prepareExports:        options.PrepareExports,
 		timeout:               options.Timeout,
 		note:                  options.Note,
 	}, nil

@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
@@ -36,7 +37,7 @@ import (
 )
 
 // issuesExport is the tracker's export of every item it holds, one per line.
-const issuesExport = ".beads/issues.jsonl"
+const issuesExport = beads.ExportPath
 
 // maxIssuesExportBytes bounds how much of the export a pass reads. It is far
 // above this project's own export, which is under ten megabytes after a
@@ -58,14 +59,20 @@ func programManagerPasses(parts components) map[string]config.AgentConfig {
 type passEvents struct {
 	runs       *runstate.Store
 	repository string
+	refresh    func(context.Context) error
 }
 
 // Events reads one stream's events after one moment and at or before another.
-func (p passEvents) Events(_ context.Context, stream string, after, until time.Time) ([]orchestrator.PassEvent, error) {
+func (p passEvents) Events(ctx context.Context, stream string, after, until time.Time) ([]orchestrator.PassEvent, error) {
 	switch stream {
 	case runstate.PassStreamRuns:
 		return runEvents(p.runs, after, until)
 	case runstate.PassStreamTracker:
+		if p.refresh != nil {
+			if err := p.refresh(ctx); err != nil {
+				return nil, fmt.Errorf("refresh the tracker admission snapshot: %w", err)
+			}
+		}
 		return admissionEvents(p.repository, after, until)
 	default:
 		return nil, fmt.Errorf("stream %q is not one a pass reads", stream)

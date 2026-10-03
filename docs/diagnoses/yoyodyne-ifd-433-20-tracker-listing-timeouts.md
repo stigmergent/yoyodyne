@@ -154,5 +154,18 @@ its drain, and is left below.
 - **The export grows with the tracker and is rewritten on every write.** At
   10.7 MB it is a large part of how long bd holds its lock; bd's export
   settings, or keeping the export off the write path, are the lever.
+
+  Resolved by tracker export cleanup and contention reduction
+  (yoyodyne-ifd.433.24): the harness sets `BD_EXPORT_AUTO=false` on its bd
+  calls and requests explicit snapshots at reader boundaries. Calls outside
+  the harness retain their own export settings; see
+  [tracker export snapshots and abandoned temporary files](../operations.md#tracker-export-snapshots-and-abandoned-temporary-files).
 - **Abandoned export temporaries accumulate** in the primary checkout's
   `.beads` and nothing removes them.
+
+  Resolved by tracker export cleanup and contention reduction
+  (yoyodyne-ifd.433.24): `yoyo reconcile`, including the supervisor's
+  maintenance pass, removes export temporaries more than 24 hours old only
+  after checking that no process holds them open, and records each removal.
+  If that check cannot give a complete answer, it removes nothing; see
+  [tracker export snapshots and abandoned temporary files](../operations.md#tracker-export-snapshots-and-abandoned-temporary-files).

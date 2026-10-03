@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"regexp"
 	"slices"
 	"sort"
@@ -1586,13 +1587,19 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	if binary == "" {
 		binary = "bd"
 	}
-	result, err := runner.Run(ctx, execution.Command{
+	command := execution.Command{
 		Name:           binary,
 		Args:           args,
 		Dir:            c.Dir,
+		Env:            withoutAutoExport(os.Environ()),
 		Timeout:        c.timeout(),
 		MaxOutputBytes: maxBDOutputBytes,
-	}, nil)
+	}
+	var raw boundedExportOutput
+	if args[0] == "export" {
+		command.RawStdout = &raw
+	}
+	result, err := runner.Run(ctx, command, nil)
 	if err != nil {
 		return nil, fmt.Errorf("run bd %s: %w", args[0], err)
 	}
@@ -1609,6 +1616,9 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 			message = strings.TrimSpace(result.Stdout)
 		}
 		return nil, processFailure{verb: args[0], status: result.Status, exitCode: result.ExitCode, message: message}
+	}
+	if command.RawStdout != nil {
+		return raw.Bytes(), nil
 	}
 	return []byte(result.Stdout), nil
 }

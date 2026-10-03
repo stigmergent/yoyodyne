@@ -1854,17 +1854,53 @@ work being recorded as failed — but above one it converts a long outage into
 stopped runs on the branch rather than one slow one, and the fix while it lasts
 is `yoyo pause` rather than waiting for the windows to run out.
 
+### Tracker export snapshots and abandoned temporary files
+
+The harness sets `BD_EXPORT_AUTO=false` on its bd calls, even where the project
+file enables automatic exports. A tracker write therefore no longer rewrites
+the full `.beads/issues.jsonl` under its store lock. The harness requests an
+explicit export before preparing a worktree, and admission-trigger readers and
+`yoyo reconcile` refresh the primary snapshot when it is at least a minute old.
+The tracker still has to read the whole store for an export; it does so at these
+reader boundaries rather than on every write. A failed or incomplete export
+leaves the previous snapshot intact and is reported by the reader.
+
+`yoyo reconcile`, including the supervisor's maintenance pass, removes bd export
+temporaries named `.beads/.~issues.jsonl.<digits>` or
+`.beads/.~interactions.jsonl.<digits>` only after their modification time is more
+than 24 hours old. The confined snapshot writer's `.beads/.yoyo-write-*.tmp`
+temporaries are cleaned by the same rules. It checks open files with `lsof`,
+matching device and inode
+so a holder using another path or a hard link is still recognized. Open files,
+symlinks, unrelated names, and files changed during inspection are kept. If
+`lsof` is unavailable, times out, or cannot give a complete answer, nothing is
+removed and the pass reports why. bd creates a new temporary exclusively for
+each export; it never reopens an abandoned one.
+
+Each pass that removes files records their paths, sizes, and modification times
+under `products/<product-id>/tracker-export-cleanups/` in the product's state
+directory. The command also names each removal, and `--json` carries it under
+`tracker_exports`. The developer's sandbox cannot clean the primary checkout;
+the harness performs this on its next maintenance pass after moving to the new
+build. Calls to bd outside the harness keep their own export settings.
+
 ### A tracker that does not answer a listing
 
 A listing — `bd list`, which the development manager's docket, the forge
 reading on her pass, the claim audit, the admission guard, and `yoyo status`
 all make — is bounded at thirty seconds like every tracker call. bd takes an
-exclusive lock on its store for every command, reads included, and a write
-holds it while it rewrites the whole export beside the store, so a listing that
-arrives behind a write or two can be killed at its bound seconds before it would
+exclusive lock on its store for every command, reads included. Harness writes
+set `BD_EXPORT_AUTO=false` and do not automatically rewrite the export.
+Explicit snapshot exports still read the whole store under that lock; the
+harness publishes the snapshot beside the store after bd exits. Calls outside
+the harness retain their own export settings and, when automatic exports are
+enabled, can still rewrite the whole export while holding the lock. A listing
+queued behind these commands can be killed at its bound seconds before it would
 have answered.
-[The diagnosis](diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md) has
-the evidence.
+[The diagnosis](diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md)
+records the earlier behavior, when every harness write also exported; the
+[snapshot section](#tracker-export-snapshots-and-abandoned-temporary-files)
+describes the current behavior.
 
 **A listing its bound killed is asked again, twice**, two seconds and then
 eight seconds later. Only a timeout is asked again: bd refusing, or answering

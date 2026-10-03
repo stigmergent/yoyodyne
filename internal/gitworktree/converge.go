@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // Catchup is what one attempt to bring a local target branch onto the forge's
@@ -394,15 +395,15 @@ func exportWritePrefix(declared string) string {
 // have; the check is the half that travels, and it is the only half a
 // repository without that line has.
 //
-// The tolerance has no staleness bound. An exporter killed mid-write leaves a
-// temp file that nothing renames away, and from here it is indistinguishable
-// from one being written right now, so it is ignored for as long as it sits
-// there rather than surfacing later as unexpected state. That is the deliberate
-// trade: the alternative reading is the one that discarded two reviewed rounds,
-// and a leftover temp file is Git-ignored here anyway, so refusing on it would
-// buy visibility this check was never the place to give.
+// Readiness has no staleness bound: it cannot tell a dead exporter from a live
+// holder. Tracker maintenance makes that distinction and removes abandoned
+// files; readiness only leaves the write alone, including the confined writer's
+// own temporary when the harness is publishing a fresh snapshot.
 func isExportWriteInProgress(declared map[string]struct{}, path string) bool {
 	for export := range declared {
+		if filepath.Dir(path) == filepath.Dir(export) && repowrite.IsTemporaryFile(filepath.Base(path)) {
+			return true
+		}
 		prefix := exportWritePrefix(export)
 		if !strings.HasPrefix(path, prefix) {
 			continue

@@ -20,6 +20,26 @@ import (
 
 var passWindowStart = time.Date(2026, 9, 25, 9, 0, 0, 0, time.UTC)
 
+func TestAdmissionEventsRefreshBeforeReadingAndRefuseAStaleSnapshot(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	reader := passEvents{repository: repository, refresh: func(context.Context) error {
+		if err := os.MkdirAll(filepath.Join(repository, ".beads"), 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(repository, issuesExport), []byte(fmt.Sprintf(
+			`{"id":"new-admission","title":"new work","created_at":%q}`+"\n", passWindowStart.Add(time.Minute).Format(time.RFC3339Nano))), 0o600)
+	}}
+	events, err := reader.Events(context.Background(), runstate.PassStreamTracker, passWindowStart, passWindowStart.Add(time.Hour))
+	if err != nil || len(events) != 1 || events[0].Subject != "new-admission" {
+		t.Fatalf("fresh admissions = %v, %v", events, err)
+	}
+	reader.refresh = func(context.Context) error { return errors.New("export refused") }
+	if events, err := reader.Events(context.Background(), runstate.PassStreamTracker, passWindowStart, passWindowStart.Add(time.Hour)); err == nil || len(events) != 0 {
+		t.Fatalf("stale admission snapshot = %v, %v", events, err)
+	}
+}
+
 // Admissions are read from the tracker's export by when each item was
 // created: the thirty created inside the window, and nothing created before it,
 // with an unreadable line and a record that is not an item set aside.

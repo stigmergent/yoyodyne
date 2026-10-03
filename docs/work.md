@@ -26,8 +26,13 @@ named on the watch log with the item, the Git command, and Git's own words.
 writing](operations.md#a-registration-a-run-never-finished-writing) lists the
 forms.
 
-The new worktree is given your checkout's own `.beads/issues.jsonl` rather than
-the copy its base commit carried. That export is derived from a store Git is not
+Before giving a new worktree `.beads/issues.jsonl`, the harness asks bd for a
+fresh snapshot in your checkout rather than using the copy its base commit
+carried. Ordinary harness tracker writes disable bd's automatic export with
+`BD_EXPORT_AUTO=false`, so each write no longer rewrites the whole snapshot.
+The snapshot is published only after the export succeeds; a failed export
+refuses worktree preparation rather than passing an older copy off as current.
+That export is derived from a store Git is not
 authoritative for and it is committed on a cadence of its own — a release cut,
 not a run — so between cuts every commit carries a copy some number of items
 behind, and a developer reading it for the work around its own would find items

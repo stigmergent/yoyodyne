@@ -1864,7 +1864,7 @@ func TestManagerReadiesThroughAnExportBeingRewritten(t *testing.T) {
 	}
 	// Both declared exports mid-write at once, which is what a tracker flushing
 	// everything it holds leaves behind.
-	inFlight := []string{".beads/.~issues.jsonl.2847119036", ".beads/.~interactions.jsonl.417"}
+	inFlight := []string{".beads/.~issues.jsonl.2847119036", ".beads/.~interactions.jsonl.417", ".beads/.yoyo-write-SNAPSHOT.tmp"}
 	for _, name := range inFlight {
 		if err := os.WriteFile(filepath.Join(repository, filepath.FromSlash(name)), []byte("half an export\n"), 0o600); err != nil {
 			t.Fatalf("WriteFile(%s) error = %v", name, err)
@@ -1885,7 +1885,7 @@ func TestManagerReadiesThroughAnExportBeingRewritten(t *testing.T) {
 	// The tolerance is for the exporter's own temp names and nothing wider. A
 	// file that merely looks like one, or that sits beside no declared export,
 	// is still somebody's to resolve.
-	for _, name := range []string{".beads/.~ledger.jsonl.417", ".~issues.jsonl.417", ".beads/.~issues.jsonl"} {
+	for _, name := range []string{".beads/.~ledger.jsonl.417", ".~issues.jsonl.417", ".beads/.~issues.jsonl", ".yoyo-write-SNAPSHOT.tmp", ".beads/.yoyo-write-.tmp"} {
 		if err := os.WriteFile(filepath.Join(repository, filepath.FromSlash(name)), []byte("not an export write\n"), 0o600); err != nil {
 			t.Fatalf("WriteFile(%s) error = %v", name, err)
 		}
