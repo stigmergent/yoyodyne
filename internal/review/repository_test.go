@@ -52,6 +52,56 @@ func TestReviewAbsenceIncludesUncommittedAdditionsAndExcludesDeletions(t *testin
 			t.Fatalf("refute(%q) = %v", path, err)
 		}
 	}
+	// Removing a tracked path does not prove absence when the new-file
+	// evidence supplies that same path again above HEAD.
+	changes.UntrackedFiles = []string{"removed.txt"}
+	if err := evidence.refute(Verdict{Findings: []Finding{{Absent: "removed.txt"}}}, changes); err == nil {
+		t.Fatal("an untracked file at a removed path was accepted as absent")
+	}
+}
+
+func TestReviewRefusesAbsenceWhenUncommittedAdditionsAreOmittedFromTheListing(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		changes gitworktree.ChangeDiff
+		want    string
+	}{
+		{"new file shown in the patch", gitworktree.ChangeDiff{UntrackedFiles: []string{"late/added.txt"}}, "holds it"},
+		{"new file omitted from the patch", gitworktree.ChangeDiff{OmittedFiles: []gitworktree.OmittedFile{{Path: "late/added.txt", Reason: gitworktree.OmittedPatchFull, Bytes: 8, Digest: "sha256:content"}}}, "holds it"},
+		{"empty file omitted from the patch", gitworktree.ChangeDiff{OmittedFiles: []gitworktree.OmittedFile{{Path: "late/added.txt", Reason: gitworktree.OmittedTooManyFiles, Digest: "sha256:empty"}}}, "holds it"},
+		{"irregular file omitted from the patch", gitworktree.ChangeDiff{OmittedFiles: []gitworktree.OmittedFile{{Path: "late/added.txt", Reason: gitworktree.OmittedUnreadable, Undigestable: true}}}, "holds it"},
+		{"no other presence evidence", gitworktree.ChangeDiff{}, "no complete change listing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			request := newRequest(nil)
+			request.Repository = RepositoryEvidence{Listing: gitworktree.CommitListing{Commit: "head", Files: []string{"first.txt"}}}
+			request.Changes = test.changes
+			request.Changes.Files = []gitworktree.ChangedFile{{Path: "first.txt", Status: "M"}}
+			request.Changes.FilesOmitted = 1
+			provider := &fakeBackend{finalText: `{"decision":"repair","summary":"missing delivery","findings":[{"severity":"major","message":"supply it","absent":"./late//added.txt"}]}`}
+			result, err := (Reviewer{Backend: provider, Model: testReviewModel}).Review(context.Background(), request)
+			if err == nil || !strings.Contains(err.Error(), test.want) || result.Decision != "" {
+				t.Fatalf("an absence claim became a verdict with an incomplete change listing: %#v, %v", result, err)
+			}
+		})
+	}
+}
+
+func TestReviewAbsenceUsesWholeContentAndRemovalEvidence(t *testing.T) {
+	t.Parallel()
+	evidence := RepositoryEvidence{
+		Listing:  gitworktree.CommitListing{Commit: "head", Files: []string{"removed.txt"}},
+		Contents: []RepositoryFile{{Path: "empty.txt"}},
+	}
+	changes := gitworktree.ChangeDiff{DeletedFiles: []gitworktree.DeletedFile{{Path: "removed.txt", Whole: true}, {Path: "reduced.txt"}}}
+	for _, path := range []string{"removed.txt", "reduced.txt", "empty.txt", "missing.txt"} {
+		err := evidence.refute(Verdict{Findings: []Finding{{Absent: path}}}, changes)
+		if (err != nil) != (path == "reduced.txt" || path == "empty.txt") {
+			t.Fatalf("refute(%q) = %v", path, err)
+		}
+	}
 }
 
 func TestRepositoryEvidenceQuotesWholeContentAndMakesBoundsExplicit(t *testing.T) {

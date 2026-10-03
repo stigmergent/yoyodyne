@@ -28,19 +28,51 @@ type RepositoryFile struct {
 
 func (e RepositoryEvidence) refute(verdict Verdict, changes gitworktree.ChangeDiff) error {
 	deleted := make(map[string]bool)
+	for _, file := range changes.DeletedFiles {
+		deleted[file.Path] = file.Whole
+	}
 	for _, file := range changes.Files {
 		deleted[file.Path] = file.Status == "D"
 	}
 	presentPaths := make(map[string]bool, len(e.Listing.Files)+len(changes.Files))
-	for _, file := range e.Listing.Files {
-		if !deleted[file] {
-			presentPaths[file] = true
+	presentAtTip := func(path string) {
+		if path != "" {
+			presentPaths[path] = true
 		}
+	}
+	presentAtHead := func(path string) {
+		if !deleted[path] {
+			presentAtTip(path)
+		}
+	}
+	for _, file := range e.Listing.Files {
+		presentAtHead(file)
 	}
 	// A caller may review uncommitted files above the listed HEAD.
 	for _, file := range changes.Files {
 		if file.Status != "D" {
-			presentPaths[file.Path] = true
+			presentAtTip(file.Path)
+		}
+	}
+	// These sections are delivered independently of the changed-file listing's
+	// bound. A digest proves even a zero-byte file is present; zero bytes without
+	// a digest or an irregular-file marker may instead describe a deletion.
+	for _, file := range changes.UntrackedFiles {
+		presentAtTip(file)
+	}
+	for _, file := range changes.OmittedFiles {
+		if file.Digest != "" || file.Bytes > 0 || file.Undigestable {
+			presentAtTip(file.Path)
+		}
+	}
+	for _, file := range changes.DeletedFiles {
+		if !file.Whole {
+			presentAtTip(file.Path)
+		}
+	}
+	for _, file := range e.Contents {
+		if file.Unavailable == "" {
+			presentAtHead(file.Path)
 		}
 	}
 	var problems []error
@@ -67,6 +99,8 @@ func (e RepositoryEvidence) refute(verdict Verdict, changes gitworktree.ChangeDi
 			problems = append(problems, fmt.Errorf("findings[%d] claims %q is absent, but the reviewed repository holds it", index, finding.Absent))
 		case e.Unavailable != "" || e.Listing.Commit == "" || e.Listing.Omitted > 0:
 			problems = append(problems, fmt.Errorf("findings[%d] claims %q is absent, but this review has no complete repository listing to check it", index, finding.Absent))
+		case changes.FilesOmitted > 0:
+			problems = append(problems, fmt.Errorf("findings[%d] claims %q is absent, but this review has no complete change listing to check uncommitted additions", index, finding.Absent))
 		}
 	}
 	if len(problems) > 0 {
@@ -114,7 +148,7 @@ func renderRepository(e RepositoryEvidence) string {
 	if e.Listing.Omitted > 0 {
 		rendered.WriteString(fmt.Sprintf("The listing omitted %d path(s) under its bounds. It proves presence only; do not claim an unlisted path is absent.\n", e.Listing.Omitted))
 	} else {
-		rendered.WriteString("The listing is complete. Absence must be checked here, together with additions in the change listing, rather than inferred from the patch.\n")
+		rendered.WriteString("The committed listing is complete. Absence must be checked here, together with additions in the change evidence, rather than inferred from the patch. A bounded change listing cannot establish an unlisted path's absence from the worktree.\n")
 	}
 	for _, file := range e.Listing.Files {
 		rendered.WriteString(strconv.Quote(file) + "\n")

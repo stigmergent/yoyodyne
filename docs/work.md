@@ -215,8 +215,12 @@ the patch is not mistaken for a missing file. It is bounded to 20,000 paths and
 128 KiB of quoted paths. Any cut is stated with a count, and a partial listing
 proves presence only. Every finding claiming a repository path is missing names
 it in `absent`; the harness normalizes that path and rejects the verdict if the
-listing contradicts it or cannot check it. The change listing also accounts for
-uncommitted additions and deletions. This check covers the structured field;
+presence evidence contradicts it or either listing is incomplete. The change
+listing also accounts for uncommitted additions and deletions; new-file,
+omission, removal, and whole-content evidence is checked alongside it. A complete
+HEAD listing cannot prove a path absent from a worktree whose changed-file listing
+was cut, because an unlisted uncommitted addition may hold it. This check covers
+the structured field;
 the contract requires it for absence claims written in a finding's prose.
 
 Whole text at the reviewed commit is supplied separately from references at the
