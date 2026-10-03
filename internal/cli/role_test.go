@@ -170,6 +170,68 @@ func TestRoleActivationRefusesAnAgentBeforeLoadingAnything(t *testing.T) {
 	}
 }
 
+func TestRoleActivationCommandsAgreeWithConfiguredRepositoryStateRoot(t *testing.T) {
+	t.Setenv(execution.AgentRoleVariable, "")
+	t.Setenv("YOYODYNE_CONFIG_HOME", t.TempDir())
+	first := t.TempDir()
+	t.Setenv(runstate.StateHomeVariable, first)
+	project, configPath := stateRootProject(t)
+	repository := filepath.Join(project, "checkout")
+	if err := os.Mkdir(repository, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repository, "init", "-b", "main")
+	if err := os.WriteFile(configPath, []byte(strings.Replace(validConfig, "repository: .", "repository: checkout", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, project, config.DirectoryName+"/roles/specialist.yaml", "extends: architect\n")
+	activation := roleCLIOutput(t, "activate", configPath, "specialist", "--by", "Ada").Recorded
+	marker := filepath.Join(repository, ".git", "yoyodyne", "state-root")
+	if content, err := os.ReadFile(marker); err != nil || strings.TrimSpace(string(content)) != first {
+		t.Fatalf("configured repository marker = %q, %v; want %q", content, err, first)
+	}
+	if history := roleCLIOutput(t, "history", configPath).Activations; len(history) != 1 || history[0].ID != activation.ID {
+		t.Fatalf("history on the recorded root = %#v", history)
+	}
+
+	second := t.TempDir()
+	t.Setenv(runstate.StateHomeVariable, second)
+	for _, verb := range []string{"activate", "list", "history"} {
+		for _, jsonOutput := range []bool{false, true} {
+			args := []string{"role", verb, "--config", configPath}
+			if verb == "activate" {
+				args = append(args, "specialist", "--by", "Ada")
+			}
+			if jsonOutput {
+				args = append(args, "--json")
+			}
+			stdout, stderr, code := runCLI(t, args...)
+			message := stderr
+			if jsonOutput {
+				var output roleOutput
+				if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+					t.Fatal(err)
+				}
+				message = output.Error
+			}
+			if code != 1 {
+				t.Fatalf("%v on a second root = %d, %q, %q; want refusal", args, code, stdout, stderr)
+			}
+			for _, want := range []string{first, second, marker, runstate.RootOriginEnvironment} {
+				if !strings.Contains(message, want) {
+					t.Errorf("%v refusal %q does not name %q", args, message, want)
+				}
+			}
+		}
+	}
+	if entries, err := os.ReadDir(second); err != nil || len(entries) != 0 {
+		t.Fatalf("refused role commands wrote under the second root: %v, %v", entries, err)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".git", "yoyodyne", "state-root")); !os.IsNotExist(err) {
+		t.Fatalf("role commands opened the unconfigured repository's marker: %v", err)
+	}
+}
+
 func roleCLIOutput(t *testing.T, verb, configPath string, args ...string) roleOutput {
 	t.Helper()
 	command := append([]string{"role", verb, "--config", configPath, "--json"}, args...)

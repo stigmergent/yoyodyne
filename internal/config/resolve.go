@@ -82,12 +82,13 @@ func LoadResolved(path string) (Resolved, error) {
 	return loadResolved(path, true)
 }
 
-// RoleHistoryProduct identifies the audit's product without reading today's
-// role definitions. A broken or removed definition must not hide its history.
-// It returns no agent configuration or authority for a caller to execute.
-func RoleHistoryProduct(path string) (domain.ProductID, error) {
+// RoleHistoryProduct identifies the audit's product and repository without
+// reading today's role definitions. A broken or removed definition must not
+// hide its history. It returns no agent configuration or authority for a caller
+// to execute.
+func RoleHistoryProduct(path string) (Product, error) {
 	resolved, err := loadResolved(path, false)
-	return resolved.Config.Product.ID, err
+	return resolved.Config.Product, err
 }
 
 func loadResolved(path string, definitions bool) (Resolved, error) {

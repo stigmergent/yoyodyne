@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -65,11 +64,11 @@ func runRole(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return reportRoleError(stdout, stderr, *jsonOutput, err)
 	}
-	root, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
+	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return reportRoleError(stdout, stderr, *jsonOutput, err)
 	}
-	store, err := runstate.NewRoleActivationStore(root.Path, resolved.Config.Product.ID)
+	store, err := runstate.NewRoleActivationStore(stateRoot, resolved.Config.Product.ID)
 	if err != nil {
 		return reportRoleError(stdout, stderr, *jsonOutput, err)
 	}
@@ -150,7 +149,7 @@ func roleConfiguration(explicitPath string, history bool) (config.Resolved, erro
 	if err != nil {
 		return config.Resolved{}, err
 	}
-	return config.Resolved{Config: config.Config{Product: config.Product{ID: product}}, Path: path}, nil
+	return config.Resolved{Config: config.Config{Product: product}, Path: path}, nil
 }
 
 func reportRoleError(stdout, stderr io.Writer, jsonOutput bool, err error) int {
