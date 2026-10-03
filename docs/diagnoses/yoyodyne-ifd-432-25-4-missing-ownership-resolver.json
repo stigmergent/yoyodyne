@@ -1,0 +1,77 @@
+{
+  "title": "Operator-reason guidance needs the ownership resolver to land first",
+  "work_item": {
+    "id": "yoyodyne-ifd.432.25.4",
+    "title": "Every role's contract and live persona says how to name the operator's closed-list reason, so a finding that truly needs him opens with it and reaches him"
+  },
+  "recorded_at": "2026-10-03 12:11 PDT",
+  "revision": "5f11395de171bc57f47ea84489194d728a12f929",
+  "outcome": "Evidence of a missing implementation prerequisite; the requested role guidance and tests are not delivered.",
+  "prerequisite": {
+    "id": "yoyodyne-ifd.432.25.1",
+    "title": "One ownership registry and resolver: every waiting entry's owner, remedy, and capability come from one table that every surface projects",
+    "status_in_worktree_export": "blocked",
+    "record_source": ".beads/issues.jsonl, copied by the harness when this worktree was created; no live tracker query was made",
+    "release_condition": "Land the ownership registry and resolver, then run the role-guidance item in a worktree containing that implementation. Read its accepted reasons and actual finding and escalation input fields before writing the guidance and tests."
+  },
+  "source_evidence": [
+    {
+      "path": "internal/ownership",
+      "observation": "This package does not exist at the recorded revision. The resolver's closed set and prefix parser cannot be imported or exercised here."
+    },
+    {
+      "path": "internal/readmodel/operatoraction.go",
+      "symbol": "OperatorActions",
+      "observation": "The existing derivation creates operator actions from a handling with NeedsOperator set or from an unhandled critical report. It does not parse a closed-list reason followed by a colon."
+    },
+    {
+      "path": "internal/readmodel/attention.go",
+      "symbol": "operatorActionAttention",
+      "observation": "The existing function assigns MoverOperator directly. It does not call an ownership resolver."
+    },
+    {
+      "path": "internal/readmodel/standing_test.go",
+      "symbol": "TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals",
+      "observation": "The existing fixture uses a handling reason without a closed-list prefix and expects it on NeedsHuman. This is source evidence of the earlier routing contract, not an execution result."
+    },
+    {
+      "path": "docs/designs/ownership-and-the-operator.md",
+      "section": "The operator's closed list",
+      "observation": "The design assigns the closed set to internal/ownership and lists fundamental-intent, credential, forge-setting, beyond-grant, human-gate, own-hold, and diverged-history. The design is present; its implementing package is absent."
+    }
+  ],
+  "acceptance_status": {
+    "contracts_and_personas": "Unchanged. Teaching prefix-based routing before that routing exists would describe behavior this revision does not provide.",
+    "reason_drift_test": "Not implemented. Comparing guidance with a new local copy of the design's list would not compare it with the reasons the resolver accepts.",
+    "report_routing_test": "Not implemented. The requested distinction between a listed prefix and no prefix depends on the absent resolver. Reimplementing report ownership here would duplicate the prerequisite's work and violate the shared-resolver boundary."
+  },
+  "scope": "This diagnosis is the only change. No contracts, personas, production code, tests, configuration, governed artifacts, or tracker export were changed.",
+  "execution_evidence": {
+    "probe": {
+      "command": "make fmtcheck",
+      "outcome": "passed",
+      "exit_code": 0,
+      "output": ""
+    },
+    "structured_file_check": {
+      "command": "go test -count=1 -run '^TestEveryStructuredFileInThisRepositoryDecodes$' ./internal/composition",
+      "outcome": "failed",
+      "exit_code": 1,
+      "output": "FAIL\t./internal/composition [setup failed]\n# ./internal/composition\nopen /Users/mbryant/github/yoyodyne/.git/yoyodyne/go-build/e2/e2c6790111290d948731a3303941d45f2e1b2317f53ed85af6afc9fdbf7c9dc3-d: operation not permitted\nFAIL\n",
+      "qualification": "The command ran but failed during setup; no Go tests executed."
+    },
+    "log_path": "/Users/mbryant/github/yoyodyne/.git/worktrees/yoyodyne-ifd-432-25-4-20f35b29/yoyodyne/scratch/run-20f35b299b226f1c6ef980f184f9a401/structured-file-check.log",
+    "log_status": "No log was saved: the attempt to write the command's output to the assigned scratch path failed. The output above is part of this diagnosis, not an alternative scratch log.",
+    "log_error": "PermissionError: [Errno 1] Operation not permitted: '/Users/mbryant/github/yoyodyne/.git/worktrees/yoyodyne-ifd-432-25-4-20f35b29/yoyodyne/scratch/run-20f35b299b226f1c6ef980f184f9a401/structured-file-check.log'",
+    "existing_environment_work": {
+      "id": "yoyodyne-ifd.435.11",
+      "title": "Developer sandbox access matches the run's declared cache and scratch paths",
+      "status_in_worktree_export": "blocked"
+    }
+  },
+  "next_run": [
+    "Add the exact accepted reason prefixes, their plain meanings, and the actual report or escalation field to every role contract, all six shipped personas, and all six bound personas.",
+    "Compare the reasons named by the guidance with the resolver's accepted set, including checks that both persona copies carry the guidance.",
+    "Drive otherwise equivalent reports through the shared read model with and without a listed prefix, asserting operator ownership and line placement only for the listed reason and the owning role for the other case."
+  ]
+}
