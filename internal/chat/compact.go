@@ -259,6 +259,11 @@ func (s *Session) compact(systemPrompt, prompt string, due compaction) (string, 
 // its own to continue — which is the session the record held, on the provider
 // the record said held it.
 func (s *Session) measureSession(resumed bool, prompt, reply string) {
+	// One more turn cannot establish an unknown session's total size. Keep it
+	// unmeasured until a rebuild starts a fresh session, even if its save fails.
+	if resumed && s.state.ProviderSessionBytes == 0 {
+		return
+	}
 	added := len(prompt) + len(reply)
 	if resumed {
 		s.state.ProviderSessionBytes += added

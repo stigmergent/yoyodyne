@@ -564,6 +564,85 @@ func TestAnUnmeasuredSessionIsCompactedOnItsNextTurn(t *testing.T) {
 	}
 }
 
+func TestAFailedSaveOfAnUnmeasuredSessionStillCompactsAfterReopening(t *testing.T) {
+	t.Parallel()
+	for name, answer := range map[string]string{
+		"invalid memory block": memoryBlock(`{"memories":[{"action":"unknown"}]}`),
+		"refused memory write": memoryBlock(`{"memories":[{"action":"compact","memory":"nothing-yet","text":"shorter","compacts":[1]}]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider := &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old", FinalText: "Earlier learning."},
+				{SessionID: "old", FinalText: answer},
+			}}
+			options := compactingOptions(t, root, provider, SessionBudgetBytes)
+			options.Memories = memories
+			session := openTestSession(t, options)
+			if _, err := session.Send(context.Background(), "First message."); err != nil {
+				t.Fatal(err)
+			}
+			older, err := options.Store.Load(options.identity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			older.ProviderSessionBytes, older.ProviderSessionBudgetBytes = 0, 0
+			if err := options.Store.Save(older); err != nil {
+				t.Fatal(err)
+			}
+			session = openTestSession(t, options)
+			if _, err := session.Send(context.Background(), "Waiting message."); !errors.Is(err, ErrCompactionFailed) {
+				t.Fatalf("Send() error = %v, want the save to fail", err)
+			}
+			failed, err := options.Store.Load(options.identity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if failed.ProviderSessionBytes != 0 {
+				t.Errorf("the failed save changed the old session's unknown size to %d bytes", failed.ProviderSessionBytes)
+			}
+			if failed.ProviderSessionID != "old" {
+				t.Fatalf("the failed save replaced the old session with %q", failed.ProviderSessionID)
+			}
+			retry := &compactionBackend{speakingBackend: &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old", FinalText: memoryBlock(`{"memories":[{"action":"remember","memory":"slow-checks","text":"The race check needs eleven minutes."}]}`)},
+				{SessionID: "new", FinalText: "The waiting answer."},
+			}}}
+			options.Backend = retry
+			reopened := openTestSession(t, options)
+			retry.beforeRun = func(request backendapi.RunRequest) {
+				if len(retry.requests) == 1 {
+					counted := countEvents(t, root, reopened)
+					if counted[execution.EventMemoryRecorded] != 1 || counted[execution.EventSessionMemorySaved] != 1 {
+						t.Fatalf("the rebuild preceded the retried save's writes and record: %v", counted)
+					}
+				}
+			}
+			reply, err := reopened.Send(context.Background(), "Waiting message.")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(retry.requests) != 2 || retry.requests[0].SessionID != "old" || retry.requests[1].SessionID != "" {
+				t.Fatal("the reopened conversation did not save on the old session before rebuilding")
+			}
+			if !strings.Contains(retry.requests[0].Prompt, "compact this provider session next") || len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].MemoriesRecorded != 1 {
+				t.Fatalf("the reopened conversation did not record the save turn: %+v", reply.CompactionSaves)
+			}
+			if payload := onlyEventPayload(t, root, reopened, execution.EventSessionCompacted); !strings.Contains(payload, `"reason":"unmeasured"`) {
+				t.Fatalf("the rebuild forgot why the old session was compacted: %s", payload)
+			}
+			if reopened.Evidence().SessionID != "new" || reopened.Evidence().SessionBytes == 0 || reopened.Evidence().SessionBudgetBytes != SessionBudgetBytes {
+				t.Fatalf("the fresh session was not measured against the normal budget: %+v", reopened.Evidence())
+			}
+		})
+	}
+}
+
 func eventLogPath(t *testing.T, root string) string {
 	t.Helper()
 
