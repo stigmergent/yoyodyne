@@ -516,6 +516,58 @@ The remedy is the verb because the verb is what retires it
 ([starting the product](#starting-the-product-and-stopping-it)); the doctor
 itself only asks `launchctl` and reads the files.
 
+**A running part whose build cannot read the configuration is named, under
+`config-readers`.** The configuration finding says the build making the
+diagnosis reads the file; a part of the product started days ago runs the build
+it was started from, and a key a landing has added since is one that build
+refuses — the whole file, on every read. On 2026-09-28 the effort lines reached
+the main checkout at about 11:10 AM Pacific while the dashboard ran a build
+from 4:36 PM two days earlier, and the dashboard showed nothing but `field
+effort not found in type config.agentDocument` until it was restarted at 1:28
+PM; the watch and the installed binary had been checked, and the dashboard had
+not. So each long-running part — the supervisor, the Slack sink, the scheduler
+(`yoyo work --watch`), and the dashboard — records as it starts which build it
+is, which file it reads, and every configuration key its build reads, under
+`products/<product>/config-readers/` in the state root. The doctor reads the
+records of the parts whose processes are still running, reads the file each
+one reads as it stands now, and names every key in it that part's build would
+refuse, with the part, its build, and its process:
+
+```text
+warning  config-readers:dashboard  the dashboard service, running build 0364141b2c3d as pid 4242 since 2026-09-26 16:36 PDT, cannot read agents.developer.effort in …/.yoyodyne/config.yaml, so every read it makes of the configuration fails
+                                nothing restarts the dashboard onto a newer build until the supervisor adopts it (the dashboard's adoption, yoyodyne-ifd.414), so stop it and start it again with `yoyo dashboard`
+                                fix: kill 4242 && yoyo dashboard
+```
+
+The comparison needs nothing of the older build but the list it recorded, so a
+newer doctor answers it for a part whose types it no longer has. A key it
+cannot read is named once, as the key the decoder stops on, and nothing under
+it is looked at. A mismatch on the scheduler is a problem, because a watch that
+cannot read the configuration chooses nothing; on any other part it is a
+warning, for the reason every service finding is. The remedy restarts the part
+now; the watch restarts itself into a deployed build between runs, and the
+supervisor restarts the sink between its passes and takes up the deployed
+build itself after its maintenance pass is recorded, so on those parts the
+command is for not waiting. With nothing mismatched the finding is healthy and names
+each running part and its build. A part started from a build older than the
+record writes none, and the comparison says nothing about it rather than
+calling it current. `yoyo config validate` says the same on its standard error
+and under `unreadable_by_running` in `--json`, without moving its exit code,
+and `yoyo status` carries each one on its fourth line (below), as the
+harness's move. A run that lands makes the same comparison once it is over,
+against the configuration as the integrated commit holds it, read from Git
+rather than from the primary checkout — on a target the forge protects the run
+moves nothing locally until the forge merges, so the checkout's file does not
+carry the landed key yet. Each running part that cannot read it is named on the
+landed item, in a note that opens `Running parts that cannot read the
+configuration this landing left:`, and in the run's outcome under
+`config_mismatches`, so a landing that adds a key names the parts it leaves
+behind at the moment it lands rather than when somebody next opens the
+dashboard. A part that reads a file outside the repository is compared against
+that file as it stands, since no landing changed it. The template `yoyo init`
+ships is not compared: no running part reads it, and a key that reaches a
+project's file is compared by the landing that puts it there.
+
 It changes nothing. Nothing here installs, authenticates, restarts, or edits a
 configuration, and no credential is ever read: whether a secret is stored is
 asked in the form that answers without producing the value.
@@ -3744,7 +3796,10 @@ has the rule.
   queue nothing is pulling from — a session sitting idle over it, or no session at all — while admitted
   work waits behind that, the provider holding every role at once (below), a
   part of the product [its supervisor has left down](#starting-the-product-and-stopping-it)
-  as degraded, with the reason, a
+  as degraded, with the reason, a running part whose build
+  [cannot read the configuration](#checking-the-installation) — the part, its
+  build, and the keys, as the harness's move whichever part it is, with what
+  brings the part onto a build that reads the file — a
   [recurring task whose firings keep failing before their first turn](#reading-what-the-recurring-tasks-found),
   with the failure and how many in a row, and a
   [pile of collected reports](reporting.md#whether-the-pile-is-draining) whose
@@ -3819,6 +3874,7 @@ they are not the labels a person reads:
 | `publication` | merge waiting or merge stuck |
 | `degraded-service` | service down |
 | `failing-task` | scheduled task failing |
+| `config-mismatch` | service cannot read configuration |
 | `hold` | work paused |
 | `directive` | direction unresolved |
 | `outage` | provider unavailable |
@@ -3930,8 +3986,11 @@ is derived by the read model, and nothing an instance writes sets it:
   that carries an instance — `yoyo status`, the dashboard or the Slack sink as
   it starts, or any verb that builds the harness — records that moment under the
   state root at `products/<product>/program-managers/first-seen.json`, and no
-  later load moves it. That is a write made by surfaces that otherwise only
-  read, and it is on them on purpose: the dead scheduler this word is for is
+  later load moves it. The dashboard and Slack sink also record their own
+  build and the configuration keys it reads as they start, under
+  `products/<product>/config-readers/`. These records direct no work; the
+  surfaces otherwise only read. The first-seen record is on them on purpose:
+  the dead scheduler this word is for is
   exactly the case in which nothing else loads the configuration. So an
   instance the scheduler has never woken reads stale twice its schedule after
   it was first seen; the line says `first seen in the configuration at …`.
@@ -3994,7 +4053,7 @@ where the queue could not be read.
 Each entry under `standing.needs_human` is the thing waiting rather than a
 sentence about it: its `kind`, from a closed set — `amendment`,
 `conversation-carried-item`, `report`, `amendment-queue`, `owed-step`,
-`publication`, `degraded-service`, `failing-task`, `hold`, `directive`,
+`publication`, `degraded-service`, `failing-task`, `config-mismatch`, `hold`, `directive`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered` — the `id`
 of the record it is about (an amendment's, a
@@ -4007,7 +4066,7 @@ page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
 `unnamed-role`), and
 the record itself, whole, under a field named for the kind — `amendment`,
-`directive`, `outage`, `stall`, `reports`, `service`, `failing_task`,
+`directive`, `outage`, `stall`, `reports`, `service`, `failing_task`, `config_mismatch`,
 `owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
 `product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
 `tracker_listings`, and for a hold `operator_hold`, `intake_hold`, or
@@ -5107,12 +5166,15 @@ serves one dashboard per scenario on a loopback port of its own and prints each
 URL with its token.
 
 **It is a projection and nothing else.** It reads the same durable records the
-terminal reads and no request writes any of them. The one thing it writes, once
-as it starts, is the record of when each program manager instance was
+terminal reads and no request writes any of them. It writes two records as it
+starts: when each program manager instance was
 [first seen in the configuration](#where-the-harness-stands-the-four-lines),
-which `yoyo status` and the Slack sink write too: it is what lets an instance
-the scheduler never woke read stale, and it directs no work. The only form is the one that takes the
-token, every button on the page opens or closes one of its own pop-ups and
+which `yoyo status` and the Slack sink write too, so an instance the scheduler
+never woke can read stale; and its own build and the configuration keys that
+build reads, under `products/<product>/config-readers/`, so a later key it
+cannot read is named against the dashboard. Both records direct no work. The
+only form is the one that takes the token, every button on the page opens or
+closes one of its own pop-ups and
 nothing else, and nothing but `GET` and `HEAD` is answered at all. Restarting it
 changes nothing about the harness and loses nothing, because the history it
 shows lives in the records rather than in the page. It is not a second control

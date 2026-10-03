@@ -65,6 +65,10 @@ const (
 	// AttentionFailingTask is a recurring task whose firings have failed before
 	// their first turn more than once in a row.
 	AttentionFailingTask AttentionKind = "failing-task"
+	// AttentionConfigMismatch is a running part of the product whose build
+	// cannot read keys the configuration it reads now carries, so every read
+	// it makes of the file fails. The part is the ID.
+	AttentionConfigMismatch AttentionKind = "config-mismatch"
 	// AttentionHold is one of the switches over what the harness does: the
 	// operator's hold over everything, the intake hold over what it chooses for
 	// itself, and the provider holding every role at once. The entry's ID says
@@ -121,6 +125,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionPublication,
 		AttentionDegradedService,
 		AttentionFailingTask,
+		AttentionConfigMismatch,
 		AttentionHold,
 		AttentionDirective,
 		AttentionOutage,
@@ -170,6 +175,7 @@ func (a Attention) Label() string {
 		AttentionAmendmentQueue:    "document changes waiting",
 		AttentionDegradedService:   "service down",
 		AttentionFailingTask:       "scheduled task failing",
+		AttentionConfigMismatch:    "service cannot read configuration",
 		AttentionHold:              "work paused",
 		AttentionDirective:         "direction unresolved",
 		AttentionOutage:            "provider unavailable",
@@ -415,6 +421,9 @@ type Attention struct {
 	// FailingTask is the task, its cause, and how many firings in a row, on an
 	// AttentionFailingTask entry; the task is the ID.
 	FailingTask *FailingTask `json:"failing_task,omitempty"`
+	// ConfigMismatch is the part, its build, and the keys it cannot read, on an
+	// AttentionConfigMismatch entry; the part is the ID.
+	ConfigMismatch *runstate.ConfigMismatch `json:"config_mismatch,omitempty"`
 	// OwedStep is where the run stopped, on an AttentionOwedStep entry; the
 	// run is the ID and its item is WorkItemID.
 	OwedStep *OwedStep `json:"owed_step,omitempty"`
@@ -675,6 +684,10 @@ func (a Attention) What() string {
 		if a.Service != nil {
 			return fmt.Sprintf("the %s service is degraded: %s", a.Service.Service, singleLine(a.Service.Reason, maxRefusalBytes))
 		}
+	case AttentionConfigMismatch:
+		if a.ConfigMismatch != nil {
+			return a.ConfigMismatch.Says()
+		}
 	case AttentionFailingTask:
 		if a.FailingTask != nil {
 			return a.FailingTask.Says()
@@ -817,6 +830,10 @@ func (a Attention) Whose() string {
 		}
 	case AttentionDegradedService:
 		return a.Mover.Possessive() + " — the supervisor has stopped restarting it; fix the cause, then `yoyo stop` and `yoyo start` bring it back, or start the part by hand and the supervisor takes it back"
+	case AttentionConfigMismatch:
+		if a.ConfigMismatch != nil {
+			return a.Mover.Possessive() + " — " + runstate.ConfigMismatchRemedy(a.ConfigMismatch.Service) + "; the entry clears once the part runs a build that reads every key"
+		}
 	case AttentionFailingTask:
 		if a.Mover == MoverOperator {
 			return a.Mover.Possessive() + " — nothing is asked of the role until its conversation opens; fix what stops it opening, and the first firing that takes a turn clears this"
@@ -1027,6 +1044,17 @@ func amendmentQueueAttention(queue amendment.Queue) Attention {
 // attention line carries it.
 func degradedServiceAttention(child runstate.SupervisedChild) Attention {
 	return Attention{Kind: AttentionDegradedService, ID: string(child.Service), Mover: MoverOperator, Service: &child}
+}
+
+// configMismatchAttention is a running part whose build cannot read the
+// configuration, as the attention line carries it. It is the harness's move
+// whichever part it is: a part running a stale build is the harness's own
+// state, and under the operator's rule of 2026-09-26 only a change to the
+// fundamental goals is his. The whose sentence says what brings each part
+// onto a build that reads the file, the restart included where nothing does
+// it yet.
+func configMismatchAttention(mismatch runstate.ConfigMismatch) Attention {
+	return Attention{Kind: AttentionConfigMismatch, ID: mismatch.Service, Mover: MoverHarness, ConfigMismatch: &mismatch}
 }
 
 // heldWorkAttention is one of the two waits held work is in, with how many

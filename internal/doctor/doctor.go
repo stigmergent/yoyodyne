@@ -180,6 +180,10 @@ type Environment struct {
 	// Now is when the diagnosis is being made, used only for reading a recorded
 	// time back as an age.
 	Now func() time.Time
+	// ProcessRunning answers whether a process a record names is still there,
+	// which is how a running part of the product is told from one that exited.
+	// Nil asks the operating system.
+	ProcessRunning func(pid int) (bool, error)
 }
 
 // defaultTimeout is what each probe gets when nothing says. It is generous for
@@ -250,6 +254,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkForge(ctx, resolved, repository))
 	report.Findings = append(report.Findings, diagnosis.checkSlack(ctx, resolved, installed)...)
 	report.Findings = append(report.Findings, diagnosis.checkServices(ctx, resolved)...)
+	report.Findings = append(report.Findings, diagnosis.checkConfigReaders(resolved)...)
 	report.Findings = append(report.Findings, diagnosis.checkMaintenanceJob(ctx)...)
 
 	report.Status = worst(report.Findings)

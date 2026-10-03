@@ -68,6 +68,11 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 	stall := Stall{Reason: ReasonSessionIdle, Says: "a watch session is alive and has found nothing it can start", Since: moment.Add(-time.Hour)}
 	pile := report.Pile{Collected: 12, Unhandled: 3, Oldest: moment.Add(-9 * 24 * time.Hour), OldestAge: 9 * 24 * time.Hour, Worst: report.SeverityWarning}
 	child := runstate.SupervisedChild{Service: config.ServiceScheduler, State: runstate.ChildDegraded, Reason: "died 6 times in 10 minutes"}
+	mismatch := runstate.ConfigMismatch{
+		Service: "dashboard", PID: 4242, Build: "0364141b2c3d4e5f60718293a4b5c6d7e8f9001a",
+		ConfigPath: "/work/yoyodyne/.yoyodyne/config.yaml", StartedAt: moment.Add(-44 * time.Hour),
+		Keys: []string{"agents.developer.effort"},
+	}
 	owed := runstate.State{RunID: "run-owed", WorkItemID: "yoyodyne-ifd.410", Status: runstate.StatusFailed, Phase: runstate.PhaseCleaningUp}
 	published := runstate.State{
 		RunID: "run-queued", WorkItemID: "yoyodyne-ifd.411", Branch: "yoyodyne/item/queued",
@@ -98,6 +103,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			"run run-queued promoted yoyodyne-ifd.411 into main and the forge has not published it: pull request #567 https://forge.example/pr/567"},
 		AttentionDegradedService: {degradedServiceAttention(child),
 			"the scheduler service is degraded: died 6 times in 10 minutes"},
+		AttentionConfigMismatch: {configMismatchAttention(mismatch), mismatch.Says()},
 		AttentionFailingTask: {failingTaskAttention(failingTask),
 			"the recurring task development-manager-sweep has failed before its first turn 2 times in a row since 2026-08-30T09:00:00Z: the harness refused the message it composed for the pass; latest: scheduled pass's message is 47768 bytes, limit is 32768"},
 		AttentionHold: {intakeHoldAttention(brake),
@@ -210,6 +216,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionPublication:       "run-queued",
 		AttentionDegradedService:   "scheduler",
 		AttentionFailingTask:       "development-manager-sweep",
+		AttentionConfigMismatch:    "dashboard",
 		AttentionHold:              HoldIntake,
 		AttentionDirective:         "directive-4f2c",
 		AttentionOutage:            string(domain.ProviderUnauthenticated),
@@ -580,4 +587,29 @@ func redTargetState() runstate.State {
 		PullRequest: &runstate.PullRequest{Number: 863, TargetRed: &runstate.TargetRed{At: moment, TargetBranch: "main",
 			Checks: []runstate.TargetRedCheck{{Name: "adoption", WorkItem: "yoyodyne-red-1"}}}},
 		PublishFailure: "the forge's checks fail on main itself"}
+}
+
+// A part running a stale build is the harness's move whichever part it is, as
+// the work item asks; the dashboard, which nothing restarts yet, says in its
+// whose sentence what brings it back.
+func TestAConfigMismatchIsTheHarnesssMove(t *testing.T) {
+	t.Parallel()
+	for service, want := range map[string]Mover{
+		"scheduler":  MoverHarness,
+		"slack":      MoverHarness,
+		"dashboard":  MoverHarness,
+		"supervisor": MoverHarness,
+	} {
+		entry := configMismatchAttention(runstate.ConfigMismatch{Service: service, PID: 7, ConfigPath: "/c.yaml", Keys: []string{"agents.developer.effort"}})
+		if entry.Mover != want {
+			t.Errorf("%s: mover = %q, want %q", service, entry.Mover, want)
+		}
+		if !strings.Contains(entry.What(), "agents.developer.effort") {
+			t.Errorf("%s: what = %q, want the key named", service, entry.What())
+		}
+	}
+	dashboard := configMismatchAttention(runstate.ConfigMismatch{Service: "dashboard", PID: 7, ConfigPath: "/c.yaml", Keys: []string{"x"}})
+	if !strings.Contains(dashboard.Whose(), "`yoyo dashboard`") {
+		t.Errorf("dashboard whose = %q, want the restart named", dashboard.Whose())
+	}
 }

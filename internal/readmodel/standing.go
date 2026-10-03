@@ -292,6 +292,11 @@ type Sources struct {
 	// them all off — a part the supervisor has left down is the one state here
 	// that nothing else reports.
 	Supervision Supervision
+	// ConfigReaders is what each running part of the product recorded, as it
+	// started, about the configuration keys its build reads, compared against
+	// the file each reads now. It is optional, and a reading without it says
+	// nothing about the parts' builds rather than reporting every part current.
+	ConfigReaders ConfigReaders
 	// ProgramManagers is every configured agent on the program manager role,
 	// with its lane and its schedule, and RestartRequests is the log of their
 	// requests that the supervisor restart a part. LaneReports, Passes, and
@@ -868,6 +873,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.ProgramManagers, standing.ProgramManagersProblem = ReadProgramManagers(sources)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
+	// A running part whose build cannot read a key the configuration now
+	// carries shows a person the decoder's error and nothing else, so it is
+	// said here naming the part, its build, and the keys.
+	mismatches, mismatchProblem := readConfigMismatches(sources)
+	for _, mismatch := range mismatches {
+		needs = append(needs, configMismatchAttention(mismatch))
+	}
+	needsProblem = joinProblems(needsProblem, mismatchProblem)
 	// A recurring task whose firings keep failing before their first turn is
 	// said here from its second failure in a row: the sweep log records each
 	// one, and the log is somewhere nobody reads until they already know to.
