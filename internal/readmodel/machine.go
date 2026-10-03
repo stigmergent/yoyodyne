@@ -44,6 +44,7 @@ type watchGap struct {
 	from, to time.Time
 	task     string
 	known    bool
+	problem  string
 }
 
 type passMoment struct {
@@ -95,9 +96,6 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 			availability.unobserved = append(availability.unobserved, watchGap{from: last.At, to: now})
 		}
 	}
-	if len(availability.unobserved) > 0 {
-		availability.ObservationProblem = unobservedPresence(availability.unobserved[len(availability.unobserved)-1])
-	}
 	if fresh, ok := sources.Machine.(interface {
 		PowerHistory() ([]runstate.PowerEvent, error)
 	}); ok {
@@ -144,8 +142,8 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 		}
 		transitions = append([]runstate.WatchTransition(nil), transitions...)
 		sort.SliceStable(transitions, func(i, j int) bool { return transitions[i].At.Before(transitions[j].At) })
-		// Graceful stops have exact durable boundaries even if the supervisor
-		// was not running to sample the scheduler's lease.
+		// Stop/start pairs have exact boundaries unless a supervisor look proves
+		// a missing opening: transition writes can fail without stopping a watch.
 		var stopped time.Time
 		var stoppedSession string
 		for _, transition := range transitions {
@@ -158,12 +156,12 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 					stoppedSession = transition.SessionID
 				}
 			} else if !stopped.IsZero() {
-				availability.down = append(availability.down, watchGap{from: stopped, to: transition.At})
+				availability.recordStoppedInterval(stopped, transition.At, true, observations)
 				stopped = time.Time{}
 			}
 		}
 		if !stopped.IsZero() {
-			availability.down = append(availability.down, watchGap{from: stopped, to: now})
+			availability.recordStoppedInterval(stopped, now, false, observations)
 		}
 		var alive, stops []time.Time
 		var openings []runstate.WatchTransition
@@ -219,6 +217,12 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 			}
 		}
 	}
+	if len(availability.unobserved) > 0 {
+		sort.SliceStable(availability.unobserved, func(i, j int) bool {
+			return availability.unobserved[i].to.Before(availability.unobserved[j].to)
+		})
+		availability.ObservationProblem = unobservedPresence(availability.unobserved[len(availability.unobserved)-1])
+	}
 	// Union the intervals so sleep while the scheduler was down is counted once.
 	gaps := append(append([]watchGap{}, availability.sleeps...), availability.down...)
 	sort.Slice(gaps, func(i, j int) bool { return gaps[i].from.Before(gaps[j].from) })
@@ -234,6 +238,48 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 		availability.LastGap = last.to.Sub(last.from)
 	}
 	return availability
+}
+
+// recordStoppedInterval reconciles the watch log with independent lease looks.
+// An unrecorded opening leaves the stop as one down observation, not proof of
+// continuous downtime. The sample intervals are already accounted for above;
+// only the portion before the first following look needs to be added here.
+func (a *WatchAvailability) recordStoppedInterval(from, to time.Time, resumed bool, observations []runstate.MachineObservation) {
+	first := sort.Search(len(observations), func(i int) bool { return !observations[i].At.Before(from) })
+	running := first
+	for running < len(observations) && !observations[running].At.After(to) {
+		if observations[running].Watching {
+			break
+		}
+		running++
+	}
+	foundRunning := running < len(observations) && !observations[running].At.After(to)
+	if resumed && (!foundRunning || !observations[running].At.Before(to)) {
+		a.down = append(a.down, watchGap{from: from, to: to})
+		return
+	}
+	if first < len(observations) && !observations[first].At.After(to) {
+		gap := watchGap{from: from, to: observations[first].At}
+		if gap.to.After(gap.from) {
+			if gap.to.Sub(gap.from) <= runstate.MachineObservationWindow {
+				a.down = append(a.down, gap)
+			} else {
+				a.unobserved = append(a.unobserved, gap)
+			}
+		}
+	} else if to.After(from) {
+		a.unobserved = append(a.unobserved, watchGap{from: from, to: to})
+	}
+	if foundRunning && observations[running].At.After(from) {
+		restartFrom := from
+		if running > first {
+			restartFrom = observations[running-1].At
+		}
+		a.unobserved = append(a.unobserved, watchGap{
+			from: restartFrom, to: observations[running].At,
+			problem: fmt.Sprintf("the scheduler was observed watching at %s after its stop at %s, but the restart time was not recorded and is unknown", localMoment(observations[running].At), localMoment(from)),
+		})
+	}
 }
 
 // Explain names only causes observed during this gap. The previous pass's
@@ -279,6 +325,9 @@ func (a WatchAvailability) Cause(from, to time.Time, task string) GapCause {
 }
 
 func unobservedPresence(gap watchGap) string {
+	if gap.problem != "" {
+		return gap.problem
+	}
 	return fmt.Sprintf("the scheduler's presence was not observed from %s to %s; whether the harness was watching is unknown", localMoment(gap.from), localMoment(gap.to))
 }
 

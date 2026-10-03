@@ -170,3 +170,126 @@ func TestSchedulerObservationsBeyondTheWindowRemainUnknown(t *testing.T) {
 		t.Fatalf("a gap beyond the observation window became downtime: %+v, %+v", availability, cause)
 	}
 }
+
+func TestSchedulerPresenceOverridesAStopWhoseRestartWasNotRecorded(t *testing.T) {
+	t.Parallel()
+	stopped := time.Date(2026, 9, 30, 13, 52, 0, 0, time.UTC)
+	watching := stopped.Add(3 * time.Hour)
+	now := watching.Add(time.Minute)
+	for _, test := range []struct {
+		name         string
+		observations []runstate.MachineObservation
+		laterOpening bool
+		wantGap      time.Duration
+	}{
+		{
+			name: "missing opening",
+			observations: []runstate.MachineObservation{
+				{At: watching, Watching: true}, {At: now, Watching: true},
+			},
+		},
+		{
+			name: "down samples before the missing opening",
+			observations: []runstate.MachineObservation{
+				{At: stopped}, {At: stopped.Add(time.Minute)},
+				{At: watching, Watching: true}, {At: now, Watching: true},
+			},
+			wantGap: time.Minute,
+		},
+		{
+			name: "opening recorded after the scheduler was observed running",
+			observations: []runstate.MachineObservation{
+				{At: watching, Watching: true}, {At: now, Watching: true},
+			},
+			laterOpening: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transitions := []runstate.WatchTransition{{At: stopped, SessionID: "old-watch", State: runstate.WatchStopped}}
+			if test.laterOpening {
+				transitions = append(transitions, runstate.WatchTransition{At: now, SessionID: "new-watch", State: runstate.WatchIdle})
+			}
+			availability := ReadWatchAvailability(Sources{
+				Machine: machineHistory{test.observations}, Sessions: fakeSessions{transitions: transitions},
+				Now: func() time.Time { return now },
+			})
+			if availability.LastGap != test.wantGap {
+				t.Fatalf("downtime = %s, want only %s supported by observations", availability.LastGap, test.wantGap)
+			}
+			before := availability.Cause(watching.Add(-time.Hour), watching, "owed-pass")
+			if before.Why != "" || !strings.Contains(before.Problem, "restart time was not recorded and is unknown") {
+				t.Fatalf("missing restart became established downtime: %+v", before)
+			}
+			after := availability.Cause(watching, now, "owed-pass")
+			if after.Why != "" || after.Problem != "" {
+				t.Fatalf("a pass while the scheduler was observed running was blamed on the stop: %+v", after)
+			}
+			rendered := (Standing{Services: &Services{Recorded: true, SupervisorRunning: true, Availability: &availability}}).RenderServices()
+			if !strings.Contains(rendered, "restart time was not recorded and is unknown") || strings.Contains(rendered, "without the harness watching: 3h") {
+				t.Fatalf("services failed to distinguish downtime from an unknown restart: %s", rendered)
+			}
+		})
+	}
+}
+
+func TestMissingWatchOpeningRetainsBoundedDowntimeAndMarksTheRestartUncertain(t *testing.T) {
+	t.Parallel()
+	stopped := time.Date(2026, 9, 30, 13, 52, 0, 0, time.UTC)
+	interval := runstate.MachineObservationInterval + 5*time.Second
+	watching := stopped.Add(3 * interval)
+	now := watching.Add(interval)
+	availability := ReadWatchAvailability(Sources{
+		Machine: machineHistory{[]runstate.MachineObservation{
+			{At: stopped.Add(interval)}, {At: stopped.Add(2 * interval)},
+			{At: watching, Watching: true}, {At: now, Watching: true},
+		}},
+		Sessions: fakeSessions{transitions: []runstate.WatchTransition{{At: stopped, State: runstate.WatchStopped}}},
+		Now:      func() time.Time { return now },
+	})
+	if availability.LastGap != 3*interval {
+		t.Fatalf("bounded downtime after the stop = %s, want %s", availability.LastGap, 3*interval)
+	}
+	cause := availability.Cause(stopped.Add(2*interval), watching, "owed-pass")
+	if !strings.Contains(cause.Why, "scheduler was observed down") || !strings.Contains(cause.Problem, "restart time was not recorded and is unknown") {
+		t.Fatalf("bounded samples lost downtime or invented an exact restart: %+v", cause)
+	}
+	if cause := availability.Cause(watching, now, "owed-pass"); cause.Why != "" || cause.Problem != "" {
+		t.Fatalf("stop was extended past the observed restart: %+v", cause)
+	}
+}
+
+func TestAStopWithoutFurtherPresenceEvidenceDoesNotProveDowntimeThroughNow(t *testing.T) {
+	t.Parallel()
+	stopped := time.Date(2026, 9, 30, 13, 52, 0, 0, time.UTC)
+	now := stopped.Add(3 * time.Hour)
+	availability := ReadWatchAvailability(Sources{
+		Machine:  machineHistory{[]runstate.MachineObservation{{At: stopped.Add(-time.Minute), Watching: true}}},
+		Sessions: fakeSessions{transitions: []runstate.WatchTransition{{At: stopped, State: runstate.WatchStopped}}},
+		Now:      func() time.Time { return now },
+	})
+	cause := availability.Cause(now.Add(-time.Hour), now, "owed-pass")
+	if availability.LastGap != 0 || cause.Why != "" || !strings.Contains(cause.Problem, "whether the harness was watching is unknown") {
+		t.Fatalf("a lone stop was treated as continuous downtime: %+v, %+v", availability, cause)
+	}
+}
+
+func TestRecordedWatchStopAndOpeningStillGiveExactDowntime(t *testing.T) {
+	t.Parallel()
+	stopped := time.Date(2026, 9, 30, 13, 52, 0, 0, time.UTC)
+	watching := stopped.Add(3 * time.Hour)
+	now := watching.Add(time.Minute)
+	availability := ReadWatchAvailability(Sources{
+		Machine: machineHistory{[]runstate.MachineObservation{{At: watching, Watching: true}, {At: now, Watching: true}}},
+		Sessions: fakeSessions{transitions: []runstate.WatchTransition{
+			{At: stopped, SessionID: "old-watch", State: runstate.WatchStopped},
+			{At: watching, SessionID: "new-watch", State: runstate.WatchWatching},
+		}},
+		Now: func() time.Time { return now },
+	})
+	if availability.LastGap != 3*time.Hour || availability.ObservationProblem != "" {
+		t.Fatalf("recorded opening lost exact downtime: %+v", availability)
+	}
+	if cause := availability.Cause(stopped, watching, "owed-pass"); !strings.Contains(cause.Why, "scheduler was observed down") || cause.Problem != "" {
+		t.Fatalf("recorded stop/opening did not explain the gap: %+v", cause)
+	}
+}

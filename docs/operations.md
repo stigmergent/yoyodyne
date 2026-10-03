@@ -278,8 +278,15 @@ wake is shown with its duration unknown, rather than counted through the present
 The JSON reading carries these values under `standing.services.availability`:
 `last_sleep`, `last_wake`, `last_gap` (a duration in nanoseconds), and `problem`
 where the history could not be read whole. `observation_problem` describes the
-last gap in scheduler observations. Watch-session stop and start records give
-downtime boundaries more precisely when they are available.
+last gap in scheduler observations or an unrecorded restart. Watch-session stop
+and start records give precise downtime boundaries when they agree with the
+supervisor's looks. A stop without a recorded opening establishes that the
+scheduler was down at the stop, rather than continuously down through the
+present. Later looks that find it watching also override a stop whose opening
+was recorded late. Bounded consecutive observations still count as downtime;
+unsampled portions remain unknown, and an unrecorded restart's time is reported
+as uncertain. A missed pass after the scheduler was observed watching is not
+attributed to that earlier stop.
 
 A product no supervisor has run for prints no such line. `--json` carries the
 same under `standing.services`: the binary's build as the record's `deployed`,
