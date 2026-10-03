@@ -258,7 +258,8 @@ func (s *ConfigReaderStore) WithProcessCheck(running func(pid int) (bool, error)
 	return &copied
 }
 
-// Record writes this instance's account, leaving other instances intact.
+// Record writes this startup's account. It supersedes an earlier startup for
+// the same service and PID when read, leaving other processes intact.
 func (s *ConfigReaderStore) Record(reader ConfigReader) error {
 	reader.SchemaVersion = ConfigReaderSchemaVersion
 	reader.ProductID = s.productID
@@ -322,8 +323,10 @@ func (s *ConfigReaderStore) recordIn(root *repowrite.PinnedRoot, reader ConfigRe
 }
 
 // Running is every part whose recorded process is still there, in the order
-// of their names. A record a newer build wrote is read tolerantly, for the
-// reason the supervision record is: the reader is often the older build.
+// of their names. Only the latest startup for a service and PID is current:
+// watch and supervisor replace their builds with exec, which keeps the PID.
+// A record a newer build wrote is read tolerantly, for the reason the
+// supervision record is: the reader is often the older build.
 func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
 	entries, err := os.ReadDir(s.root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -338,7 +341,11 @@ func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
 	}
 	var readers []ConfigReader
 	var problems []error
-	seen := make(map[string]bool)
+	type process struct {
+		service string
+		pid     int
+	}
+	latest := make(map[process]ConfigReader)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
@@ -349,20 +356,30 @@ func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
 			problems = append(problems, err)
 			continue
 		}
+		// Older builds wrote service.json; either filename can hold the
+		// latest startup, and duplicate copies still describe one process.
+		key := process{reader.Service, reader.PID}
+		previous, exists := latest[key]
+		if !exists || reader.StartedAt.After(previous.StartedAt) {
+			latest[key] = reader
+		}
+	}
+	for _, reader := range latest {
+		readers = append(readers, reader)
+	}
+	sort.Slice(readers, func(i, j int) bool { return readers[i].InstanceID() < readers[j].InstanceID() })
+	live := readers[:0]
+	for _, reader := range readers {
 		alive, err := running(reader.PID)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("whether the %s service's process %d is running could not be read: %w", reader.Service, reader.PID, err))
 			continue
 		}
-		// Older builds wrote service.json. Keep reading those records, but do
-		// not count the same instance twice if both filename forms exist.
-		if alive && !seen[reader.InstanceID()] {
-			seen[reader.InstanceID()] = true
-			readers = append(readers, reader)
+		if alive {
+			live = append(live, reader)
 		}
 	}
-	sort.Slice(readers, func(i, j int) bool { return readers[i].InstanceID() < readers[j].InstanceID() })
-	return readers, errors.Join(problems...)
+	return live, errors.Join(problems...)
 }
 
 func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {

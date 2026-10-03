@@ -94,6 +94,56 @@ func TestConfigReaderMismatchesNameTheRunningPartsThatCannotReadTheFile(t *testi
 	}
 }
 
+func TestConfigReaderRestartSupersedesThePreviousBuildForTheSameProcess(t *testing.T) {
+	for _, service := range []string{"scheduler", ConfigReaderSupervisor} {
+		t.Run(service, func(t *testing.T) {
+			store, err := NewConfigReaderStore(t.TempDir(), "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+			older := configReaderRecordFixture()
+			older.Service = service
+			older.Build = "0123456789abcdef"
+			older.Keys = slices.DeleteFunc(config.SchemaKeys(), func(key string) bool { return key == "agents.*.effort" })
+			if err := store.Record(older); err != nil {
+				t.Fatal(err)
+			}
+			// A separate live process must remain visible after this one execs.
+			other := older
+			other.PID++
+			if err := store.Record(other); err != nil {
+				t.Fatal(err)
+			}
+			restarted := older
+			restarted.StartedAt = older.StartedAt.Add(time.Minute)
+			restarted.Build = "fedcba9876543210"
+			restarted.Keys = config.SchemaKeys()
+			if err := store.Record(restarted); err != nil {
+				t.Fatal(err)
+			}
+			// Writing the older account again must not undo the later startup.
+			if err := store.Record(older); err != nil {
+				t.Fatal(err)
+			}
+			readers, err := store.Running()
+			if err != nil || !reflect.DeepEqual(readers, []ConfigReader{restarted, other}) {
+				t.Fatalf("Running() = %+v, %v, want the restarted build and the other process", readers, err)
+			}
+			active, err := store.MismatchesIn(func(string) ([]byte, error) {
+				return []byte("agents: {developer: {role: developer, effort: medium}}\n"), nil
+			})
+			if err != nil || len(active) != 1 || active[0].PID != other.PID || active[0].Build != other.Build {
+				t.Fatalf("MismatchesIn() = %+v, %v, want only the other process's older build", active, err)
+			}
+			prospective, err := store.TemplateMismatches("internal/config/builtin/v1/bundle.yaml", []string{"agents.*.effort"})
+			if err != nil || len(prospective) != 1 || prospective[0].PID != other.PID || prospective[0].Build != other.Build {
+				t.Fatalf("TemplateMismatches() = %+v, %v, want only the other process's older build", prospective, err)
+			}
+		})
+	}
+}
+
 func TestConfigReaderRefusesAPartTheProductDoesNotHave(t *testing.T) {
 	store, err := NewConfigReaderStore(t.TempDir(), "example")
 	if err != nil {
@@ -227,5 +277,14 @@ func TestConfigReaderKeepsLegacyRecordsWithoutDuplicatingAnInstance(t *testing.T
 	}
 	if readers, err := store.Running(); err != nil || len(readers) != 2 {
 		t.Fatalf("one instance counted twice: %+v, %v", readers, err)
+	}
+	restarted := first
+	restarted.StartedAt = first.StartedAt.Add(time.Minute)
+	restarted.Build = "fedcba9876543210"
+	if err := store.Record(restarted); err != nil {
+		t.Fatal(err)
+	}
+	if readers, err := store.Running(); err != nil || !reflect.DeepEqual(readers, []ConfigReader{restarted, second}) {
+		t.Fatalf("legacy startup was not superseded: %+v, %v", readers, err)
 	}
 }

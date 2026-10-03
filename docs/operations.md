@@ -529,7 +529,10 @@ not. So each long-running part — the supervisor, the Slack sink, the scheduler
 (`yoyo work --watch`), and the dashboard — records as it starts which build it
 is, which file it reads, and every configuration key its build reads, under
 `products/<product>/config-readers/` in the state root, with one record per
-process and start time. Starting another dashboard keeps the first dashboard
+process and start time. For the same service and process id, only the latest
+startup record is compared: the watch and supervisor keep their process ids
+when they restart into a deployed build, and the new account supersedes the
+previous build's record. Starting another dashboard keeps the first dashboard
 in the comparison while both processes remain running. The doctor reads the
 records of every live instance, reads the file each one reads as it stands
 now, and names every key in it that part's build would
