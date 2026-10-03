@@ -2514,10 +2514,13 @@ minutes rather than hours on purpose. Past that it restarts anyway:
 
 What a stopped run loses is the minutes its current phase had spent: a
 developer attempt resumes in the session it was making, and a review is asked
-for again. The bound stops a developer attempt and a review; it waits out a
-check stage and a promotion. Set the bound longer if that trade is wrong for
-your project, and never to nothing — the configuration refuses a drain
-with no bound.
+for again. An interrupted check stage starts again from its first check when
+the run is re-adopted. The bound stops a developer attempt, running checks,
+and a review; a promotion is waited out past it. An already-finished check
+stage gets up to a minute's grace to record its verdict and move to the next
+phase, where the next look stops the run. Set the bound longer if that trade
+is wrong for your project, and never to nothing — the configuration refuses
+a drain with no bound.
 
 **`yoyo status` names the drain throughout.** The session's line says it is
 draining, since when, under what bound, and until when, on every transition it
@@ -2525,20 +2528,28 @@ writes while the drain lasts; once the bound has run out, or a pull has been
 declined for being within a poll of it, the not-startable line names the
 restart as its own state — whose move is nobody's, because the session comes
 back on its own — rather than reporting an idle session or no session, either
-of which would send you to start one that is already on its way back. Once the
-bound has run out and a check stage is being waited out, the line also says so,
-with the latest moment that stage can run to. A session
-waiting out a promotion or a check stage past its bound writes nothing while that wait is
-unchanged, so the bound having run out reads that way for thirty minutes past
-the session's latest line, or until two minutes past the end of the check stage
-it named where that is later; a session killed while it waited writes nothing
-either, and past that its line reads as what it otherwise says. The stop
+of which would send you to start one that is already on its way back. Running
+check stages are stopped at the drain limit and preserved for the next session
+to run again from the start. A session waiting out a promotion, or giving an
+already-finished check stage its brief grace to record its verdict, writes
+nothing while that wait is unchanged. The bound having run out reads that way
+for thirty minutes past the session's latest line; a session killed while it
+waited writes nothing either, and past that its line reads as what it
+otherwise says. The stop
 recorded as a restart reads that way for two minutes, which is the minute the
 re-execution is given plus slack: a new build that dies in its own startup
 after the exec writes nothing, and past that it reads as the ending it was —
 no session running, and yours to start. The pass's own report, when the
 session returns, says the same: when the deploy was found, the bound, which
-runs it stopped for it, and which check stages it waited out.
+runs it stopped and preserved, and any landing checks it interrupted.
+
+Older watch records can still name a running check stage being waited out and
+its latest deadline. For those records, status reads the session as restarting
+until two minutes past that deadline if that is later than thirty minutes past
+its latest line, and an older restart report can list the stages it waited out.
+New records omit `checking`, `checks_until`, and `checks_waited`: running stages
+are interrupted at the drain limit, while the brief grace applies only to
+stages that have already finished.
 
 ## Recovering interrupted runs
 
