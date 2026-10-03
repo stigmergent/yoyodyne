@@ -86,6 +86,9 @@ type chatOutput struct {
 	// rests on is the operator's to see, and a re-read the harness made unasked
 	// is one they have to be told about.
 	Picture *chat.PictureAge `json:"picture,omitempty"`
+	// CompactionSaves report the memory turn taken before rebuilding the provider
+	// session, including one that failed and left the waiting message unanswered.
+	CompactionSaves []chat.CompactionSave `json:"compaction_saves,omitempty"`
 	// RecordCuts are the parts of the reply the conversation's event log holds
 	// only the beginning of, with where each cut falls and the reply's whole
 	// size. The reply above is whole; the durable record of it is not.
@@ -366,6 +369,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			Research:           reply.Research,
 			RepositoryReads:    reply.RepositoryReads,
 			Picture:            reply.Picture,
+			CompactionSaves:    reply.CompactionSaves,
 			RecordCuts:         reply.RecordCuts,
 			Evaluation:         reply.Evaluation,
 			EvaluationProblem:  reply.EvaluationProblem,
@@ -385,6 +389,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	printChatResearch(stdout, reply.Research)
 	printChatRepositoryReads(stdout, reply.RepositoryReads)
 	printChatPicture(stdout, reply.Picture)
+	printChatCompactionSaves(stdout, reply.CompactionSaves)
 	printChatRecordCuts(stdout, reply.RecordCuts)
 	printChatEvaluation(stdout, reply.Evaluation, reply.EvaluationProblem)
 	printChatExchanges(stdout, role, reply.Exchanges)
@@ -1300,6 +1305,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		// The picture's age was measured and recorded before the turn was taken,
 		// so it travels with the failure for the same reason.
 		output.Picture = reply.Picture
+		output.CompactionSaves = reply.CompactionSaves
 		// A reply cut in the record is cut whichever way the turn ended.
 		output.RecordCuts = reply.RecordCuts
 		output.Evaluation = reply.Evaluation
@@ -1324,6 +1330,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	printChatResearch(stdout, output.Research)
 	printChatRepositoryReads(stdout, output.RepositoryReads)
 	printChatPicture(stdout, output.Picture)
+	printChatCompactionSaves(stdout, output.CompactionSaves)
 	printChatEvaluation(stdout, output.Evaluation, output.EvaluationProblem)
 	printChatExchanges(stdout, role, output.Exchanges)
 	printChatAdmitted(stdout, output.Admitted)
@@ -1523,6 +1530,16 @@ func printChatRecordCuts(writer io.Writer, cuts []execution.ReplyCut) {
 	if rendered := chat.RenderRecordCuts(cuts); rendered != "" {
 		fmt.Fprintln(writer)
 		fmt.Fprint(writer, rendered)
+	}
+}
+
+func printChatCompactionSaves(writer io.Writer, saves []chat.CompactionSave) {
+	if len(saves) == 0 {
+		return
+	}
+	fmt.Fprintln(writer)
+	for _, save := range saves {
+		fmt.Fprint(writer, save.Render())
 	}
 }
 

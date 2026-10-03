@@ -138,16 +138,21 @@ func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, repl
 	return errors.Join(err, s.emit(eventType, save))
 }
 
+// Render reports the save turn separately from the answer it preceded.
+func (save CompactionSave) Render() string {
+	switch {
+	case save.Failure != "":
+		return fmt.Sprintf("[session] the save turn before compaction did not finish: %s\n", save.Failure)
+	case save.NothingToSave:
+		return "[session] the role took a save turn before compaction and had nothing to save\n"
+	default:
+		return fmt.Sprintf("[session] the save turn before compaction recorded %d memory write(s)\n", save.MemoriesRecorded)
+	}
+}
+
 func (s *Session) reportCompactionSaves(out io.Writer, reply Reply) {
 	for _, save := range reply.CompactionSaves {
-		switch {
-		case save.Failure != "":
-			fmt.Fprintf(out, "[session] the save turn before compaction did not finish: %s\n", save.Failure)
-		case save.NothingToSave:
-			fmt.Fprintln(out, "[session] the role took a save turn before compaction and had nothing to save")
-		default:
-			fmt.Fprintf(out, "[session] the save turn before compaction recorded %d memory write(s)\n", save.MemoriesRecorded)
-		}
+		fmt.Fprint(out, save.Render())
 	}
 }
 
