@@ -30,11 +30,13 @@
 // carrying it could not be approved.
 //
 // Usage: node render.js --out <directory>
+//        TZ=UTC node render.js --check
 // Writes <directory>/<scenario>.html for every scenario below — the document
 // as the page's script left it, with the one page state and the one state per
 // panel the stylesheet would show, the hidden ones dropped, and a pop-up kept
 // only while it is open — and a <directory>/matrix.json saying which state
 // each section and each pop-up reached in each.
+// --check compares every render to ./renders without writing files.
 
 "use strict";
 
@@ -345,8 +347,8 @@ const pages = [
   { name: "stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/standing": unreachable } },
   { name: "throughput-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/throughput": refused(503, "the state root could not be resolved") } },
   // The dashboard's answers carry the age of the snapshot they were served
-  // from: one older than two intervals says so, and one whose latest build
-  // failed names the failure beside its age.
+  // from: a standing older than two intervals keeps the small stale marker,
+  // and one whose latest build failed names the failure beside its age.
   { name: "snapshot", token: "t", standing: ok(aged(fixture("standing-busy"), {})), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
   { name: "snapshot-old", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 45, stale: true })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
   { name: "snapshot-failed", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 34, failure: "bd list timed out after 30s" })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 95, interval_seconds: 60, failure: "the state root could not be resolved" })), spend: ok(fixture("spend-busy")) },
@@ -628,21 +630,40 @@ async function run(scenario) {
     .join("\n")
     .replace('href="/assets/dashboard.css"', 'href="../../assets/dashboard.css"')
     .replace('src="/assets/dashboard.js"', 'src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"');
-  return { matrix, html: "<!doctype html>\n" + html + "\n" };
+  return { matrix, html: "<!doctype html>\n" + html + "\n", standingWarningAgeSeconds: context.standingWarningAgeSeconds };
+}
+
+// Exercise the standing's warning boundary through the page itself, reading
+// its threshold rather than keeping a second value in the tests. These checks
+// also run while updating the goldens, so recording a regression cannot pass.
+async function checkStandingWarning(scenario, threshold) {
+  for (const offset of [-1, 0, 1]) {
+    const reading = aged(fixture("standing-busy"), { age_seconds: threshold + offset, stale: true });
+    const rendered = await run(Object.assign({}, scenario, { standing: ok(reading) }));
+    const warningHidden = rendered.html.includes('<p id="stale" class="stale" role="status" hidden>');
+    assert.strictEqual(warningHidden, offset < 0, `standing at warning threshold ${offset < 0 ? "minus" : "plus"} ${Math.abs(offset)}s`);
+    assert(rendered.html.includes('class="freshness freshness-stale">stale<'), "the small stale marker must remain at every warning boundary");
+    assert(rendered.html.includes('<time id="observed-at" datetime="' + reading.observed_at + '">'), "the observed time must remain at every warning boundary");
+    assert.strictEqual(rendered.html.includes("The reading of the standing is"), offset >= 0, "the standing's age warning must follow its threshold");
+  }
 }
 
 async function main() {
+  const check = process.argv.includes("--check");
   const at = process.argv.indexOf("--out");
-  if (at === -1 || !process.argv[at + 1]) {
-    console.error("usage: node render.js --out <directory>");
+  if (!check && (at === -1 || !process.argv[at + 1])) {
+    console.error("usage: node render.js --out <directory> | --check");
     process.exit(2);
   }
-  const out = process.argv[at + 1];
-  fs.mkdirSync(out, { recursive: true });
+  const out = check ? path.join(here, "renders") : process.argv[at + 1];
+  if (!check) fs.mkdirSync(out, { recursive: true });
   const matrix = {};
   const runSteps = fixture("standing-run-steps");
   for (const scenario of scenarios) {
     const rendered = await run(scenario);
+    if (scenario.name === "snapshot-old") {
+      await checkStandingWarning(scenario, rendered.standingWarningAgeSeconds);
+    }
     // Exercise the four run histories through the actual page script, even
     // when this driver is called directly rather than through the Go suite.
     if (scenario.name === "run-steps") {
@@ -668,10 +689,15 @@ async function main() {
         }
       }
     }
-    fs.writeFileSync(path.join(out, scenario.name + ".html"), rendered.html);
+    const file = path.join(out, scenario.name + ".html");
+    if (check) {
+      assert.strictEqual(rendered.html, fs.readFileSync(file, "utf8"), scenario.name + " render differs");
+    } else {
+      fs.writeFileSync(file, rendered.html);
+    }
     matrix[scenario.name] = rendered.matrix;
   }
-  fs.writeFileSync(path.join(out, "matrix.json"), JSON.stringify(matrix, null, 2) + "\n");
+  if (!check) fs.writeFileSync(path.join(out, "matrix.json"), JSON.stringify(matrix, null, 2) + "\n");
 }
 
 main().catch((error) => {

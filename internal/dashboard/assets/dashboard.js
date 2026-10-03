@@ -24,8 +24,9 @@
 // month holds is seconds of work. The dashboard builds each of the three in the
 // background on those same clocks and answers every request with the latest
 // one, carrying under "snapshot" when it was taken and how old it is; the page
-// says that age, and says plainly when a reading is older than two of its
-// intervals or the dashboard's last build of it failed. While answers are slow
+// says that age, and marks a reading stale when it is older than two of its
+// intervals or the dashboard's last build of it failed. The standing's age
+// warning waits until the reading is five minutes old. While answers are slow
 // or failing the page asks less often, doubling the wait up to a ceiling, and
 // goes back to its ordinary clock on the first quick answer. Each section says which of its sources it is
 // still waiting for, which one could not be read, and what to do about it; none
@@ -40,6 +41,12 @@
 // integration" — this says it the same way, because the page and the terminal
 // are two projections of one model and a reader moving between them should not
 // have to translate.
+
+// The standing keeps its small stale marker for routine lag; this is how old
+// it must be before the page also shows an age warning. The render tests read
+// this same threshold.
+var standingWarningAgeSeconds = 5 * 60;
+
 (function () {
   "use strict";
 
@@ -433,8 +440,9 @@
   // snapshotNote is the sentence a reading's own age calls for: the
   // dashboard's latest build of it failed, so what is shown is the one before;
   // or it is older than two of its intervals, so the building is falling
-  // behind. Nothing where neither is so.
-  function snapshotNote(what, reading) {
+  // behind. The standing's age warning also waits for minimumAgeSeconds.
+  // Nothing where neither is so.
+  function snapshotNote(what, reading, minimumAgeSeconds) {
     var snapshot = reading && reading.snapshot;
     if (!snapshot) {
       return "";
@@ -443,7 +451,7 @@
     if (snapshot.failure) {
       return "The dashboard's last reading of " + what + " failed — " + snapshot.failure + " — so what is shown is the reading taken " + old + " ago.";
     }
-    if (snapshot.stale) {
+    if (snapshot.stale && (snapshot.age_seconds || 0) >= (minimumAgeSeconds || 0)) {
       return "The reading of " + what + " is " + old + " old, older than two of its " + age((snapshot.interval_seconds || 0) * 1e9) + " intervals: the dashboard is taking longer than that to read it, so what is shown may not be what the harness is doing now.";
     }
     return "";
@@ -469,15 +477,21 @@
       failed.push("the spend — " + model.spendError + " — so its figures are from " + clock(model.spend.observed_at) + ", and the page " + asksAgain("spend"));
     }
     // What the answers themselves say about their age: a build the dashboard
-    // could not finish, or a reading older than two of its intervals.
+    // could not finish, or a reading old enough to warrant a warning. A stale
+    // standing younger than the warning threshold still gets the small marker.
     var behind = [];
-    [["the standing", standing], ["the throughput", model.throughput], ["the spend", model.spend]].forEach(function (pair) {
-      var said = snapshotNote(pair[0], pair[1]);
+    var snapshotStale = false;
+    [["the standing", standing, standingWarningAgeSeconds], ["the throughput", model.throughput], ["the spend", model.spend]].forEach(function (pair) {
+      var snapshot = pair[1] && pair[1].snapshot;
+      if (snapshot && (snapshot.stale || snapshot.failure)) {
+        snapshotStale = true;
+      }
+      var said = snapshotNote(pair[0], pair[1], pair[2]);
       if (said) {
         behind.push(said);
       }
     });
-    if (failed.length > 0 || behind.length > 0) {
+    if (failed.length > 0 || behind.length > 0 || snapshotStale) {
       freshness.textContent = "stale";
       freshness.className = "freshness freshness-stale";
       var sentences = [];
@@ -485,7 +499,7 @@
         sentences.push("The last reading failed for " + failed.join("; and for ") + ".");
       }
       stale.textContent = sentences.concat(behind).join(" ");
-      setHidden(stale, false);
+      setHidden(stale, stale.textContent === "");
     } else {
       freshness.textContent = standing ? takenAgo(standing) + asksAgain("standing") : "";
       freshness.className = "freshness";

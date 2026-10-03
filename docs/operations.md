@@ -4891,15 +4891,19 @@ provider's usage window, when every role is held by one, or when the provider
 is answering nobody. Beside the product's name the page says when the reading
 was observed, how old the dashboard's snapshot of it was when it was served —
 `taken 4s ago; asks again every 10 s` — and when it asks again. It marks the
-page **stale**, and says why in a line above the sections, in three cases: a
-reading older than two of its intervals, said plainly as that — `The reading
-of the standing is 45s old, older than two of its 10s intervals: the dashboard
+page **stale** when a reading is older than two of its intervals. For the
+standing, routine lag shows only that small marker and the observed time; its
+red age warning appears once the reading is five minutes old or more. The
+throughput and spend age warnings still appear after two intervals. An age
+warning says plainly what is old — `The reading
+of the standing is 5m old, older than two of its 10s intervals: the dashboard
 is taking longer than that to read it, so what is shown may not be what the
-harness is doing now.`; a reading whose latest build failed, with the failure
-beside its age — `The dashboard's last reading of the standing failed — bd list
-timed out after 30s — so what is shown is the reading taken 34s ago.`; and a
-poll that fails after one that succeeded, of any of the three readings, saying
-which reading failed and which it is still showing. The throughput and spend
+harness is doing now.` Failed builds and failed polls still get an explanation
+immediately. A reading whose latest build failed shows the failure beside its
+age — `The dashboard's last reading of the standing failed — bd list timed out
+after 30s — so what is shown is the reading taken 34s ago.` A poll that fails
+after one that succeeded, of any of the three readings, says which reading
+failed and which it is still showing. The throughput and spend
 sections say the same under their own figures, rather than going blank on one
 dropped request.
 
