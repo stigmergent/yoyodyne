@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -201,6 +202,115 @@ func TestRolesWithoutMemoryCompactWithoutASaveTurn(t *testing.T) {
 	}
 }
 
+func TestASaveTurnResumesTheProviderThatHoldsTheSession(t *testing.T) {
+	t.Parallel()
+	held := &speakingBackend{results: []backendapi.RunResult{{
+		IsError: true, StopReason: "usage_limit", UsageLimit: &backendapi.UsageLimit{Kind: "five_hour", ResetsAt: fixedClock{}.Now().Add(5 * time.Hour)},
+	}}}
+	crossed := &speakingBackend{results: []backendapi.RunResult{
+		{SessionID: "alternate-session", FinalText: "Learning on the alternate."},
+		{SessionID: "alternate-session", FinalText: "Nothing to save."},
+		{SessionID: "fresh-alternate", FinalText: "Continuing."},
+	}}
+	options := crossingOptions(t, held, crossed)
+	options.UsageLimits = newTestUsageLimits(t)
+	options.FailoverAccountConfigDir = "/configured-alternate-home"
+	options.SessionBudgetBytes = 1
+	session := openTestSession(t, options)
+	for _, message := range []string{"First message.", "Next message."} {
+		if _, err := session.Send(context.Background(), message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(crossed.requests) != 3 || len(held.requests) != 1 {
+		t.Fatalf("primary requests=%d, alternate=%d", len(held.requests), len(crossed.requests))
+	}
+	save := crossed.requests[1]
+	if save.SessionID != "alternate-session" || save.Model != "second-model" || save.AccountAlias != "second-account" || save.AccountConfigDir != options.FailoverAccountConfigDir {
+		t.Fatalf("the save turn lost the holding endpoint: %+v", save)
+	}
+	if crossed.requests[2].SessionID != "" {
+		t.Fatal("the alternate resumed the old session after the save")
+	}
+}
+
+func TestAProviderRefusingTheSaveDoesNotRebuildOrFailOver(t *testing.T) {
+	t.Parallel()
+	for name, refusal := range map[string]backendapi.RunResult{
+		"too long":    {IsError: true, FinalText: "Prompt is too long"},
+		"no capacity": {IsError: true, StopReason: "usage_limit", UsageLimit: &backendapi.UsageLimit{Kind: "five_hour"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			held := &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old", FinalText: "Learning."}, refusal,
+			}}
+			crossed := &speakingBackend{}
+			options := crossingOptions(t, held, crossed)
+			options.SessionBudgetBytes = 1
+			session := openTestSession(t, options)
+			if _, err := session.Send(context.Background(), "First message."); err != nil {
+				t.Fatal(err)
+			}
+			reply, err := session.Send(context.Background(), "Waiting message.")
+			if err == nil || len(held.requests) != 2 || len(crossed.requests) != 0 || session.state.ProviderSessionID != "old" {
+				t.Fatalf("Send = %+v, %v; primary=%d alternate=%d session=%q", reply, err, len(held.requests), len(crossed.requests), session.state.ProviderSessionID)
+			}
+			if name == "no capacity" && !errors.Is(err, ErrProviderCapacity) {
+				t.Fatalf("the capacity refusal lost its retry signal: %v", err)
+			}
+			events, err := options.Store.LoadEvents(session.state.ConversationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(recordedMessages(events, maxRebuiltContextBytes), "Waiting message.") {
+				t.Fatal("the failed save lost the waiting message from the record")
+			}
+			if len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].Failure == "" {
+				t.Fatalf("the failed save was not reported: %+v", reply.CompactionSaves)
+			}
+		})
+	}
+}
+
+func TestASaveTurnDoesNotConsumeTheWaitingRefreshOrResults(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	provider := &compactionBackend{speakingBackend: &speakingBackend{results: []backendapi.RunResult{
+		{SessionID: "old", FinalText: "Learning."},
+		{SessionID: "old", FinalText: "Nothing to save."},
+		{IsError: true, FinalText: "The waiting turn failed."},
+	}}}
+	options := compactingOptions(t, root, provider, 1)
+	options.Ground = &fakeGround{briefing: Briefing{Text: "The updated repository picture.", GatheredAt: fixedClock{}.Now(), Commit: "new-commit"}}
+	session := openTestSession(t, options)
+	if _, err := session.Send(context.Background(), "First message."); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.carryResults("The pending tracker results."); err != nil {
+		t.Fatal(err)
+	}
+	provider.beforeRun = func(request backendapi.RunRequest) {
+		if len(provider.requests) == 2 {
+			if session.carried == nil || session.refresh == nil || !strings.Contains(session.state.PendingTrackerResults, "pending tracker results") {
+				t.Fatal("the save turn consumed context it never delivered")
+			}
+			if !strings.Contains(request.Prompt, "updated repository picture") || !strings.Contains(request.Prompt, "pending tracker results") {
+				t.Fatal("the waiting turn did not receive the pending refresh and results")
+			}
+		}
+	}
+	if _, err := session.Send(context.Background(), "Waiting message."); err == nil {
+		t.Fatal("the waiting turn was meant to fail")
+	}
+	if session.refresh == nil || !strings.Contains(session.state.PendingTrackerResults, "pending tracker results") {
+		t.Fatal("the failed waiting turn lost its pending refresh or results")
+	}
+}
+
 func compactingOptions(t *testing.T, root string, provider Backend, budget int) Options {
 	t.Helper()
 
@@ -363,6 +473,7 @@ func TestAnUnmeasuredSessionIsCompactedOnItsNextTurn(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	recorded.ProviderSessionBytes, recorded.ProviderSessionBudgetBytes = 0, 0
+	recorded.AccountAlias = ""
 	if err := store.Save(recorded); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
@@ -377,6 +488,9 @@ func TestAnUnmeasuredSessionIsCompactedOnItsNextTurn(t *testing.T) {
 	}
 	if later.requests[1].SessionID != "" {
 		t.Fatalf("session asked for = %q, want none: nobody knows how large it is", later.requests[1].SessionID)
+	}
+	if later.requests[0].AccountAlias != options.AccountAlias {
+		t.Fatal("the save turn did not name the account missing from the older record")
 	}
 	if payload := onlyEventPayload(t, root, resumed, execution.EventSessionCompacted); !strings.Contains(payload, `"reason":"unmeasured"`) {
 		t.Fatalf("session.compacted = %s, want it to say the session was unmeasured", payload)

@@ -199,9 +199,9 @@ func (s *Session) rebuiltPrompt(systemPrompt, prompt, why string) (string, error
 	if err != nil {
 		return prompt, fmt.Errorf("read what this conversation has recorded: %w", err)
 	}
-	// What the turn in flight has recorded of itself is not history yet. Its
-	// operator message is already the prompt, and a refused attempt's events are
-	// the attempt this rebuild is replacing rather than something said before it.
+	// The waiting operator message is already the prompt. Any save turn following
+	// it is history, while a refused attempt's events belong to the invocation
+	// being replaced rather than something said before it.
 	events = recordedBefore(events, s.turnBegan)
 	for index, event := range events {
 		if event.Sequence == s.turnOperatorSequence {

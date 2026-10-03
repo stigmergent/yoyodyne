@@ -709,12 +709,9 @@ type Session struct {
 	// already answered, and throwing that away to report that the log missed
 	// would cost the operator the answer as well as the record.
 	failoverProblem string
-	// turnBegan is where the event log had reached when the turn in flight began,
-	// before anything the turn itself recorded. A rebuild replays the record up to
-	// it and no further: the turn's own operator message is recorded ahead of the
-	// invocation and is also the prompt the invocation carries, and a rebuild that
-	// read it back would hand the provider the question twice — once as history
-	// and once as the thing to answer.
+	// turnBegan is where the event log stood before this invocation, including
+	// any preceding memory save. A rebuild reads up to it and no further, and
+	// omits the waiting operator message named by turnOperatorSequence below.
 	turnBegan uint64
 	// turnOperatorSequence is the waiting message already on the log. A save
 	// turn may have followed it, so a rebuild omits it by sequence as well.
@@ -1733,6 +1730,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	if inputBytes := len(systemPrompt) + len(prompt); inputBytes > MaxTurnInputBytes {
 		return "", fmt.Errorf("conversation turn is %d bytes, limit is %d: %w", inputBytes, MaxTurnInputBytes, errTurnInputTooLarge)
 	}
+	// Keep the waiting message even if the save turn fails before it is answered.
 	var operatorSequence uint64
 	if operatorMessage != "" {
 		if err := s.recordOperatorMessage(operatorMessage); err != nil {
@@ -1744,13 +1742,14 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	if !savingMemory {
 		due = s.compactionDue(systemPrompt, prompt)
 		if due != nil && s.keepsMemory() {
+			memoriesBeforeSave := len(reply.Memories)
 			if err := s.saveBeforeCompaction(ctx, *due, reply); err != nil {
 				return "", err
 			}
 			// The save turn may have revised or retired memories. Build this
 			// briefing after its writes, and include the results it is owed.
 			prompt = execution.NewRedactor(s.options.RedactValues...).Redact(
-				renderReplyCuts(s.state.ReplyCuts) + s.renderMemories() + turnPrompt + renderMemoryResults(reply.Memories))
+				renderReplyCuts(s.state.ReplyCuts) + s.renderMemories() + turnPrompt + renderMemoryResults(reply.Memories[memoriesBeforeSave:]))
 			due.sessionBytes = s.state.ProviderSessionBytes
 			due.turnBytes = len(systemPrompt) + len(prompt)
 		}
@@ -1758,11 +1757,8 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// A save turn does not consume notices owed to the waiting message.
 	cutsTold := !savingMemory && len(s.state.ReplyCuts) > 0
 	s.turnCuts = nil
-	// The operator's side goes into the record here, after the checks that would
-	// refuse the turn without asking anybody and before the invocation whose
-	// events follow it. A turn the provider then fails still has its question on
-	// the record, exactly as it has whatever the provider managed to say. Where
-	// the record stood before it is what a rebuild of this turn replays up to.
+	// The save turn is now history; the waiting message is already recorded and
+	// is omitted from a rebuild by sequence so it is not delivered twice.
 	s.turnBegan = s.state.LastSequence
 	s.turnOperatorSequence = operatorSequence
 	// A session this turn would take past its budget is compacted before the turn
@@ -1864,6 +1860,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// Only the endpoint holding the old session can save conclusions that
 		// have never reached the record. A refusal must not rebuild it first.
 		endpoint := backend.Endpoint{Provider: s.state.Backend, AccountAlias: s.state.AccountAlias, Model: s.state.ProviderModel}
+		if endpoint.AccountAlias == "" {
+			// Older conversation records did not name the account.
+			endpoint.AccountAlias = request.AccountAlias
+		}
 		request.SessionID = s.state.ProviderSessionID
 		request.Model, request.AccountAlias, request.Effort = endpoint.Model, endpoint.AccountAlias, s.state.ProviderEffort
 		if s.alternateSession() != "" {
