@@ -3844,6 +3844,11 @@ func (a *activeRun) recordRelaunch() error {
 // second thing wrong rather than another way of saying this one.
 func (a *activeRun) blockOnSpentRelaunchBudget(ctx context.Context, failure backend.TransientFailure, recorded error) error {
 	limit := a.pipeline.Config.Execution.TransientRelaunchesBeforeBlocking
+	class := runstate.StopRelaunchBudget
+	boundary := runstate.RetryProviderInvocation
+	if recovery.RecoverableDetail(failure.Detail) && a.state.RetryWaited(boundary)+recovery.Interval(a.state.RetryAttempts(boundary)+1) > recovery.Window {
+		class = runstate.StopRecoveryWindow
+	}
 	blocked := fmt.Errorf("the provider ended this run without judging the work after %d of %d permitted relaunch(es): %s",
 		a.state.TransientRelaunches, limit, failure.Detail)
 	var reported phaseError
@@ -3852,9 +3857,9 @@ func (a *activeRun) blockOnSpentRelaunchBudget(ctx context.Context, failure back
 	}
 	cause := error(phaseError{status: failureStatus(ctx, recorded), cause: blocked})
 	if err := a.block(renderRelaunchBlockerNotes(a.outcome, failure, a.state.CheckFailure, a.state.PathRefusal, a.state.ReplayConflict, limit)); err != nil {
-		return stoppedBy(runstate.StopRelaunchBudget, withFailedRecord(cause, fmt.Errorf("record the spent relaunch budget as a blocker: %w", err)))
+		return stoppedBy(class, withFailedRecord(cause, fmt.Errorf("record the spent relaunch budget as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopRelaunchBudget, cause)
+	return stoppedBy(class, cause)
 }
 
 // account is where this run's invocations are made. It is read off the run's own
@@ -7819,6 +7824,11 @@ func (a *activeRun) classifyStop(cause error, status runstate.Status) runstate.S
 		}
 		return a.state.Environmental.Cause.StopClass()
 	}
+	if a.state.ApprovedAwaitingIntegration() && a.state.ReplayConflict == nil && class != runstate.StopRecoveryWindow {
+		if named, environmental := integrationStopCauseOf(cause); environmental {
+			return named.StopClass()
+		}
+	}
 	var requested operatorStop
 	if errors.As(cause, &requested) {
 		return stopRequestClass(requested.request)
@@ -7836,28 +7846,38 @@ func (a *activeRun) classifyStop(cause error, status runstate.Status) runstate.S
 	return runstate.StopHarness
 }
 
-// The innermost annotation names the bound; an outer wrapper names its gate.
-// For joined errors the original failure comes before its recording failure.
+// A specific bound outranks a broader gate, whether the gate wrapped it or
+// supplied the error that spent the bound. For joined errors the original
+// failure comes before its recording failure.
 func recordedStopIn(cause error) (runstate.StopClass, bool) {
 	if cause == nil {
 		return "", false
 	}
+	var own runstate.StopClass
+	switch stopped := cause.(type) {
+	case classifiedStop:
+		own = stopped.class
+	case runstate.StopError:
+		own = stopped.Class
+	case *runstate.StopError:
+		own = stopped.Class
+	}
+	choose := func(child runstate.StopClass, found bool) (runstate.StopClass, bool) {
+		if found && (own == "" || own.Gate() || !child.Gate()) {
+			return child, true
+		}
+		return own, own != ""
+	}
 	if joined, ok := cause.(interface{ Unwrap() []error }); ok {
 		for _, child := range joined.Unwrap() {
 			if class, found := recordedStopIn(child); found {
-				return class, true
+				return choose(class, true)
 			}
 		}
-	} else if class, found := recordedStopIn(errors.Unwrap(cause)); found {
-		return class, true
+	} else {
+		return choose(recordedStopIn(errors.Unwrap(cause)))
 	}
-	switch stopped := cause.(type) {
-	case classifiedStop:
-		return stopped.class, true
-	case runstate.StopError:
-		return stopped.Class, true
-	}
-	return "", false
+	return own, own != ""
 }
 
 func stopRequestClass(request runstate.StopRequest) runstate.StopClass {

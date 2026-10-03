@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -106,13 +107,56 @@ func TestEveryStopClassIsSavedWhenARunEnds(t *testing.T) {
 	}
 }
 
-func TestTheInnermostBoundSurvivesGateAndRecordingErrors(t *testing.T) {
+func TestASpecificBoundSurvivesGateAndRecordingErrors(t *testing.T) {
 	t.Parallel()
 	run := &activeRun{}
 	bound := runstate.StopError{Class: runstate.StopEventBound, Cause: errors.New("event exceeded its bound")}
-	cause := stoppedBy(runstate.StopProvider, withFailedRecord(bound, errors.New("could not record it")))
-	if got := run.classifyStop(cause, runstate.StatusFailed); got != runstate.StopEventBound {
-		t.Fatalf("class = %q, want the event bound", got)
+	for _, test := range []struct {
+		cause error
+		want  runstate.StopClass
+	}{
+		{stoppedBy(runstate.StopProvider, withFailedRecord(bound, errors.New("could not record it"))), runstate.StopEventBound},
+		{stoppedBy(runstate.StopRelaunchBudget, stoppedBy(runstate.StopProvider, errors.New("provider died"))), runstate.StopRelaunchBudget},
+		{runstate.StopError{Class: runstate.StopRecoveryWindow, Cause: stoppedBy(runstate.StopProvider, errors.New("connection reset"))}, runstate.StopRecoveryWindow},
+	} {
+		if got := run.classifyStop(test.cause, runstate.StatusFailed); got != test.want {
+			t.Errorf("class = %q, want %q for %v", got, test.want, test.cause)
+		}
+	}
+}
+
+func TestAnApprovedIntegrationSavesItsEnvironmentalStopCause(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		cause error
+		want  runstate.EnvironmentalCause
+	}{
+		{gitworktree.ErrReplayKilled, runstate.CauseReplayKilled},
+		{ErrDivergedTarget, runstate.CauseDivergedTarget},
+		{gitworktree.ErrRemoteAuthRefused, runstate.CauseRemoteAuthRefused},
+		{errors.New("connection reset by peer"), runstate.CauseTransportFailure},
+	} {
+		t.Run(test.want.StopClass().Name(), func(t *testing.T) {
+			store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := approvedStoppedState()
+			state.Status, state.CompletedAt, state.Failure = runstate.StatusRunning, nil, ""
+			state.Environmental, state.IntegrationStop = nil, nil
+			if err := store.Create(state); err != nil {
+				t.Fatal(err)
+			}
+			run := &activeRun{pipeline: Pipeline{Store: store}, state: state}
+			outcome, _ := run.fail(stoppedBy(runstate.StopIntegration, test.cause), runstate.StatusFailed)
+			stored, err := store.Load(state.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.StopClass != test.want.StopClass() || outcome.StopClass != stored.StopClass || stored.IntegrationStop == nil || stored.IntegrationStop.Cause != test.want {
+				t.Fatalf("saved cause = %q, outcome cause = %q, integration stop = %+v; want %q", stored.StopClass, outcome.StopClass, stored.IntegrationStop, test.want)
+			}
+		})
 	}
 }
 

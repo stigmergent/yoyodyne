@@ -416,8 +416,9 @@ its accounting rules are unchanged. A settled provider
 stall or total-time stop retains `provider-idle` or `provider-budget`. An explicit
 stop records `operator-stop` or `manager-stop`, a redeploy cancellation records
 `redeploy-drain`, and other cancellation keeps `cancelled`. Past these, the
-innermost typed bound wins over an outer gate label, including when a recording
-failure was joined to the original error. Leftover `check_failure`, `path_refusal`,
+specific bound wins over a broader gate label, whether that gate wrapped the
+bound or supplied the error that spent it. A recording failure joined to the
+original error does not replace its cause. Leftover `check_failure`, `path_refusal`,
 or `review_findings` never classify a later ending. A re-entered or resumed run
 clears the class its stop left. Successful landings with an outstanding
 publication, cleanup, or recording step keep the corresponding gate class;

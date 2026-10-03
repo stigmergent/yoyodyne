@@ -162,6 +162,17 @@ func (c StopClass) Valid() bool {
 	return slices.Contains(stopClasses, c) || EnvironmentalCause(c).Valid()
 }
 
+// Gate reports the older, broader labels that a more specific bound replaces.
+func (c StopClass) Gate() bool {
+	switch c {
+	case StopChecks, StopReview, StopIntegration, StopPublish, StopCleanup,
+		StopRecording, StopProvider, StopOutside, StopCancelled, StopHarness:
+		return true
+	default:
+		return false
+	}
+}
+
 // StopReason is a recorded reason with the class that stopped the run as its
 // first word, which is how every surface prints the reason. A record naming no
 // class prints its reason as it was written, and a class with no reason beside it
