@@ -131,6 +131,42 @@ func (r *PinnedRoot) WriteFile(relative string, content []byte, mode fs.FileMode
 	return errors.Join(writeErr, closeErr)
 }
 
+// CreateFile publishes a complete, synced record only if its name is unused.
+// A reader never sees a partial record, and a competing writer cannot replace
+// one. The temporary file and the final link stay in the held directory.
+func (r *PinnedRoot) CreateFile(relative string, content []byte, mode fs.FileMode) error {
+	clean, err := Relative(relative)
+	if err != nil {
+		return err
+	}
+	parent, err := r.OpenDirectory(filepath.Dir(clean))
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	temporary := strings.Replace(temporaryPattern, "*", rand.Text(), 1)
+	file, err := parent.root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	defer parent.root.Remove(temporary)
+	_, err = file.Write(content)
+	if err == nil {
+		err = file.Sync()
+	}
+	if err := errors.Join(err, file.Close()); err != nil {
+		return err
+	}
+	if err := parent.root.Link(temporary, filepath.Base(clean)); err != nil {
+		return err
+	}
+	directory, err := parent.root.Open(".")
+	if err != nil {
+		return err
+	}
+	return errors.Join(directory.Sync(), directory.Close())
+}
+
 // FileWriter always streams into a newly created inode. Exclusive writes
 // reserve the requested name; replacements reserve a temporary name in a
 // pinned parent directory and publish it only on a successful Close. Opening

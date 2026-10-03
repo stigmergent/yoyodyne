@@ -59,6 +59,7 @@ func TestTheVerbsThatRecordAPersonsDecisionRefuseAnAgentsProcess(t *testing.T) {
 		{[]string{"resume", "--config", configPath}, "a person lifts a pause or releases a run's wait"},
 		{[]string{"resume", "--config", configPath, "yoyodyne-ifd.1"}, "a person lifts a pause or releases a run's wait"},
 		{[]string{"release", "--config", configPath}, "a person releases intake"},
+		{[]string{"role", "activate", "specialist", "--config", configPath}, "a person activates a role definition"},
 		{[]string{"artifact", "approve", "--config", configPath, "v1-goals", "--reason", "approved by a shell"}, "a person approves an artifact"},
 	} {
 		stdout, stderr, code := runCLI(t, verb.args...)

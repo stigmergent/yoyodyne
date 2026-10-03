@@ -7,6 +7,61 @@ import (
 	"testing"
 )
 
+func TestPinnedCreatePublishesOnlyOneCompleteRecord(t *testing.T) {
+	t.Parallel()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenPinnedRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := root.CreateFile("activation.json", []byte("first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.CreateFile("activation.json", []byte("second\n"), 0o600); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("second create = %v, want the original record retained", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(path, "activation.json")); err != nil || string(content) != "first\n" {
+		t.Fatalf("activation = %q, %v", content, err)
+	}
+	if entries, err := os.ReadDir(path); err != nil || len(entries) != 1 {
+		t.Fatalf("temporary files after create = %v, %v", entries, err)
+	}
+}
+
+func TestPinnedCreateRemainsConfinedAcrossDirectoryReplacement(t *testing.T) {
+	t.Parallel()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenPinnedRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := os.Rename(path, path+"-held"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(path + "-held") })
+	outside := t.TempDir()
+	if err := os.Symlink(outside, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.CreateFile("activation.json", []byte("record\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(filepath.Join(path+"-held", "activation.json")); err != nil || string(content) != "record\n" {
+		t.Fatalf("record in held root = %q, %v", content, err)
+	}
+	if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+		t.Fatalf("record escaped after replacement = %v, %v", entries, err)
+	}
+}
+
 func TestPinnedReplacementLeavesAnOutsideHardLinkUnchanged(t *testing.T) {
 	t.Parallel()
 	path, err := filepath.EvalSymlinks(t.TempDir())

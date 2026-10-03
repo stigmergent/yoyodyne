@@ -217,31 +217,10 @@ func NewConfigReaderStore(root string, productID domain.ProductID) (*ConfigReade
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
-	// Resolve the existing prefix once, including platform aliases such as
-	// /var on macOS. Later writes never resolve a replacement symlink as a
-	// different root. Missing state directories are created below this anchor
-	// through the shared writer, rather than through pathname-based MkdirAll.
-	root = filepath.Clean(root)
-	ancestor := root
-	for {
-		_, err := os.Lstat(ancestor)
-		if !errors.Is(err, os.ErrNotExist) {
-			if err != nil {
-				return nil, fmt.Errorf("inspect the configuration reader's state root: %w", err)
-			}
-			break
-		}
-		ancestor = filepath.Dir(ancestor)
-	}
-	anchor, err := filepath.EvalSymlinks(ancestor)
+	root, anchor, err := confinedStateRoot(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve the configuration reader's state root: %w", err)
 	}
-	relative, err := filepath.Rel(ancestor, root)
-	if err != nil {
-		return nil, err
-	}
-	root = filepath.Join(anchor, relative)
 	return &ConfigReaderStore{
 		root:      filepath.Join(filepath.Clean(root), "products", string(productID), configReadersDirectory),
 		stateRoot: root,
@@ -275,30 +254,7 @@ func (s *ConfigReaderStore) Record(reader ConfigReader) error {
 }
 
 func (s *ConfigReaderStore) pinWriteRoot() (*repowrite.PinnedRoot, error) {
-	root, err := repowrite.OpenPinnedRoot(s.anchor)
-	if err != nil {
-		return nil, err
-	}
-	relative, err := filepath.Rel(s.anchor, s.stateRoot)
-	if err != nil {
-		root.Close()
-		return nil, err
-	}
-	if relative != "." {
-		for _, component := range strings.Split(relative, string(filepath.Separator)) {
-			if err := root.MakeDirectory(component, 0o700); err != nil {
-				root.Close()
-				return nil, err
-			}
-			child, err := root.OpenDirectory(component)
-			root.Close()
-			if err != nil {
-				return nil, err
-			}
-			root = child
-		}
-	}
-	return root, nil
+	return pinStateRoot(s.stateRoot, s.anchor)
 }
 
 func (s *ConfigReaderStore) recordIn(root *repowrite.PinnedRoot, reader ConfigReader) error {
