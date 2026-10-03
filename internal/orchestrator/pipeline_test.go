@@ -106,6 +106,7 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegrationPolicy)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -265,6 +266,7 @@ func TestPipelinePreservesFailedWorkAndRecordsFailure(t *testing.T) {
 	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopProvider)
 	if err == nil || !strings.Contains(err.Error(), "developer reported failure") {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -1538,6 +1540,7 @@ func TestPipelineReportsElapsedAndBudgetWhenACheckTimesOut(t *testing.T) {
 	pipeline.Checks = runner
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopCheckTimeout)
 	if outcome.StopClass != runstate.StopCheckTimeout {
 		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopCheckTimeout)
 	}
@@ -1739,9 +1742,10 @@ func TestPipelineFailsAfterASecondUnreadableVerdict(t *testing.T) {
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, "Sure! Here is my review.")
-	pipeline, _ := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopReviewAccount)
 	if err == nil || !strings.Contains(err.Error(), "decode review verdict") {
 		t.Fatalf("Run() error = %v, want the second unreadable verdict to end the run", err)
 	}
@@ -1985,6 +1989,7 @@ func TestPipelineBlocksTheItemWhenTheRepairBudgetIsSpent(t *testing.T) {
 			before := gitLine(t, repository, "rev-parse", "refs/heads/main")
 
 			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			assertSavedStopClass(t, store, outcome.RunID, runstate.StopRepairBudget)
 			if outcome.StopClass != runstate.StopRepairBudget {
 				t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopRepairBudget)
 			}
@@ -2219,6 +2224,7 @@ func TestPipelineBlocksTheItemWhenAFailingCheckSpendsTheRepairBudget(t *testing.
 	before := gitLine(t, repository, "rev-parse", "refs/heads/main")
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopRepairBudget)
 	if outcome.StopClass != runstate.StopRepairBudget {
 		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopRepairBudget)
 	}
@@ -3133,6 +3139,7 @@ func TestPipelineRefusesToIntegrateWithoutIndependentSessions(t *testing.T) {
 			before := gitLine(t, repository, "rev-parse", "refs/heads/main")
 
 			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			assertSavedStopClass(t, store, outcome.RunID, runstate.StopReview)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Run() error = %v, want %q", err, test.want)
 			}
@@ -4103,6 +4110,7 @@ func TestRunBlocksWhenTheRelaunchBudgetIsSpent(t *testing.T) {
 	pipeline.Config.Execution.TransientRelaunchesBeforeBlocking = 2
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopRelaunchBudget)
 	if outcome.StopClass != runstate.StopRelaunchBudget {
 		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopRelaunchBudget)
 	}
@@ -4362,6 +4370,7 @@ func TestRunWalksRepeatedServerOverloadsIntoThePauseBudget(t *testing.T) {
 	pipeline.Config.Execution.ServerOverloadPause = config.Duration(90 * time.Second)
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopUsagePause)
 	if outcome.StopClass != runstate.StopUsagePause {
 		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopUsagePause)
 	}
@@ -4784,6 +4793,7 @@ func TestAUsageWindowResettingPastTheMaximumPauseEndsTheRunUnjudged(t *testing.T
 			}
 
 			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			assertSavedStopClass(t, store, outcome.RunID, runstate.CauseUsageWindow.StopClass())
 			if err != nil {
 				t.Fatalf("Run() error = %v, want the run ended on the window rather than failed", err)
 			}
@@ -6110,6 +6120,7 @@ func TestRunCancelsARunStoppedForARedeployItCannotContinueNamingTheRedeploy(t *t
 	}()
 
 	outcome, err := pipeline.Run(ctx, tracker.item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopRedeploy)
 	if err == nil {
 		t.Fatal("Run() error = nil, want a run that could not be continued to end")
 	}
@@ -6524,6 +6535,7 @@ func TestPipelineBlocksWhenTheIntegrationRetryBudgetIsSpent(t *testing.T) {
 	pipeline.Config.Execution.IntegrationRetriesBeforeReconciliation = 0
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegrationBudget)
 	if outcome.StopClass != runstate.StopIntegrationBudget {
 		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopIntegrationBudget)
 	}

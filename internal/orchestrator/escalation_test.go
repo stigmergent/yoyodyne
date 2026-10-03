@@ -76,6 +76,7 @@ func TestADeveloperEscalationEndsTheRunInTheRoundItWasRaised(t *testing.T) {
 	pipeline, store, docket := escalatingPipeline(t, tracker, provider)
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopEscalated)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -195,6 +196,7 @@ func TestAReviewerEscalationCostsNoRoundAndNoRepairAttempt(t *testing.T) {
 	}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopEscalated)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}

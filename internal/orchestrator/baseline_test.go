@@ -290,7 +290,8 @@ func baselineSentence(body string, start, end int) string {
 
 // The baseline's representative gate and bound endings remain pinned by the
 // field's values, not by words that might also occur in its prose. The exhaustive
-// terminal-write test covers the full stop vocabulary.
+// terminal-write test covers storage of the full vocabulary; producer scenarios
+// separately reload the causes recorded by real stopping paths.
 func TestBaselineTracesRepresentativeStopClasses(t *testing.T) {
 	t.Parallel()
 

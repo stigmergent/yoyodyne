@@ -160,6 +160,7 @@ func TestAReplayThatStopsOnTheChangePastTheBudgetStopsThere(t *testing.T) {
 	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 5
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegrationBudget)
 	if outcome.StopClass != runstate.StopIntegrationBudget {
 		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopIntegrationBudget)
 	}
@@ -203,6 +204,7 @@ func TestAtBudgetZeroTheFirstReplayThatFailsItsChecksStopsTheRun(t *testing.T) {
 	pipeline.Config.Execution.IntegrationRetriesBeforeReconciliation = 0
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegrationBudget)
 	if outcome.StopClass != runstate.StopIntegrationBudget {
 		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopIntegrationBudget)
 	}

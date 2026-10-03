@@ -68,8 +68,8 @@ func TestTheStopClassNamesWhatStoppedTheRunRatherThanWhatItCarries(t *testing.T)
 	}
 }
 
-// Exercise the real terminal write for every recognized cause. Reading old
-// evidence cannot change the class chosen by the ending, even across save/load.
+// Storage coverage for every recognized cause, including reserved values.
+// Producer tests separately trigger real stopping paths and reload their endings.
 func TestEveryStopClassIsSavedWhenARunEnds(t *testing.T) {
 	t.Parallel()
 	for _, class := range runstate.StopClasses() {
