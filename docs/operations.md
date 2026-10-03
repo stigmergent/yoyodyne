@@ -554,27 +554,34 @@ record writes none, and the comparison says nothing about it rather than
 calling it current. `yoyo config validate` says the same on its standard error
 and under `unreadable_by_running` in `--json`, without moving its exit code,
 and `yoyo status` carries each one on its fourth line (below), as the
-harness's move. A run that lands makes the same comparison once it is over,
-against the configuration as the integrated commit holds it, read from Git
-rather than from the primary checkout — on a target the forge protects the run
-moves nothing locally until the forge merges, so the checkout's file does not
-carry the landed key yet. Each running part that cannot read it is named on the
-landed item, in a note that opens `Running parts that cannot read the
-configuration this landing left:`, and in the run's outcome under
-`config_mismatches`, so a landing that adds a key names the parts it leaves
-behind at the moment it lands rather than when somebody next opens the
-dashboard. A part that reads a file outside the repository is compared against
-that file as it stands, since no landing changed it. The landing also compares
+harness's move. A landing makes the same comparison against the configuration
+as the integrated commit holds it, read from Git rather than from the primary
+checkout, which can still be behind the forge's merge. Each running part that
+cannot read it is named on the landed item, in a note that opens
+`Running parts that cannot read the configuration this landing left:`, and
+under `config_mismatches` in the run's
+outcome or the sweep's result, so a landing that adds a key names the parts it
+leaves behind when the harness records the landing, rather than when somebody
+next opens the dashboard. A part that reads a file outside the repository is
+compared against that file as it stands, since no landing changed it. The
+landing also compares
 the shipped templates at the previous and integrated commits. Keys newly
 introduced there are compared against every running part's recorded schema,
 even when its active configuration has not adopted them. Incompatible parts
 are named separately, with their builds and the new keys, in a note opening
 `Running parts that cannot read new keys in shipped templates:` and in the
-outcome under `template_config_mismatches`. This is a warning that adopting the
-keys would make those builds fail to read the configuration; it does not say
-the file they read now is broken. Changing a value or repeating an existing
-key on another agent introduces no key. Both comparisons include keys supplied
+outcome or sweep's result under `template_config_mismatches`. This warns that
+adopting the keys would make those builds fail to read the configuration; it
+does not say the file they read now is broken. Changing a value or repeating an
+existing key on another agent introduces no key. Both comparisons include keys supplied
 by YAML merges, with explicit values and earlier merge sources taking precedence.
+When the forge queues a merge, both comparisons wait for confirmation that it
+landed. Reconciliation then makes them before settling the item, using the
+run's recorded previous revision and the confirmed merge commit, even if
+another change has since advanced the target branch. If the item cannot record
+the comparison, settlement remains outstanding for the next sweep. A merge
+whose confirmation failed is compared when a later sweep confirms its
+publication.
 
 It changes nothing. Nothing here installs, authenticates, restarts, or edits a
 configuration, and no credential is ever read: whether a secret is stored is

@@ -715,10 +715,13 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		RedactValues: parts.redactValues,
 	}
 	return orchestrator.Reconciler{
-		Tracker:   parts.tracker(),
-		Worktrees: parts.worktrees,
-		Store:     parts.store,
-		Publisher: forge,
+		Tracker:       parts.tracker(),
+		Worktrees:     parts.worktrees,
+		Store:         parts.store,
+		Repository:    parts.repository,
+		ConfigFiles:   parts.worktrees,
+		ConfigReaders: landingConfigReaders(parts.stateRoot, parts.config.Product.ID),
+		Publisher:     forge,
 		// A merge the forge still holds is read with its checks, and a red one is
 		// withdrawn before it is handed back or brought up to date.
 		Checks: forge,

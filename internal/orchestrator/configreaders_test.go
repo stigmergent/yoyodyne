@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,7 +13,9 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -274,4 +277,151 @@ func TestALandingAddingOnlyTemplateKeysNamesIncompatibleRunningBuilds(t *testing
 			}
 		})
 	}
+}
+
+func TestAQueuedLandingComparesRunningBuildsWhenItsMergeIsConfirmed(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		activeKey  bool
+		refuseNote bool
+	}{
+		{name: "template only"},
+		{name: "active file and template", activeKey: true},
+		{name: "a refused finding is delivered on the next sweep", refuseNote: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newQueuedFixture(t)
+			template := "internal/config/builtin/v1/bundle.yaml"
+			activePath := "deploy/config.yaml"
+			before := []byte("agents: {developer: {role: developer}}\n")
+			after := []byte("agents: {developer: {role: developer, effort: medium}}\n")
+			for _, relative := range []string{template, activePath} {
+				path := filepath.Join(fixture.repository, filepath.FromSlash(relative))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, before, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runPipelineGit(t, fixture.repository, "add", template, activePath)
+			runPipelineGit(t, fixture.repository, "commit", "-m", "configuration before the new key")
+			runPipelineGit(t, fixture.repository, "push", "origin", "main")
+			previous := publishedCommit(t, fixture.repository, "main")
+			fixture.forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "branch protection"})
+			provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+				if err := os.WriteFile(filepath.Join(request.WorkingDirectory, filepath.FromSlash(template)), after, 0o644); err != nil {
+					return err
+				}
+				if test.activeKey {
+					return os.WriteFile(filepath.Join(request.WorkingDirectory, filepath.FromSlash(activePath)), after, 0o644)
+				}
+				return nil
+			}, approveVerdict)
+			pipeline := publishing(automatic(newSharedPipeline(t, fixture.repository, fixture.worktreeRoot, fixture.store, fixture.tracker, provider, []string{"true"}), provider), fixture.forge)
+			store, err := runstate.NewConfigReaderStore(t.TempDir(), "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+			older := slices.DeleteFunc(config.SchemaKeys(), func(key string) bool { return key == "agents.*.effort" })
+			if err := store.Record(runstate.ConfigReader{
+				Service: "dashboard", PID: 4242, Build: "0364141b2c3d4e5f",
+				ConfigPath: filepath.Join(fixture.repository, filepath.FromSlash(activePath)),
+				StartedAt:  time.Now(), Keys: older,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			pipeline.ConfigReaders = store
+			outcome, err := pipeline.Run(context.Background(), fixture.tracker.Record().Item.ID)
+			if err != nil || outcome.PullRequest == nil || !outcome.PullRequest.MergeQueued {
+				t.Fatalf("queued run = %+v, %v", outcome, err)
+			}
+			if len(outcome.TemplateConfigMismatches) != 0 || strings.Contains(fixture.tracker.Record().Notes, "new keys in shipped templates") {
+				t.Fatal("a queued change was compared before its merge landed")
+			}
+			fixture.forge.PerformQueuedMerge(t)
+			merge := publishedCommit(t, fixture.remote, "main")
+			// Another landing advances the tip before the sweep. The comparison
+			// must use this request's confirmed merge, not that later tip.
+			landAnotherChange(t, fixture.remote)
+			files := &configComparisonReadLog{ConfigComparisonFiles: pipeline.Worktrees}
+			reconciler := fixture.reconciler(t)
+			reconciler.Repository = fixture.repository
+			reconciler.ConfigFiles = files
+			reconciler.ConfigReaders = store
+			if test.refuseNote {
+				reconciler.Tracker = &refuseConfigFindingOnce{WorkTracker: fixture.tracker}
+				first, err := reconciler.Reconcile(context.Background())
+				if err != nil || len(first) != 1 || !strings.Contains(first[0].Failure, "configuration finding refused") {
+					t.Fatalf("refused finding = %+v, %v", first, err)
+				}
+				if state := loadRun(t, fixture.store, outcome.RunID); !state.PullRequest.MergeQueued || fixture.tracker.Record().Closed {
+					t.Fatal("settlement forgot the undelivered finding")
+				}
+				files.reads = nil
+			}
+			results, err := reconciler.Reconcile(context.Background())
+			if err != nil || len(results) != 1 || results[0].Action != ActionCompleted || results[0].Failure != "" {
+				t.Fatalf("confirmed landing = %+v, %v", results, err)
+			}
+			result := results[0]
+			if len(result.TemplateConfigMismatches) != 1 || result.TemplateConfigMismatches[0].Service != "dashboard" {
+				t.Fatalf("template findings = %+v, want the older dashboard", result.TemplateConfigMismatches)
+			}
+			wantActive := 0
+			if test.activeKey {
+				wantActive = 1
+			}
+			if len(result.ConfigMismatches) != wantActive {
+				t.Fatalf("active findings = %+v, want %d", result.ConfigMismatches, wantActive)
+			}
+			notes := fixture.tracker.Record().Notes
+			for _, want := range []string{"the dashboard service", "build 0364141b2c3d", "agents.*.effort", "new keys in shipped templates"} {
+				if !strings.Contains(notes, want) {
+					t.Errorf("queued landing note lacks %q: %s", want, notes)
+				}
+			}
+			if !slices.Contains(files.reads, configComparisonRead{commit: merge, path: template}) ||
+				!slices.Contains(files.reads, configComparisonRead{commit: previous, path: template}) ||
+				!slices.Contains(files.reads, configComparisonRead{commit: merge, path: activePath}) {
+				t.Fatalf("comparison reads = %+v, want previous %s and confirmed merge %s", files.reads, previous, merge)
+			}
+			settled := loadRun(t, fixture.store, outcome.RunID)
+			if settled.Integration.PreviousTargetCommit != previous || settled.Integration.TargetCommit != outcome.Integration.TargetCommit {
+				t.Fatal("comparison changed the promotion's recorded revisions")
+			}
+			noteCount := len(fixture.tracker.Record().NoteRecords)
+			if again, err := reconciler.Reconcile(context.Background()); err != nil || len(again) != 0 || len(fixture.tracker.Record().NoteRecords) != noteCount {
+				t.Fatalf("settled comparison repeated: %+v, %v", again, err)
+			}
+		})
+	}
+}
+
+type configComparisonRead struct{ commit, path string }
+
+type configComparisonReadLog struct {
+	ConfigComparisonFiles
+	reads []configComparisonRead
+}
+
+func (r *configComparisonReadLog) FileAtCommit(ctx context.Context, commit, path string, bound int64) (gitworktree.FileAt, error) {
+	r.reads = append(r.reads, configComparisonRead{commit: commit, path: path})
+	return r.ConfigComparisonFiles.FileAtCommit(ctx, commit, path, bound)
+}
+
+type refuseConfigFindingOnce struct {
+	WorkTracker
+	refused bool
+}
+
+func (r *refuseConfigFindingOnce) RecordOutcome(ctx context.Context, id, note string) (beads.WorkItem, error) {
+	if !r.refused && strings.Contains(note, "new keys in shipped templates") {
+		r.refused = true
+		return beads.WorkItem{}, errors.New("configuration finding refused")
+	}
+	return r.WorkTracker.RecordOutcome(ctx, id, note)
 }

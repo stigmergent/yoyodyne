@@ -5971,44 +5971,20 @@ func (a *activeRun) nameUnreadingParts() {
 	if a.outcome.Integration == nil || p.ConfigReaders == nil {
 		return
 	}
-	commit := a.outcome.Integration.TargetCommit
 	readCtx, cancelRead := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelRead()
-	mismatches, err := p.ConfigReaders.MismatchesIn(func(configPath string) ([]byte, error) {
-		return p.configAtCommit(readCtx, commit, configPath)
-	})
-	a.outcome.ConfigMismatches = mismatches
-	templateMismatches, templateErr := a.templateConfigMismatches(readCtx)
-	a.outcome.TemplateConfigMismatches = templateMismatches
-	if len(mismatches) == 0 && err == nil && len(templateMismatches) == 0 && templateErr == nil {
+	comparison := (configLanding{repository: p.Repository, files: p.Worktrees, readers: p.ConfigReaders}).compare(readCtx, *a.outcome.Integration)
+	a.outcome.ConfigMismatches = comparison.active
+	a.outcome.TemplateConfigMismatches = comparison.templates
+	note := comparison.notes()
+	if note == "" {
 		return
-	}
-	var notes []string
-	lines := make([]string, 0, len(mismatches)+1)
-	for _, mismatch := range mismatches {
-		lines = append(lines, mismatch.Says()+"; "+runstate.ConfigMismatchRemedy(mismatch.Service))
-	}
-	if err != nil {
-		lines = append(lines, "whether every running part of the product can read the configuration could not be read whole: "+err.Error())
-	}
-	if len(lines) > 0 {
-		notes = append(notes, "Running parts that cannot read the configuration this landing left: "+strings.Join(lines, "; "))
-	}
-	lines = nil
-	for _, mismatch := range templateMismatches {
-		lines = append(lines, mismatch.Says()+"; "+runstate.ConfigMismatchRemedy(mismatch.Service))
-	}
-	if templateErr != nil {
-		lines = append(lines, "whether every running part can adopt the new keys in shipped templates could not be read whole: "+templateErr.Error())
-	}
-	if len(lines) > 0 {
-		notes = append(notes, "Running parts that cannot read new keys in shipped templates: "+strings.Join(lines, "; "))
 	}
 	noteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	// A note the item will not take loses only the note: the outcome still
 	// carries both the active and prospective mismatches.
-	_, _ = p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, strings.Join(notes, "\n"))
+	_, _ = p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, note)
 }
 
 // landingQueueSlack is the margin a landing's wait allows beyond the checks of

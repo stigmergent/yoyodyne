@@ -648,8 +648,10 @@ type PublicationSettlement struct {
 	// closed. It is not a settlement failure — the record and the item are
 	// settled — and the next build of the docket cannot re-derive the entry from
 	// a record that says nothing is outstanding.
-	DocketProblem string `json:"docket_problem,omitempty"`
-	Failure       string `json:"failure,omitempty"`
+	DocketProblem            string                            `json:"docket_problem,omitempty"`
+	Failure                  string                            `json:"failure,omitempty"`
+	ConfigMismatches         []runstate.ConfigMismatch         `json:"config_mismatches,omitempty"`
+	TemplateConfigMismatches []runstate.ConfigTemplateMismatch `json:"template_config_mismatches,omitempty"`
 }
 
 // FinishPublications asks the remote again about every publication the harness
@@ -865,6 +867,13 @@ func (r Reconciler) settleDocket(settlement PublicationSettlement, state runstat
 // to the consumed branch with it, and a deletion that fails writes onto the
 // record this settled.
 func (r Reconciler) recordSettledPublication(ctx context.Context, state *runstate.State, published runstate.PullRequest, settlement PublicationSettlement) PublicationSettlement {
+	comparison, err := r.nameConfigReaders(ctx, *state, published.MergeCommit)
+	if err != nil {
+		settlement.Failure = err.Error()
+		return settlement
+	}
+	settlement.ConfigMismatches = comparison.active
+	settlement.TemplateConfigMismatches = comparison.templates
 	previously := state.PublishFailure
 	handedBack := state.MergeDrop != nil && strings.TrimSpace(state.Blocker) != ""
 	state.PullRequest = &published

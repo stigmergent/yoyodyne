@@ -29,6 +29,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // ConfigReaderSchemaVersion is 1 and has never changed.
@@ -168,12 +169,12 @@ func shortBuild(revision string) string {
 // ConfigReaderStore is where the parts' records live: one file per part under
 // the product.
 //
-// It writes with the temporary-file-and-rename every state file beside it
-// uses, directly rather than through the repository's confined-write
-// primitive, for the reason the supervision store gives: the state root is the
-// harness's own directory outside every repository.
+// Writes use the shared confined writer with the state directory pinned for
+// the whole operation. A replacement or symlink cannot redirect the record.
 type ConfigReaderStore struct {
 	root      string
+	stateRoot string
+	anchor    string
 	productID domain.ProductID
 	// running answers whether a recorded process is still there; nil asks the
 	// operating system.
@@ -187,8 +188,35 @@ func NewConfigReaderStore(root string, productID domain.ProductID) (*ConfigReade
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	// Resolve the existing prefix once, including platform aliases such as
+	// /var on macOS. Later writes never resolve a replacement symlink as a
+	// different root. Missing state directories are created below this anchor
+	// through the shared writer, rather than through pathname-based MkdirAll.
+	root = filepath.Clean(root)
+	ancestor := root
+	for {
+		_, err := os.Lstat(ancestor)
+		if !errors.Is(err, os.ErrNotExist) {
+			if err != nil {
+				return nil, fmt.Errorf("inspect the configuration reader's state root: %w", err)
+			}
+			break
+		}
+		ancestor = filepath.Dir(ancestor)
+	}
+	anchor, err := filepath.EvalSymlinks(ancestor)
+	if err != nil {
+		return nil, fmt.Errorf("resolve the configuration reader's state root: %w", err)
+	}
+	relative, err := filepath.Rel(ancestor, root)
+	if err != nil {
+		return nil, err
+	}
+	root = filepath.Join(anchor, relative)
 	return &ConfigReaderStore{
 		root:      filepath.Join(filepath.Clean(root), "products", string(productID), configReadersDirectory),
+		stateRoot: root,
+		anchor:    anchor,
 		productID: productID,
 	}, nil
 }
@@ -209,30 +237,60 @@ func (s *ConfigReaderStore) Record(reader ConfigReader) error {
 	if err := reader.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create configuration reader directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".reader-*.tmp")
+	root, err := s.pinWriteRoot()
 	if err != nil {
-		return fmt.Errorf("create temporary configuration reader record: %w", err)
+		return fmt.Errorf("pin the configuration reader's state root: %w", err)
 	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary configuration reader record: %w", err)
+	defer root.Close()
+	return s.recordIn(root, reader)
+}
+
+func (s *ConfigReaderStore) pinWriteRoot() (*repowrite.PinnedRoot, error) {
+	root, err := repowrite.OpenPinnedRoot(s.anchor)
+	if err != nil {
+		return nil, err
 	}
-	if err := writeJSONFile(temporary, "configuration reader record", reader); err != nil {
-		temporary.Close()
+	relative, err := filepath.Rel(s.anchor, s.stateRoot)
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	if relative != "." {
+		for _, component := range strings.Split(relative, string(filepath.Separator)) {
+			if err := root.MakeDirectory(component, 0o700); err != nil {
+				root.Close()
+				return nil, err
+			}
+			child, err := root.OpenDirectory(component)
+			root.Close()
+			if err != nil {
+				return nil, err
+			}
+			root = child
+		}
+	}
+	return root, nil
+}
+
+func (s *ConfigReaderStore) recordIn(root *repowrite.PinnedRoot, reader ConfigReader) error {
+	encoded, err := encodeRecord("configuration reader record", reader)
+	if err != nil {
 		return err
 	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary configuration reader record: %w", err)
+	if len(encoded) > maxEncodedStateBytes {
+		return fmt.Errorf("encoded configuration reader record is %d bytes, limit is %d", len(encoded), maxEncodedStateBytes)
 	}
-	if err := os.Rename(temporaryPath, filepath.Join(s.root, reader.Service+".json")); err != nil {
-		return fmt.Errorf("replace configuration reader record: %w", err)
+	if err := root.Unchanged(); err != nil {
+		return err
 	}
-	return syncDirectory(s.root)
+	directory := filepath.Join("products", string(s.productID), configReadersDirectory)
+	if err := root.MakeDirectory(directory, 0o700); err != nil {
+		return fmt.Errorf("create configuration reader directory: %w", err)
+	}
+	if err := root.WriteFile(filepath.Join(directory, reader.Service+".json"), encoded, 0o600, false); err != nil {
+		return fmt.Errorf("record configuration reader: %w", err)
+	}
+	return root.Unchanged()
 }
 
 // Running is every part whose recorded process is still there, in the order

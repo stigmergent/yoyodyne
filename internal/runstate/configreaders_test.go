@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite/writertest"
 )
 
 func TestConfigReaderMismatchesNameTheRunningPartsThatCannotReadTheFile(t *testing.T) {
@@ -87,5 +88,97 @@ func TestConfigReaderRefusesAPartTheProductDoesNotHave(t *testing.T) {
 	err = store.Record(ConfigReader{Service: "printer", PID: 1, ConfigPath: "/x/config.yaml", StartedAt: time.Now(), Keys: []string{"version"}})
 	if err == nil || !strings.Contains(err.Error(), "printer") {
 		t.Fatalf("Record() error = %v, want a refusal naming the part", err)
+	}
+}
+
+func TestConfigReaderWritesStayInsideTheStateRoot(t *testing.T) {
+	writertest.Run(t, writertest.Writer{
+		Name: "configuration reader", Directory: "products/example/config-readers", File: "dashboard.json",
+		Write: func(t *testing.T, root string) error {
+			store, err := NewConfigReaderStore(root, "example")
+			if err != nil {
+				return err
+			}
+			return store.Record(configReaderRecordFixture())
+		},
+	})
+}
+
+func TestConfigReaderRefusesAReplacedWriteRoot(t *testing.T) {
+	for _, replacement := range []string{"symlink", "directory"} {
+		t.Run(replacement, func(t *testing.T) {
+			base := t.TempDir()
+			statePath := filepath.Join(base, "state")
+			outside := filepath.Join(base, "outside")
+			for _, path := range []string{statePath, outside} {
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			store, err := NewConfigReaderStore(statePath, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			pinned, err := store.pinWriteRoot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer pinned.Close()
+			moved := filepath.Join(base, "moved")
+			if err := os.Rename(statePath, moved); err != nil {
+				t.Fatal(err)
+			}
+			if replacement == "symlink" {
+				if err := os.Symlink(outside, statePath); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Mkdir(statePath, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			// This is the second half of Record, after its directory was pinned
+			// and before writing. A check-to-use replacement must be refused.
+			if err := store.recordIn(pinned, configReaderRecordFixture()); err == nil {
+				t.Fatal("a replaced state root was accepted")
+			}
+			for _, path := range []string{outside, moved, statePath} {
+				if entries, err := os.ReadDir(path); err != nil || len(entries) != 0 {
+					t.Fatalf("records appeared after a refused replacement in %s: %v, %v", path, entries, err)
+				}
+			}
+			if replacement == "symlink" {
+				if err := store.Record(configReaderRecordFixture()); err == nil {
+					t.Fatal("Record followed a replacement symlink at its declared root")
+				}
+				if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+					t.Fatalf("Record escaped into %s: %v, %v", outside, entries, err)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigReaderCreatesAMissingStateRootThroughTheConfinedWriter(t *testing.T) {
+	store, err := NewConfigReaderStore(filepath.Join(t.TempDir(), "new", "state"), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	if err := store.Record(configReaderRecordFixture()); err != nil {
+		t.Fatal(err)
+	}
+	if readers, err := store.Running(); err != nil || len(readers) != 1 {
+		t.Fatalf("newly created record = %+v, %v", readers, err)
+	}
+	info, err := os.Stat(filepath.Join(store.root, "dashboard.json"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("record permissions: %v, %v", info, err)
+	}
+}
+
+func configReaderRecordFixture() ConfigReader {
+	return ConfigReader{
+		SchemaVersion: ConfigReaderSchemaVersion, ProductID: "example",
+		Service: "dashboard", PID: 4242, ConfigPath: "/example/config.yaml",
+		StartedAt: time.Now(), Keys: []string{"version"},
 	}
 }
