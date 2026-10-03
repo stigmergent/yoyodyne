@@ -1037,11 +1037,12 @@ func TestAFinishedRunIsNotReadAsTheResident(t *testing.T) {
 	harness.deployed(31)
 	harness.watched(t, runstate.WatchWatching, "watching the backlog until stopped", moment)
 	ended := harness.run(t, runstate.StatusSucceeded)
+	ended.StopClass = runstate.StopIntegrationPolicy
 	ended.Build = staleResidentBuild
 	harness.record(t, ended)
 
 	cursors := harness.poll(t, harness.start(),
-		notify.KindRunStarted, notify.KindChecksPassed)
+		notify.KindRunStarted, notify.KindChecksPassed, notify.KindRunEnded)
 	harness.now = harness.now.Add(2 * time.Hour)
 	harness.poll(t, cursors)
 }

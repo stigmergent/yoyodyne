@@ -62,8 +62,8 @@ the stop itself.
 
 Every terminal run that did not land records one `stop_class`. This extends the
 existing gate vocabulary: specific clocks and budget bounds have their own
-names, and the environmental names below are converted into the same field.
-The environmental record still decides accounting; a stop class grants nothing.
+names, and the causes outside the work below are converted into the same field.
+The refusal record still decides accounting; a stop class grants nothing.
 A settled provider silence keeps `provider-idle`, and a settled invocation time
 limit keeps `provider-budget`, rather than losing that cause to `process-vanished`.
 An older record with no class reads as `unknown`; no reader reconstructs it from
@@ -73,7 +73,7 @@ can end a successful run before promotion,
 recorded as `integration-policy`. Other step and scope refusals keep the existing
 gate names.
 
-The environmental set currently has thirteen values. A named cause alone does not forgive a
+The set of causes outside the work currently has thirteen values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
 present it spends as an ordinary round does. `usage-window` and
 `check-stage-bound` are the exceptions: they stopped before judgment, so they

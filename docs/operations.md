@@ -4438,8 +4438,8 @@ without landing. It uses the existing closed list, extended with the bounds in
 `redeploy-drain`, `dead-claim`, `developer-account`, `review-account`,
 `work-item-escalated`, `integration-policy`, `recovery-window`, `context-bound`,
 `state-bound`, `event-bound`, and the
-inventory's environmental causes. Other refusals retain their gate names.
-The environmental record still controls refunds; a stop class changes no budget
+inventory's causes outside the work. Other refusals retain their gate names.
+The refusal record still controls refunds; a stop class changes no budget
 or recovery rule. An older record with no class reads as `unknown`, without
 inferring a cause from its prose or its leftover check findings. Status prints
 `stop cause`, the docket names it, and the run's Slack reason carries its name.

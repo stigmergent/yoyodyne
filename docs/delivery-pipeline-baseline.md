@@ -403,15 +403,15 @@ record arrived late).
 
 Beside the status and the outcome a stopped run records **`stop_class`**, the gate
 or bound that stopped it. The closed vocabulary in `runstate` extends the older
-gate names with the specific clocks, budgets, requests, and environmental causes
+gate names with the specific clocks, budgets, requests, and causes outside the work
 in [the run-stop inventory](run-stops.md). It is written where the run ends,
 including reconciliation and the dead-claim audit. Old records without it read
 as `unknown`, with their prose preserved and no inferred classification.
 The representative traces cover gate and bound endings; the exhaustive terminal
 write test ends a run for every class and reloads its field.
 
-An unsettled environmental refusal converts its existing cause into the same
-field, except that an exhausted transport recovery window names that bound;
+An unsettled refusal from outside the work converts its existing cause into the
+same field, except that an exhausted transport recovery window names that bound;
 its accounting rules are unchanged. A settled provider
 stall or total-time stop retains `provider-idle` or `provider-budget`. An explicit
 stop records `operator-stop` or `manager-stop`, a redeploy cancellation records

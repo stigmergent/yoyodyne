@@ -179,14 +179,15 @@ func TestARunThatIsOverAndOwesNothingStopsBeingCarried(t *testing.T) {
 
 	completed := moment.Add(time.Minute)
 	state.Status = runstate.StatusSucceeded
+	state.StopClass = runstate.StopIntegrationPolicy
 	state.Phase = runstate.PhaseComplete
 	state.CompletedAt = &completed
 	state.UpdatedAt = completed
 	harness.save(t, state)
 
-	// The checks are behind it now, so that is said; the pass after says nothing
-	// and closes the run.
-	cursors = harness.poll(t, cursors, notify.KindChecksPassed)
+	// The checks passed and the policy ended the run without promotion, so both
+	// are said. The pass after says nothing and closes the run.
+	cursors = harness.poll(t, cursors, notify.KindChecksPassed, notify.KindRunEnded)
 	cursors = harness.poll(t, cursors)
 	closed := cursors.Streams[runStream(state.RunID)]
 	if !closed.Closed || closed.Reported != nil {
@@ -650,17 +651,42 @@ func TestARecordFiledWhileTheSinkWasDownIsStillPosted(t *testing.T) {
 func TestARunThatRanEntirelyWhileTheSinkWasDownIsStillReported(t *testing.T) {
 	t.Parallel()
 
-	harness := newTestHarness(t, moment)
-	cursors := harness.poll(t, harness.start())
+	for _, test := range []struct {
+		name  string
+		class runstate.StopClass
+		want  string
+	}{
+		{name: "a historical ending", want: "unknown"},
+		{name: "a policy ending", class: runstate.StopIntegrationPolicy, want: "integration-policy"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			harness := newTestHarness(t, moment)
+			cursors := harness.poll(t, harness.start())
 
-	completed := moment.Add(time.Hour)
-	state := harness.run(t, runstate.StatusSucceeded)
-	state.StartedAt = moment.Add(30 * time.Minute)
-	state.UpdatedAt = completed
-	state.CompletedAt = &completed
-	harness.record(t, state)
+			completed := moment.Add(time.Hour)
+			state := harness.run(t, runstate.StatusSucceeded)
+			state.StopClass = test.class
+			state.StartedAt = moment.Add(30 * time.Minute)
+			state.UpdatedAt = completed
+			state.CompletedAt = &completed
+			harness.record(t, state)
 
-	harness.poll(t, cursors, notify.KindRunStarted, notify.KindChecksPassed)
+			batch, err := harness.feed.Poll(context.Background(), cursors)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, delivery := range batch.Deliveries {
+				if delivery.Notification.Event.Kind == notify.KindRunEnded {
+					message, err := notify.Render(delivery.Notification.Topic, delivery.Notification.Speaker, delivery.Notification.Event)
+					if err != nil || !strings.Contains(message.Body, test.want) {
+						t.Fatalf("ending message = %+v, error %v; want cause %q", message, err, test.want)
+					}
+				}
+			}
+			cursors = harness.poll(t, cursors, notify.KindRunStarted, notify.KindChecksPassed, notify.KindRunEnded)
+			harness.poll(t, cursors)
+		})
+	}
 }
 
 // One record nobody can address must not hold up every record behind it for as
