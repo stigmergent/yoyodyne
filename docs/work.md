@@ -1976,11 +1976,13 @@ recurring tasks — because the drain is about the runs it hosts and not about t
 scheduler's other duties. The wait is bounded, by
 [`execution.redeploy_drain_limit`](configuration.md#watching-instead-of-draining),
 fifteen minutes by default: past it the session restarts anyway, stopping each
-run it still hosts at a developer attempt or a review where it is and
+run it still hosts at a developer attempt, its checks, or a review where it is and
 preserving it whole for the session that comes back to re-adopt, with every
-counter as it was. A run at its checks or its promotion is waited out instead —
-a check stage to its end, capped by the check-stage bound — because a check
-stage stopped part-way is run again whole. That stop is recorded as
+counter as it was. A running check stage is stopped at the drain limit even
+when load has extended the stage's own limit; the session that comes back runs
+it again from the start. A stage that has already finished gets a brief grace
+to record its verdict. A run at its promotion is waited out past the bound
+because it holds the target branch's lease. That stop is recorded as
 a restart rather than an ending, so `yoyo status` and the Slack sink say a
 session is coming back on the new build instead of telling you to start one,
 and the drain and its bound are on every line the session writes while it

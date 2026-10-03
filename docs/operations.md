@@ -2454,7 +2454,7 @@ work in it — rather than looking like a poll that found nothing.
 waits at most `execution.redeploy_drain_limit` — fifteen minutes by default,
 minutes rather than hours on purpose. Past that it restarts anyway:
 
-- Each run it still hosts at its developer attempt or its review is
+- Each run it still hosts at its developer attempt, its checks, or its review is
   stopped where it is and **preserved whole** — worktree, branch, claim,
   developer session, repair attempts, relaunches, review rounds, every counter.
   The run's record carries a `redeploy_stop` naming the phase, the bound, and
@@ -2472,7 +2472,7 @@ minutes rather than hours on purpose. Past that it restarts anyway:
   `yoyo run <beads-id>` continues one the same way if no session does, and
   `yoyo reconcile` leaves it alone as a run its own pipeline can continue.
   The session that stopped a run never re-adopts it, and a draining session
-  re-adopts nothing: while it waits out a promotion or a check stage past the bound, the run it
+  re-adopts nothing: while it waits out a promotion past the bound, the run it
   stopped stays stopped, holding its seat, rather than being resumed only for
   the next look to stop it again.
 - A run at its promotion is waited out: it holds the target branch's
@@ -2483,18 +2483,14 @@ minutes rather than hours on purpose. Past that it restarts anyway:
   cadence; only new starts are declined, and each declined pull says so. A
   forge outage can hold a promotion for hours, and those hours cost the
   scheduler nothing but the seat the promotion holds.
-- A run at its checks is waited out too, to the end of that check stage. A
-  stage stopped part-way is run again whole by the session that comes back, and
-  a stage here runs twenty minutes or more, so on 2026-09-28, with a build
-  deployed on nearly every landing, three stops in ten hours were each a check
-  stage the fifteen-minute bound cut short. The wait is capped by the stage's
-  own bound, `execution.check_stage_timeout` as the machine's load scaled it:
-  the session waits until the stage's start plus that bound, and a minute's grace for the run to record the
-  stage ending, and stops a run still reading as at its checks past that like
-  any other. Once the stage ends the run moves on to its review or a repair,
-  which resume where they were, and the next look stops it there. The wait is
-  the same ordinary loop a promotion's is, and the session's line and
-  `yoyo status` say it is waiting out a check stage and until when.
+- A run still running its checks is stopped at `execution.redeploy_drain_limit`,
+  independently of the check stage's own bound. Load can scale
+  `execution.check_stage_timeout` to hours, and waiting for that would leave
+  the session on the old build for hours. The session that comes back runs the
+  interrupted stage again from the start. A stage that has already finished
+  gets up to a minute's grace to record its verdict and move the run on to its
+  review or a repair; the next look stops it there. This brief wait uses the
+  ordinary loop too, so pulls and recurring tasks continue.
 - A run that has already landed and is running its
   [landing checks](configuration.md#where-the-whole-suite-runs) is stopped at
   the bound too. The run is over and its item settled, so nothing is preserved
