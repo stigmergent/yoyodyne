@@ -654,6 +654,9 @@ func standingSources(configPath string) readmodel.Sources {
 	}
 	// The product's supervisor and its record of the parts, so a part the
 	// supervisor has left down is said here with its reason.
+	if store, err := runstate.NewConfigReaderStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.ConfigReaders = store
+	}
 	if store, err := runstate.NewSupervisionStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Supervision = store
 	}

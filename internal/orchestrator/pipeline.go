@@ -463,7 +463,13 @@ type Pipeline struct {
 	// the same way: a red landing nothing can file is still recorded and reported
 	// as red, with the record saying no item could be filed and why.
 	Filer WorkFiler
-	Clock execution.Clock
+	// ConfigReaders is what the running parts of the product recorded about the
+	// configuration keys their builds read. A landing asks it, once the run is
+	// over, which running parts cannot read the configuration the landing left,
+	// and names each on the item and in the outcome. It is optional: a pipeline
+	// wired without one lands exactly as it would have and names nothing.
+	ConfigReaders ConfigReaders
+	Clock         execution.Clock
 	// Sleep waits out a usage-limit pause. It is a field so a test can drive a
 	// pause without spending the real time, and so the wait is always cut short
 	// by a cancelled context rather than holding the process past a shutdown.
@@ -715,9 +721,18 @@ type Outcome struct {
 	// LandingChecks is what the landing checks made of the integrated commit,
 	// once the run was over. It is absent from a run that integrated nothing and
 	// from a project that configured no landing checks.
-	LandingChecks *runstate.LandingChecks   `json:"landing_checks,omitempty"`
-	Changes       gitworktree.ChangeSummary `json:"changes"`
-	Summary       string                    `json:"summary,omitempty"`
+	LandingChecks *runstate.LandingChecks `json:"landing_checks,omitempty"`
+	// ConfigMismatches is every running part of the product whose build cannot
+	// read a key in the configuration this landing left, as the landing found
+	// them once the run was over. It is absent where every part reads the file.
+	ConfigMismatches []runstate.ConfigMismatch `json:"config_mismatches,omitempty"`
+	// TemplateConfigMismatches names parts that could not adopt the new keys
+	// this landing adds to shipped templates. Their active files may be healthy.
+	TemplateConfigMismatches []runstate.ConfigTemplateMismatch `json:"template_config_mismatches,omitempty"`
+	// ConfigComparison includes saved read problems and any delivery still owed.
+	ConfigComparison *runstate.ConfigComparison `json:"config_comparison,omitempty"`
+	Changes          gitworktree.ChangeSummary  `json:"changes"`
+	Summary          string                     `json:"summary,omitempty"`
 	// Reports are what this run's agents noticed and reported while their work
 	// carried on: risks worked around, assumptions that may not hold, things
 	// outside the assigned work. They are collected beside the run rather than
@@ -5919,6 +5934,37 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 	}
 }
 
+// ConfigReaders is what the running parts of the product recorded about the
+// configuration keys their builds read, compared against the file each reads
+// and against newly introduced shipped-template keys.
+// It is satisfied by *runstate.ConfigReaderStore.
+type ConfigReaders interface {
+	MismatchesIn(read func(configPath string) ([]byte, error)) ([]runstate.ConfigMismatch, error)
+	TemplateMismatches(templatePath string, added []string) ([]runstate.ConfigTemplateMismatch, error)
+}
+
+// nameUnreadingParts saves the landing's active and prospective comparisons
+// before completion and cleanup. A failed tracker delivery is retained for
+// reconciliation; an unsaved comparison refuses completion.
+func (a *activeRun) nameUnreadingParts(ctx context.Context) error {
+	p := a.pipeline
+	if a.outcome.Integration == nil || a.mergeQueued() {
+		return nil
+	}
+	comparison, err := (configFindingRecorder{
+		configLanding: configLanding{repository: p.Repository, files: p.Worktrees, readers: p.ConfigReaders},
+		store:         p.Store, tracker: p.Tracker,
+	}).name(ctx, &a.state, *a.outcome.Integration)
+	a.outcome.ConfigMismatches = comparison.active
+	a.outcome.TemplateConfigMismatches = comparison.templates
+	a.outcome.ConfigComparison = a.state.ConfigComparison
+	var delivery configFindingDelivery
+	if errors.As(err, &delivery) {
+		return nil
+	}
+	return err
+}
+
 // landingQueueSlack is the margin a landing's wait allows beyond the checks of
 // the landing ahead of it, for that landing's checkout and its removal: the
 // lease is released once the checkout is removed, before a red landing's
@@ -6115,6 +6161,9 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	// it rather than recorded succeeded.
 	if err := a.publicationRecorded(); err != nil {
 		return a.fail(stoppedBy(runstate.StopPublish, err), runstate.StatusFailed)
+	}
+	if err := a.nameUnreadingParts(ctx); err != nil {
+		return a.fail(stoppedBy(runstate.StopRecording, err), runstate.StatusFailed)
 	}
 	// Where the landing does not discharge the item, where that item goes is
 	// decided before the outcome is recorded rather than as part of the settlement
@@ -8149,6 +8198,8 @@ The work backlog is upstream in the same way. The Lead Product Manager decides w
 Your worktree is yours alone, and so is the scratch directory the harness cut for this run, at ` + scratchDirectoryPlaceholder + ` — anything your work needs that your change must not carry goes there. The log you redirect a check into is the ordinary case. No other run is given that directory, so nothing you write in it can be read back by a run working beside you, and nothing in it can enter your change or leave your worktree dirty. Neither of the two obvious alternatives is one you can use: a scratch file inside the worktree is untracked content every reviewer is then shown, and the machine's temporary directory is one directory every run on this machine is handed at once — two runs redirecting a check into the same name there is one file both of them write, which on 2026-09-01 is how a run came to report a broken toolchain over another run's compile error while its own checks were passing.
 
 Documentation that describes behavior you change is part of the assigned work, not a follow-up: leave no document asserting what your change has made false. Update the ones you may edit in this same change, and for a stale upstream artifact you may not edit, propose the correction it needs.
+
+A change that adds a configuration key — to the configuration's schema, and so to what the shipped template or a project's file may carry — says so in its summary, naming the key. Every part of the product still running a build from before the key refuses the whole file once it carries it, so whoever lands the change needs to know a restart follows; ` + "`yoyo config validate`" + ` and ` + "`yoyo doctor`" + ` name each running part that cannot read it.
 
 ` + terms.LiveCopy + `
 

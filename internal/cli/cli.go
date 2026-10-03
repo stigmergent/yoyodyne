@@ -206,8 +206,19 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 	// are: this is the command somebody runs to be told whether their project is
 	// right, and the answer "valid" on its own would be true and unhelpful.
 	providerKeys := execution.ProviderKeysInEnvironment(nil)
+	// A file this build reads can still be one a part of the product running an
+	// older build cannot: every key a landing adds is refused by every build
+	// from before it. Each running part recorded the keys its build reads as it
+	// started, so this names the part, its build, and the keys. It is said as a
+	// warning and never moves the exit code, for the reason the asides above do:
+	// the configuration is right, and what is behind is a process.
+	mismatches, mismatchProblem := configMismatches(resolved)
 
 	if *jsonOutput {
+		unreadableProblem := ""
+		if mismatchProblem != nil {
+			unreadableProblem = mismatchProblem.Error()
+		}
 		return writeJSON(stdout, stderr, map[string]any{
 			"status":     "valid",
 			"config":     resolved.Path,
@@ -225,6 +236,10 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 			// reader given only `known: false` cannot tell a project that never
 			// recorded a baseline from one whose baseline is there and refused.
 			"unknown": unknown,
+			// Each running part of the product whose build cannot read a key the
+			// file now carries, with the part, its build, and the keys.
+			"unreadable_by_running": mismatches,
+			"unreadable_problem":    unreadableProblem,
 		})
 	}
 	fmt.Fprintf(stdout, "configuration valid: %s (revision %s)\n", resolved.Path, resolved.Config.Revision())
@@ -235,6 +250,9 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 		fmt.Fprintln(stderr, notice)
 	}
 	if notice := describeProviderKeysInEnvironment(providerKeys); notice != "" {
+		fmt.Fprintln(stderr, notice)
+	}
+	if notice := describeConfigMismatches(mismatches, mismatchProblem); notice != "" {
 		fmt.Fprintln(stderr, notice)
 	}
 	return 0

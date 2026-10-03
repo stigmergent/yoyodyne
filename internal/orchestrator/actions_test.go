@@ -1032,6 +1032,10 @@ var notAStep = map[string]string{
 	// run that landed it. A definition that could order them would be ordering
 	// something after the run it defines has ended.
 	"runLandingChecks": "runs the landing checks over the integrated commit once the run is over, and files a red landing as its own work",
+	// The same holds of naming the running parts that cannot read what landed:
+	// it runs once the run is over, reads the parts' records, and changes nothing
+	// the run recorded.
+	"nameUnreadingParts": "saves the running parts a landing leaves unable to read configuration keys and attempts delivery before completing the run",
 
 	// Inside a step rather than beside one. Actions are coarse by design — a
 	// promotion is one operation that takes the lease, checks the remote, moves the

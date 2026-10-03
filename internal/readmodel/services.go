@@ -27,6 +27,26 @@ type Supervision interface {
 	Load() (runstate.Supervision, bool, error)
 }
 
+// ConfigReaders is what the running parts of the product recorded about the
+// configuration keys their builds read, compared against the file each reads.
+// It is satisfied by *runstate.ConfigReaderStore.
+type ConfigReaders interface {
+	Mismatches() ([]runstate.ConfigMismatch, error)
+}
+
+// readConfigMismatches is every running part that cannot read something in
+// its configuration, and what could not be read of the records whole.
+func readConfigMismatches(sources Sources) ([]runstate.ConfigMismatch, string) {
+	if sources.ConfigReaders == nil {
+		return nil, ""
+	}
+	mismatches, err := sources.ConfigReaders.Mismatches()
+	if err != nil {
+		return mismatches, fmt.Sprintf("whether every running part of the product can read the configuration could not be read whole: %v", err)
+	}
+	return mismatches, ""
+}
+
 // Services is the product's parts and its supervisor, as one reading.
 type Services struct {
 	// SupervisorRunning is the lease's answer, now, rather than anything the

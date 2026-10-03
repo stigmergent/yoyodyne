@@ -136,6 +136,12 @@ type Reconciler struct {
 	Tracker   WorkTracker
 	Worktrees ReconcileWorktrees
 	Store     ReconcileStore
+	// These readers compare a confirmed forge landing with running builds,
+	// including keys added only to shipped templates. They are optional for
+	// callers that have no running-service records to compare.
+	Repository    string
+	ConfigFiles   ConfigComparisonFiles
+	ConfigReaders ConfigReaders
 	// Publisher answers what became of a merge the forge queued. It is required
 	// only to settle a run that has one, which is a run a publishing project
 	// produced; a purely local project never records one.
@@ -310,6 +316,9 @@ type Reconciliation struct {
 	// it is idempotent and owned by no run, so a held one is a fact to read
 	// rather than a debt to carry.
 	Catchup *gitworktree.Catchup `json:"catchup,omitempty"`
+	// The same active and prospective findings an immediate landing reports.
+	ConfigMismatches         []runstate.ConfigMismatch         `json:"config_mismatches,omitempty"`
+	TemplateConfigMismatches []runstate.ConfigTemplateMismatch `json:"template_config_mismatches,omitempty"`
 }
 
 // Artifacts is what this sweep says survives of the run's change, assembled
@@ -410,6 +419,16 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// it. The run itself is left exactly as it recorded itself.
 	if state.Status.Terminal() && state.LandingChecks != nil && !state.LandingChecks.Finished() {
 		return r.settleInterruptedLandingChecks(ctx, state)
+	}
+	// Delivery after cleanup needs only the saved comparison, not the removed
+	// worktree or the schemas of services that may have restarted since then.
+	if state.Status.Terminal() && state.Phase == runstate.PhaseComplete && state.ConfigComparison != nil && state.ConfigComparison.Pending {
+		comparison, err := r.nameConfigReaders(ctx, &state, "")
+		result := reconciliationOf(state, ActionCompleted)
+		result.ConfigMismatches = comparison.active
+		result.TemplateConfigMismatches = comparison.templates
+		result.Detail = "the saved configuration comparison was delivered to the work item"
+		return result, err
 	}
 	// A run whose provider the harness stopped on time is owed the rest of the
 	// attempt it was making, for the length of the grace and no longer. Nothing
@@ -799,9 +818,9 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: state.PublishFailure}
 		return r.settleDroppedMerge(ctx, state)
 	}
-	published.MergeQueued = false
 	detail := fmt.Sprintf("the forge merged pull request %d into %s", published.Number, state.Integration.TargetBranch)
 	var catchup *gitworktree.Catchup
+	var comparison configComparison
 	if failure := r.confirmQueuedPublication(ctx, state, &published, observed.MergeCommit); failure != nil {
 		state.PublishFailure = failure.Error()
 		detail = failure.Error()
@@ -813,7 +832,16 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		// merge nothing verified would be deciding it for them.
 		settled := r.catchUp(ctx, state.Integration.TargetBranch)
 		catchup = &settled
+		var compareErr error
+		comparison, compareErr = r.nameConfigReaders(ctx, &state, published.MergeCommit)
+		if compareErr != nil {
+			return reconciliationOf(state, ActionUnsettled), compareErr
+		}
 	}
+	// Saving the comparison must retain the outstanding merge settlement.
+	// Otherwise a failed finding delivery sends the next sweep straight to
+	// ordinary cleanup, skipping the forge outcome and consumed branch removal.
+	published.MergeQueued = false
 	// The run that integrated the change left the closure to this answer, so this
 	// note is where an operator learns how the publication of it ended. It is
 	// written before the run is settled: a sweep that stopped in between leaves
@@ -853,6 +881,8 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 	result, err := r.completeIntegrated(ctx, state, false)
 	result.Detail = detail
 	result.Catchup = catchup
+	result.ConfigMismatches = comparison.active
+	result.TemplateConfigMismatches = comparison.templates
 	// A publication entry this merge had open — a promotion docketed with no
 	// request on its record, whose merge the recovering sweep then armed — is
 	// closed by the settlement that finished it, for the reason the finishing
@@ -1069,6 +1099,7 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 
 	switch {
 	case observed.Merged:
+		var comparison configComparison
 		if failure := r.confirmQueuedPublication(ctx, state, &published, observed.MergeCommit); failure != nil {
 			// The forge says merged and nothing could check what the merge left; the
 			// change is closed on the forge's word, as a settled queued merge is, and
@@ -1077,6 +1108,11 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 			state.PublishFailure = failure.Error()
 		} else {
 			r.catchUp(ctx, target)
+			var compareErr error
+			comparison, compareErr = r.nameConfigReaders(ctx, &state, published.MergeCommit)
+			if compareErr != nil {
+				return reconciliationOf(state, ActionUnsettled), compareErr
+			}
 		}
 		state.PullRequest = &published
 		if failure := r.deleteMergedBranch(ctx, &state, published); failure != "" {
@@ -1084,6 +1120,8 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 		}
 		result, err := r.completeIntegrated(ctx, state, false)
 		result.Detail = fmt.Sprintf("the run was interrupted while landing through pull request %d, and the forge has merged it into %s", published.Number, target)
+		result.ConfigMismatches = comparison.active
+		result.TemplateConfigMismatches = comparison.templates
 		return result, err
 	case observed.AutoMerge:
 		published.MergeQueued = true
@@ -1251,6 +1289,10 @@ func (r Reconciler) recoverIntegration(ctx context.Context, state runstate.State
 // artifacts. That order is what stops a settled item from ever sitting behind a
 // run that still says something is in flight.
 func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State, recovered bool) (Reconciliation, error) {
+	comparison, err := r.nameConfigReaders(ctx, &state, "")
+	if err != nil {
+		return reconciliationOf(state, ActionCompleted), err
+	}
 	itemStatus, err := r.itemStatus(ctx, state.WorkItemID)
 	if err != nil {
 		return reconciliationOf(state, ActionCompleted), err
@@ -1329,6 +1371,8 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 		return reconciliationOf(state, ActionCompleted), fmt.Errorf("save completed run state for %s: %w", state.RunID, err)
 	}
 	result := reconciliationOf(state, ActionCompleted)
+	result.ConfigMismatches = comparison.active
+	result.TemplateConfigMismatches = comparison.templates
 	// The detail says what the sweep did to the item, and "closed" is only one of
 	// the two things it can have done.
 	settled := "closed"

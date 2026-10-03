@@ -124,6 +124,12 @@ func runSlack(ctx context.Context, args []string, stdout, stderr io.Writer, vers
 	}
 
 	fmt.Fprintf(stdout, "starting the Slack sink for %s; stop it with Ctrl-C\n", channel)
+	// A sink that stays up says which configuration keys its build reads, for
+	// the reason every long-running part does; a single pass leaves nothing
+	// running to be behind.
+	if resolved, err := loadConfiguration(*configPath); err == nil {
+		recordConfigReader(resolved, string(config.ServiceSlack), stderr)
+	}
 	if err := sink.Run(ctx); err != nil {
 		fmt.Fprintf(stderr, "slack failed: %v\n", err)
 		return 1

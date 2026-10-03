@@ -163,6 +163,13 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		}
 		sessions = opened
 		scheduler.Sessions = sessions
+		// The watch is the product's scheduler, and says which configuration keys
+		// its build reads for the reason every long-running part does. A watch
+		// that re-executes into a deployed build comes back through here and
+		// replaces the record.
+		if resolved, err := loadConfiguration(*configPath); err == nil {
+			recordConfigReader(resolved, string(config.ServiceScheduler), stderr)
+		}
 		scheduler.SessionID = sessionID
 		// This loop is the harness's own, so it is one of the two places the stall
 		// reading is taken. Failing to assemble it does not stop the session: a

@@ -18,6 +18,18 @@ import (
 // Keys name a string by its place in the record, with [] standing for any
 // element of a list.
 var structuredStrings = map[string]string{
+	"config_comparison.target_commit":                       "a validated compared revision",
+	"config_comparison.previous_target_commit":              "the integration's validated previous revision",
+	"config_comparison.mismatches[].service":                "the recorded service name",
+	"config_comparison.mismatches[].build":                  "the revision reported by the running service",
+	"config_comparison.mismatches[].config_path":            "the configuration's absolute path",
+	"config_comparison.mismatches[].keys[]":                 "names of configuration keys",
+	"config_comparison.template_mismatches[].service":       "the recorded service name",
+	"config_comparison.template_mismatches[].build":         "the revision reported by the running service",
+	"config_comparison.template_mismatches[].config_path":   "the configuration's absolute path",
+	"config_comparison.template_mismatches[].template_path": "the shipped template's path",
+	"config_comparison.template_mismatches[].keys[]":        "names of configuration keys",
+
 	"run_id":                               "matched against the run id pattern",
 	"product_id":                           "a validated identifier",
 	"repository_id":                        "an identifier the configuration names",
