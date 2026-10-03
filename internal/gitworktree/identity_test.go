@@ -98,3 +98,109 @@ func TestManagerContentIdentityRefusesAWorktreeItDoesNotOwn(t *testing.T) {
 		t.Fatalf("ContentIdentity() error = %v, want the moved HEAD refused", err)
 	}
 }
+
+// Git stores the executable bit and the link text even when the file's bytes
+// or the contents of the link's destination did not change.
+func TestManagerContentIdentityIncludesModesAndLinkTargets(t *testing.T) {
+	t.Parallel()
+	for _, tracked := range []bool{false, true} {
+		for _, symlink := range []bool{false, true} {
+			name := "untracked file"
+			if tracked {
+				name = "tracked file"
+			}
+			if symlink {
+				name += " symlink"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				repository := newRepository(t)
+				// Both targets are outside the worktree and absent. Reading either
+				// destination would fail; reading the link text must still succeed.
+				target := filepath.Join(t.TempDir(), "missing")
+				create := func(root string) {
+					t.Helper()
+					if symlink {
+						if err := os.Symlink(target, filepath.Join(root, "changed")); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						writeFile(t, root, "changed", "unchanged bytes\n")
+						if err := os.Chmod(filepath.Join(root, "changed"), 0o644); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				if tracked {
+					create(repository)
+					runGit(t, repository, "add", "changed")
+					runGit(t, repository, "commit", "-m", "track the original path")
+				}
+				manager := newManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+				worktree, err := manager.Create(context.Background(), CreateRequest{RunID: testRunID, WorkItemID: "yoyodyne-identity-mode", BaseRef: "HEAD"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !tracked {
+					create(worktree.Path)
+				} else {
+					// Keep this path in the change before changing its mode or target.
+					if symlink {
+						if err := os.Remove(filepath.Join(worktree.Path, "changed")); err != nil {
+							t.Fatal(err)
+						}
+						target += "-modified"
+						create(worktree.Path)
+					} else {
+						writeFile(t, worktree.Path, "changed", "modified bytes\n")
+					}
+				}
+				read := func() string {
+					t.Helper()
+					identity, err := manager.ContentIdentity(context.Background(), worktree)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return identity
+				}
+				before := read()
+				if !symlink {
+					if err := os.Chmod(filepath.Join(worktree.Path, "changed"), 0o660); err != nil {
+						t.Fatal(err)
+					}
+					if otherPermissions := read(); otherPermissions != before {
+						t.Fatal("ContentIdentity() included permission bits Git does not store")
+					}
+				}
+				if symlink {
+					if err := os.Remove(filepath.Join(worktree.Path, "changed")); err != nil {
+						t.Fatal(err)
+					}
+					target += "-retargeted\n"
+					create(worktree.Path)
+				} else if err := os.Chmod(filepath.Join(worktree.Path, "changed"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				after := read()
+				if after == before {
+					t.Fatal("ContentIdentity() did not move for the changed mode or link target")
+				}
+				if strings.HasPrefix(after, "sha256:") {
+					t.Fatal("ContentIdentity() still uses the identity version that omitted modes and link targets")
+				}
+				if !symlink {
+					if err := os.Chmod(filepath.Join(worktree.Path, "changed"), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if otherPermissions := read(); otherPermissions != after {
+						t.Fatal("ContentIdentity() did not canonicalize the executable file's Git mode")
+					}
+				}
+				worktree.HarnessCommit = harnessCommit(t, worktree.Path, "yoyodyne: publish changed path")
+				if committed := read(); committed != after {
+					t.Fatalf("ContentIdentity() after commit = %q, want %q", committed, after)
+				}
+			})
+		}
+	}
+}

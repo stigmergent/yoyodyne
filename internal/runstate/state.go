@@ -883,11 +883,11 @@ func (l LandingChecks) spent() time.Duration {
 // so it never describes a change the gate has moved past.
 type ChecksPassed struct {
 	// Content names the change the checks passed over, as the worktree manager
-	// names it: a digest over the base, every path the change touches, and the
-	// blob each one's content is. It is the binding that always holds and is
-	// what makes this evidence about a revision rather than about a moment — the
-	// promotion reads the worktree again and refuses a change whose content is
-	// not this one, whether or not anything was ever committed.
+	// names it: a versioned digest over the base, every path the change touches,
+	// its Git mode, and its regular-file blob or symlink target text. It is the
+	// binding that always holds and makes this evidence about a revision rather
+	// than about a moment. The promotion reads the worktree again and refuses
+	// a change whose content differs, whether or not anything was ever committed.
 	Content string `json:"content"`
 	// Attempt is the repair attempt the checks ran over, which is the run's
 	// RepairAttempts at the time. The first attempt is zero.
