@@ -1211,6 +1211,7 @@ func (c StaleBlockClear) Validate() error {
 type Finding struct {
 	Severity    string `json:"severity"`
 	Disposition string `json:"disposition,omitempty"`
+	Absent      string `json:"absent,omitempty"`
 	Message     string `json:"message"`
 	File        string `json:"file,omitempty"`
 	Line        int    `json:"line,omitempty"`

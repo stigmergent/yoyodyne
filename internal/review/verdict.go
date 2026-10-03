@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"slices"
 	"strings"
 )
@@ -134,6 +135,9 @@ type Finding struct {
 	Disposition Disposition `json:"disposition,omitempty"`
 	Message     string      `json:"message"`
 	Location    *Location   `json:"location,omitempty"`
+	// Absent names a path this finding claims is missing. The harness checks it
+	// against repository evidence rather than inferring absence from a patch.
+	Absent string `json:"absent,omitempty"`
 }
 
 // Verdict is the reviewer's approve-or-repair decision on one change, and — on
@@ -228,7 +232,7 @@ func Decode(data []byte) (Verdict, []string, error) {
 // disagree about what the contract defines.
 var (
 	verdictFields  = []string{"decision", "approves", "summary", "fixtures", "findings"}
-	findingFields  = []string{"severity", "disposition", "message", "location"}
+	findingFields  = []string{"severity", "disposition", "message", "location", "absent"}
 	locationFields = []string{"file", "line"}
 )
 
@@ -391,7 +395,22 @@ func (f Finding) Validate() error {
 			problems = append(problems, fmt.Errorf("location: %w", err))
 		}
 	}
+	if f.Absent != "" {
+		if _, err := canonicalAbsentPath(f.Absent); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	return errors.Join(problems...)
+}
+
+func canonicalAbsentPath(claimed string) (string, error) {
+	// Spaces can be part of a Git filename; cleaning separators and dot segments
+	// must not turn a claim about that file into a claim about a different path.
+	clean := path.Clean(claimed)
+	if strings.TrimSpace(claimed) == "" || path.IsAbs(claimed) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.ContainsAny(claimed, "\\\x00") {
+		return "", fmt.Errorf("absent path %q must be inside the repository", claimed)
+	}
+	return clean, nil
 }
 
 // Validate rejects locations that cannot point at a place in the change.

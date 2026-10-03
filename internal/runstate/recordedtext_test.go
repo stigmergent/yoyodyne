@@ -59,6 +59,7 @@ var structuredStrings = map[string]string{
 	"landing_blocked_by":                   "a work item identifier resolved against the tracker",
 	"review_finding_details[].severity":    "an enumeration",
 	"review_finding_details[].disposition": "an enumeration",
+	"review_finding_details[].absent":      "a repository-relative path validated by review.Finding.Validate and checked against the repository evidence",
 	"check_failure.command":                "a command the configuration declares",
 	"check_stage.command":                  "a command the configuration declares",
 	"checks_passed.content":                "a digest the worktree manager computes over the change",
