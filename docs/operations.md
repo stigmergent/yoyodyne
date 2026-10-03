@@ -1334,7 +1334,11 @@ when the edit only changed a comment. Its listing names both digests, who last
 activated it, and when. Read the edited definition and activate it again to
 record a decision about that content. An older matching activation does not
 stand in for the latest one. `history` keeps the records when a definition is
-removed or malformed, and neither reading writes state.
+removed or malformed. Neither inspection changes activation records. Both
+agree the state root with the configured repository's Git marker before opening
+the records; if that marker is absent, they create `.git/yoyodyne/state-root`
+and its `.git/yoyodyne/state-root.writer` record. A root that disagrees with an
+existing marker is refused.
 
 **Activation is a person's verb.** A process the harness launched for a role
 is refused before the configuration or state is read, with the same sentence
