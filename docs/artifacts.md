@@ -209,7 +209,14 @@ content was rarely the part that went wrong — the transcription was.
 
 So a document is written the way work is proposed. Ask the Lead Product Manager
 for the goals or the architect for a design, and what comes back is prose you
-read plus a typed action carrying the document. Nothing is written yet. You are
+read plus a typed action carrying the document. A consistent creation or revision
+the Lead Product Manager records with its directing-item reason is written under
+that role's delegated authority, without an operator decision or an approval
+attributed to you. The action carries `"intent":"consistent"`; a creation's
+reason says what existing intent it records, such as rules you already gave.
+The harness reports what it wrote and its path, and `--json` carries the result
+as `written_documents`. Fundamental and unmarked writes still wait for you, as
+does a consistent mark whose reason names no directing item. For those, you are
 shown what would happen and the document itself, and asked:
 
 ```

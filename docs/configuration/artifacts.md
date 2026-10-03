@@ -377,7 +377,8 @@ yoyo artifact show v1-goals         # one artifact, its revisions, and your appr
 
 There is no `yoyo artifact create` or `amend`, unlike the invariant commands: an
 artifact's content is written by the role that owns it — by hand, or from its
-conversation as a typed write you approve, which the harness files with the
+conversation as a typed write, which the harness files under delegated authority
+for a qualifying consistent-intent mark or after your approval, with the
 frontmatter generated ([writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation)). What the harness owns is refusing a
 document whose identity is missing, malformed, or claimed by something else,
@@ -861,8 +862,9 @@ it — proposals against the brief and the goals are carried into the Lead Produ
 Manager's conversation, and proposals against the designs, the specifications,
 and the decision records are carried into the architect's, each told in so many
 words that it cannot decide one. An owner may write its own documents, which is
-how an approved change is made: it writes the revision as a typed action, you
-approve it, and the harness performs the write — see [writing a document from a
+how an approved change is made: it writes the revision as a typed action. The
+harness performs a qualifying consistent revision under the Lead Product
+Manager's delegated authority or awaits your approval — see [writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation). What no
 owner can do is decide the proposal from there. Both owners can now be
 asked directly: `yoyo agent chat architect` is where the argument about a design
