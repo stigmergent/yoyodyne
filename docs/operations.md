@@ -528,9 +528,11 @@ PM; the watch and the installed binary had been checked, and the dashboard had
 not. So each long-running part — the supervisor, the Slack sink, the scheduler
 (`yoyo work --watch`), and the dashboard — records as it starts which build it
 is, which file it reads, and every configuration key its build reads, under
-`products/<product>/config-readers/` in the state root. The doctor reads the
-records of the parts whose processes are still running, reads the file each
-one reads as it stands now, and names every key in it that part's build would
+`products/<product>/config-readers/` in the state root, with one record per
+process and start time. Starting another dashboard keeps the first dashboard
+in the comparison while both processes remain running. The doctor reads the
+records of every live instance, reads the file each one reads as it stands
+now, and names every key in it that part's build would
 refuse, with the part, its build, and its process:
 
 ```text
@@ -578,8 +580,15 @@ by YAML merges, with explicit values and earlier merge sources taking precedence
 When the forge queues a merge, both comparisons wait for confirmation that it
 landed. Reconciliation then makes them before settling the item, using the
 run's recorded previous revision and the confirmed merge commit, even if
-another change has since advanced the target branch. If the item cannot record
-the comparison, settlement remains outstanding for the next sweep. A merge
+another change has since advanced the target branch. Every comparison is
+saved on the run before attempting to record its finding on the item, including
+any failure reading the configuration or template. If that write fails, the
+saved comparison remains an outstanding delivery for the next sweep, even if
+an immediate landing has already settled its item and removed its worktree.
+`yoyo status` names that delivery under **Waiting on the harness**, with the
+recording failure; `yoyo reconcile` retries the saved account without replacing
+it with a comparison of services or files that changed afterwards. A queued
+merge keeps its item settlement outstanding until delivery succeeds. A merge
 whose confirmation failed is compared when a later sweep confirms its
 publication.
 
@@ -3854,10 +3863,10 @@ has the rule.
 An `owed-step` entry is only for a finished run with no live process holding
 it. A live run in its checks, including landing checks after integration, never
 appears as an ended run here. The entry carries the recorded ending and phase,
-the cleanup failure or unfinished landing checks, and the pull request with the
-forge's last check reading when a merge still needs settlement. Its words say
+the cleanup failure, unfinished landing checks, or undelivered configuration
+comparison, and the pull request with the forge's last check reading when a merge still needs settlement. Its words say
 which step remains and what moves it: finishing cleanup, recording completion,
-confirming a queued merge, rerunning jobs the forge ended, waiting for a rerun
+delivering a saved configuration comparison, confirming a queued merge, rerunning jobs the forge ended, waiting for a rerun
 already requested, or withdrawing a merge over failed checks. A job cancelled,
 timed out, or never started is rerun within the head's two-rerun limit, with the
 merge left queued; a reading still awaiting that rerun spends nothing more,

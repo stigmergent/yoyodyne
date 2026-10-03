@@ -1035,7 +1035,7 @@ var notAStep = map[string]string{
 	// The same holds of naming the running parts that cannot read what landed:
 	// it runs once the run is over, reads the parts' records, and changes nothing
 	// the run recorded.
-	"nameUnreadingParts": "names the running parts whose builds cannot read the configuration a landing left, once the run is over",
+	"nameUnreadingParts": "saves the running parts a landing leaves unable to read configuration keys and attempts delivery before completing the run",
 
 	// Inside a step rather than beside one. Actions are coarse by design — a
 	// promotion is one operation that takes the lease, checks the remote, moves the

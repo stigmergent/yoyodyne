@@ -216,7 +216,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionPublication:       "run-queued",
 		AttentionDegradedService:   "scheduler",
 		AttentionFailingTask:       "development-manager-sweep",
-		AttentionConfigMismatch:    "dashboard",
+		AttentionConfigMismatch:    fixtures[AttentionConfigMismatch].entry.ConfigMismatch.InstanceID(),
 		AttentionHold:              HoldIntake,
 		AttentionDirective:         "directive-4f2c",
 		AttentionOutage:            string(domain.ProviderUnauthenticated),
@@ -611,5 +611,31 @@ func TestAConfigMismatchIsTheHarnesssMove(t *testing.T) {
 	dashboard := configMismatchAttention(runstate.ConfigMismatch{Service: "dashboard", PID: 7, ConfigPath: "/c.yaml", Keys: []string{"x"}})
 	if !strings.Contains(dashboard.Whose(), "`yoyo dashboard`") {
 		t.Errorf("dashboard whose = %q, want the restart named", dashboard.Whose())
+	}
+}
+
+func TestUndeliveredConfigurationFindingWaitsOnTheHarness(t *testing.T) {
+	t.Parallel()
+	state := runstate.State{
+		RunID: "run-landed", WorkItemID: "yoyodyne-task", Status: runstate.StatusSucceeded, Phase: runstate.PhaseComplete,
+		Integration:      &runstate.Integration{TargetBranch: "main"},
+		ConfigComparison: &runstate.ConfigComparison{Pending: true, DeliveryFailure: "configuration finding refused"},
+	}
+	entry := owedStepAttention(state)
+	if !state.Outstanding() || entry.Mover != MoverHarness || entry.OwedStep.ConfigComparison != state.ConfigComparison {
+		t.Fatalf("missing delivery obligation: %+v", entry)
+	}
+	if !strings.Contains(entry.What(), "configuration comparison") || !strings.Contains(entry.What(), "configuration finding refused") || !strings.Contains(entry.Whose(), "delivers the saved configuration comparison") {
+		t.Fatalf("delivery misdescribed: %s — %s", entry.What(), entry.Whose())
+	}
+}
+
+func TestConfigurationFindingsIdentifyEachRunningInstance(t *testing.T) {
+	t.Parallel()
+	first := runstate.ConfigMismatch{Service: "dashboard", PID: 7, StartedAt: moment}
+	second := first
+	second.PID = 8
+	if configMismatchAttention(first).ID == configMismatchAttention(second).ID {
+		t.Fatal("two live dashboards open the same attention record")
 	}
 }

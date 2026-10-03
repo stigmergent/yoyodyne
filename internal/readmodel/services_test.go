@@ -160,10 +160,12 @@ func TestAPartWhoseBuildCannotReadTheConfigurationIsNamed(t *testing.T) {
 
 	sources := quietSources()
 	started := time.Date(2026, 9, 26, 23, 36, 0, 0, time.UTC)
-	sources.ConfigReaders = fakeConfigReaders{mismatches: []runstate.ConfigMismatch{
+	mismatches := []runstate.ConfigMismatch{
 		{Service: "dashboard", PID: 4242, Build: "0364141b2c3d4e5f", ConfigPath: "/work/.yoyodyne/config.yaml", StartedAt: started, Keys: []string{"agents.developer.effort"}},
+		{Service: "dashboard", PID: 4243, Build: "0364141b2c3d4e5f", ConfigPath: "/work/.yoyodyne/config.yaml", StartedAt: started, Keys: []string{"agents.developer.effort"}},
 		{Service: "scheduler", PID: 4343, Build: "0364141b2c3d4e5f", ConfigPath: "/work/.yoyodyne/config.yaml", StartedAt: started, Keys: []string{"agents.developer.effort"}},
-	}}
+	}
+	sources.ConfigReaders = fakeConfigReaders{mismatches: mismatches}
 	standing := ReadStanding(context.Background(), sources)
 	movers := map[string]Mover{}
 	for _, entry := range standing.NeedsHuman {
@@ -174,8 +176,13 @@ func TestAPartWhoseBuildCannotReadTheConfigurationIsNamed(t *testing.T) {
 			}
 		}
 	}
-	if movers["dashboard"] != MoverHarness || movers["scheduler"] != MoverHarness {
-		t.Fatalf("movers = %v, want both the harness's", movers)
+	if len(movers) != len(mismatches) {
+		t.Fatalf("movers = %v, want all three instances", movers)
+	}
+	for _, mismatch := range mismatches {
+		if movers[mismatch.InstanceID()] != MoverHarness {
+			t.Fatalf("movers = %v, want every instance to be the harness's", movers)
+		}
 	}
 	rendered := standing.Render()
 	if !strings.Contains(rendered, "the dashboard service, running build 0364141b2c3d") {

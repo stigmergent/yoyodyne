@@ -729,8 +729,10 @@ type Outcome struct {
 	// TemplateConfigMismatches names parts that could not adopt the new keys
 	// this landing adds to shipped templates. Their active files may be healthy.
 	TemplateConfigMismatches []runstate.ConfigTemplateMismatch `json:"template_config_mismatches,omitempty"`
-	Changes                  gitworktree.ChangeSummary         `json:"changes"`
-	Summary                  string                            `json:"summary,omitempty"`
+	// ConfigComparison includes saved read problems and any delivery still owed.
+	ConfigComparison *runstate.ConfigComparison `json:"config_comparison,omitempty"`
+	Changes          gitworktree.ChangeSummary  `json:"changes"`
+	Summary          string                     `json:"summary,omitempty"`
 	// Reports are what this run's agents noticed and reported while their work
 	// carried on: risks worked around, assumptions that may not hold, things
 	// outside the assigned work. They are collected beside the run rather than
@@ -5793,11 +5795,6 @@ func (a *activeRun) finish(ctx context.Context) (Outcome, error) {
 		return a.pipeline.reportOutstandingCleanup(a.state, a.outcome, err)
 	}
 	a.observe(ctx, deliveryCleanUp, "cleaned")
-	// A landing that added a configuration key leaves every part still running
-	// a build from before the key refusing the whole file, so the parts that
-	// cannot read what landed are named now, on the item and in the outcome,
-	// rather than found by whoever next looks at the dashboard.
-	a.nameUnreadingParts()
 	// The landing checks come after everything the run is judged by. The run is
 	// terminal, its item is settled, and its artifacts are gone; what runs now is
 	// over the target branch rather than over the change, and nothing it finds
@@ -5946,45 +5943,26 @@ type ConfigReaders interface {
 	TemplateMismatches(templatePath string, added []string) ([]runstate.ConfigTemplateMismatch, error)
 }
 
-// nameUnreadingParts compares the configuration this landing left against
-// every running part of the product, and names each part whose build cannot
-// read a key in it — the part, its build, its process, and the keys — on the
-// item and in the outcome. Like the landing checks it judges nothing about the
-// run, which is over: what it finds is news about the running parts, and the
-// part moves onto a build that reads the key the way the attention line says.
-// A comparison that could not be made whole is said as that rather than as
-// every part reading the file.
-//
-// The file each part reads is read as the integrated commit holds it, not as
-// the primary checkout has it: on a target the forge protects the run moves
-// nothing locally, so the checkout does not carry the landed key until the
-// forge merges, and reading it would name nothing at exactly the landing that
-// adds a key. A part reading a file the commit does not carry — one outside
-// the repository — is compared against the file as it stands, which nothing
-// this landing did has changed.
-//
-// Keys newly introduced in shipped templates are compared separately. A part
-// that cannot adopt those keys is named prospectively; that does not say its
-// active configuration is already unreadable.
-func (a *activeRun) nameUnreadingParts() {
+// nameUnreadingParts saves the landing's active and prospective comparisons
+// before completion and cleanup. A failed tracker delivery is retained for
+// reconciliation; an unsaved comparison refuses completion.
+func (a *activeRun) nameUnreadingParts(ctx context.Context) error {
 	p := a.pipeline
-	if a.outcome.Integration == nil || p.ConfigReaders == nil {
-		return
+	if a.outcome.Integration == nil || a.mergeQueued() {
+		return nil
 	}
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelRead()
-	comparison := (configLanding{repository: p.Repository, files: p.Worktrees, readers: p.ConfigReaders}).compare(readCtx, *a.outcome.Integration)
+	comparison, err := (configFindingRecorder{
+		configLanding: configLanding{repository: p.Repository, files: p.Worktrees, readers: p.ConfigReaders},
+		store:         p.Store, tracker: p.Tracker,
+	}).name(ctx, &a.state, *a.outcome.Integration)
 	a.outcome.ConfigMismatches = comparison.active
 	a.outcome.TemplateConfigMismatches = comparison.templates
-	note := comparison.notes()
-	if note == "" {
-		return
+	a.outcome.ConfigComparison = a.state.ConfigComparison
+	var delivery configFindingDelivery
+	if errors.As(err, &delivery) {
+		return nil
 	}
-	noteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	// A note the item will not take loses only the note: the outcome still
-	// carries both the active and prospective mismatches.
-	_, _ = p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, note)
+	return err
 }
 
 // landingQueueSlack is the margin a landing's wait allows beyond the checks of
@@ -6183,6 +6161,9 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	// it rather than recorded succeeded.
 	if err := a.publicationRecorded(); err != nil {
 		return a.fail(stoppedBy(runstate.StopPublish, err), runstate.StatusFailed)
+	}
+	if err := a.nameUnreadingParts(ctx); err != nil {
+		return a.fail(stoppedBy(runstate.StopRecording, err), runstate.StatusFailed)
 	}
 	// Where the landing does not discharge the item, where that item goes is
 	// decided before the outcome is recorded rather than as part of the settlement

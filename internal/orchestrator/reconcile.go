@@ -420,6 +420,16 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	if state.Status.Terminal() && state.LandingChecks != nil && !state.LandingChecks.Finished() {
 		return r.settleInterruptedLandingChecks(ctx, state)
 	}
+	// Delivery after cleanup needs only the saved comparison, not the removed
+	// worktree or the schemas of services that may have restarted since then.
+	if state.Status.Terminal() && state.Phase == runstate.PhaseComplete && state.ConfigComparison != nil && state.ConfigComparison.Pending {
+		comparison, err := r.nameConfigReaders(ctx, &state, "")
+		result := reconciliationOf(state, ActionCompleted)
+		result.ConfigMismatches = comparison.active
+		result.TemplateConfigMismatches = comparison.templates
+		result.Detail = "the saved configuration comparison was delivered to the work item"
+		return result, err
+	}
 	// A run whose provider the harness stopped on time is owed the rest of the
 	// attempt it was making, for the length of the grace and no longer. Nothing
 	// in the harness continues such a run on its own — the scheduler chooses from
@@ -824,7 +834,7 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		settled := r.catchUp(ctx, state.Integration.TargetBranch)
 		catchup = &settled
 		var compareErr error
-		comparison, compareErr = r.nameConfigReaders(ctx, state, published.MergeCommit)
+		comparison, compareErr = r.nameConfigReaders(ctx, &state, published.MergeCommit)
 		if compareErr != nil {
 			return reconciliationOf(state, ActionUnsettled), compareErr
 		}
@@ -1096,7 +1106,7 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 		} else {
 			r.catchUp(ctx, target)
 			var compareErr error
-			comparison, compareErr = r.nameConfigReaders(ctx, state, published.MergeCommit)
+			comparison, compareErr = r.nameConfigReaders(ctx, &state, published.MergeCommit)
 			if compareErr != nil {
 				return reconciliationOf(state, ActionUnsettled), compareErr
 			}
@@ -1276,6 +1286,10 @@ func (r Reconciler) recoverIntegration(ctx context.Context, state runstate.State
 // artifacts. That order is what stops a settled item from ever sitting behind a
 // run that still says something is in flight.
 func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State, recovered bool) (Reconciliation, error) {
+	comparison, err := r.nameConfigReaders(ctx, &state, "")
+	if err != nil {
+		return reconciliationOf(state, ActionCompleted), err
+	}
 	itemStatus, err := r.itemStatus(ctx, state.WorkItemID)
 	if err != nil {
 		return reconciliationOf(state, ActionCompleted), err
@@ -1354,6 +1368,8 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 		return reconciliationOf(state, ActionCompleted), fmt.Errorf("save completed run state for %s: %w", state.RunID, err)
 	}
 	result := reconciliationOf(state, ActionCompleted)
+	result.ConfigMismatches = comparison.active
+	result.TemplateConfigMismatches = comparison.templates
 	// The detail says what the sweep did to the item, and "closed" is only one of
 	// the two things it can have done.
 	settled := "closed"

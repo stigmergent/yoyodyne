@@ -422,7 +422,7 @@ type Attention struct {
 	// AttentionFailingTask entry; the task is the ID.
 	FailingTask *FailingTask `json:"failing_task,omitempty"`
 	// ConfigMismatch is the part, its build, and the keys it cannot read, on an
-	// AttentionConfigMismatch entry; the part is the ID.
+	// AttentionConfigMismatch entry; the running instance is the ID.
 	ConfigMismatch *runstate.ConfigMismatch `json:"config_mismatch,omitempty"`
 	// OwedStep is where the run stopped, on an AttentionOwedStep entry; the
 	// run is the ID and its item is WorkItemID.
@@ -498,13 +498,14 @@ type OwedStep struct {
 	Phase  runstate.Phase  `json:"phase,omitempty"`
 	// EndedAt is when the run ended, which is when the step began to be owed.
 	// It is absent on a record that names no ending.
-	EndedAt                    time.Time               `json:"ended_at,omitzero"`
-	PullRequest                *runstate.PullRequest   `json:"pull_request,omitempty"`
-	MergeDrop                  *runstate.MergeDrop     `json:"merge_drop,omitempty"`
-	TargetBranch               string                  `json:"target_branch,omitempty"`
-	CleanupFailure             string                  `json:"cleanup_failure,omitempty"`
-	LandingChecks              *runstate.LandingChecks `json:"landing_checks,omitempty"`
-	CompletionRecordingFailure string                  `json:"completion_recording_failure,omitempty"`
+	EndedAt                    time.Time                  `json:"ended_at,omitzero"`
+	PullRequest                *runstate.PullRequest      `json:"pull_request,omitempty"`
+	MergeDrop                  *runstate.MergeDrop        `json:"merge_drop,omitempty"`
+	TargetBranch               string                     `json:"target_branch,omitempty"`
+	CleanupFailure             string                     `json:"cleanup_failure,omitempty"`
+	LandingChecks              *runstate.LandingChecks    `json:"landing_checks,omitempty"`
+	CompletionRecordingFailure string                     `json:"completion_recording_failure,omitempty"`
+	ConfigComparison           *runstate.ConfigComparison `json:"config_comparison,omitempty"`
 }
 
 // queuedMerge excludes an obsolete publication without discarding the run's
@@ -618,6 +619,13 @@ func (a Attention) What() string {
 			// describes only the run's remaining cleanup or completion.
 			if step.LandingChecks != nil && !step.LandingChecks.Finished() {
 				return fmt.Sprintf("landing checks for %s ended without a recorded result; their checkout needs cleanup", a.WorkItemID)
+			}
+			if c := step.ConfigComparison; c != nil && c.Pending {
+				what := fmt.Sprintf("the configuration comparison for %s has not reached its work item", a.WorkItemID)
+				if c.DeliveryFailure != "" {
+					what += ": " + c.DeliveryFailure
+				}
+				return what
 			}
 			if step.Phase != runstate.PhaseCleaningUp && step.Phase != runstate.PhaseComplete {
 				return fmt.Sprintf("completion of %s is not recorded; its work item needs settlement and its branch and worktree need cleanup", a.WorkItemID)
@@ -784,6 +792,9 @@ func (a Attention) Whose() string {
 			}
 			if step.LandingChecks != nil && !step.LandingChecks.Finished() {
 				return a.Mover.Possessive() + " — `yoyo reconcile` records the interrupted landing as unverified and removes its checkout"
+			}
+			if step.ConfigComparison != nil && step.ConfigComparison.Pending {
+				return a.Mover.Possessive() + " — `yoyo reconcile` delivers the saved configuration comparison to the work item and finishes any remaining cleanup"
 			}
 			if step.Phase != runstate.PhaseCleaningUp && step.Phase != runstate.PhaseComplete || step.CompletionRecordingFailure != "" {
 				return a.Mover.Possessive() + " — `yoyo reconcile` settles the work item, finishes cleanup, and records completion"
@@ -998,7 +1009,7 @@ func amendmentAttention(proposal amendment.Proposal) Attention {
 // owedStepAttention is a run that ended still owing a step, as the attention
 // line carries it.
 func owedStepAttention(state runstate.State) Attention {
-	step := &OwedStep{Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure}
+	step := &OwedStep{Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure, ConfigComparison: state.ConfigComparison}
 	if state.Integration != nil {
 		step.TargetBranch = state.Integration.TargetBranch
 	}
@@ -1054,7 +1065,7 @@ func degradedServiceAttention(child runstate.SupervisedChild) Attention {
 // onto a build that reads the file, the restart included where nothing does
 // it yet.
 func configMismatchAttention(mismatch runstate.ConfigMismatch) Attention {
-	return Attention{Kind: AttentionConfigMismatch, ID: mismatch.Service, Mover: MoverHarness, ConfigMismatch: &mismatch}
+	return Attention{Kind: AttentionConfigMismatch, ID: mismatch.InstanceID(), Mover: MoverHarness, ConfigMismatch: &mismatch}
 }
 
 // heldWorkAttention is one of the two waits held work is in, with how many

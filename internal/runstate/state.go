@@ -1825,6 +1825,11 @@ func (s *State) recordedTexts() []recordedText {
 	own("blocker", &s.Blocker, MaxBlockerBytes, blockerCutNote)
 	own("cleanup_failure", &s.CleanupFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	if s.ConfigComparison != nil {
+		own("config_comparison.active_problem", &s.ConfigComparison.ActiveProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+		own("config_comparison.template_problem", &s.ConfigComparison.TemplateProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+		own("config_comparison.delivery_failure", &s.ConfigComparison.DeliveryFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	}
 	return texts
 }
 
@@ -3120,6 +3125,9 @@ type State struct {
 	// class whose work-item note is itself unreliable: recording that note is
 	// part of what was failing, so the run record is its authoritative home.
 	CompletionRecordingFailure string `json:"completion_recording_failure,omitempty"`
+	// ConfigComparison is saved before delivery to the work item. A pending
+	// delivery remains outstanding even after settlement and cleanup finish.
+	ConfigComparison *ConfigComparison `json:"config_comparison,omitempty"`
 }
 
 var (
@@ -3162,6 +3170,16 @@ func NewRunID() (string, error) {
 
 func (s State) Validate() error {
 	var problems []error
+	if c := s.ConfigComparison; c != nil {
+		if s.Integration == nil || !commitPattern.MatchString(c.TargetCommit) || !commitPattern.MatchString(c.PreviousTargetCommit) {
+			problems = append(problems, errors.New("config_comparison requires an integration and valid compared revisions"))
+		} else if c.PreviousTargetCommit != s.Integration.PreviousTargetCommit {
+			problems = append(problems, errors.New("config_comparison previous revision differs from the integration"))
+		}
+		if !c.Pending && c.DeliveryFailure != "" {
+			problems = append(problems, errors.New("config_comparison delivery_failure requires pending delivery"))
+		}
+	}
 	if s.SchemaVersion != StateSchemaVersion {
 		problems = append(problems, fmt.Errorf("schema_version must be %d", StateSchemaVersion))
 	}
@@ -3882,6 +3900,9 @@ func (s State) Outstanding() bool {
 	}
 	if s.Integration == nil {
 		return false
+	}
+	if s.ConfigComparison != nil && s.ConfigComparison.Pending {
+		return true
 	}
 	// A landing whose checks the record says are still running is owed a
 	// settlement: the process running them either still holds the run, in which

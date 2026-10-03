@@ -1760,6 +1760,8 @@ func TestDoctorNamesTheRunningPartWhoseBuildCannotReadTheConfiguration(t *testin
 		world := newWorld(t)
 		world.configuration = effortConfig
 		world.runningPart("dashboard", 4242, staleBuild, schemaWithout("agents.*.effort"))
+		// A second live dashboard must not conceal the older first instance.
+		world.runningPart("dashboard", 4243, currentBuild, config.SchemaKeys())
 		// The scheduler runs a build that reads the key, and a sink that is on the
 		// older build has exited, so neither is named.
 		world.runningPart("scheduler", 4343, currentBuild, config.SchemaKeys())

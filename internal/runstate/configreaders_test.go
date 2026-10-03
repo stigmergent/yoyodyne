@@ -25,19 +25,33 @@ func TestConfigReaderMismatchesNameTheRunningPartsThatCannotReadTheFile(t *testi
 	}
 	// The dashboard and the Slack sink both run a build from before the key;
 	// the sink's process has gone, so it says nothing. The scheduler runs this
-	// build and reads everything.
-	alive := map[int]bool{101: true, 102: false, 103: true}
+	// build and reads everything. A second dashboard starts on that current
+	// schema without replacing the first dashboard's older record.
+	alive := map[int]bool{101: true, 102: false, 103: true, 104: true}
 	store = store.WithProcessCheck(func(pid int) (bool, error) { return alive[pid], nil })
 	older := slices.DeleteFunc(config.SchemaKeys(), func(key string) bool { return key == "agents.*.effort" })
 	started := time.Date(2026, 9, 26, 23, 36, 0, 0, time.UTC)
 	for _, reader := range []ConfigReader{
 		{Service: "dashboard", PID: 101, Build: "0123456789abcdef", ConfigPath: configPath, StartedAt: started, Keys: older},
 		{Service: "slack", PID: 102, Build: "0123456789abcdef", ConfigPath: configPath, StartedAt: started, Keys: older},
+		{Service: "dashboard", PID: 104, Build: "fedcba9876543210", ConfigPath: configPath, StartedAt: started, Keys: config.SchemaKeys()},
 		{Service: "scheduler", PID: 103, Build: "fedcba9876543210", ConfigPath: configPath, StartedAt: started, Keys: config.SchemaKeys()},
 	} {
 		if err := store.Record(reader); err != nil {
 			t.Fatalf("Record(%s) error = %v", reader.Service, err)
 		}
+	}
+
+	if readers, err := store.Running(); err != nil || len(readers) != 3 {
+		t.Fatalf("Running() = %+v, %v, want both dashboards and the scheduler", readers, err)
+	}
+	// Re-recording one instance is idempotent, not another live instance.
+	reader := ConfigReader{Service: "dashboard", PID: 104, Build: "fedcba9876543210", ConfigPath: configPath, StartedAt: started, Keys: config.SchemaKeys()}
+	if err := store.Record(reader); err != nil {
+		t.Fatal(err)
+	}
+	if readers, err := store.Running(); err != nil || len(readers) != 3 {
+		t.Fatalf("repeated Record duplicated an instance: %+v, %v", readers, err)
 	}
 
 	mismatches, err := store.Mismatches()
@@ -93,7 +107,7 @@ func TestConfigReaderRefusesAPartTheProductDoesNotHave(t *testing.T) {
 
 func TestConfigReaderWritesStayInsideTheStateRoot(t *testing.T) {
 	writertest.Run(t, writertest.Writer{
-		Name: "configuration reader", Directory: "products/example/config-readers", File: "dashboard.json",
+		Name: "configuration reader", Directory: "products/example/config-readers", File: configReaderRecordFixture().InstanceID() + ".json",
 		Write: func(t *testing.T, root string) error {
 			store, err := NewConfigReaderStore(root, "example")
 			if err != nil {
@@ -169,7 +183,7 @@ func TestConfigReaderCreatesAMissingStateRootThroughTheConfinedWriter(t *testing
 	if readers, err := store.Running(); err != nil || len(readers) != 1 {
 		t.Fatalf("newly created record = %+v, %v", readers, err)
 	}
-	info, err := os.Stat(filepath.Join(store.root, "dashboard.json"))
+	info, err := os.Stat(filepath.Join(store.root, configReaderRecordFixture().InstanceID()+".json"))
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("record permissions: %v, %v", info, err)
 	}
@@ -179,6 +193,39 @@ func configReaderRecordFixture() ConfigReader {
 	return ConfigReader{
 		SchemaVersion: ConfigReaderSchemaVersion, ProductID: "example",
 		Service: "dashboard", PID: 4242, ConfigPath: "/example/config.yaml",
-		StartedAt: time.Now(), Keys: []string{"version"},
+		StartedAt: time.Date(2026, 9, 26, 23, 36, 0, 0, time.UTC), Keys: []string{"version"},
+	}
+}
+
+func TestConfigReaderKeepsLegacyRecordsWithoutDuplicatingAnInstance(t *testing.T) {
+	t.Parallel()
+	store, err := NewConfigReaderStore(t.TempDir(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	first := configReaderRecordFixture()
+	if err := store.Record(first); err != nil {
+		t.Fatal(err)
+	}
+	// A pre-existing service-only record remains readable by the new build.
+	instancePath := filepath.Join(store.root, first.InstanceID()+".json")
+	legacyPath := filepath.Join(store.root, first.Service+".json")
+	if err := os.Rename(instancePath, legacyPath); err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.PID++
+	if err := store.Record(second); err != nil {
+		t.Fatal(err)
+	}
+	if readers, err := store.Running(); err != nil || len(readers) != 2 {
+		t.Fatalf("legacy instance was hidden: %+v, %v", readers, err)
+	}
+	if err := store.Record(first); err != nil {
+		t.Fatal(err)
+	}
+	if readers, err := store.Running(); err != nil || len(readers) != 2 {
+		t.Fatalf("one instance counted twice: %+v, %v", readers, err)
 	}
 }

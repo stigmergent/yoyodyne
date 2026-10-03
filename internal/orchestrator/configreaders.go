@@ -75,29 +75,91 @@ func (c configComparison) notes() string {
 	return strings.Join(notes, "\n")
 }
 
-// nameConfigReaders is the comparison owed by a confirmed forge landing. The
-// promotion record retains its original revisions; only the comparison's copy
-// names the actual merge commit the remote confirmed. A note that cannot be
-// saved leaves settlement outstanding so the next sweep can deliver it.
-func (r Reconciler) nameConfigReaders(ctx context.Context, state runstate.State, confirmed string) (configComparison, error) {
-	if state.Integration == nil || r.ConfigReaders == nil {
+// configFindingDelivery separates a failed tracker write from a failed durable
+// save. Only the former can leave a completed run with delivery still owed.
+type configFindingDelivery struct{ cause error }
+
+func (e configFindingDelivery) Error() string { return e.cause.Error() }
+func (e configFindingDelivery) Unwrap() error { return e.cause }
+
+type configFindingRecorder struct {
+	configLanding
+	store   interface{ Save(runstate.State) error }
+	tracker WorkTracker
+}
+
+// name saves the comparison before trying to deliver it. Retrying uses that
+// saved account, including read failures, even after services or files change.
+func (r configFindingRecorder) name(ctx context.Context, state *runstate.State, integration gitworktree.Integration) (configComparison, error) {
+	if state.ConfigComparison == nil && r.readers != nil {
+		readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		comparison := r.compare(readCtx, integration)
+		cancel()
+		record := &runstate.ConfigComparison{
+			TargetCommit: integration.TargetCommit, PreviousTargetCommit: integration.PreviousTargetCommit,
+			Mismatches: comparison.active, TemplateMismatches: comparison.templates,
+			Pending: comparison.notes() != "",
+		}
+		if comparison.activeError != nil {
+			record.ActiveProblem = runstate.RecordFailure(comparison.activeError.Error())
+		}
+		if comparison.templateError != nil {
+			record.TemplateProblem = runstate.RecordFailure(comparison.templateError.Error())
+		}
+		state.ConfigComparison = record
+		if err := r.store.Save(*state); err != nil {
+			return comparison, fmt.Errorf("save configuration comparison for run %s: %w", state.RunID, err)
+		}
+	}
+	record := state.ConfigComparison
+	if record == nil {
 		return configComparison{}, nil
 	}
-	integration := integrationOf(state)
+	comparison := configComparison{active: record.Mismatches, templates: record.TemplateMismatches}
+	if record.ActiveProblem != "" {
+		comparison.activeError = errors.New(record.ActiveProblem)
+	}
+	if record.TemplateProblem != "" {
+		comparison.templateError = errors.New(record.TemplateProblem)
+	}
+	if !record.Pending {
+		return comparison, nil
+	}
+	noteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	_, deliveryErr := r.tracker.RecordOutcome(noteCtx, state.WorkItemID, comparison.notes())
+	cancel()
+	if deliveryErr != nil {
+		record.DeliveryFailure = runstate.RecordFailure(deliveryErr.Error())
+		if err := r.store.Save(*state); err != nil {
+			return comparison, fmt.Errorf("save failed configuration finding delivery for run %s: %w", state.RunID, err)
+		}
+		return comparison, configFindingDelivery{fmt.Errorf("record configuration comparisons for run %s: %w", state.RunID, deliveryErr)}
+	}
+	record.Pending = false
+	record.DeliveryFailure = ""
+	if err := r.store.Save(*state); err != nil {
+		// The delivered note may repeat on a retry, but no later save may
+		// silently discard the durable obligation that still stands on disk.
+		record.Pending = true
+		return comparison, fmt.Errorf("save delivered configuration finding for run %s: %w", state.RunID, err)
+	}
+	return comparison, nil
+}
+
+// nameConfigReaders retains the promotion's revisions, comparing the confirmed
+// merge instead when the forge names it. A failed delivery stays outstanding.
+func (r Reconciler) nameConfigReaders(ctx context.Context, state *runstate.State, confirmed string) (configComparison, error) {
+	if state.Integration == nil {
+		return configComparison{}, nil
+	}
+	integration := integrationOf(*state)
 	if confirmed != "" {
 		integration.TargetCommit = confirmed
 	}
-	readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	comparison := (configLanding{repository: r.Repository, files: r.ConfigFiles, readers: r.ConfigReaders}).compare(readCtx, integration)
-	if note := comparison.notes(); note != "" {
-		noteCtx, cancelNote := context.WithTimeout(ctx, 10*time.Second)
-		defer cancelNote()
-		if _, err := r.Tracker.RecordOutcome(noteCtx, state.WorkItemID, note); err != nil {
-			return comparison, fmt.Errorf("record configuration comparisons for run %s: %w", state.RunID, err)
-		}
-	}
-	return comparison, nil
+	return (configFindingRecorder{
+		configLanding: configLanding{repository: r.Repository, files: r.ConfigFiles, readers: r.ConfigReaders},
+		store:         r.Store, tracker: r.Tracker,
+	}).name(ctx, state, integration)
 }
 
 // templateConfigMismatches compares keys added to shipped templates at this

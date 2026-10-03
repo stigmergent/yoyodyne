@@ -2348,3 +2348,30 @@ func TestADependencyPausedRunHoldsNoSlotAndReclaimsOneUnderTheSameLimit(t *testi
 		t.Fatalf("Reserve() beside the continued run error = %v, want the slot it reclaimed counted", err)
 	}
 }
+
+func TestOutstandingFindsACleanedRunWithAnUndeliveredConfigComparison(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := integratedState(t, PhaseComplete)
+	state.WorktreeRemoved = true
+	state.BranchRemoved = true
+	state.ConfigComparison = &ConfigComparison{
+		TargetCommit: state.Integration.TargetCommit, PreviousTargetCommit: state.Integration.PreviousTargetCommit,
+		ActiveProblem: "configuration could not be read", Pending: true, DeliveryFailure: "tracker unavailable",
+	}
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	outstanding, err := store.Outstanding()
+	if err != nil || len(outstanding) != 1 || outstanding[0].ConfigComparison.ActiveProblem != state.ConfigComparison.ActiveProblem {
+		t.Fatalf("saved comparison disappeared after cleanup: %+v, %v", outstanding, err)
+	}
+	state.ConfigComparison.Pending = false
+	state.ConfigComparison.DeliveryFailure = ""
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	if outstanding, err := store.Outstanding(); err != nil || len(outstanding) != 0 {
+		t.Fatalf("delivered comparison still outstanding: %+v, %v", outstanding, err)
+	}
+}

@@ -867,7 +867,7 @@ func (r Reconciler) settleDocket(settlement PublicationSettlement, state runstat
 // to the consumed branch with it, and a deletion that fails writes onto the
 // record this settled.
 func (r Reconciler) recordSettledPublication(ctx context.Context, state *runstate.State, published runstate.PullRequest, settlement PublicationSettlement) PublicationSettlement {
-	comparison, err := r.nameConfigReaders(ctx, *state, published.MergeCommit)
+	comparison, err := r.nameConfigReaders(ctx, state, published.MergeCommit)
 	if err != nil {
 		settlement.Failure = err.Error()
 		return settlement

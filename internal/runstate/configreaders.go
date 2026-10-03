@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,16 @@ type ConfigReader struct {
 	StartedAt  time.Time `json:"started_at"`
 	// Keys is config.SchemaKeys as the part's own build derived it.
 	Keys []string `json:"keys"`
+}
+
+// InstanceID identifies a process's record without replacing another running
+// process of the same service. The start time also separates reused process IDs.
+func (r ConfigReader) InstanceID() string {
+	return configReaderInstanceID(r.Service, r.PID, r.StartedAt)
+}
+
+func configReaderInstanceID(service string, pid int, started time.Time) string {
+	return service + "-" + strconv.Itoa(pid) + "-" + started.UTC().Format("20060102T150405.000000000Z")
 }
 
 func (r ConfigReader) Validate() error {
@@ -109,6 +120,24 @@ type ConfigMismatch struct {
 	// Keys are the file's keys the part's build does not read, with the file's
 	// own names in them.
 	Keys []string `json:"keys"`
+}
+
+func (m ConfigMismatch) InstanceID() string {
+	return configReaderInstanceID(m.Service, m.PID, m.StartedAt)
+}
+
+// ConfigComparison is a landing's saved comparison, including problems reading
+// it. Pending means its account has not yet been delivered to the work item.
+// The compared revisions and findings survive cleanup and service restarts.
+type ConfigComparison struct {
+	TargetCommit         string                   `json:"target_commit"`
+	PreviousTargetCommit string                   `json:"previous_target_commit"`
+	Mismatches           []ConfigMismatch         `json:"mismatches,omitempty"`
+	TemplateMismatches   []ConfigTemplateMismatch `json:"template_mismatches,omitempty"`
+	ActiveProblem        string                   `json:"active_problem,omitempty"`
+	TemplateProblem      string                   `json:"template_problem,omitempty"`
+	Pending              bool                     `json:"pending"`
+	DeliveryFailure      string                   `json:"delivery_failure,omitempty"`
 }
 
 // ConfigTemplateMismatch is prospective: adopting keys introduced in a shipped
@@ -166,8 +195,8 @@ func shortBuild(revision string) string {
 	return revision
 }
 
-// ConfigReaderStore is where the parts' records live: one file per part under
-// the product.
+// ConfigReaderStore is where the parts' records live: one file per running
+// instance under the product.
 //
 // Writes use the shared confined writer with the state directory pinned for
 // the whole operation. A replacement or symlink cannot redirect the record.
@@ -229,8 +258,7 @@ func (s *ConfigReaderStore) WithProcessCheck(running func(pid int) (bool, error)
 	return &copied
 }
 
-// Record writes this part's account, replacing whatever the part's previous
-// process wrote.
+// Record writes this instance's account, leaving other instances intact.
 func (s *ConfigReaderStore) Record(reader ConfigReader) error {
 	reader.SchemaVersion = ConfigReaderSchemaVersion
 	reader.ProductID = s.productID
@@ -287,7 +315,7 @@ func (s *ConfigReaderStore) recordIn(root *repowrite.PinnedRoot, reader ConfigRe
 	if err := root.MakeDirectory(directory, 0o700); err != nil {
 		return fmt.Errorf("create configuration reader directory: %w", err)
 	}
-	if err := root.WriteFile(filepath.Join(directory, reader.Service+".json"), encoded, 0o600, false); err != nil {
+	if err := root.WriteFile(filepath.Join(directory, reader.InstanceID()+".json"), encoded, 0o600, false); err != nil {
 		return fmt.Errorf("record configuration reader: %w", err)
 	}
 	return root.Unchanged()
@@ -310,6 +338,7 @@ func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
 	}
 	var readers []ConfigReader
 	var problems []error
+	seen := make(map[string]bool)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
@@ -325,11 +354,14 @@ func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
 			problems = append(problems, fmt.Errorf("whether the %s service's process %d is running could not be read: %w", reader.Service, reader.PID, err))
 			continue
 		}
-		if alive {
+		// Older builds wrote service.json. Keep reading those records, but do
+		// not count the same instance twice if both filename forms exist.
+		if alive && !seen[reader.InstanceID()] {
+			seen[reader.InstanceID()] = true
 			readers = append(readers, reader)
 		}
 	}
-	sort.Slice(readers, func(i, j int) bool { return readers[i].Service < readers[j].Service })
+	sort.Slice(readers, func(i, j int) bool { return readers[i].InstanceID() < readers[j].InstanceID() })
 	return readers, errors.Join(problems...)
 }
 

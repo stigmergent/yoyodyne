@@ -43,12 +43,13 @@ func TestALandingNamesTheRunningPartsThatCannotReadTheConfiguration(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	alive := map[int]bool{4242: true, 4343: true, 4444: false}
+	alive := map[int]bool{4242: true, 4343: true, 4444: false, 4243: true}
 	store = store.WithProcessCheck(func(pid int) (bool, error) { return alive[pid], nil })
 	older := slices.DeleteFunc(config.SchemaKeys(), func(key string) bool { return key == "agents.*.effort" })
 	started := time.Date(2026, 9, 26, 23, 36, 0, 0, time.UTC)
 	for _, reader := range []runstate.ConfigReader{
 		{Service: "dashboard", PID: 4242, Build: "0364141b2c3d4e5f", ConfigPath: configPath, StartedAt: started, Keys: older},
+		{Service: "dashboard", PID: 4243, Build: "9870df6a1b2c3d4e", ConfigPath: configPath, StartedAt: started, Keys: config.SchemaKeys()},
 		{Service: "scheduler", PID: 4343, Build: "9870df6a1b2c3d4e", ConfigPath: configPath, StartedAt: started, Keys: config.SchemaKeys()},
 		{Service: "slack", PID: 4444, Build: "0364141b2c3d4e5f", ConfigPath: configPath, StartedAt: started, Keys: older},
 	} {
@@ -361,7 +362,10 @@ func TestAQueuedLandingComparesRunningBuildsWhenItsMergeIsConfirmed(t *testing.T
 				if state := loadRun(t, fixture.store, outcome.RunID); !state.PullRequest.MergeQueued || fixture.tracker.Record().Closed {
 					t.Fatal("settlement forgot the undelivered finding")
 				}
-				files.reads = nil
+				// Delivery retries the saved comparison without reading newer files
+				// or requiring the older service still to be running.
+				reconciler.ConfigReaders = nil
+				reconciler.ConfigFiles = nil
 			}
 			results, err := reconciler.Reconcile(context.Background())
 			if err != nil || len(results) != 1 || results[0].Action != ActionCompleted || results[0].Failure != "" {
@@ -419,9 +423,90 @@ type refuseConfigFindingOnce struct {
 }
 
 func (r *refuseConfigFindingOnce) RecordOutcome(ctx context.Context, id, note string) (beads.WorkItem, error) {
-	if !r.refused && strings.Contains(note, "new keys in shipped templates") {
+	if !r.refused && strings.HasPrefix(note, "Running parts that cannot read") {
 		r.refused = true
 		return beads.WorkItem{}, errors.New("configuration finding refused")
 	}
 	return r.WorkTracker.RecordOutcome(ctx, id, note)
+}
+
+// An immediate landing can finish while its finding write is refused. Its
+// account must survive in the run and be delivered after cleanup, without
+// inspecting today's services or configuration in place of what it found.
+func TestAnImmediateLandingRetriesItsSavedConfigurationFinding(t *testing.T) {
+	t.Parallel()
+	for _, unreadable := range []bool{false, true} {
+		t.Run(map[bool]string{false: "mismatch", true: "comparison error"}[unreadable], func(t *testing.T) {
+			t.Parallel()
+			repository := pipelineRepository(t)
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+			refusal := &refuseConfigFindingOnce{WorkTracker: tracker}
+			provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+				return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+			}, approveVerdict)
+			pipeline, runs := newAutomaticPipeline(t, repository, refusal, provider, []string{"true"})
+			stateRoot := t.TempDir()
+			configPath := filepath.Join(stateRoot, "config.yaml")
+			if !unreadable {
+				if err := os.WriteFile(configPath, []byte("agents: {developer: {role: developer, effort: medium}}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			readers, err := runstate.NewConfigReaderStore(stateRoot, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			readers = readers.WithProcessCheck(func(int) (bool, error) { return true, nil })
+			if err := readers.Record(runstate.ConfigReader{
+				Service: "dashboard", PID: 4242, Build: "0364141b2c3d4e5f", ConfigPath: configPath, StartedAt: time.Now(),
+				Keys: slices.DeleteFunc(config.SchemaKeys(), func(key string) bool { return key == "agents.*.effort" }),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			pipeline.ConfigReaders = readers
+			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			if err != nil || outcome.Status != runstate.StatusSucceeded || !outcome.WorkItemClosed || !outcome.WorktreeRemoved || !outcome.BranchRemoved {
+				t.Fatalf("immediate landing = %+v, %v", outcome, err)
+			}
+			state := loadRun(t, runs, outcome.RunID)
+			if state.Phase != runstate.PhaseComplete || !state.Outstanding() || state.ConfigComparison == nil || !state.ConfigComparison.Pending || state.ConfigComparison.DeliveryFailure != "configuration finding refused" {
+				t.Fatalf("completed run lost its delivery obligation: %+v", state.ConfigComparison)
+			}
+			if outcome.ConfigComparison == nil || !outcome.ConfigComparison.Pending {
+				t.Fatal("the outcome hides the outstanding delivery")
+			}
+			if state.ConfigComparison.TargetCommit != outcome.Integration.TargetCommit || state.ConfigComparison.PreviousTargetCommit != outcome.Integration.PreviousTargetCommit {
+				t.Fatal("the saved comparison is not bound to the landed revisions")
+			}
+			if unreadable && !strings.Contains(state.ConfigComparison.ActiveProblem, "no such file or directory") {
+				t.Fatalf("the comparison's read failure was lost: %+v", state.ConfigComparison)
+			}
+			if !unreadable && (len(state.ConfigComparison.Mismatches) != 1 || state.ConfigComparison.Mismatches[0].PID != 4242) {
+				t.Fatalf("the older dashboard was lost: %+v", state.ConfigComparison)
+			}
+			// The later process has no service records or configuration reader.
+			// Only the durable account can supply the comparison it must deliver.
+			reconciler := Reconciler{Tracker: refusal, Store: runs, Worktrees: newObserver(t, repository, filepath.Dir(outcome.WorktreePath))}
+			results, err := reconciler.Reconcile(context.Background())
+			if err != nil || len(results) != 1 || results[0].Action != ActionCompleted || results[0].Failure != "" {
+				t.Fatalf("retry = %+v, %v", results, err)
+			}
+			notes := strings.Join(tracker.NoteRecords, "\n")
+			want := "agents.developer.effort"
+			if unreadable {
+				want = "could not be read whole"
+			}
+			if !strings.Contains(notes, want) || !strings.Contains(notes, configPath) {
+				t.Fatalf("saved finding was not delivered: %s", notes)
+			}
+			settled := loadRun(t, runs, outcome.RunID)
+			if settled.Outstanding() || settled.ConfigComparison.Pending || settled.ConfigComparison.DeliveryFailure != "" {
+				t.Fatalf("successful delivery remained outstanding: %+v", settled.ConfigComparison)
+			}
+			noteCount := len(tracker.NoteRecords)
+			if again, err := reconciler.Reconcile(context.Background()); err != nil || len(again) != 0 || len(tracker.NoteRecords) != noteCount {
+				t.Fatalf("delivered comparison repeated: %+v, %v", again, err)
+			}
+		})
+	}
 }
