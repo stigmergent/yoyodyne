@@ -4180,9 +4180,9 @@ func (s Scheduler) nextFiring(ctx context.Context, pull Pull) (time.Duration, bo
 // maintenance job found on 2026-09-14 and the harness never said.
 //
 // What kept it comes from OS sleep history, scheduler presence and the other
-// passes recorded during the gap. An operator's pause is still quiet. A caller
-// without those observations can report this session's holds, but the previous
-// firing's failure is not evidence about this gap.
+// passes recorded during the gap, alongside current holds this session found.
+// An operator's pause is still quiet. The previous firing's failure is not
+// evidence about this gap.
 // The harness holding its own schedule is breakage and is
 // said at critical, which is what puts it in front of the operator; no session
 // running is a warning, since whoever stopped the harness knows; and the
@@ -4223,8 +4223,15 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 			observed = reader.MissCause(due.At, now, due.Task)
 		}
 		switch {
-		case held && watch.held.quiet:
+		case held:
 			miss.Why = watch.held.why
+			miss.Severity = watch.held.said()
+			if observed.Why != "" {
+				miss.Why += "; " + observed.Why
+			}
+			if observed.Waiting && !watch.held.quiet {
+				miss.Severity = report.SeverityCritical
+			}
 		case observed.Why != "":
 			miss.Why = observed.Why
 			miss.Severity = report.SeverityWarning
@@ -4234,15 +4241,15 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 		case observed.Checked:
 			miss.Why = "the watch session did not reach its schedule while the task was due; no machine sleep, harness downtime or wait behind another pass was established for this gap"
 			miss.Severity = report.SeverityCritical
-		case held:
-			miss.Why = watch.held.why
-			miss.Severity = watch.held.said()
 		case watch.opened.After(due.At):
 			miss.Why = fmt.Sprintf("no watch session was running to fire it; this one opened at %s", watch.opened.UTC().Format(time.RFC3339))
 			miss.Severity = report.SeverityWarning
 		default:
 			miss.Why = "the watch session did not reach its schedule while the task was due, and recorded nothing that kept it"
 			miss.Severity = report.SeverityCritical
+		}
+		if observed.Problem != "" {
+			miss.Why += "; machine observations incomplete: " + observed.Problem
 		}
 		// Marked before it is written, so a record that failed is said once on the
 		// pass rather than attempted again at every poll of a gap still standing.

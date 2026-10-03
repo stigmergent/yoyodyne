@@ -14,19 +14,12 @@ func machineAvailability(parts components) func(time.Time, time.Time, string) re
 	store, err := runstate.NewSupervisionStore(parts.stateRoot, parts.config.Product.ID)
 	return func(from, to time.Time, task string) readmodel.GapCause {
 		if err != nil {
-			return readmodel.GapCause{Why: "machine observations could not be opened: " + err.Error(), Checked: true}
+			return readmodel.GapCause{Problem: "machine observations could not be opened: " + err.Error(), Checked: true}
 		}
 		availability := readmodel.ReadWatchAvailability(readmodel.Sources{
 			Machine: freshMachine{SupervisionStore: store, runner: parts.runner}, Sessions: parts.watch, Sweeps: parts.store.Sweeps(), Now: func() time.Time { return to },
 		})
-		why := availability.Explain(from, to, task)
-		if availability.Problem != "" {
-			if why != "" {
-				why += "; "
-			}
-			why += "machine observations incomplete: " + availability.Problem
-		}
-		return readmodel.GapCause{Why: why, Waiting: task != "" && availability.WaitingBehindPass(from, to, task), Checked: true}
+		return availability.Cause(from, to, task)
 	}
 }
 

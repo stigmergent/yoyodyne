@@ -18,9 +18,13 @@ func (a *activeRun) responseCause(role domain.AgentRole, detail string, from, to
 	if to.IsZero() {
 		to = a.pipeline.clock().Now()
 	}
-	why := a.pipeline.Availability(from, to, "").Why
+	observed := a.pipeline.Availability(from, to, "")
+	why := observed.Why
 	if why == "" {
 		why = "no machine sleep or harness downtime was established during this response; its cause is unavailable"
+	}
+	if observed.Problem != "" {
+		why += "; machine observations incomplete: " + observed.Problem
 	}
 	account := "observations during the stopped response: " + why
 	// A response that is relaunched still needs an account of its interruption.

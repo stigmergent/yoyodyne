@@ -18,6 +18,8 @@ type MachineHistory interface {
 type GapCause struct {
 	Why     string
 	Waiting bool
+	// Problem describes incomplete evidence, never an established cause.
+	Problem string
 	// Checked means durable history was consulted. A caller must not then
 	// assume this session's start proves no earlier session was running.
 	Checked bool
@@ -26,14 +28,16 @@ type GapCause struct {
 // WatchAvailability is the shared reading used by missed passes, stopped
 // responses and services. All causes are derived from recorded observations.
 type WatchAvailability struct {
-	Observed  bool          `json:"observed"`
-	LastSleep time.Time     `json:"last_sleep,omitempty"`
-	LastWake  time.Time     `json:"last_wake,omitempty"`
-	LastGap   time.Duration `json:"last_gap,omitempty"`
-	Problem   string        `json:"problem,omitempty"`
-	sleeps    []watchGap
-	down      []watchGap
-	passes    []watchGap
+	Observed           bool          `json:"observed"`
+	LastSleep          time.Time     `json:"last_sleep,omitempty"`
+	LastWake           time.Time     `json:"last_wake,omitempty"`
+	LastGap            time.Duration `json:"last_gap,omitempty"`
+	Problem            string        `json:"problem,omitempty"`
+	ObservationProblem string        `json:"observation_problem,omitempty"`
+	sleeps             []watchGap
+	down               []watchGap
+	passes             []watchGap
+	unobserved         []watchGap
 }
 
 type watchGap struct {
@@ -65,17 +69,33 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 	if !availability.Observed {
 		availability.Problem = joinProblems(availability.Problem, "no supervisor observation of machine sleep or scheduler presence has been recorded")
 	}
+	observations = append([]runstate.MachineObservation(nil), observations...)
+	sort.SliceStable(observations, func(i, j int) bool { return observations[i].At.Before(observations[j].At) })
 	var events []runstate.PowerEvent
-	var down time.Time
-	for _, observation := range observations {
+	for i, observation := range observations {
 		events = append(events, observation.Power...)
-		if !observation.Watching && down.IsZero() {
-			down = observation.At
+		if i > 0 {
+			previous := observations[i-1]
+			gap := watchGap{from: previous.At, to: observation.At}
+			switch {
+			case observation.At.Sub(previous.At) > time.Minute:
+				availability.unobserved = append(availability.unobserved, gap)
+			case !previous.Watching && observation.At.After(previous.At):
+				availability.down = append(availability.down, gap)
+			}
 		}
-		if observation.Watching && !down.IsZero() {
-			availability.down = append(availability.down, watchGap{from: down, to: observation.At})
-			down = time.Time{}
+	}
+	// A sample establishes presence at that look. Only consecutive looks within
+	// the supervisor's minute cadence bound an interval; a missing next look
+	// cannot keep a down sample in effect through the present or a restart.
+	if len(observations) > 0 {
+		last := observations[len(observations)-1]
+		if now.After(last.At) && (!last.Watching || now.Sub(last.At) > time.Minute) {
+			availability.unobserved = append(availability.unobserved, watchGap{from: last.At, to: now})
 		}
+	}
+	if len(availability.unobserved) > 0 {
+		availability.ObservationProblem = unobservedPresence(availability.unobserved[len(availability.unobserved)-1])
 	}
 	if fresh, ok := sources.Machine.(interface {
 		PowerHistory() ([]runstate.PowerEvent, error)
@@ -88,9 +108,6 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 	}
 	if len(observations) > 0 {
 		availability.Problem = joinProblems(availability.Problem, observations[len(observations)-1].PowerProblem)
-	}
-	if !down.IsZero() {
-		availability.down = append(availability.down, watchGap{from: down, to: now})
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].At.Before(events[j].At) })
 	var asleep time.Time
@@ -233,18 +250,35 @@ func (a WatchAvailability) Explain(from, to time.Time, task string) string {
 		}
 	}
 	for _, gap := range a.passes {
-		if task != "" && gap.task != task && overlaps(gap, from, to) {
-			if gap.known {
-				reasons = append(reasons, fmt.Sprintf("the pass was waiting its turn behind the recurring pass of %s, running from %s to %s", gap.task, localMoment(gap.from), localMoment(gap.to)))
-			} else {
-				reasons = append(reasons, fmt.Sprintf("the session last recorded taking the recurring pass of %s at %s; its ending is unrecorded, so whether it held this pass is uncertain", gap.task, localMoment(gap.from)))
-			}
+		if task != "" && gap.task != task && gap.known && overlaps(gap, from, to) {
+			reasons = append(reasons, fmt.Sprintf("the pass was waiting its turn behind the recurring pass of %s, running from %s to %s", gap.task, localMoment(gap.from), localMoment(gap.to)))
 		}
 	}
 	if len(reasons) == 0 {
 		return ""
 	}
 	return strings.Join(reasons, "; ")
+}
+
+// Cause keeps incomplete reads and unsampled portions separate from causes
+// established during the requested interval, for every caller of this model.
+func (a WatchAvailability) Cause(from, to time.Time, task string) GapCause {
+	problem := a.Problem
+	for _, gap := range a.unobserved {
+		if overlaps(gap, from, to) {
+			problem = joinProblems(problem, unobservedPresence(gap))
+		}
+	}
+	for _, gap := range a.passes {
+		if task != "" && gap.task != task && !gap.known && overlaps(gap, from, to) {
+			problem = joinProblems(problem, fmt.Sprintf("the session last recorded taking the recurring pass of %s at %s; its ending is unrecorded, so whether it held this pass is uncertain", gap.task, localMoment(gap.from)))
+		}
+	}
+	return GapCause{Why: a.Explain(from, to, task), Waiting: task != "" && a.WaitingBehindPass(from, to, task), Problem: problem, Checked: true}
+}
+
+func unobservedPresence(gap watchGap) string {
+	return fmt.Sprintf("the scheduler's presence was not observed from %s to %s; whether the harness was watching is unknown", localMoment(gap.from), localMoment(gap.to))
 }
 
 // WaitingBehindPass distinguishes the harness's own blocked schedule from

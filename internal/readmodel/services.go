@@ -148,6 +148,9 @@ func (s Standing) RenderServices() string {
 		if availability.Problem != "" {
 			fmt.Fprintf(&rendered, "  machine history incomplete: %s\n", availability.Problem)
 		}
+		if availability.ObservationProblem != "" {
+			fmt.Fprintf(&rendered, "  scheduler observations incomplete: %s\n", availability.ObservationProblem)
+		}
 	}
 	if services.Recorded {
 		for _, child := range record.Children {

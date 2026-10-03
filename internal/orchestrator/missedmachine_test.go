@@ -59,6 +59,11 @@ func TestMissedPassRecordsSleepDowntimeAndWaitingBehindAnotherPass(t *testing.T)
 			if err := machine.RecordMachine(ctx, observation); err != nil {
 				t.Fatal(err)
 			}
+			if test.name == "down" {
+				if err := machine.RecordMachine(ctx, runstate.MachineObservation{At: due.Add(time.Minute), Watching: true}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := machine.RecordMachine(ctx, runstate.MachineObservation{At: now, Watching: true}); err != nil {
 				t.Fatal(err)
 			}
@@ -66,9 +71,9 @@ func TestMissedPassRecordsSleepDowntimeAndWaitingBehindAnotherPass(t *testing.T)
 			trigger := Trigger{Tasks: map[string]config.RecurringTask{"owed-pass": {Enabled: true, Role: domain.RoleArchitect, Every: config.Duration(time.Hour)}}, Claims: sweeps, Reports: sweeps, Clock: &movingRecurringClock{now: now}, Breakage: filed, Attribution: report.Attribution{ProductID: "example", RepositoryID: "example"}}
 			trigger.Availability = func(from, to time.Time, task string) readmodel.GapCause {
 				availability := readmodel.ReadWatchAvailability(readmodel.Sources{Machine: machine, Sessions: watch, Sweeps: sweeps, Now: func() time.Time { return to }})
-				return readmodel.GapCause{Why: availability.Explain(from, to, task), Waiting: availability.WaitingBehindPass(from, to, task), Checked: true}
+				return availability.Cause(from, to, task)
 			}
-			watching := recurringWatch{opened: now, missed: map[string]time.Time{}, held: recurringHold{why: "previous pass failed", at: now, refused: true}}
+			watching := recurringWatch{opened: now, missed: map[string]time.Time{}, held: recurringHold{why: "previous pass failed", at: due.Add(-time.Minute), refused: true}}
 			scheduler := Scheduler{Now: func() time.Time { return now }}
 			schedule := Schedule{}
 			scheduler.missed(ctx, &schedule, Pull{Recurring: trigger}, &watching)

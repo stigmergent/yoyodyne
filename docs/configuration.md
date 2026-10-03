@@ -6882,8 +6882,13 @@ When supervisor observations are available, a miss names the machine's sleep
 from OS power history, an observed interval with the scheduler down, or the
 recurring pass it waited behind. More than one may apply to the same gap. Sleep
 and observed downtime are warnings; waiting behind another pass is reported at
-critical severity. An unfinished pass whose ending is missing is identified as
-uncertain rather than treated as proof that it held the whole gap. The last
+critical severity. Current scheduler holds, including refusals and capacity
+resets, remain named alongside these observations, with the hold's severity
+retained unless an observed wait behind another pass makes it critical; an
+operator's pause remains quiet. Unavailable history and gaps between supervisor
+looks are described separately as incomplete evidence, never as established
+causes. An unfinished pass whose ending is missing is identified as uncertain
+rather than treated as proof that it held the whole gap. The last
 pass's failure is not the cause of a later miss. A stopped provider response
 also carries the observations available during that response; absence of sleep
 evidence does not turn a transport failure into a claim about the machine.
