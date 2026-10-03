@@ -131,6 +131,26 @@ make visible either way:
 Go and Git are the rest of it, and `bd` for the tracker; `make check` and
 `yoyo doctor` between them name anything missing.
 
+## The files an AI session reads on its own
+
+[`CLAUDE.md`](../CLAUDE.md) and [`AGENTS.md`](../AGENTS.md) are loaded by every
+Claude Code and Codex session in this repository without being asked for,
+developer runs included. They are the architect's: instructions to such a
+session about how this repository is worked on — the checks, the tracker, where
+scratch files go, what a background process must do. They state no product
+intent. What the product is for and the standing rules every role works under
+are in [the product home](product/README.md), which the files link, and a
+change to one of those rules is proposed to the Lead Product Manager rather than
+written into the session files.
+
+The two are one file kept in two places, because each tool reads only its own
+name. `make test` fails when they differ, and when either carries the section
+`bd setup` writes between `BEADS INTEGRATION` or `BEADS CODEX SETUP` markers —
+that section tells every session to use `bd` for all its tracking, which a
+developer run cannot do, and nothing in `bd` can be told not to write it. So
+running `bd setup claude` or `bd setup codex` here is followed by removing what
+it wrote.
+
 ## The tracker version CI pins
 
 The `adoption` job installs `bd` from a prebuilt upstream release at a pinned
@@ -471,6 +491,7 @@ Go check has ever run a line of bash.
 | A YAML or JSON file that does not decode | `internal/composition` | Fix the file. What each one means belongs to whatever reads it — Claude Code, Codex, the tracker, the harness — but one that nothing can parse is this repository's defect whoever owns the schema, and it is not a defect a reviewer reading a diff reliably sees. |
 | A workflow that is not shaped like one — no trigger, no jobs, or a job with no runner or no steps | `internal/composition` | Fix the workflow. Decoding is not enough for these: the release workflow is triggered by a tag push, so what is wrong with it would otherwise first misbehave during a real publication. |
 | A page the dashboard's script draws from the fixtures under `internal/dashboard/testdata/fixtures` differing from the render recorded under `internal/dashboard/testdata/renders`, a section of the page that reaches none of its four states in any scenario, or a fixture that is not the read model's own shape | `internal/dashboard` (`page_test.go`) | Look at the diff, and if the change to the page was meant, rerun with `-update-renders` and commit the renders with the change. The renders are the evidence a reviewer is handed for each section in each state, so they change when the page does and not otherwise. The script is run by `node`, which this check looks for on the `PATH` and fails without, naming it: a machine without Node compares no renders at all, so passing there would say nothing about the page. The one environment that skips instead is one declaring its own absence of Node in `YOYODYNE_NODE_UNAVAILABLE`, which nothing here sets — see [what a checkout needs besides Go](#what-a-checkout-needs-besides-go). Either way the fixtures' shape and the routes are held. The fixtures are decoded refusing unknown fields, so a field the read model stops carrying fails here rather than leaving the renders showing a page nothing can produce. |
+| `CLAUDE.md` and `AGENTS.md` differing by a byte, either one carrying the section `bd setup` writes, or `CLAUDE.md`'s opening no longer saying it is the architect's instructions and linking the product home | `internal/composition` (`sessionfiles_test.go`) | Make the change in both files, or remove what `bd setup` wrote. See [the files an AI session reads on its own](#the-files-an-ai-session-reads-on-its-own). |
 | A file no content class recognizes, a class that recognizes nothing, or a class crediting its coverage to a check the project no longer declares | `internal/composition` | Write the class, retire it, or say what covers it now. This is the audit rather than a gate: it holds what this repository is made of against what its declared checks actually exercise, so a new kind of content cannot arrive covered by nothing and unnoticed — which is how shell got here. |
 
 Fixtures written to be malformed on purpose are not walked: anything under a
