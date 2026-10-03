@@ -79,6 +79,18 @@ func Load(path string) (Config, error) {
 // LoadResolved reads a project configuration, overlays it on the bundle it
 // extends, validates the result, and reports the provenance of every value.
 func LoadResolved(path string) (Resolved, error) {
+	return loadResolved(path, true)
+}
+
+// RoleHistoryProduct identifies the audit's product without reading today's
+// role definitions. A broken or removed definition must not hide its history.
+// It returns no agent configuration or authority for a caller to execute.
+func RoleHistoryProduct(path string) (domain.ProductID, error) {
+	resolved, err := loadResolved(path, false)
+	return resolved.Config.Product.ID, err
+}
+
+func loadResolved(path string, definitions bool) (Resolved, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return Resolved{}, fmt.Errorf("resolve config path %q: %w", path, err)
@@ -101,9 +113,11 @@ func LoadResolved(path string) (Resolved, error) {
 	if err := resolved.Config.Validate(); err != nil {
 		return Resolved{}, err
 	}
-	resolved.RoleDefinitions, err = LoadRoleDefinitions(absolute)
-	if err != nil {
-		return Resolved{}, err
+	if definitions {
+		resolved.RoleDefinitions, err = LoadRoleDefinitions(absolute)
+		if err != nil {
+			return Resolved{}, err
+		}
 	}
 	return resolved, nil
 }

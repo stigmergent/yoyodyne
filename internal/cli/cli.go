@@ -51,6 +51,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		// `agent chat` is a conversation like any other, so it is bound to the
 		// same input for the same reason.
 		return runAgentCommand(ctx, args[1:], os.Stdin, stdout, stderr)
+	case "role":
+		return runRole(args[1:], stdout, stderr)
 	case "artifact":
 		return runArtifact(args[1:], stdout, stderr)
 	case "amendment":
@@ -686,19 +688,27 @@ func argumentAt(positional []string, index int) string {
 // discovers the nearest project configuration, so Yoyodyne runs from a project
 // root or any directory beneath it.
 func loadConfiguration(explicitPath string) (config.Resolved, error) {
+	path, err := configurationPath(explicitPath)
+	if err != nil {
+		return config.Resolved{}, err
+	}
+	return config.LoadResolved(path)
+}
+
+func configurationPath(explicitPath string) (string, error) {
 	path := explicitPath
 	if path == "" {
 		workingDirectory, err := os.Getwd()
 		if err != nil {
-			return config.Resolved{}, fmt.Errorf("resolve working directory: %w", err)
+			return "", fmt.Errorf("resolve working directory: %w", err)
 		}
 		discovered, err := config.Discover(workingDirectory)
 		if err != nil {
-			return config.Resolved{}, err
+			return "", err
 		}
 		path = discovered
 	}
-	return config.LoadResolved(path)
+	return path, nil
 }
 
 // reportedPath names the configuration in a failure report. A discovery failure
@@ -736,6 +746,7 @@ Commands:
   config drift      compare this project against the template it was generated from
   config baseline   record what that template supplies, for a project with no baseline
   artifact          read the canonical artifacts, and record your approval of one
+  role              activate role definitions, and read their activation history
   amendment         read changes proposed to artifacts, and decide them
   evaluation        read what the Lead Product Manager made of the ideas you brought it
   goals             read the goals and what work serves, and witness and guard it

@@ -2,7 +2,8 @@ package cli
 
 // The verbs that record a person's decision refuse a process an agent started.
 //
-// `yoyo pause`, `yoyo resume`, `yoyo release`, and `yoyo artifact approve` each
+// `yoyo pause`, `yoyo resume`, `yoyo release`, `yoyo artifact approve`, and
+// `yoyo role activate` each
 // write down something only a person decides: to stop spending, to start again,
 // to let the harness choose work, to stand behind a document. Inside the harness
 // that is enforced in Go -- no pipeline path writes any of those records -- but

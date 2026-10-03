@@ -331,10 +331,13 @@ role's existing authority is unaffected by those addition rules.
 reads the definitions even when no agent names them, and an invalid definition
 refuses the configuration whole. A valid file remains inert: it changes no
 agent's capabilities, contract, or effective configuration revision, and an
-agent's `role` still accepts only a shipped role. Operator activation that pins
-the file's content digest, and binding an agent to the activated definition,
-are subsequent work; neither is available in this loader. A persona grants
-nothing through this file or any other.
+agent's `role` still accepts only a shipped role.
+[`yoyo role activate`](operations.md#activating-a-role-definition-and-reading-its-history)
+records a person's activation of the file's exact content digest.
+`yoyo role list` compares the current file with that decision, and
+`yoyo role history` retains every activation. Binding an agent to the activated definition is
+subsequent work, so activation changes no agent's authority yet. A persona
+grants nothing through this file or any other.
 
 Definitions live beside the configuration in `roles/`, following the same
 directory order as personas for an external or legacy configuration. Where

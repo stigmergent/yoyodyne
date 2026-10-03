@@ -955,15 +955,15 @@ What is deliberately not here is a list of your own. The Lead Product Manager ke
 none, and the harness keeps none apart from the records above: a checklist is
 what reaches you when you ask, and this is what reaches you when it happens.
 
-**These three verbs, and `yoyo artifact approve`, are a person's, and a
-process an agent started is refused them.** Every process the harness launches
-for a role carries the role it was launched for in its environment, as
+**These three verbs, `yoyo artifact approve`, and `yoyo role activate` are a
+person's, and a process an agent started is refused them.** Every process the
+harness launches for a role carries the role it was launched for in its environment, as
 `YOYODYNE_AGENT_ROLE`, on top of [the explicit environment](configuration.md#the-environment-a-check-runs-in)
 every invocation is built from; the variable is under the harness's own
 prefix, so a shell the agent opens and every `yoyo` that shell runs carry it
-too. `yoyo pause`, `yoyo resume` in both its forms, `yoyo release`, and
-`yoyo artifact approve` read it before they read anything else, and a process
-that carries it is told, in a sentence rather than a permission error, whose
+too. `yoyo pause`, `yoyo resume` in both its forms, `yoyo release`,
+`yoyo artifact approve`, and `yoyo role activate` read it before they read
+anything else, and a process that carries it is told, in a sentence rather than a permission error, whose
 act this is:
 
 ```text
@@ -1306,6 +1306,54 @@ worst a premature release costs is one refused request. It is refused when the
 named item has no run in flight, or has one that is not waiting on the provider
 at all, because a release recorded against a run that is not waiting would be
 acted on by whatever pause that run took next.
+
+## Activating a role definition, and reading its history
+
+A role definition is a file a person writes beside the configuration, under
+`roles/`; [the configuration guide](configuration.md#protected-role-definitions)
+states its format and the tools it may compose. Loading validates the file.
+Activation records a person's decision about its exact content:
+
+```sh
+yoyo role activate specialist           # records USER as the person
+yoyo role activate specialist --by Ada  # names the person explicitly
+yoyo role list                          # each definition and its activation
+yoyo role history                       # every activation, newest first
+```
+
+All three verbs accept `--config <path>` and `--json`. Activation refuses a
+missing or invalid definition and records nothing. It records the name, source
+path, SHA-256 content digest, person, and time in a separate immutable record
+under `<state root>/products/<product>/role-activations/`. Repeating activation
+adds a record and retains every earlier one; the latest activation for a name
+is what listing compares with its file.
+
+`list` says **not activated**, **activated**, or **amended since activation**.
+An amended file's current digest differs from the latest activated digest, even
+when the edit only changed a comment. Its listing names both digests, who last
+activated it, and when. Read the edited definition and activate it again to
+record a decision about that content. An older matching activation does not
+stand in for the latest one. `history` keeps the records when a definition is
+removed or malformed, and neither reading writes state.
+
+**Activation is a person's verb.** A process the harness launched for a role
+is refused before the configuration or state is read, with the same sentence
+as `yoyo release`:
+
+```text
+yoyo role activate is refused from a process the harness launched for the developer: a person activates a role definition, and an agent's process is not one
+```
+
+`--json` carries that sentence under `error`. The refusal uses
+`YOYODYNE_AGENT_ROLE`, with the same environment boundary described
+[above](#where-a-finding-that-needs-your-hand-goes): stripping that variable
+removes this check. The activation records live outside the worktree, under the
+state root, like the holds. A definition remains a protected path whatever
+its activation says.
+
+Activation records the decision; binding an agent to that definition is
+subsequent work. An agent's `role` still accepts only a shipped role, and these
+verbs change no agent's capabilities or contract.
 
 ## Recording a step only you can take
 
