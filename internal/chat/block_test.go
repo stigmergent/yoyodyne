@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -293,6 +295,143 @@ func TestInvalidFieldsCannotHideUnauthorizedActions(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestMalformedRevisionsCannotHideRecordedOwnership(t *testing.T) {
+	t.Parallel()
+	revision := `{"action":"revise","id":"v1-design","body":"replacement","reason":"change it"}`
+	block := func(payload string) string {
+		return artifact.WriteFence + "\n" + payload + "\n```\n"
+	}
+	blocks := map[string]string{
+		"valid revision":        block(`{"documents":[` + revision + `]}`),
+		"invalid sibling first": block(`{"documents":[{"action":5},` + revision + `]}`),
+		"invalid sibling last":  block(`{"documents":[` + revision + `,{"action":5}]}`),
+		"invalid body":          block(`{"documents":[{"action":"revise","id":"v1-design","body":5}]}`),
+		"missing arguments":     block(`{"documents":[{"action":"revise","id":"v1-design"}]}`),
+		"misleading kind":       block(`{"documents":[{"action":"revise","id":"v1-design","kind":"goals"}]}`),
+		"unclosed entry":        block(`{"documents":[` + strings.TrimSuffix(revision, "}")),
+		"broken sibling syntax": block(`{"documents":[` + revision + `,{"action":`),
+		"unclosed fence":        strings.TrimSuffix(block(`{"documents":[`+revision+`]}`), "```\n"),
+		"trailing opener":       strings.Replace(block(`{"documents":[`+revision+`]}`), artifact.WriteFence, artifact.WriteFence+" invalid", 1),
+		"trailing closer":       strings.TrimSuffix(block(`{"documents":[`+revision+`]}`), "```\n") + "``` invalid\n",
+		"repeated blocks first": block(`{"documents":[`+revision+`]}`) + documentReply("revise", "v1-goals", "", "", "replacement"),
+		"repeated blocks last":  documentReply("revise", "v1-goals", "", "", "replacement") + block(`{"documents":[`+revision+`]}`),
+	}
+	for _, key := range []string{"id", "ID", "action", "ACTION", "documents", "DOCUMENTS"} {
+		replacements := []string{`5`, `"v1-goals"`, `"missing"`}
+		if strings.EqualFold(key, "action") {
+			replacements = []string{`5`, `"create"`}
+		} else if strings.EqualFold(key, "documents") {
+			replacements = []string{`5`, `[]`, `[{"action":"revise","id":"missing"}]`}
+		}
+		for _, replacement := range replacements {
+			if strings.EqualFold(key, "documents") {
+				blocks[key+" first "+replacement] = block(`{"` + key + `":` + replacement + `,"documents":[` + revision + `]}`)
+				blocks[key+" last "+replacement] = block(`{"documents":[` + revision + `],"` + key + `":` + replacement + `}`)
+			} else {
+				blocks[key+" first "+replacement] = block(`{"documents":[{"` + key + `":` + replacement + `,` + strings.TrimPrefix(revision, "{") + `]}`)
+				blocks[key+" last "+replacement] = block(`{"documents":[` + strings.TrimSuffix(revision, "}") + `,"` + key + `":` + replacement + `}]}`)
+			}
+		}
+	}
+	for name, block := range blocks {
+		t.Run(name, func(t *testing.T) {
+			provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: block +
+				memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`) +
+				trackerReply("Closing it.", `{"action":"close","id":"yoyodyne-ifd.22","reason":"finished"}`)}}}
+			options, repository := documentOptions(t, provider)
+			store := options.Documents.(artifact.Store)
+			for _, draft := range []artifact.Draft{
+				{ID: "v1-design", Kind: artifact.KindDesign, Title: "How it is built", Directory: "docs/designs", Body: "# Design", Reason: "recorded"},
+				{ID: "v1-goals", Kind: artifact.KindGoals, Title: "What it serves", Directory: "docs/product", Body: "# Goals", Reason: "recorded"},
+			} {
+				owner, _ := artifact.Owner(draft.Kind)
+				if _, err := store.Create(owner, draft, fixedClock{}.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			designPath := filepath.Join(repository, "docs", "designs", "v1-design.md")
+			before, err := os.ReadFile(designPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			tracker := &fakeTracker{}
+			options.Store, options.Memories, options.Tracker = newTestStore(t, root), memories, tracker
+			session := openTestSession(t, options)
+			reply, err := session.Send(context.Background(), "Carry on.")
+			var unauthorized *AuthorityError
+			if !errors.As(err, &unauthorized) || !strings.Contains(err.Error(), "v1-design") {
+				t.Fatalf("Send() = %v, want recorded ownership to refuse the whole reply", err)
+			}
+			if len(reply.Actions) != 0 || len(tracker.closed) != 0 || len(reply.Memories) != 0 || len(reply.Writes) != 0 ||
+				len(session.Writes()) != 0 || len(reply.BlockRefusals) != 0 || len(provider.requests) != 1 {
+				t.Fatalf("unauthorized reply carried out other blocks: %+v", reply)
+			}
+			all, problems, err := memories.Memories(string(domain.RoleProductManager))
+			if err != nil || len(problems) != 0 || len(all) != 0 {
+				t.Fatalf("memory store = %v, %v, %v; want no memory written", all, problems, err)
+			}
+			after, err := os.ReadFile(designPath)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("the design changed under a refused revision: %v", err)
+			}
+		})
+	}
+}
+
+func TestMalformedOwnedOrMissingRevisionsStillRefuseOnlyTheirBlock(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{"v1-design", "missing"} {
+		t.Run(id, func(t *testing.T) {
+			provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: artifact.WriteFence +
+				"\n" + `{"documents":[{"action":"revise","id":"` + id + `"},{"action":5}]}` + "\n```\n" +
+				memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`)}}}
+			options, _ := documentOptions(t, provider)
+			options.Role, options.Agent = domain.RoleArchitect, string(domain.RoleArchitect)
+			if _, err := options.Documents.(artifact.Store).Create(domain.RoleArchitect, artifact.Draft{
+				ID: "v1-design", Kind: artifact.KindDesign, Title: "How it is built", Directory: "docs/designs", Body: "# Design", Reason: "recorded",
+			}, fixedClock{}.Now()); err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			options.Store, options.Memories = newTestStore(t, root), memories
+			reply, err := openTestSession(t, options).Send(context.Background(), "Carry on.")
+			requireBlockRefusal(t, reply, err, "yoyodyne-artifact")
+			all, problems, err := memories.Memories(string(domain.RoleArchitect))
+			if err != nil || len(problems) != 0 || len(all) != 1 || len(reply.Memories) != 1 || len(reply.Writes) != 0 {
+				t.Fatalf("memory did not survive the artifact validation refusal: %+v, %v, %v, %v", reply, all, problems, err)
+			}
+		})
+	}
+}
+
+type unavailableRevisionDocuments struct{ Documents }
+
+func (unavailableRevisionDocuments) AuthorizeRevisions(domain.AgentRole, []string) error {
+	return errors.New("recorded ownership is unavailable")
+}
+
+func TestRevisionOwnershipReadFailureCarriesOutNoOtherBlocks(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: artifact.WriteFence +
+		"\n" + `{"documents":[{"action":"revise","id":"v1-design"},{"action":5}]}` + "\n```\n" +
+		memoryBlock(`{"memories":[{"action":"remember","memory":"lesson","text":"keep this"}]}`)}}}
+	options, _ := documentOptions(t, provider)
+	options.Documents = unavailableRevisionDocuments{options.Documents}
+	reply, err := openTestSession(t, options).Send(context.Background(), "Carry on.")
+	if err == nil || !strings.Contains(err.Error(), "recorded ownership is unavailable") || len(reply.Memories) != 0 || len(reply.Writes) != 0 || len(reply.BlockRefusals) != 0 {
+		t.Fatalf("ownership read failure carried out other blocks: %+v, %v", reply, err)
 	}
 }
 

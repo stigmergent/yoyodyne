@@ -47,6 +47,9 @@ import (
 // boundary, and there is nothing here that writes a document without recording
 // who wrote it and why.
 type Documents interface {
+	// AuthorizeRevisions checks recorded ownership even when the write's other
+	// fields cannot be decoded or validated. It does not validate or write one.
+	AuthorizeRevisions(role domain.AgentRole, ids []string) error
 	// CheckWrite refuses a write before anything is done about it: its shape, the
 	// role's authority over the document it names, and whether the directory is
 	// the one its kind is filed in.

@@ -2167,6 +2167,7 @@ func (s *Session) recordOperatorMessage(message string) error {
 type parsedReply struct {
 	Carried          map[string]bool
 	AuthorityProblem error
+	RevisionIDs      []string
 	Refusals         []BlockRefusal
 	Prose            string
 	Actions          []TrackerAction

@@ -91,6 +91,7 @@ var expresses = map[string]expression{
 			capability.EvaluationRecord, capability.ExchangeAsk, capability.WorkItemMutate,
 			capability.RepositoryRead, capability.RepositoryList, capability.AgentContextMutate,
 			capability.LaneReportWrite, capability.ServiceRequestRestart,
+			capability.ArtifactProductMutate, capability.ArtifactDesignMutate,
 		},
 		gap: "the block names are protocol framing; document ownership and the tracker action list are read through their existing derivations",
 	},
@@ -297,6 +298,11 @@ var expresses = map[string]expression{
 		question: "does the role hold the capability the kind belongs to, for a document filed in that kind's home?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
 		gap:      "which home a kind is filed in is the project's configuration rather than a capability, so the home half of this check is not expressed here",
+	},
+	"artifact.authorize-revisions": {
+		question: "does the role hold the capability for every recorded document a revision names, even when the reply cannot be validated?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+		gap:      "unrecorded identifiers are validation problems handled by CheckWrite; ownership is taken from the recorded document rather than from the reply",
 	},
 	"artifact.identify": {
 		question: "does the role recording goal identities hold the capability a goals document belongs to?",

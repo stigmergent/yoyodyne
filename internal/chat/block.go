@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -91,7 +92,9 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Carried[fence] = true
 		for _, block := range occurrences {
 			if parsed.AuthorityProblem == nil {
-				parsed.AuthorityProblem = blockAuthority(role, fence, block)
+				ids, err := blockAuthority(role, fence, block)
+				parsed.RevisionIDs = append(parsed.RevisionIDs, ids...)
+				parsed.AuthorityProblem = err
 			}
 		}
 		part, err := splitSingleReply(role, strings.Join(occurrences, ""))
@@ -139,7 +142,8 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 }
 
 // Presence is enough to check a block's capability, including malformed JSON.
-// Decoded actions and document kinds still pass the finer checks in authorize.
+// Revision identifiers are checked against recorded ownership separately from
+// validation, just as actions and creation kinds are checked by blockAuthority.
 func (s *Session) authorizeCarried(parsed parsedReply) error {
 	if parsed.AuthorityProblem != nil {
 		return parsed.AuthorityProblem
@@ -157,6 +161,15 @@ func (s *Session) authorizeCarried(parsed parsedReply) error {
 		if parsed.Carried[fence] && !permitted[fence] {
 			return &AuthorityError{Role: a.Role, Refused: strings.TrimPrefix(fence, "```"),
 				Reason: "this role holds no authority for this block"}
+		}
+	}
+	if len(parsed.RevisionIDs) > 0 && s.options.Documents != nil {
+		err := s.options.Documents.AuthorizeRevisions(a.Role, parsed.RevisionIDs)
+		if errors.Is(err, artifact.ErrUnauthorized) {
+			return &AuthorityError{Role: a.Role, Refused: "a document revision", Reason: err.Error()}
+		}
+		if err != nil {
+			return fmt.Errorf("check the revision's recorded ownership: %w", err)
 		}
 	}
 	return nil
@@ -201,10 +214,11 @@ func (s *Session) reportBlockRefusals(out io.Writer, reply Reply) {
 // text, or read JSON placed directly after the opener, without requiring a
 // closing fence or EOF.
 // Malformed framing, invalid field types, and repeated fields must not conceal
-// a known action the role may not take.
-func blockAuthority(role domain.AgentRole, fence, block string) error {
+// a known action the role may not take. Revision ids are returned for the
+// session's recorded ownership check, never taken as proof of an owner here.
+func blockAuthority(role domain.AgentRole, fence, block string) ([]string, error) {
 	if fence != trackerFence && fence != artifact.WriteFence {
-		return nil
+		return nil, nil
 	}
 	payload := strings.TrimSpace(strings.TrimPrefix(block, fence))
 	if !strings.HasPrefix(payload, "{") {
@@ -221,22 +235,32 @@ func blockAuthority(role domain.AgentRole, fence, block string) error {
 				for _, value := range entry.fields["action"] {
 					action := value.text
 					if _, known := trackerCapabilities[action]; known && !authority.MayAct(action) {
-						return &AuthorityError{Role: role, Refused: fmt.Sprintf("the %q tracker action", action),
+						return nil, &AuthorityError{Role: role, Refused: fmt.Sprintf("the %q tracker action", action),
 							Reason: "this role may ask for " + renderActions(authority.TrackerActions)}
 					}
 				}
 			}
 		}
-		return nil
+		return nil, nil
 	}
+	var revisions []string
 	for _, value := range fields["documents"] {
 		for _, entry := range value.entries {
 			fields := entry.fields
-			create := false
+			create, revise := false, false
 			for _, value := range fields["action"] {
-				if artifact.WriteAction(value.text) == artifact.WriteCreate {
+				switch artifact.WriteAction(value.text) {
+				case artifact.WriteCreate:
 					create = true
-					break
+				case artifact.WriteRevise:
+					revise = true
+				}
+			}
+			if revise {
+				for _, value := range fields["id"] {
+					if id := strings.TrimSpace(value.text); id != "" {
+						revisions = append(revisions, id)
+					}
 				}
 			}
 			if !create {
@@ -248,12 +272,12 @@ func blockAuthority(role domain.AgentRole, fence, block string) error {
 					continue
 				}
 				if err := (artifact.Write{Action: artifact.WriteCreate, Kind: kind}).Authorize(role); err != nil {
-					return &AuthorityError{Role: role, Refused: "a document to be written", Reason: err.Error()}
+					return nil, &AuthorityError{Role: role, Refused: "a document to be written", Reason: err.Error()}
 				}
 			}
 		}
 	}
-	return nil
+	return revisions, nil
 }
 
 // Keep every occurrence rather than overwriting repeated fields, including
@@ -285,7 +309,7 @@ func readReplyValue(decoder *json.Decoder, depth int) (replyJSONValue, error) {
 			if !ok {
 				return value, fmt.Errorf("expected a JSON object key")
 			}
-			for _, name := range []string{"actions", "documents", "action", "kind"} {
+			for _, name := range []string{"actions", "documents", "action", "kind", "id"} {
 				if strings.EqualFold(key, name) {
 					key = name
 					break

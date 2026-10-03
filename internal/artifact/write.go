@@ -341,6 +341,25 @@ func (w Write) Amendment() Amendment {
 	return amendment
 }
 
+// AuthorizeRevisions checks the ownership of every recorded document named by
+// a reply, independently of the revision's shape. Unknown ids are left to
+// CheckWrite's validation; they must not hide a recorded document in the same
+// reply. Reading the set once also keeps repeated ids from repeating the walk.
+func (s Store) AuthorizeRevisions(role domain.AgentRole, ids []string) error {
+	set, err := s.Load()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if found, exists := set.Find(strings.TrimSpace(id)); exists {
+			if err := Authorize(role, found.Kind); err != nil {
+				return fmt.Errorf("revise artifact %q: %w", found.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
 // CheckWrite refuses everything about a write that a refusal now would spare
 // somebody later: its shape, the role's authority over the document it names,
 // whether the directory a new document lands in is one this project files
