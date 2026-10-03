@@ -1889,12 +1889,18 @@ build. Calls to bd outside the harness keep their own export settings.
 A listing — `bd list`, which the development manager's docket, the forge
 reading on her pass, the claim audit, the admission guard, and `yoyo status`
 all make — is bounded at thirty seconds like every tracker call. bd takes an
-exclusive lock on its store for every command, reads included, and a write
-holds it while it rewrites the whole export beside the store, so a listing that
-arrives behind a write or two can be killed at its bound seconds before it would
+exclusive lock on its store for every command, reads included. Harness writes
+set `BD_EXPORT_AUTO=false` and do not automatically rewrite the export.
+Explicit snapshot exports still read the whole store under that lock; the
+harness publishes the snapshot beside the store after bd exits. Calls outside
+the harness retain their own export settings and, when automatic exports are
+enabled, can still rewrite the whole export while holding the lock. A listing
+queued behind these commands can be killed at its bound seconds before it would
 have answered.
-[The diagnosis](diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md) has
-the evidence.
+[The diagnosis](diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md)
+records the earlier behavior, when every harness write also exported; the
+[snapshot section](#tracker-export-snapshots-and-abandoned-temporary-files)
+describes the current behavior.
 
 **A listing its bound killed is asked again, twice**, two seconds and then
 eight seconds later. Only a timeout is asked again: bd refusing, or answering
