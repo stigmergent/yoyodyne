@@ -203,6 +203,12 @@ func (s *Session) rebuiltPrompt(systemPrompt, prompt, why string) (string, error
 	// operator message is already the prompt, and a refused attempt's events are
 	// the attempt this rebuild is replacing rather than something said before it.
 	events = recordedBefore(events, s.turnBegan)
+	for index, event := range events {
+		if event.Sequence == s.turnOperatorSequence {
+			events = append(events[:index], events[index+1:]...)
+			break
+		}
+	}
 	// The turn's own prompt was redacted before it reached here, and this is
 	// assembled afterwards out of the briefing and the event log, so it is redacted
 	// here rather than inheriting a pass it was not part of. Anything recognizably
@@ -326,6 +332,7 @@ func recordedBefore(events []execution.Event, through uint64) []execution.Event 
 // recordedMessage is one thing one side said, as the event log holds it.
 type recordedMessage struct {
 	operator bool
+	harness  bool
 	text     string
 }
 
@@ -336,6 +343,7 @@ type recordedMessage struct {
 const (
 	operatorSaid = "**The operator said:**"
 	roleReplied  = "**You replied:**"
+	harnessSaid  = "**The harness asked you to save memories:**"
 )
 
 // workingBriefing is the picture this conversation is working from: the one a
@@ -376,15 +384,18 @@ func recordedMessages(events []execution.Event, budget int) string {
 	spoken := make([]recordedMessage, 0, len(events))
 	for _, event := range events {
 		var fromOperator bool
+		var fromHarness bool
 		switch event.Type {
 		case execution.EventAgentMessage:
 		case execution.EventOperatorMessage:
 			fromOperator = true
+		case execution.EventSessionMemorySaveRequested:
+			fromHarness = true
 		default:
 			continue
 		}
 		if text := messageText(event); text != "" {
-			spoken = append(spoken, recordedMessage{operator: fromOperator, text: text})
+			spoken = append(spoken, recordedMessage{operator: fromOperator, harness: fromHarness, text: text})
 		}
 	}
 	if len(spoken) == 0 {
@@ -413,6 +424,8 @@ func recordedMessages(events []execution.Event, budget int) string {
 	for _, message := range kept {
 		if message.operator {
 			rendered.WriteString(operatorSaid)
+		} else if message.harness {
+			rendered.WriteString(harnessSaid)
 		} else {
 			rendered.WriteString(roleReplied)
 		}

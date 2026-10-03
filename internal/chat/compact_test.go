@@ -7,6 +7,7 @@ package chat
 // happened is to look at the request.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,8 +18,188 @@ import (
 	"testing"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+type compactionBackend struct {
+	*speakingBackend
+	beforeRun func(backendapi.RunRequest)
+}
+
+func (b *compactionBackend) Run(ctx context.Context, request backendapi.RunRequest) (backendapi.RunResult, error) {
+	if b.beforeRun != nil {
+		b.beforeRun(request)
+	}
+	return b.speakingBackend.Run(ctx, request)
+}
+
+func TestEveryMemoryKeepingRoleSavesBeforeTheSessionIsRebuilt(t *testing.T) {
+	t.Parallel()
+	for _, role := range []domain.AgentRole{domain.RoleProductManager, domain.RoleArchitect, domain.RoleDevelopmentManager, domain.RoleProgramManager} {
+		t.Run(string(role), func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			answer := "Saved what I learned.\n" + memoryBlock(`{"memories":[{"action":"remember","memory":"slow-checks","text":"The race check needs eleven minutes."}]}`)
+			provider := &compactionBackend{speakingBackend: &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old-session", FinalText: strings.Repeat("earlier learning\n", 2048)},
+				{SessionID: "old-session", FinalText: answer},
+				{SessionID: "new-session", FinalText: "Here is the answer."},
+			}}}
+			options := compactingOptions(t, root, provider, 32<<10)
+			options.Role, options.Agent, options.Memories = role, string(role), memories
+			session := openTestSession(t, options)
+			if _, err := session.Send(context.Background(), "Learn about the checks."); err != nil {
+				t.Fatal(err)
+			}
+			if session.state.ProviderSessionBytes <= options.SessionBudgetBytes {
+				t.Fatal("the first turn did not drive the session past its budget")
+			}
+			provider.beforeRun = func(request backendapi.RunRequest) {
+				if len(provider.requests) != 2 {
+					return
+				}
+				live, problems, err := memories.Live(string(role))
+				if err != nil || len(problems) != 0 || len(live) != 1 {
+					t.Fatalf("the rebuild started before the memory was stored: %v, %v, %v", live, problems, err)
+				}
+				if !strings.Contains(request.Prompt, live[0].Current().Text) {
+					t.Fatal("the rebuilt turn lacks the memory the save turn wrote")
+				}
+				if counted := countEvents(t, root, session); counted[execution.EventSessionMemorySaved] != 1 || counted[execution.EventMemoryRecorded] != 1 {
+					t.Fatalf("the rebuilt request preceded the save's record: %v", counted)
+				}
+			}
+			reply, err := session.Send(context.Background(), "What should we do next?")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(provider.requests) != 3 || provider.requests[1].SessionID != "old-session" || provider.requests[2].SessionID != "" {
+				t.Fatalf("requests = %+v, want a save on the old session before a new session", provider.requests)
+			}
+			for _, want := range []string{"compact this provider session next", "newest 80 messages", "256 KiB", "yoyodyne-memory"} {
+				if !strings.Contains(provider.requests[1].Prompt, want) {
+					t.Errorf("the save prompt lacks %q", want)
+				}
+			}
+			if strings.Contains(provider.requests[1].Prompt, "What should we do next?") {
+				t.Fatal("the waiting message was sent to the save turn")
+			}
+			if len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].MemoriesRecorded != 1 || reply.CompactionSaves[0].NothingToSave {
+				t.Fatalf("save turn's outcome = %+v", reply.CompactionSaves)
+			}
+			if len(reply.Saved) != 1 || len(reply.Memories) != 1 || reply.Memories[0].Turn != 2 || session.state.Turns != 3 {
+				t.Fatalf("the pass would miss the save turn: saved=%+v, memories=%+v, turns=%d", reply.Saved, reply.Memories, session.state.Turns)
+			}
+			events, err := options.Store.LoadEvents(session.state.ConversationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			positions := map[execution.EventType]uint64{}
+			for _, event := range events {
+				positions[event.Type] = event.Sequence
+			}
+			if positions[execution.EventMemoryRecorded] >= positions[execution.EventSessionMemorySaved] || positions[execution.EventSessionMemorySaved] >= positions[execution.EventSessionCompacted] {
+				t.Fatalf("save/rebuild order = %v", positions)
+			}
+			var saved CompactionSave
+			if err := json.Unmarshal([]byte(onlyEventPayload(t, root, session, execution.EventSessionMemorySaved)), &saved); err != nil || saved.MemoriesRecorded != 1 || saved.Turn != 2 {
+				t.Fatalf("the save turn was not recorded: %+v, %v", saved, err)
+			}
+			if !strings.Contains(provider.requests[2].Prompt, harnessSaid) || strings.Count(provider.requests[2].Prompt, "What should we do next?") != 1 {
+				t.Fatal("the rebuilt history misattributes the save turn or repeats the waiting message")
+			}
+		})
+	}
+}
+
+func TestASaveTurnWithNothingToSaveIsRecorded(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	provider := &speakingBackend{results: []backendapi.RunResult{
+		{SessionID: "old", FinalText: "Learned nothing new."},
+		{SessionID: "old", FinalText: "Nothing to save."},
+		{SessionID: "new", FinalText: "Continuing."},
+	}}
+	session := openTestSession(t, compactingOptions(t, root, provider, 1))
+	if _, err := session.Send(context.Background(), "First message."); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := session.Send(context.Background(), "Next message.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved CompactionSave
+	if err := json.Unmarshal([]byte(onlyEventPayload(t, root, session, execution.EventSessionMemorySaved)), &saved); err != nil || !saved.NothingToSave || saved.MemoriesRecorded != 0 {
+		t.Fatalf("save with nothing to write = %+v, %v", saved, err)
+	}
+	var transcript bytes.Buffer
+	session.reportCompactionSaves(&transcript, reply)
+	if !strings.Contains(transcript.String(), "nothing to save") {
+		t.Fatalf("the transcript does not report the empty save: %s", transcript.String())
+	}
+}
+
+func TestAFailedSaveLeavesTheOldSessionAndDoesNotRebuild(t *testing.T) {
+	t.Parallel()
+	for name, answer := range map[string]string{
+		"unreadable memory":         memoryBlock(`{"memories":[{"action":"unknown"}]}`),
+		"refused write":             memoryBlock(`{"memories":[{"action":"remember","memory":"new-memory","text":"A conclusion."}]}`),
+		"unacknowledged empty save": "All done.",
+		"other action":              "Nothing to save.\n```yoyodyne-tracker\n{\"actions\":[{\"action\":\"survey\"}]}\n```",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			provider := &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old", FinalText: "Learning."},
+				{SessionID: "old", FinalText: answer},
+			}}
+			session := openTestSession(t, compactingOptions(t, root, provider, 1))
+			if _, err := session.Send(context.Background(), "First message."); err != nil {
+				t.Fatal(err)
+			}
+			reply, err := session.Send(context.Background(), "Next message.")
+			if !errors.Is(err, ErrCompactionFailed) || len(provider.requests) != 2 || session.state.ProviderSessionID != "old" {
+				t.Fatalf("Send = %+v, %v; requests=%d, session=%q", reply, err, len(provider.requests), session.state.ProviderSessionID)
+			}
+			counted := countEvents(t, root, session)
+			if counted[execution.EventSessionMemorySaveFailed] != 1 || counted[execution.EventSessionCompacted] != 0 || counted[execution.EventTrackerActionRequested] != 0 {
+				t.Fatalf("the failed save rebuilt or acted: %v", counted)
+			}
+		})
+	}
+}
+
+func TestRolesWithoutMemoryCompactWithoutASaveTurn(t *testing.T) {
+	t.Parallel()
+	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer} {
+		t.Run(string(role), func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			provider := &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old", FinalText: "First answer."},
+				{SessionID: "new", FinalText: "Next answer."},
+			}}
+			options := compactingOptions(t, root, provider, 1)
+			options.Role, options.Agent = role, string(role)
+			session := openTestSession(t, options)
+			for _, message := range []string{"First message.", "Next message."} {
+				if _, err := session.Send(context.Background(), message); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(provider.requests) != 2 || provider.requests[1].SessionID != "" || countEvents(t, root, session)[execution.EventSessionMemorySaveRequested] != 0 {
+				t.Fatal("a role without memory took a save turn")
+			}
+		})
+	}
+}
 
 func compactingOptions(t *testing.T, root string, provider Backend, budget int) Options {
 	t.Helper()
@@ -79,6 +260,7 @@ func TestATurnThatWouldPassTheBudgetCompactsTheSessionFirst(t *testing.T) {
 	root := t.TempDir()
 	provider := &speakingBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "Two goals, then."},
+		{SessionID: "session-1", FinalText: "Nothing to save."},
 		{SessionID: "session-2", FinalText: "The second one first."},
 	}}
 	session := openTestSession(t, compactingOptions(t, root, provider, 1))
@@ -90,7 +272,7 @@ func TestATurnThatWouldPassTheBudgetCompactsTheSessionFirst(t *testing.T) {
 		t.Fatalf("Send() error = %v, want the turn served on a compacted session", err)
 	}
 
-	asked := provider.requests[1]
+	asked := provider.requests[2]
 	if asked.SessionID != "" {
 		t.Fatalf("session asked for = %q, want none: the session was past its budget", asked.SessionID)
 	}
@@ -115,7 +297,7 @@ func TestATurnThatWouldPassTheBudgetCompactsTheSessionFirst(t *testing.T) {
 	}
 	firstTurn := len(provider.requests[0].Prompt) + len("Two goals, then.")
 	if compacted.Reason != compactionOverBudget || compacted.SessionID != "session-1" ||
-		compacted.SessionBytes != firstTurn || compacted.BudgetBytes != 1 {
+		compacted.SessionBytes != firstTurn+len(provider.requests[1].Prompt)+len("Nothing to save.") || compacted.BudgetBytes != 1 {
 		t.Fatalf("session.compacted = %+v, want the first session, its %d bytes, and the budget", compacted, firstTurn)
 	}
 
@@ -185,13 +367,16 @@ func TestAnUnmeasuredSessionIsCompactedOnItsNextTurn(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	later := &speakingBackend{results: []backendapi.RunResult{{SessionID: "session-2", FinalText: "The second one first."}}}
+	later := &speakingBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: "Nothing to save."},
+		{SessionID: "session-2", FinalText: "The second one first."},
+	}}
 	resumed := openTestSession(t, compactingOptions(t, root, later, 0))
 	if _, err := resumed.Send(context.Background(), "and after that?"); err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}
-	if later.requests[0].SessionID != "" {
-		t.Fatalf("session asked for = %q, want none: nobody knows how large it is", later.requests[0].SessionID)
+	if later.requests[1].SessionID != "" {
+		t.Fatalf("session asked for = %q, want none: nobody knows how large it is", later.requests[1].SessionID)
 	}
 	if payload := onlyEventPayload(t, root, resumed, execution.EventSessionCompacted); !strings.Contains(payload, `"reason":"unmeasured"`) {
 		t.Fatalf("session.compacted = %s, want it to say the session was unmeasured", payload)
@@ -249,6 +434,7 @@ func TestACompactedTurnThatNamesNoSessionLeavesNoneToResume(t *testing.T) {
 	root := t.TempDir()
 	provider := &speakingBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "Two goals, then."},
+		{SessionID: "session-1", FinalText: "Nothing to save."},
 		{FinalText: "The second one first."},
 		{SessionID: "session-3", FinalText: "Then the third."},
 	}}
@@ -264,10 +450,10 @@ func TestACompactedTurnThatNamesNoSessionLeavesNoneToResume(t *testing.T) {
 	if _, err := session.Send(context.Background(), "and then?"); err != nil {
 		t.Fatalf("Send() error = %v on the third turn", err)
 	}
-	if resumed := provider.requests[2].SessionID; resumed != "" {
+	if resumed := provider.requests[3].SessionID; resumed != "" {
 		t.Fatalf("third turn resumed %q, want no session: the compacted one was left behind", resumed)
 	}
-	if !strings.HasPrefix(provider.requests[2].Prompt, rebuiltContextHeader) {
-		t.Fatalf("third prompt = %q, want the conversation rebuilt in front of it", provider.requests[2].Prompt)
+	if !strings.HasPrefix(provider.requests[3].Prompt, rebuiltContextHeader) {
+		t.Fatalf("third prompt = %q, want the conversation rebuilt in front of it", provider.requests[3].Prompt)
 	}
 }

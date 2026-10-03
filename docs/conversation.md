@@ -1433,6 +1433,19 @@ only in the memory store, under the state root at
 `products/<product>/memory/<agent>.memory.jsonl`, because a copy in the
 conversation record would be a second store.
 
+**Before compacting a provider session, the harness gives every role that keeps
+memory one turn to save what it has learned.** The message says compaction is
+next and what the new session will keep: the current repository and tracker
+picture, recorded memories, and the newest 80 messages within 256 KiB. The role
+records its conclusions through its usual `yoyodyne-memory` block, or replies
+"Nothing to save." with no block. The harness records the memory writes before
+rebuilding the session, and the conversation log says the save turn happened,
+how many writes it recorded, and whether the role had nothing to save. The
+transcript and `--json` (`compaction_saves`) say the same thing. A save turn or
+memory write that fails leaves the old session in place and the waiting message
+unanswered. Program managers receive this turn too; developers and reviewers,
+which keep no memory, do not.
+
 **`yoyo agent memory <name>` reads that history as text.** Every memory the
 agent holds is listed with all of its revisions, newest first, each quoted as it
 was written and followed by the invocation that wrote it — the conversation or
@@ -2782,8 +2795,11 @@ back, and records the measure on the conversation beside the budget it is held
 to (`provider_session_bytes` and `provider_session_budget_bytes`, and
 `session_bytes` and `session_budget_bytes` in `--json` evidence). The budget is
 8 MiB, a quarter of the 32 MB ceiling, because the provider's request carries
-framing, encoding, and reasoning the harness never sees. A turn that would take
-the session past it is sent without the session: the conversation is rebuilt
+framing, encoding, and reasoning the harness never sees. Before a turn that would
+take the session past it, a role that keeps memory receives the save turn
+[described above](#what-the-management-roles-remember), on the old session.
+After its memory writes are recorded, the waiting turn is sent without the
+session: the conversation is rebuilt
 from its record in front of the turn, exactly as for a provider holding no
 session, and the provider's answer starts a new session the measure starts again
 from. That is recorded as a `session.compacted` event naming the old session,

@@ -26,13 +26,17 @@ package chat
 // already holding the conversation: the turn is sent with no session to resume,
 // and what the session was carrying comes from the harness's own record instead
 // — the picture the conversation is working from and the most recent of what has
-// been said, bounded by the rebuild's own budget. Nothing is sent to the old
-// session to shrink it, so a compaction never needs the session to fit, and the
-// provider's answer starts a new session the measure starts again from.
+// been said, bounded by the rebuild's own budget. A role that keeps memory is
+// first given one turn on the old session to save its conclusions. The rebuild
+// follows only after those writes have been recorded, and the provider's answer
+// starts a new session the measure starts again from.
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -43,6 +47,104 @@ import (
 // request, because what the harness measures is only the part of a session it
 // wrote and read. See the comment at the top of this file.
 const SessionBudgetBytes = 8 << 20
+
+// CompactionSave records the memory turn preceding a session rebuild. The
+// memory text stays in the memory store; this says what the turn accomplished.
+type CompactionSave struct {
+	SessionID        string `json:"session_id"`
+	Turn             int    `json:"turn"`
+	MemoriesRecorded int    `json:"memories_recorded"`
+	NothingToSave    bool   `json:"nothing_to_save"`
+	Failure          string `json:"failure,omitempty"`
+}
+
+func compactionSavePrompt() string {
+	return fmt.Sprintf(`# Save memories before compaction
+
+The harness will compact this provider session next. The new session will keep the conversation's current repository and tracker picture, your recorded memories, and the newest %d messages within %d KiB. Older messages remain in the durable conversation log but will not reach the new session; conclusions you have not recorded as memory may be lost.
+
+You have one turn on this session to save what you have learned through your yoyodyne-memory block. Use the usual memory limits and compact or retire outdated memories where needed to make room. This turn is only for memory writes; carry no other harness block and do not answer the waiting message yet. If you have nothing to save, reply exactly "Nothing to save." without a memory block.
+`, maxRebuiltMessages, maxRebuiltContextBytes>>10)
+}
+
+func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, reply *Reply) error {
+	// Do not spend a save turn when the record cannot support the rebuild.
+	if _, err := s.options.Store.LoadEvents(s.state.ConversationID); err != nil {
+		return errors.Join(fmt.Errorf("%w: read what this conversation has recorded: %w", ErrCompactionFailed, err),
+			s.emit(execution.EventSessionCompactionFailed, map[string]any{"session_id": s.state.ProviderSessionID, "error": singleLine(err.Error(), maxTrackerFailureBytes)}))
+	}
+	notice := compactionSavePrompt()
+	save := CompactionSave{SessionID: s.state.ProviderSessionID, Turn: s.state.Turns + 1}
+	if err := s.emit(execution.EventSessionMemorySaveRequested, map[string]any{
+		"session_id": save.SessionID, "turn": save.Turn, "text": notice,
+		"session_bytes": due.sessionBytes, "budget_bytes": due.budget,
+	}); err != nil {
+		return err
+	}
+	answer, err := s.takeTurn(ctx, notice, "", nil, true)
+	reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
+	s.turnCuts = nil
+	reply.SpendProblem = appendProblem(reply.SpendProblem, s.spendProblem)
+	reply.FailoverProblem = appendProblem(reply.FailoverProblem, s.failoverProblem)
+	if err == nil {
+		var prose string
+		var writes []MemoryWrite
+		prose, writes, err = extractMemoryWrites(answer)
+		if err == nil {
+			for _, line := range strings.Split(prose, "\n") {
+				if strings.HasPrefix(strings.TrimSpace(line), "```yoyodyne-") {
+					err = errors.New("the save turn may carry only a yoyodyne-memory block")
+					break
+				}
+			}
+			if err == nil && len(writes) == 0 {
+				save.NothingToSave = strings.EqualFold(strings.TrimSpace(prose), "Nothing to save.")
+				if !save.NothingToSave {
+					err = errors.New("the save turn wrote no memories and did not say \"Nothing to save.\"")
+				}
+			}
+		}
+		if err == nil {
+			var outcomes []MemoryOutcome
+			outcomes, err = s.performMemoryWrites(ctx, writes)
+			reply.Memories = append(reply.Memories, outcomes...)
+			reply.Saved = append(reply.Saved, savedMemories(outcomes)...)
+			for _, outcome := range outcomes {
+				if outcome.Recorded {
+					save.MemoriesRecorded++
+				} else {
+					err = errors.Join(err, errors.New(outcome.Failure))
+				}
+			}
+			if len(outcomes) > 0 {
+				err = errors.Join(err, s.carryResults(renderMemoryResults(outcomes)))
+			}
+		}
+		if err != nil {
+			err = fmt.Errorf("%w: %w", ErrCompactionFailed, err)
+		}
+	}
+	eventType := execution.EventSessionMemorySaved
+	if err != nil {
+		eventType = execution.EventSessionMemorySaveFailed
+		save.Failure = singleLine(err.Error(), maxTrackerFailureBytes)
+	}
+	reply.CompactionSaves = append(reply.CompactionSaves, save)
+	return errors.Join(err, s.emit(eventType, save))
+}
+
+func (s *Session) reportCompactionSaves(out io.Writer, reply Reply) {
+	for _, save := range reply.CompactionSaves {
+		switch {
+		case save.Failure != "":
+			fmt.Fprintf(out, "[session] the save turn before compaction did not finish: %s\n", save.Failure)
+		case save.NothingToSave:
+			fmt.Fprintln(out, "[session] the role took a save turn before compaction and had nothing to save")
+		default:
+			fmt.Fprintf(out, "[session] the save turn before compaction recorded %d memory write(s)\n", save.MemoriesRecorded)
+		}
+	}
+}
 
 // ErrCompactionFailed marks the failure of a turn that was not sent because the
 // session it would have resumed had to be compacted first and could not be. It
