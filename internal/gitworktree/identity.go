@@ -16,7 +16,10 @@ import (
 // ContentIdentityPrefix opens every identity ContentIdentity names, so a reader
 // can tell one from a commit: both are hexadecimal, and a commit is what every
 // other identifier on a run's record is.
-const ContentIdentityPrefix = "sha256:"
+//
+// Version 2 includes Git modes and symlink targets. Earlier identities cannot
+// carry check credit onto a tree named by this version.
+const ContentIdentityPrefix = "sha256-v2:"
 
 // hashObjectBatch bounds how many paths one `git hash-object` is handed, so a
 // change touching thousands of files does not build a command line the
@@ -25,11 +28,12 @@ const hashObjectBatch = 128
 
 // ContentIdentity names the content of a run's change as it stands in the
 // worktree: a digest over the recorded base, every path the change touches
-// against it, and the blob Git would store for each one as it is on disk now,
-// or that it is gone. Two readings agree exactly when the tree holds the same
-// change against the same base, and a single byte moved in any file the change
-// touches — tracked or untracked — moves the identity. Whether the attempt has
-// been committed does not: a file is named by its path and its content, not by
+// against it, its Git mode, and the blob Git would store for each regular file
+// or the target text of a symlink, or that it is gone. Two readings agree exactly
+// when the tree holds the same change against the same base, and a mode change
+// or a single byte moved in any file or link target the change touches — tracked
+// or untracked — moves the identity. Committing the attempt does not move it:
+// a file is named by its path, mode, and content, not by
 // whether the index has heard of it, so a publishing run, which commits before
 // its checks, and one that does not are bound by the same reading.
 //
@@ -46,9 +50,9 @@ const hashObjectBatch = 128
 // `write-tree` — needs an index to write from, and the run's index carries the
 // held-out exports, so it is not asked.
 //
-// A path that is not a regular file — a symlink, a socket — is named by what it
-// is rather than hashed: Git would store a symlink's target, and a target that
-// leaves the worktree is exactly the file this must not open.
+// A symlink is read without following it: its own target text is hashed, never
+// the file it points to, which may be outside the worktree. Other non-regular
+// paths are still named by their type rather than opened.
 func (m *Manager) ContentIdentity(ctx context.Context, worktree Worktree) (string, error) {
 	path, _, err := m.verifyOwnedHead(ctx, worktree)
 	if err != nil {
@@ -67,11 +71,12 @@ func (m *Manager) ContentIdentity(ctx context.Context, worktree Worktree) (strin
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
 
-	// Every entry that still has a file behind it is hashed; a deletion is named
-	// as one, and a path that is not a regular file is named by its mode.
+	// Regular files are hashed by Git; links contribute their own text and
+	// other types are named without opening them. Every path carries its mode.
 	var toHash []int
 	for i := range entries {
 		if entries[i].status == "D" {
+			entries[i].mode = "000000"
 			entries[i].blob = "deleted"
 			continue
 		}
@@ -79,10 +84,32 @@ func (m *Manager) ContentIdentity(ctx context.Context, worktree Worktree) (strin
 		switch {
 		case err != nil:
 			return "", fmt.Errorf("inspect %s for its content identity: %w", entries[i].path, err)
-		case !info.Mode().IsRegular():
-			entries[i].blob = "mode:" + info.Mode().Type().String()
-		default:
+		case info.Mode().IsRegular():
+			entries[i].mode = "100644"
+			// Git records the owner's executable bit, not the other permission
+			// bits the filesystem carries.
+			if info.Mode()&0o100 != 0 {
+				entries[i].mode = "100755"
+			}
 			toHash = append(toHash, i)
+		case info.Mode()&os.ModeSymlink != 0:
+			entries[i].mode = "120000"
+			target, err := os.Readlink(filepath.Join(path, filepath.FromSlash(entries[i].path)))
+			if err != nil {
+				return "", fmt.Errorf("read link %s for its content identity: %w", entries[i].path, err)
+			}
+			sum := sha256.Sum256([]byte(target))
+			entries[i].blob = "target-sha256:" + hex.EncodeToString(sum[:])
+		default:
+			// Git supplies the mode for tracked directories, including gitlinks.
+			// Other directories and types have no tracked mode to carry over.
+			if entries[i].mode == "" {
+				entries[i].mode = "type:" + info.Mode().Type().String()
+				if info.IsDir() {
+					entries[i].mode = "040000"
+				}
+			}
+			entries[i].blob = "type:" + info.Mode().Type().String()
 		}
 	}
 	for start := 0; start < len(toHash); start += hashObjectBatch {
@@ -110,17 +137,18 @@ func (m *Manager) ContentIdentity(ctx context.Context, worktree Worktree) (strin
 	digest := sha256.New()
 	fmt.Fprintf(digest, "base %s\n", worktree.BaseCommit)
 	for _, entry := range entries {
-		fmt.Fprintf(digest, "%s\t%s\n", entry.path, entry.blob)
+		fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", entry.path, entry.mode, entry.blob)
 	}
 	return ContentIdentityPrefix + hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 // contentEntry is one path a change touches: what became of it against the
-// base, in Git's one-letter status where the file is tracked, and the blob its
-// content is now.
+// base, in Git's one-letter status where the file is tracked, its Git mode (or
+// type for other non-regular paths), and the digest of its content now.
 type contentEntry struct {
 	status string
 	path   string
+	mode   string
 	blob   string
 }
 
@@ -128,15 +156,17 @@ type contentEntry struct {
 // rename detection off for the reason ChangedPaths turns it off: a rename is a
 // deletion and an addition, and an identity has to name both sides.
 func (m *Manager) changedEntries(ctx context.Context, path, baseCommit string) ([]contentEntry, error) {
-	result, err := m.run(ctx, "-C", path, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", baseCommit, "--")
+	result, err := m.run(ctx, "-C", path, "diff", "--raw", "-z", "--no-renames", "--no-ext-diff", baseCommit, "--")
 	if err != nil {
 		return nil, err
 	}
 	if result.Status != execution.ProcessSucceeded {
 		return nil, fmt.Errorf("list changed worktree paths failed with exit code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
-	// Each entry is a status field and then a path field, both NUL-terminated;
-	// with renames off there is never a second path.
+	// Each entry is a metadata field (old/new modes, old/new blobs, status) and
+	// then a path field, both NUL-terminated; with renames off there is never a
+	// second path. The new mode names types such as gitlinks that Lstat alone
+	// cannot distinguish from a directory.
 	listing := strings.TrimSuffix(strings.TrimSuffix(result.Stdout, "\n"), "\x00")
 	if listing == "" {
 		return nil, nil
@@ -147,7 +177,11 @@ func (m *Manager) changedEntries(ctx context.Context, path, baseCommit string) (
 	}
 	entries := make([]contentEntry, 0, len(fields)/2)
 	for i := 0; i < len(fields); i += 2 {
-		entries = append(entries, contentEntry{status: fields[i], path: fields[i+1]})
+		metadata := strings.Fields(fields[i])
+		if len(metadata) != 5 || !strings.HasPrefix(metadata[0], ":") {
+			return nil, fmt.Errorf("list changed worktree paths reported invalid metadata %q", fields[i])
+		}
+		entries = append(entries, contentEntry{status: metadata[4], path: fields[i+1], mode: metadata[1]})
 	}
 	return entries, nil
 }

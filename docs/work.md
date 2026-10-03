@@ -140,7 +140,15 @@ declared checks would read, and
 says how that line is drawn. What the developer executed is part of the
 reviewer's evidence either way.
 
-Then the configured checks run in that worktree, and an independent reviewer —
+Then the configured checks run in that worktree. Their passing result is bound
+to a versioned fingerprint of the recorded base and every changed path, including
+its Git file mode and its content: a regular file's blob or a symlink's target
+text, read without following the link. Deletions and other file types are named
+too. Changing the executable bit or retargeting a link therefore loses the
+checks' credit, just as changing a file's bytes does; the changed tree needs
+fresh checks before it can be integrated.
+
+An independent reviewer —
 its own provider invocation, with no tools at all — judges the change against
 the work item, its design guidance and acceptance criteria, the invariants
 delivered with it, and the check results. The change it is shown is measured
