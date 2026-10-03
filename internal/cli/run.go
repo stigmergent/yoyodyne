@@ -495,9 +495,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	reviewerProvider := providerBackend(cfg, agentForRole(cfg, domain.RoleReviewer).Backend, processRunner)
 
 	return orchestrator.Pipeline{
-		Tracker:   parts.tracker(),
-		Worktrees: parts.worktrees,
-		Store:     parts.store,
+		Availability: machineAvailability(parts),
+		Tracker:      parts.tracker(),
+		Worktrees:    parts.worktrees,
+		Store:        parts.store,
 		// The same store, named again because a workflow instance is written
 		// through it rather than through the interface a run's record goes
 		// through. It is wired unconditionally, and a project that rolled back to

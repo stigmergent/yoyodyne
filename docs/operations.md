@@ -258,6 +258,36 @@ Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 
+The services section also shows the last machine sleep and wake, in local time
+with the zone named, and the last recorded interval without the harness
+watching. On macOS the supervisor reads `pmset -g log` about once a minute and keeps
+the OS transitions in `products/<product>/supervisor/machine.jsonl`, including
+sleep and wake while it was down. Dark wakes count as wakes because processes
+can run during them. The same log records whether the scheduler held its lease
+when the supervisor looked. Sampled downtime is counted only between consecutive
+looks no more than two minutes apart. Collection waits at least a minute between
+looks; the shared two-minute observation window allows the supervisor's
+five-second poll after each tick, processing time and timer delays. A down sample
+without a following look, or a gap beyond that window, leaves the unsampled
+interval unknown; absence of a look is not proof that the harness was down. The
+services section names the last such gap separately from recorded downtime.
+An unavailable OS history or a product with no observations says so. On other
+platforms OS sleep history is currently unavailable. A sleep without a matching
+wake is shown with its duration unknown, rather than counted through the present.
+
+The JSON reading carries these values under `standing.services.availability`:
+`last_sleep`, `last_wake`, `last_gap` (a duration in nanoseconds), and `problem`
+where the history could not be read whole. `observation_problem` describes the
+last gap in scheduler observations or an unrecorded restart. Watch-session stop
+and start records give precise downtime boundaries when they agree with the
+supervisor's looks. A stop without a recorded opening establishes that the
+scheduler was down at the stop, rather than continuously down through the
+present. Later looks that find it watching also override a stop whose opening
+was recorded late. Bounded consecutive observations still count as downtime;
+unsampled portions remain unknown, and an unrecorded restart's time is reported
+as uncertain. A missed pass after the scheduler was observed watching is not
+attributed to that earlier stop.
+
 A product no supervisor has run for prints no such line. `--json` carries the
 same under `standing.services`: the binary's build as the record's `deployed`,
 and each part's `build`, `build_since`, `restarts`, `restarted_at`, and, while a

@@ -157,6 +157,10 @@ type Supervisor struct {
 	// set, each child that says which build it runs is compared with it and
 	// moved onto it when it is deployed over; nil moves nothing.
 	Binary *DeployedBinary
+	// PowerHistory is the OS account of sleep and wake, read once a minute.
+	PowerHistory    func(context.Context) ([]runstate.PowerEvent, error)
+	lastMachineLook time.Time
+	seenPower       map[string]bool
 
 	// states is the supervisor's own account of each child, kept between
 	// ticks and written to the record when it changes.
@@ -226,6 +230,7 @@ func (s *Supervisor) Tick(ctx context.Context) {
 		s.startedAt = s.now()
 	}
 	now := s.now()
+	s.observeMachine(ctx, now)
 	s.readDeployed()
 	s.deployLook = s.lastDeployLook.IsZero() || !now.Before(s.lastDeployLook.Add(DeployEvery))
 	if s.deployLook {

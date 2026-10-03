@@ -14,6 +14,7 @@ package readmodel
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/supervise"
@@ -57,7 +58,8 @@ type Services struct {
 	Recorded bool `json:"recorded"`
 	// Record is what the supervisor last knew, in the supervisor's own type so
 	// every surface reads one vocabulary of child states.
-	Record runstate.Supervision `json:"record"`
+	Record       runstate.Supervision `json:"record"`
+	Availability *WatchAvailability   `json:"availability,omitempty"`
 }
 
 // readServices reads the supervisor's lease and record. A reading with no
@@ -81,6 +83,10 @@ func readServices(sources Sources) (*Services, string) {
 	}
 	services.Recorded = found
 	services.Record = recorded
+	if sources.Machine != nil {
+		availability := ReadWatchAvailability(sources)
+		services.Availability = &availability
+	}
 	return services, problem
 }
 
@@ -127,6 +133,25 @@ func (s Standing) RenderServices() string {
 		fmt.Fprintf(&rendered, "; the binary on disk is build %s", shortRevision(record.Deployed))
 	}
 	rendered.WriteString("):\n")
+	if availability := services.Availability; availability != nil {
+		if !availability.LastSleep.IsZero() {
+			fmt.Fprintf(&rendered, "  last machine sleep: %s\n", localMoment(availability.LastSleep))
+		}
+		if !availability.LastWake.IsZero() {
+			fmt.Fprintf(&rendered, "  last machine wake: %s\n", localMoment(availability.LastWake))
+		}
+		if availability.LastGap > 0 {
+			fmt.Fprintf(&rendered, "  last interval without the harness watching: %s\n", availability.LastGap.Round(time.Second))
+		} else if availability.Observed {
+			rendered.WriteString("  no interval without the harness watching has been recorded\n")
+		}
+		if availability.Problem != "" {
+			fmt.Fprintf(&rendered, "  machine history incomplete: %s\n", availability.Problem)
+		}
+		if availability.ObservationProblem != "" {
+			fmt.Fprintf(&rendered, "  scheduler observations incomplete: %s\n", availability.ObservationProblem)
+		}
+	}
 	if services.Recorded {
 		for _, child := range record.Children {
 			fmt.Fprintf(&rendered, "  %s\n", supervise.DescribeChild(child))

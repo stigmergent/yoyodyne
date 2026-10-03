@@ -1245,7 +1245,7 @@ func TestAMissedCadenceIsRecordedAndReported(t *testing.T) {
 	if missed.Turns != 0 || !missed.StartedAt.Equal(due) || !missed.EndedAt.Equal(recurringNow) {
 		t.Errorf("recorded = %+v, want a firing that took no turn spanning the gap", missed)
 	}
-	for _, want := range []string{"fell due at " + due.Format(time.RFC3339), "2h0m0s later", "the claim could not be taken"} {
+	for _, want := range []string{"fell due at " + due.Local().Format("2006-01-02 15:04 MST"), "2h0m0s later", "the claim could not be taken"} {
 		if !strings.Contains(missed.Problem, want) {
 			t.Errorf("problem = %q, want it to say %q", missed.Problem, want)
 		}

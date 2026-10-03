@@ -82,6 +82,7 @@ func TestRecoverableRecognizesTheThreeClassesAndNothingElse(t *testing.T) {
 		"kex_exchange_identification: Connection closed by remote host",
 		"fatal: early EOF",
 		"unexpected EOF",
+		"Your computer went to sleep mid-response. The response above may be incomplete.",
 		"ssh: connect to host github.com port 22: Network is unreachable",
 		"ssh: connect to host github.com port 22: No route to host",
 		"ssh: Could not resolve hostname github.com: Temporary failure in name resolution",

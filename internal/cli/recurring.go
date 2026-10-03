@@ -56,10 +56,11 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Tasks: parts.config.RecurringTasks,
 		// Where a firing is claimed and paced, so one task fires once per cadence
 		// however many sessions are polling.
-		Claims:     parts.store.Sweeps(),
-		Reports:    parts.store.Sweeps(),
-		Roles:      roleConversation{configPath: configPath, stderr: stderr},
-		Repository: parts.repository,
+		Claims:       parts.store.Sweeps(),
+		Availability: machineAvailability(parts),
+		Reports:      parts.store.Sweeps(),
+		Roles:        roleConversation{configPath: configPath, stderr: stderr},
+		Repository:   parts.repository,
 		// The same pause every run, turn, and delivery reads. A firing is a
 		// provider invocation, so `yoyo pause` covers it exactly as it covers them.
 		Holds: parts.holds,

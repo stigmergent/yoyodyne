@@ -1006,6 +1006,7 @@ var notAStep = map[string]string{
 	"clearTrackerPause":          "consumes a tracker park the run recorded, and gives its recovery window back",
 	"clearOperatorHold":          "consumes an operator hold the run recorded",
 	"recordProviderStop":         "records that the harness stopped the provider on time",
+	"responseCause":              "records machine observations of an interrupted provider response without advancing the work; it diagnoses an invocation and cannot be reordered or skipped as a delivery step",
 	"recordRelaunch":             "spends one of the run's relaunches",
 	"mayRelaunch":                "reads whether the run has a relaunch left",
 	"recovering":                 "waits out a failure whose class says the next attempt may well succeed, and asks the same boundary again",
