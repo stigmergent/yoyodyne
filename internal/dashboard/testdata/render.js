@@ -30,15 +30,18 @@
 // carrying it could not be approved.
 //
 // Usage: node render.js --out <directory>
-//        TZ=UTC node render.js --check
+//        node render.js --check
 // Writes <directory>/<scenario>.html for every scenario below — the document
 // as the page's script left it, with the one page state and the one state per
 // panel the stylesheet would show, the hidden ones dropped, and a pop-up kept
 // only while it is open — and a <directory>/matrix.json saying which state
 // each section and each pop-up reached in each.
 // --check compares every render to ./renders without writing files.
+// All scenarios use UTC, matching the Go test even when called directly.
 
 "use strict";
+
+process.env.TZ = "UTC";
 
 const fs = require("fs");
 const path = require("path");
