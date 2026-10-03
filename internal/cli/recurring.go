@@ -113,7 +113,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	if len(instances) > 0 {
 		trigger.Instances = instances
 		trigger.Cursors = parts.store.PassCursors()
-		trigger.Events = passEvents{runs: parts.store, repository: parts.repository}
+		trigger.Events = passEvents{runs: parts.store, repository: parts.repository, refresh: parts.tracker().RefreshExportIfDue}
 		if conversations, err := runstate.NewConversationStore(parts.stateRoot, parts.config.Product.ID); err == nil {
 			trigger.Conversations = instanceConversations{store: conversations}
 		} else if stderr != nil {

@@ -268,6 +268,20 @@ func (r *PinnedRoot) ReadDirectory(relative string) ([]fs.DirEntry, error) {
 	return fs.ReadDir(r.root.FS(), relative)
 }
 
+func (r *PinnedRoot) Lstat(relative string) (fs.FileInfo, error) {
+	return r.root.Lstat(relative)
+}
+
+// OpenLock creates or opens an advisory lock in the held directory, refusing a
+// final symlink. The descriptor is read-only: flock needs no content write, and
+// an existing inode's bytes must stay untouched even if it has other hard links.
+func (r *PinnedRoot) OpenLock(relative string, mode fs.FileMode) (*os.File, error) {
+	if _, err := Relative(relative); err != nil {
+		return nil, err
+	}
+	return r.root.OpenFile(relative, appendFlags & ^(os.O_WRONLY|os.O_APPEND), mode)
+}
+
 func (r *PinnedRoot) Remove(relative string) error { return r.root.Remove(relative) }
 
 // Sync makes changes to the held directory durable without reopening its path,

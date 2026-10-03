@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -1551,6 +1552,10 @@ func (f *fakeRunner) Run(_ context.Context, command execution.Command, _ executi
 	}
 	if index >= len(f.responses) {
 		return execution.ProcessResult{}, fmt.Errorf("unexpected command %v", command.Args)
+	}
+	if command.RawStdout != nil {
+		_, err := io.WriteString(command.RawStdout, f.responses[index])
+		return execution.ProcessResult{Status: execution.ProcessSucceeded, ExitCode: 0}, err
 	}
 	return execution.ProcessResult{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: f.responses[index]}, nil
 }

@@ -1420,37 +1420,10 @@ func itemIn(items []WorkItem, id string) (WorkItem, bool) {
 	return WorkItem{}, false
 }
 
-// trackerExportPath is where the harness looks for the tracker's passive JSONL
-// dump, spelled here as the harness spells it — internal/cli/run.go names the
-// same path as the export a worktree is given. Nothing asks bd where it writes,
-// so the path being bd's own default is the half of this the check proves.
-const trackerExportPath = ".beads/issues.jsonl"
-
-// TestTrackerExportConformance pins the bd behaviour every in-run traceability
-// sweep rests on and which nothing here has ever executed: that a project asking
-// bd for the JSONL dump gets a real file, at the path the harness looks for it,
-// carrying the item a run has just claimed.
-//
-// The harness never writes that file. It copies the primary checkout's copy into
-// each new worktree and holds it out of the change — internal/gitworktree/exports.go
-// — so what makes the copy current is bd's own auto-export and nothing else.
-// Every check of the copying drives a file the test wrote itself and is
-// satisfied whatever bd does, and the path is a constant the harness spells
-// rather than one it asks bd for. A bd that stopped writing the dump, or wrote
-// it somewhere else, would leave every run reading whatever the last release cut
-// committed and reporting work admitted since as simply absent — the
-// confidently wrong answer rather than the visibly stale one.
-//
-// The dump is off in a project bd has just initialized, so a check that only
-// created a tracker would find no file and could say nothing either way. It is
-// enabled here the way the project this harness runs on enables it — one key bd
-// itself writes into .beads/config.yaml — and only that key, so the path the
-// file lands at is bd's default rather than one this check chose.
-//
-// What is asserted is that the item is in the dump, not what the dump says about
-// it. bd flushes on an interval of its own, so a claim reaches the store before
-// it reaches the file, and asserting the status there would be asserting bd's
-// schedule rather than the behaviour a run depends on.
+// The harness takes an explicit snapshot for readers and disables automatic
+// exports on its ordinary bd invocations. This checks both halves against bd
+// itself, with auto-export enabled in the project file and its interval set to
+// one nanosecond: a write would rewrite the snapshot without the override.
 func TestTrackerExportConformance(t *testing.T) {
 	t.Parallel()
 
@@ -1458,6 +1431,7 @@ func TestTrackerExportConformance(t *testing.T) {
 	// bd's own spelling of the knob, and the one the project this harness runs on
 	// carries in its .beads/config.yaml.
 	runCommand(t, project, "bd", "config", "set", "export.auto", "true")
+	runCommand(t, project, "bd", "config", "set", "export.interval", "1ns")
 
 	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
 	ctx := context.Background()
@@ -1470,6 +1444,18 @@ func TestTrackerExportConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
+	if err := client.RefreshExport(ctx); err != nil {
+		t.Fatalf("RefreshExport() error = %v", err)
+	}
+	path := filepath.Join(project, ExportPath)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Claimed rather than only created, because the item a run most needs to find
 	// in the dump is its own, and the claim is the last write before it looks.
 	claimed, _, err := client.Claim(ctx, created.ID)
@@ -1479,19 +1465,39 @@ func TestTrackerExportConformance(t *testing.T) {
 	if claimed.Status != "in_progress" {
 		t.Fatalf("Claim() status = %q, want in_progress; the item this check looks for was never claimed", claimed.Status)
 	}
+	if _, err := client.RecordOutcome(ctx, claimed.ID, "The write leaves the snapshot alone."); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) || !os.SameFile(beforeInfo, afterInfo) || !beforeInfo.ModTime().Equal(afterInfo.ModTime()) {
+		t.Fatal("ordinary harness writes rewrote the full tracker export")
+	}
+	if err := client.RefreshExport(ctx); err != nil {
+		t.Fatal(err)
+	}
 
-	content, err := os.ReadFile(filepath.Join(project, trackerExportPath))
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read the tracker's dump at %s error = %v; a project that asked bd for the JSONL export must get "+
-			"one written there, or every run reads the copy the last release cut committed", trackerExportPath, err)
+			"one written there, or every run reads the copy the last release cut committed", ExportPath, err)
 	}
 	named, err := exportedIDs(content)
 	if err != nil {
-		t.Fatalf("the dump at %s is not the JSONL of work items a run reads it as: %v", trackerExportPath, err)
+		t.Fatalf("the dump at %s is not the JSONL of work items a run reads it as: %v", ExportPath, err)
 	}
 	if !slices.Contains(named, claimed.ID) {
 		t.Fatalf("the dump at %s names %v, want the just-claimed item %s among them; a dump that lags the store is a "+
-			"run reading its own work item as absent", trackerExportPath, named, claimed.ID)
+			"run reading its own work item as absent", ExportPath, named, claimed.ID)
+	}
+	if !strings.Contains(string(content), "The write leaves the snapshot alone.") {
+		t.Fatal("the requested fresh snapshot did not carry the latest write")
 	}
 }
 

@@ -18,7 +18,8 @@ import (
 )
 
 type reconcileOutput struct {
-	Runs []orchestrator.Reconciliation `json:"runs"`
+	TrackerExports beads.ExportCleanup           `json:"tracker_exports"`
+	Runs           []orchestrator.Reconciliation `json:"runs"`
 	// Recoveries is what this sweep did about the promoted runs whose record
 	// named no pull request: the request the forge holds for the run's branch,
 	// written back onto the record so the refresh, the settlement, the docket,
@@ -96,13 +97,14 @@ type reconcileOutput struct {
 // reconcileSweep is everything one sweep found, gathered so the reporting takes
 // the sweep rather than a growing list of positional arguments.
 type reconcileSweep struct {
-	Runs         []orchestrator.Reconciliation
-	Recoveries   []orchestrator.PublicationRecovery
-	Publications []orchestrator.PublicationRefresh
-	Settlements  []orchestrator.PublicationSettlement
-	RedTargets   []orchestrator.RedTargetResumption
-	Convergence  orchestrator.Convergence
-	Docketed     int
+	TrackerExports beads.ExportCleanup
+	Runs           []orchestrator.Reconciliation
+	Recoveries     []orchestrator.PublicationRecovery
+	Publications   []orchestrator.PublicationRefresh
+	Settlements    []orchestrator.PublicationSettlement
+	RedTargets     []orchestrator.RedTargetResumption
+	Convergence    orchestrator.Convergence
+	Docketed       int
 	// ClosedWithItem is how many docket entries the sweep closed with their item.
 	ClosedWithItem int
 	// EscalationsEnded is each escalation to the operator the sweep ended.
@@ -159,6 +161,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if err != nil {
 		return reportReconcileResult(stdout, stderr, *jsonOutput, reconcileSweep{}, err)
 	}
+	trackerExports, trackerExportErr := maintainTrackerExports(ctx, parts)
 	reconciler := reconcilerFrom(parts)
 	// This sweep hosts the runs it makes live, as its last step, so a queued head
 	// that fell behind its target is put back at its promotion here rather than
@@ -168,6 +171,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// publications it asked about and how long the forge took.
 	reconciler.Forge = &orchestrator.ForgeQuestions{}
 	results, err := reconciler.Reconcile(ctx)
+	err = errors.Join(err, trackerExportErr)
 	// A promoted run whose record names no pull request is asked about first, by
 	// its branch, and the request the forge holds is written onto the record: the
 	// refresh, the settlement, the docket, and every status surface start from
@@ -240,6 +244,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// sweep: nothing was recorded, and the next pass decides.
 	stall, stallProblem := checkForStall(ctx, parts, *stallAfter)
 	sweep := reconcileSweep{
+		TrackerExports:   trackerExports,
 		Runs:             results,
 		Recoveries:       recoveries,
 		Publications:     publications,
@@ -617,6 +622,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 	}
 	if jsonOutput {
 		output := reconcileOutput{
+			TrackerExports:   sweep.TrackerExports,
 			Runs:             results,
 			Recoveries:       sweep.Recoveries,
 			Publications:     publications,
@@ -691,6 +697,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			return code
 		}
 	} else {
+		for _, removed := range sweep.TrackerExports.Removed {
+			fmt.Fprintf(stdout, "removed abandoned tracker export temporary %s (%d bytes)\n", removed.Path, removed.Bytes)
+		}
 		if err != nil {
 			fmt.Fprintf(stderr, "reconcile failed: %v\n", err)
 		}

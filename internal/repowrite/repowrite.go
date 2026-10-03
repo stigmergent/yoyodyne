@@ -62,6 +62,14 @@ const (
 // half-written document the next load believes in.
 const temporaryPattern = ".yoyo-write-*.tmp"
 
+// IsTemporaryFile identifies the reserved name of an interrupted confined
+// write. A caller still has to establish its age and that nobody holds it open
+// before removing one.
+func IsTemporaryFile(name string) bool {
+	prefix, suffix, _ := strings.Cut(temporaryPattern, "*")
+	return filepath.Base(name) == name && strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix) && len(name) > len(prefix)+len(suffix)
+}
+
 // Root is one repository, its own symlinks already resolved, that every write
 // through it lands inside.
 type Root struct {

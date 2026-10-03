@@ -2,6 +2,7 @@ package gitworktree
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,32 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
+
+func TestWorktreeExportPreparationRunsBeforeTheCopyAndRefusesStaleData(t *testing.T) {
+	t.Parallel()
+	repository := newExportRepository(t)
+	manager := newExportManager(t, repository, filepath.Join(t.TempDir(), "worktrees"))
+	prepared := 0
+	manager.prepareExports = func(context.Context) error {
+		prepared++
+		writeFile(t, repository, exportPath, currentExport)
+		return nil
+	}
+	worktree, err := manager.Create(context.Background(), CreateRequest{RunID: testRunID, WorkItemID: "yoyodyne-ifd.223", BaseRef: "HEAD", TargetBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared != 1 || readFile(t, worktree.Path, exportPath) != currentExport {
+		t.Fatal("the worktree did not get the snapshot prepared at creation")
+	}
+	manager.prepareExports = func(context.Context) error { return errors.New("export failed") }
+	if err := manager.refreshExports(context.Background(), worktree.Path); err == nil || !strings.Contains(err.Error(), "export failed") {
+		t.Fatalf("failed preparation error = %v", err)
+	}
+	if readFile(t, worktree.Path, exportPath) != currentExport {
+		t.Fatal("a failed preparation changed the existing worktree snapshot")
+	}
+}
 
 const exportPath = ".beads/issues.jsonl"
 

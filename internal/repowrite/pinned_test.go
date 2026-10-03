@@ -7,6 +7,84 @@ import (
 	"testing"
 )
 
+func TestConfinedWritersTemporaryNamesAreRecognized(t *testing.T) {
+	t.Parallel()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenPinnedRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	writer, err := root.FileWriter("issues.jsonl", 0o600, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	entries, err := root.ReadDirectory(".")
+	if err != nil || len(entries) != 1 || !IsTemporaryFile(entries[0].Name()) {
+		t.Fatalf("the confined writer's in-flight temporary was not recognized: %v, %v", entries, err)
+	}
+	for _, name := range []string{".yoyo-write-.tmp", "nested/.yoyo-write-a.tmp", ".yoyo-write-a", "issues.jsonl"} {
+		if IsTemporaryFile(name) {
+			t.Fatalf("unrelated file %q was recognized as an interrupted write", name)
+		}
+	}
+}
+
+func TestPinnedLockRefusesALinkAndStaysConfinedWhenItsDirectoryMoves(t *testing.T) {
+	t.Parallel()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenPinnedRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "lock")
+	if err := os.WriteFile(target, []byte("untouched"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(path, "linked.lock")); err != nil {
+		t.Fatal(err)
+	}
+	if file, err := root.OpenLock("linked.lock", 0o600); err == nil {
+		file.Close()
+		t.Fatal("a lock symlink was followed")
+	}
+	if err := os.Link(target, filepath.Join(path, "hard-linked.lock")); err != nil {
+		t.Fatal(err)
+	}
+	hardLinked, err := root.OpenLock("hard-linked.lock", 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hardLinked.Write([]byte("changed")); err == nil {
+		t.Fatal("a lock descriptor allowed a write to an existing inode")
+	}
+	hardLinked.Close()
+	if err := os.Rename(path, path+"-held"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(path + "-held") })
+	if err := os.Symlink(outside, path); err != nil {
+		t.Fatal(err)
+	}
+	file, err := root.OpenLock("new.lock", 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	if _, err := os.Stat(filepath.Join(outside, "new.lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a lock escaped the held directory")
+	}
+}
+
 func TestPinnedCreatePublishesOnlyOneCompleteRecord(t *testing.T) {
 	t.Parallel()
 	path, err := filepath.EvalSymlinks(t.TempDir())

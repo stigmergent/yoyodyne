@@ -55,6 +55,11 @@ func (m *Manager) CurrentExports() []string {
 // export. Which of them can be refreshed at all is decided per path below, so a
 // caller only has to say when.
 func (m *Manager) refreshExports(ctx context.Context, path string) error {
+	if len(m.currentExports) > 0 && m.prepareExports != nil {
+		if err := m.prepareExports(ctx); err != nil {
+			return fmt.Errorf("prepare the primary exports: %w", err)
+		}
+	}
 	for _, export := range m.currentExports {
 		if err := m.refreshExport(ctx, path, export); err != nil {
 			return fmt.Errorf("refresh %s: %w", export, err)
