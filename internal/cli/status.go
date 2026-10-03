@@ -65,10 +65,11 @@ type statusOutput struct {
 	// operator ratified. It comes first because it is the question this verb is
 	// actually reached for: the run history says what became of attempts that are
 	// over, and until this existed there was nowhere at all that said what is
-	// happening. It is absent when one item was named, because the four lines are
-	// about the product rather than about any one piece of work.
-	Standing *readmodel.Standing   `json:"standing,omitempty"`
-	Runs     []runstate.RunSummary `json:"runs"`
+	// happening. Standing is absent when one item was named, because the four
+	// lines are about the product. Throughput always covers the product's history.
+	Throughput *readmodel.Throughput `json:"throughput,omitempty"`
+	Standing   *readmodel.Standing   `json:"standing,omitempty"`
+	Runs       []runstate.RunSummary `json:"runs"`
 	// Matched and Recorded are what keep a limited listing honest: how many runs
 	// the query selected, and how many the harness holds at all.
 	Matched  int `json:"matched"`
@@ -323,14 +324,16 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	}
 
 	if *jsonOutput {
+		throughput := readmodel.ReadThroughput(ctx, readmodel.ThroughputSources{Runs: store})
 		output := statusOutput{
-			Standing: standing,
-			Runs:     history.Runs,
-			Matched:  history.Matched,
-			Recorded: history.Recorded,
-			Triage:   counters,
-			Watch:    watched,
-			Stalls:   stalls,
+			Throughput: &throughput,
+			Standing:   standing,
+			Runs:       history.Runs,
+			Matched:    history.Matched,
+			Recorded:   history.Recorded,
+			Triage:     counters,
+			Watch:      watched,
+			Stalls:     stalls,
 		}
 		if counters != nil {
 			// The caps as this item's own recorded overrides leave them, which is what
@@ -1161,6 +1164,9 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 		recorded(run.ConfigRevision, "a configuration the record does not name"),
 		recorded(shortBuild(run.Build), "a build the record does not name"))
 	printed := true
+	if class := run.RecordedStopClass(); class != "" {
+		fmt.Fprintf(writer, "  stop cause: %s\n", class)
+	}
 	// The reason leads with the class that stopped the run, so which gate stopped
 	// it is read off the record rather than inferred from whichever evidence is
 	// printed below it. Where the reason borrowed its words from one of the three

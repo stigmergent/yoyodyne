@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -249,8 +250,8 @@ func Assemble(request Request) (Bundle, error) {
 		// the most of them.
 		base, truncation = truncateNotes(request.WorkItem, maxBytes-pendingNotes)
 		if truncation == nil {
-			return Bundle{}, fmt.Errorf("work item context is %d bytes before any of its notes, exceeding limit %d",
-				len(renderWorkItem(withoutNotes(request.WorkItem))), maxBytes)
+			return Bundle{}, runstate.StopError{Class: runstate.StopContextBound, Cause: fmt.Errorf("work item context is %d bytes before any of its notes, exceeding limit %d",
+				len(renderWorkItem(withoutNotes(request.WorkItem))), maxBytes)}
 		}
 	}
 	bundle := Bundle{Bytes: len(base), NotesTruncation: truncation}

@@ -401,31 +401,27 @@ that survives, or a removal that could not be confirmed — `worktree_removed` a
 `branch_removed` tell those apart), and `completion_recording_failure` (the final
 record arrived late).
 
-Beside the status and the outcome a stopped run records **`stop_class`**, which
-gate stopped it, written by the pipeline where it stopped the run and printed by
-`yoyo status` and the read model as the first word of the reason. The classes
-are a closed list:
+Beside the status and the outcome a stopped run records **`stop_class`**, the gate
+or bound that stopped it. The closed vocabulary in `runstate` extends the older
+gate names with the specific clocks, budgets, requests, and environmental causes
+in [the run-stop inventory](run-stops.md). It is written where the run ends,
+including reconciliation and the dead-claim audit. Old records without it read
+as `unknown`, with their prose preserved and no inferred classification.
+The representative traces cover gate and bound endings; the exhaustive terminal
+write test ends a run for every class and reloads its field.
 
-| Class | Written by |
-| --- | --- |
-| `checks` | A check that kept failing or could not run, a refused path, or execution evidence never recorded, each once the repair budget is spent |
-| `review` | Findings the repair budget could not resolve, or an approval whose independence could not be shown |
-| `integration` | A target branch that kept moving, a replay that conflicts, a local and remote target that diverged, or a promotion refused |
-| `publish` | A developer branch that could not be published, a promotion whose pull request the record does not hold, and — on a succeeded run — beside `publish_failure` |
-| `cleanup` | Beside `cleanup_failure` on a succeeded run |
-| `recording` | The outcome, the closure, or the terminal state of a run whose work was done that could not be written, and beside `completion_recording_failure` on a succeeded run |
-| `provider` | A provider death past the relaunch budget, a failed or unusable developer or reviewer invocation, a stop on time with nothing to continue from, or a refusal whose wait the harness cannot decide |
-| `outside` | Any stop whose round carries an unsettled refusal from outside the work, whichever gate it reached |
-| `cancelled` | Any stop recorded `cancelled`, whichever gate it reached |
-| `harness` | A stop none of the above classified: the harness's own step around the work |
-
-The environment and a cancellation are decided first, because each is true of
-the run whichever gate it met them at; past those, the class the stopping site
-gave wins. The evidence fields — `check_failure`, `path_refusal`,
-`review_findings` — are what a repair was handed and are never the class: all
-three can be on the record of a run the provider killed. A run settled by a
-reconciliation sweep rather than by its own pipeline records no class, and a
-re-entered or resumed run clears the class its stop left.
+An unsettled environmental refusal converts its existing cause into the same
+field, except that an exhausted transport recovery window names that bound;
+its accounting rules are unchanged. A settled provider
+stall or total-time stop retains `provider-idle` or `provider-budget`. An explicit
+stop records `operator-stop` or `manager-stop`, a redeploy cancellation records
+`redeploy-drain`, and other cancellation keeps `cancelled`. Past these, the
+innermost typed bound wins over an outer gate label, including when a recording
+failure was joined to the original error. Leftover `check_failure`, `path_refusal`,
+or `review_findings` never classify a later ending. A re-entered or resumed run
+clears the class its stop left. Successful landings with an outstanding
+publication, cleanup, or recording step keep the corresponding gate class;
+they do not count as stops in throughput.
 
 A round **refused from outside the work** is the one stoppage that leaves the
 item's budgets where they were: something outside the work refused the round
@@ -507,7 +503,7 @@ re-closing or re-blocking an item is exactly what a sweep must not do.
 | `partial-cleanup-leaves-a-succeeded-run-reporting-what-survives` | `cleanup_failure` on a succeeded run, with each artifact reported separately |
 | `outstanding-publication-leaves-a-succeeded-run-naming-it` | `publish_failure` on a succeeded run whose merge the forge could not confirm, and `stop_class` `publish` |
 | `completion-record-that-arrives-late-says-so` | `completion_recording_failure` on a succeeded run whose terminal record the store refused twice, carried by the late write that landed, and `stop_class` `recording` |
-| `environment-refusing-the-probe-ends-the-run-as-outside-the-work` | A developer that could not start its probe ending the run on its first reply, as a round refused from outside the work and `stop_class` `outside` |
+| `environment-refusing-the-probe-ends-the-run-as-outside-the-work` | A developer that could not start its probe ending the run on its first reply, as a round refused from outside the work and `stop_class` `sandbox-spawn-failure` |
 | `transient-provider-death-relaunches-without-charging-the-developer` | The relaunch budget spending no repair attempt |
 | `transient-deaths-spend-the-relaunch-budget-and-block` | The relaunch budget's bound, for a death whose class the harness does not recognize |
 | `recoverable-death-carries-on-past-the-relaunch-budget` | A dropped connection waited out past the spent relaunch budget, with each wait recorded on the run |

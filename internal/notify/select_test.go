@@ -34,6 +34,41 @@ func running() runstate.State {
 	}
 }
 
+func TestEveryStopCauseIsNamedInTheRunsThread(t *testing.T) {
+	t.Parallel()
+	for _, class := range runstate.StopClasses() {
+		before := running()
+		after := before
+		after.Status = runstate.StatusFailed
+		after.StopClass = class
+		after.Failure = "the harness ended this run"
+		after.CompletedAt = &moment
+		notifications, err := FromRun(before, after, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, notification := range notifications {
+			if notification.Event.Kind == KindRunEnded {
+				rendered, err := Render(notification.Topic, notification.Speaker, notification.Event)
+				if err != nil || !strings.Contains(rendered.Body, class.Name()+":") {
+					t.Fatalf("%s thread rendering = %v, error %v", class, rendered, err)
+				}
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s produced no run ending notification", class)
+		}
+	}
+	old := running()
+	old.Status = runstate.StatusFailed
+	old.PublishFailure = "the push was refused"
+	if got := endingReason(old); got != "unknown: the push was refused" {
+		t.Fatalf("old run ending = %q", got)
+	}
+}
+
 // crossed reports the kinds one reading to the next produced, in order, and
 // fails the test if anything it produced could not be said.
 func crossed(t *testing.T, before, after runstate.State) ([]Kind, []Notification) {
@@ -1166,10 +1201,34 @@ func TestARunThatStoppedOnItsWorkIsSaidAsAWarning(t *testing.T) {
 	// A run that succeeded is not a blocker however it is read.
 	succeeded := after
 	succeeded.Status = runstate.StatusSucceeded
+	succeeded.Integration = &runstate.Integration{TargetBranch: "main"}
 	succeeded.Failure = ""
 	succeeded.Blocker = ""
-	if kinds, _ := crossed(t, before, succeeded); len(kinds) != 0 {
-		t.Fatalf("a successful run crossed %v", kinds)
+	if kinds, _ := crossed(t, before, succeeded); slices.Contains(kinds, KindBlockerRecorded) || slices.Contains(kinds, KindRunEnded) {
+		t.Fatalf("a landed run was said as an ending without landing: %v", kinds)
+	}
+}
+
+func TestASuccessfulRunThatLandsNothingNamesItsCauseInTheThread(t *testing.T) {
+	t.Parallel()
+	for _, class := range []runstate.StopClass{runstate.StopEscalated, runstate.StopIntegrationPolicy} {
+		before := running()
+		after := before
+		after.Status = runstate.StatusSucceeded
+		after.StopClass = class
+		if class == runstate.StopEscalated {
+			after.LandingOutcome = runstate.LandingEscalate
+			after.LandingReason = "the requirements contradict the product's goals"
+		}
+		_, notifications := crossed(t, before, after)
+		ended := only(t, notifications, KindRunEnded)
+		message, err := Render(ended.Topic, ended.Speaker, ended.Event)
+		if err != nil || !strings.Contains(message.Body, class.Name()) {
+			t.Fatalf("successful non-landing cause missing: %v, %v", message, err)
+		}
+		if class == runstate.StopEscalated && !strings.Contains(message.Body, "docket entry") {
+			t.Fatalf("the thread did not say where the escalation is decided: %s", message.Body)
+		}
 	}
 }
 
@@ -1400,6 +1459,7 @@ func TestAStoppageOnARecordThatSaysSucceededIsStillSaid(t *testing.T) {
 	// only thing the channel says about this record.
 	before := running()
 	before.Phase = runstate.PhaseCleaningUp
+	before.Integration = &runstate.Integration{TargetBranch: "main"}
 	landed := endedRun(before, runstate.StatusSucceeded)
 	if kinds, _ := crossed(t, before, landed); len(kinds) != 0 {
 		t.Fatalf("the successful run crossed %v, want nothing said of work that landed", kinds)

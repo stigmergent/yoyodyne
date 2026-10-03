@@ -25,6 +25,52 @@ import (
 // one back; what it needs is somebody to have charged it.
 const countingProcess = "pid-1-000000000000000a"
 
+func TestStatusCarriesStopCausesAndCountsTheWeekBeyondTheListing(t *testing.T) {
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+	store, err := runstate.NewStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Add(-time.Minute)
+	known := recordedRun(t, store, runstate.StatusTimedOut, "yoyodyne-known", now)
+	known.StopClass = runstate.StopProviderIdle
+	known.Failure = "the harness stopped the provider"
+	saveRun(t, store, known)
+	old := recordedRun(t, store, runstate.StatusFailed, "yoyodyne-old", now.Add(-time.Second))
+	old.Failure = "make test failed" // Prose does not classify an old record.
+	saveRun(t, store, old)
+
+	stdout, stderr, code := runCLI(t, "status", "--config", configPath, "--failed", "--limit", "1", "--json")
+	if code != 0 {
+		t.Fatalf("status exited %d: %s", code, stderr)
+	}
+	var output statusOutput
+	if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Runs) != 1 || output.Runs[0].StopClass != runstate.StopProviderIdle {
+		t.Fatalf("limited runs = %+v", output.Runs)
+	}
+	if output.Throughput == nil {
+		t.Fatal("status JSON omitted throughput")
+	}
+	for _, period := range output.Throughput.Windows {
+		if period.Days == 7 && (len(period.StopsByCause) != 2 || period.StopsByCause[runstate.StopProviderIdle] != 1 || period.StopsByCause[runstate.StopUnknown] != 1) {
+			t.Fatalf("weekly stops = %v, want both runs despite --limit 1", period.StopsByCause)
+		}
+	}
+	stdout, stderr, code = runCLI(t, "status", "--config", configPath, "yoyodyne-old", "--json")
+	if code != 0 || json.Unmarshal([]byte(stdout), &output) != nil || len(output.Runs) != 1 || output.Runs[0].StopClass != runstate.StopUnknown {
+		t.Fatalf("old record's cause: code %d, stdout %s, stderr %s", code, stdout, stderr)
+	}
+	stdout, stderr, code = runCLI(t, "status", "--config", configPath, "--failed")
+	if code != 0 || !strings.Contains(stdout, "stop cause: provider-idle") || !strings.Contains(stdout, "stop cause: unknown") {
+		t.Fatalf("cause names missing from status: code %d, stdout %s, stderr %s", code, stdout, stderr)
+	}
+}
+
 // The failure an operator is chasing is already recorded; what was missing was
 // any way to read it back without going through the tracker item by item. So the
 // verb has to reach the records a run actually wrote, name the item, and carry

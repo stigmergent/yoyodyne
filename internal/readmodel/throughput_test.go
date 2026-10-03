@@ -15,6 +15,37 @@ import (
 // today and yesterday whatever timezone the test runs in.
 var noon = time.Date(2026, 9, 19, 12, 0, 0, 0, time.Local)
 
+func TestThroughputCountsStopsByRecordedCauseWithoutGuessing(t *testing.T) {
+	t.Parallel()
+	old := terminal("old", runstate.StatusFailed, -time.Hour, -time.Minute, false, "provider idle")
+	old.CheckFailure = &runstate.CheckFailure{Command: "make test", ExitCode: 1}
+	stopped := terminal("stopped", runstate.StatusTimedOut, -time.Hour, -time.Minute, false, "")
+	stopped.StopClass = runstate.StopCheckTimeout
+	yesterday := terminal("yesterday", runstate.StatusFailed, -30*time.Hour, -25*time.Hour, false, "")
+	yesterday.StopClass = runstate.StopCheckTimeout
+	escalated := terminal("escalated", runstate.StatusSucceeded, -time.Hour, -time.Minute, false, "")
+	escalated.StopClass = runstate.StopEscalated
+	landed := terminal("landed", runstate.StatusSucceeded, -time.Hour, -time.Minute, true, "")
+	landed.StopClass = runstate.StopCleanup // An outstanding step on a landing is not a stop.
+	future := terminal("future", runstate.StatusFailed, -time.Hour, time.Hour, false, "")
+	outside := terminal("outside", runstate.StatusFailed, -8*24*time.Hour, -8*24*time.Hour, false, "")
+	running := runstate.State{Status: runstate.StatusRunning, StopClass: runstate.StopProviderIdle}
+	reading := ReadThroughput(context.Background(), ThroughputSources{
+		Runs: fakeRuns{recorded: []runstate.State{old, stopped, yesterday, escalated, landed, future, outside, running}},
+		Now:  func() time.Time { return noon },
+	})
+	for _, period := range reading.Windows {
+		want := 1
+		if period.Days == 7 {
+			want = 2
+		}
+		if len(period.StopsByCause) != 3 || period.StopsByCause[runstate.StopUnknown] != 1 ||
+			period.StopsByCause[runstate.StopEscalated] != 1 || period.StopsByCause[runstate.StopCheckTimeout] != want {
+			t.Fatalf("%s stops = %v", period.Label, period.StopsByCause)
+		}
+	}
+}
+
 func at(offset time.Duration) *time.Time {
 	moment := noon.Add(offset)
 	return &moment

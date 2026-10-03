@@ -53,7 +53,7 @@
         "provider_session_id": "developer-session",
         "run_id": "run-0123456789abcdef0123456789abcdef",
         "status": "cancelled",
-        "stop_class": "cancelled",
+        "stop_class": "operator-stop",
         "summary": "implemented the work item",
         "verification": {
           "checks": [
@@ -117,7 +117,7 @@
     "schema_version": 1,
     "started_at": "\u003ctime\u003e",
     "status": "cancelled",
-    "stop_class": "cancelled",
+    "stop_class": "operator-stop",
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {

@@ -984,6 +984,9 @@
     if (period.timed_out) { endings.push(period.timed_out + " timed out"); }
     if (period.failed) { endings.push(period.failed + " failed"); }
     figures.appendChild(figureRow("Other endings", endings.length ? endings.join(", ") : "none"));
+    var causes = period.stops_by_cause || {};
+    var byCause = Object.keys(causes).sort().map(function (cause) { return cause + ": " + causes[cause]; });
+    figures.appendChild(figureRow("Stops by cause", byCause.length ? byCause.join(", ") : "none"));
     figures.appendChild(figureRow("Started", count(period.started, "run")));
     column.appendChild(figures);
     return column;

@@ -74,7 +74,7 @@ func TestAStopTheDevelopmentManagerDecidedEndsTheRunInFlightAsDecided(t *testing
 	if !strings.Contains(err.Error(), decidedBy+" stopped this run") || !strings.Contains(err.Error(), reason) {
 		t.Fatalf("Run() error = %v, want it to name who stopped the run and why", err)
 	}
-	if outcome.Status != runstate.StatusCancelled {
+	if outcome.Status != runstate.StatusCancelled || outcome.StopClass != runstate.StopManager {
 		t.Fatalf("status = %q, want the stopped run recorded as cancelled", outcome.Status)
 	}
 	if reviews := countRoleRequests(provider.Requests, "reviewer"); reviews != 0 {
@@ -89,6 +89,9 @@ func TestAStopTheDevelopmentManagerDecidedEndsTheRunInFlightAsDecided(t *testing
 	stopped, err := store.Load(outcome.RunID)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
+	}
+	if stopped.StopClass != runstate.StopManager {
+		t.Fatalf("saved stop cause = %q, want manager-stop", stopped.StopClass)
 	}
 	if stopped.WorktreeRemoved || stopped.BranchRemoved {
 		t.Fatalf("stopped state = %#v, want the artifacts preserved", stopped)
@@ -141,7 +144,7 @@ func TestAStopTheDevelopmentManagerDecidedEndsTheRunInFlightAsDecided(t *testing
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(entries) != 1 || entries[0].Class != triage.ClassStoppedRun || entries[0].RunID != outcome.RunID {
+	if len(entries) != 1 || entries[0].Class != triage.ClassStoppedRun || entries[0].RunID != outcome.RunID || entries[0].StopClass != runstate.StopManager.Name() {
 		t.Fatalf("docket = %#v, want the stopped run docketed once", entries)
 	}
 	closure := entries[0].Closed

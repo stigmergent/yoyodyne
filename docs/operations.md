@@ -4430,6 +4430,26 @@ comes from a small fixed set:
 | `failed` | it ended without succeeding and without leaving anybody a blocker |
 | `pending`, `running` | it has not finished |
 
+Beside the status and blocker, `stop_class` names the one cause that ended a run
+without landing. It uses the existing closed list, extended with the bounds in
+[the run-stop inventory](run-stops.md): `check-timeout`, `check-stage-bound`,
+`provider-idle`, `provider-budget`, `repair-budget`, `integration-budget`,
+`relaunch-budget`, `promotion-wait`, `usage-pause`, `operator-stop`, `manager-stop`,
+`redeploy-drain`, `dead-claim`, `developer-account`, `review-account`,
+`work-item-escalated`, `integration-policy`, `recovery-window`, `context-bound`,
+`state-bound`, `event-bound`, and the
+inventory's environmental causes. Other refusals retain their gate names.
+The environmental record still controls refunds; a stop class changes no budget
+or recovery rule. An older record with no class reads as `unknown`, without
+inferring a cause from its prose or its leftover check findings. Status prints
+`stop cause`, the docket names it, and the run's Slack reason carries its name.
+`yoyo status --json` carries the shared read model's `throughput.windows`, whose
+`stops_by_cause` counts endings today and in the last seven local days, including
+successful escalations that landed nothing. These counts cover the whole run
+history even when the displayed history is narrowed or limited. The dashboard's
+Throughput section prints the same counts. In-flight waits and successful
+landings count as no stop.
+
 `stopped` covers every ending the harness hands to somebody: an unrepaired
 review, a check that kept failing, refused protected paths, a replay the target
 branch outran, a provider that would not carry the run, and a promotion the
@@ -4498,15 +4518,12 @@ binary installed without the stamping records none, and the line says so rather
 than inventing one: a comparison nobody can make is an answer, and a comparison
 made against the wrong commit is not.
 
-The first word of the `reason` is which gate stopped the run, as the pipeline
-recorded it where it stopped it: `checks`, `review`, `integration`, `publish`,
-`cleanup`, `recording`, `provider`, `outside`, `cancelled`, or `harness`
-for the harness's own step around the work. It is read off the record rather
-than worked out from the evidence printed under it, because that evidence can
-mislead: a `failing check` is what the last repair was handed, and it is still
-there on a run the provider then killed. A run recorded before the class
-existed, or settled by `yoyo reconcile` rather than by its own pipeline, prints
-its reason without one, as the second run above does.
+The first word of the `reason` names the recorded gate or bound from the
+run-stop inventory. It is read off the record rather than worked out from the
+evidence printed under it: a `failing check` is what the last repair was handed,
+and can still be there when the provider later stops the run. A run recorded
+before the class existed prints its reason as recorded and names its stop cause
+`unknown`, as the second run above does.
 
 The words after the class are the run's own failure where it recorded one, and
 otherwise the blocker its item was handed back in: a stoppage `yoyo reconcile`

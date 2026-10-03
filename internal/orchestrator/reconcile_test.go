@@ -1177,7 +1177,7 @@ func TestReconcileSettlesAStoppedRunNothingContinued(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !settled.Status.Terminal() || settled.CompletedAt == nil || settled.Blocker == "" || settled.ProviderStop != "" {
+	if !settled.Status.Terminal() || settled.CompletedAt == nil || settled.Blocker == "" || settled.ProviderStop != "" || settled.StopClass != runstate.StopProviderIdle {
 		t.Fatalf("settled run = %#v, want a terminal record carrying the blocker and no provider stop", settled)
 	}
 	if !strings.Contains(settled.Failure, "so the harness ended the run. The cause was outside the work") {

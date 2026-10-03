@@ -170,7 +170,7 @@ func stopReason(status Status, outcome RunOutcome, class StopClass, failure, blo
 	if words == "" {
 		words = strings.TrimSpace(blocker)
 	}
-	if words == "" && class == "" && endedBadly(status, outcome) && strings.TrimSpace(publish) == "" {
+	if words == "" && (class == "" || class == StopUnknown) && endedBadly(status, outcome) && strings.TrimSpace(publish) == "" {
 		words = NoReasonSays
 	}
 	return StopReason(class, words)
@@ -565,7 +565,7 @@ func (s *Store) summarize(state State) RunSummary {
 		ConfigRevision:      state.ConfigRevision,
 		Build:               state.Build,
 		Failure:             state.Failure,
-		StopClass:           state.StopClass,
+		StopClass:           state.RecordedStopClass(),
 		Blocker:             state.Blocker,
 		ReportProblem:       state.ReportProblem,
 		AmendmentProblem:    state.AmendmentProblem,

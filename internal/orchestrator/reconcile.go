@@ -1560,6 +1560,7 @@ func (r Reconciler) settleStopRequest(ctx context.Context, state runstate.State,
 		"; no process was holding the run to honour it at a boundary, so the harness's sweep ended it in that process's place. Nothing about the change was judged, and the branch and worktree are left exactly as the run left them"
 	completedAt := r.clock().Now()
 	clearRecordedParks(&state)
+	state.StopClass = stopRequestClass(request)
 	state.Status = runstate.StatusCancelled
 	state.SettledQuietSince = settledQuietSince(state, completedAt)
 	state.UpdatedAt = completedAt
@@ -1613,6 +1614,10 @@ func (r Reconciler) abandonFor(ctx context.Context, state runstate.State, observ
 // interruption here leaves the run outstanding and the blocker recorded rather
 // than a settled run nobody was told about.
 func (r Reconciler) blockRun(ctx context.Context, state runstate.State, itemStatus string, observation gitworktree.Observation, reason string) (Reconciliation, error) {
+	if state.Status == runstate.StatusSucceeded && state.Blocker == "" {
+		// This sweep has just disproved the recorded promotion.
+		state.StopClass = runstate.StopIntegration
+	}
 	notes, err := r.recordBlocker(ctx, state, itemStatus, observation, reason)
 	if err != nil {
 		return reconciliationOf(state, ActionBlocked), err
@@ -1729,6 +1734,12 @@ func (r Reconciler) saveTerminalFailure(state runstate.State, reason string) (ru
 	reconciled := runstate.RecordFailure("reconciled after an interrupted run: " + reason)
 	if !state.Status.Terminal() {
 		completedAt := r.clock().Now()
+		state.StopClass = runstate.CauseProcessVanished.StopClass()
+		if state.Environmental != nil && state.Environmental.Cause == runstate.CauseProcessVanished {
+			if state.Environmental.ProviderStop != "" {
+				state.StopClass = runstate.ProviderStopClass(state.Environmental.ProviderStop)
+			}
+		}
 		state.Status = runstate.StatusFailed
 		state.SettledQuietSince = settledQuietSince(state, completedAt)
 		state.UpdatedAt = completedAt

@@ -106,6 +106,7 @@
     "settled_quiet_since": "\u003ctime\u003e",
     "started_at": "\u003ctime\u003e",
     "status": "failed",
+    "stop_class": "process-vanished",
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {

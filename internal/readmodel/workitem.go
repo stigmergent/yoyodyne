@@ -222,7 +222,7 @@ func readLatestRun(ctx context.Context, sources WorkItemSources, id string, now 
 		WorktreePath:        latest.WorktreePath,
 		ProviderSessionID:   latest.ProviderSessionID,
 		Failure:             latest.Failure,
-		StopClass:           latest.StopClass,
+		StopClass:           latest.RecordedStopClass(),
 		Reason:              latest.Reason(),
 		StartedAt:           latest.StartedAt,
 		CompletedAt:         latest.CompletedAt,

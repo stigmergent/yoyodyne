@@ -3077,7 +3077,7 @@ type State struct {
 	// folded into it, and a reason nothing downstream can carry is a stoppage that
 	// validates here and then reaches nobody.
 	Failure string `json:"failure,omitempty"`
-	// StopClass is which gate stopped the run, written by the pipeline where it
+	// StopClass is which gate or bound stopped the run, written where the harness
 	// stopped it: at every blocker and every failure it records, and beside a
 	// publication, a cleanup, or a completion record a succeeded run could not
 	// finish. It is what every surface prints as the first word of the reason, so a
@@ -3087,7 +3087,7 @@ type State struct {
 	// It is a classification of the stop and never of the outcome: Outcome() says
 	// what became of the run, and a succeeded run can carry a class naming what it
 	// stopped short of. Absent is a run nothing stopped, or a record written before
-	// the field existed or settled by a sweep rather than by its pipeline.
+	// the field existed. RecordedStopClass reads the latter as unknown.
 	StopClass StopClass `json:"stop_class,omitempty"`
 	// Blocker is the durable blocker exactly as it was recorded on the work item
 	// when this run stopped on something no further attempt of the harness could

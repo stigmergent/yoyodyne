@@ -1538,6 +1538,9 @@ func TestPipelineReportsElapsedAndBudgetWhenACheckTimesOut(t *testing.T) {
 	pipeline.Checks = runner
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if outcome.StopClass != runstate.StopCheckTimeout {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopCheckTimeout)
+	}
 	if err == nil {
 		t.Fatal("Run() error = nil, want the run stopped at the check budget")
 	}
@@ -1982,6 +1985,9 @@ func TestPipelineBlocksTheItemWhenTheRepairBudgetIsSpent(t *testing.T) {
 			before := gitLine(t, repository, "rev-parse", "refs/heads/main")
 
 			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			if outcome.StopClass != runstate.StopRepairBudget {
+				t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopRepairBudget)
+			}
 			wantFailure := fmt.Sprintf("independent review requires repair after %d of %d permitted attempt(s)", test.limit, test.limit)
 			if err == nil || !strings.Contains(err.Error(), wantFailure) {
 				t.Fatalf("Run() error = %v, want %q", err, wantFailure)
@@ -2213,6 +2219,9 @@ func TestPipelineBlocksTheItemWhenAFailingCheckSpendsTheRepairBudget(t *testing.
 	before := gitLine(t, repository, "rev-parse", "refs/heads/main")
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if outcome.StopClass != runstate.StopRepairBudget {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopRepairBudget)
+	}
 	wantFailure := "verification failed after 2 of 2 permitted attempt(s)"
 	if err == nil || !strings.Contains(err.Error(), wantFailure) {
 		t.Fatalf("Run() error = %v, want %q", err, wantFailure)
@@ -4094,6 +4103,9 @@ func TestRunBlocksWhenTheRelaunchBudgetIsSpent(t *testing.T) {
 	pipeline.Config.Execution.TransientRelaunchesBeforeBlocking = 2
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if outcome.StopClass != runstate.StopRelaunchBudget {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopRelaunchBudget)
+	}
 	if err == nil {
 		t.Fatalf("Run() error = nil, want the run to stop once its budget was spent")
 	}
@@ -4350,6 +4362,9 @@ func TestRunWalksRepeatedServerOverloadsIntoThePauseBudget(t *testing.T) {
 	pipeline.Config.Execution.ServerOverloadPause = config.Duration(90 * time.Second)
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if outcome.StopClass != runstate.StopUsagePause {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopUsagePause)
+	}
 	if err == nil {
 		t.Fatalf("Run() error = nil, want the run to stop once its budget was spent")
 	}
@@ -6098,7 +6113,7 @@ func TestRunCancelsARunStoppedForARedeployItCannotContinueNamingTheRedeploy(t *t
 	if err == nil {
 		t.Fatal("Run() error = nil, want a run that could not be continued to end")
 	}
-	if outcome.Paused || outcome.Status != runstate.StatusCancelled {
+	if outcome.Paused || outcome.Status != runstate.StatusCancelled || outcome.StopClass != runstate.StopRedeploy {
 		t.Fatalf("outcome = %#v, want a cancelled run rather than one held for a session that cannot re-adopt it", outcome)
 	}
 	if !strings.Contains(err.Error(), "restart into the build deployed over it") || !strings.Contains(err.Error(), "cancelled with its branch and worktree preserved") {
@@ -6142,34 +6157,44 @@ func stoppingReviewer(inner func(backend.RunRequest) (backend.RunResult, error),
 func TestRunFailsAStoppedProviderItCannotContinueWithoutBlamingTheDeveloper(t *testing.T) {
 	t.Parallel()
 
-	repository := pipelineRepository(t)
-	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-	provider := providerStopBackend(1, execution.ProcessStalled, approveVerdict)
-	// No session was ever established, so there is nothing for a later attempt
-	// to continue in.
-	provider.DeveloperSession = ""
-	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
-	pipeline = automatic(pipeline, provider)
+	for _, process := range []execution.ProcessStatus{execution.ProcessStalled, execution.ProcessTimedOut} {
+		t.Run(string(process), func(t *testing.T) {
 
-	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
-	if err == nil {
-		t.Fatal("Run() error = nil, want a run that could not be continued to stop")
-	}
-	if outcome.Paused {
-		t.Fatalf("a run with nothing to continue from was reported as resumable: %#v", outcome)
-	}
-	if strings.Contains(err.Error(), "developer reported failure") {
-		t.Fatalf("the harness blamed the developer for its own stop: %v", err)
-	}
-	if !strings.Contains(err.Error(), "the harness stopped the developer") {
-		t.Fatalf("the failure did not name what stopped the run: %v", err)
-	}
-	state, loadErr := store.Load(outcome.RunID)
-	if loadErr != nil {
-		t.Fatalf("Load() error = %v", loadErr)
-	}
-	if state.ProviderStop != "" || !state.Status.Terminal() {
-		t.Fatalf("terminal state = %#v, want no resumption marker on a run that ended", state)
+			repository := pipelineRepository(t)
+			tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+			provider := providerStopBackend(1, process, approveVerdict)
+			// No session was ever established, so there is nothing for a later attempt
+			// to continue in.
+			provider.DeveloperSession = ""
+			pipeline, store := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
+			pipeline = automatic(pipeline, provider)
+
+			outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+			if err == nil {
+				t.Fatal("Run() error = nil, want a run that could not be continued to stop")
+			}
+			if outcome.Paused {
+				t.Fatalf("a run with nothing to continue from was reported as resumable: %#v", outcome)
+			}
+			if strings.Contains(err.Error(), "developer reported failure") {
+				t.Fatalf("the harness blamed the developer for its own stop: %v", err)
+			}
+			if !strings.Contains(err.Error(), "the harness stopped the developer") {
+				t.Fatalf("the failure did not name what stopped the run: %v", err)
+			}
+			state, loadErr := store.Load(outcome.RunID)
+			if loadErr != nil {
+				t.Fatalf("Load() error = %v", loadErr)
+			}
+			if state.ProviderStop != "" || !state.Status.Terminal() {
+				t.Fatalf("terminal state = %#v, want no resumption marker on a run that ended", state)
+			}
+
+			reason, _ := providerStopReason(process)
+			if got, want := state.StopClass, runstate.ProviderStopClass(reason); got != want || outcome.StopClass != want {
+				t.Fatalf("saved cause = %q, outcome cause = %q, want %q", got, outcome.StopClass, want)
+			}
+		})
 	}
 }
 
@@ -6499,6 +6524,9 @@ func TestPipelineBlocksWhenTheIntegrationRetryBudgetIsSpent(t *testing.T) {
 	pipeline.Config.Execution.IntegrationRetriesBeforeReconciliation = 0
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if outcome.StopClass != runstate.StopIntegrationBudget {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopIntegrationBudget)
+	}
 	moved := gitLine(t, repository, "rev-parse", "refs/heads/main")
 	if err == nil || !strings.Contains(err.Error(), "stopped on the change") {
 		t.Fatalf("Run() error = %v", err)

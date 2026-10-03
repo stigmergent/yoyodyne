@@ -27,6 +27,7 @@ package runstate
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -192,13 +193,17 @@ const (
 // Valid reports a cause this harness recognizes. A record naming anything else
 // is refused rather than honored: the class returns budget, so a cause nothing
 // declared is a budget nothing accounted for.
-func (c EnvironmentalCause) Valid() bool {
-	switch c {
-	case CauseHandbackMissingChange, CauseDirtyPrimary, CauseWorktreeCheckoutKilled, CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure, CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget, CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound:
-		return true
-	default:
-		return false
+func EnvironmentalCauses() []EnvironmentalCause {
+	return []EnvironmentalCause{
+		CauseHandbackMissingChange, CauseDirtyPrimary, CauseWorktreeCheckoutKilled,
+		CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure,
+		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
+		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound,
 	}
+}
+
+func (c EnvironmentalCause) Valid() bool {
+	return slices.Contains(EnvironmentalCauses(), c)
 }
 
 // ClearedBy says what has to happen before a stop of this cause can be resumed,

@@ -222,8 +222,8 @@ func (a *activeRun) exhausted(boundary string, cause error) error {
 		// rather than a window that ran out. Saying it was retried would be untrue.
 		return cause
 	}
-	return fmt.Errorf("%s kept failing on something a later attempt could have survived, and %d retr(ies) over %s did not outlast it, so it is handed to a person rather than retried further: %w",
-		boundary, attempts, waited.Round(time.Second), cause)
+	return runstate.StopError{Class: runstate.StopRecoveryWindow, Cause: fmt.Errorf("%s kept failing on something a later attempt could have survived, and %d retr(ies) over %s did not outlast it, so it is handed to a person rather than retried further: %w",
+		boundary, attempts, waited.Round(time.Second), cause)}
 }
 
 // recovering is the same rule where a sweep meets the network rather than where

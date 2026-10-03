@@ -113,3 +113,19 @@ func TestTheRecordAndItsSummaryGiveOneReason(t *testing.T) {
 		}
 	}
 }
+
+func TestOldRunSummariesKeepTheReasonWhileTheirCauseReadsAsUnknown(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	for _, state := range []State{
+		{Status: StatusFailed},
+		{Status: StatusFailed, Blocker: "the check kept failing"},
+		{Status: StatusFailed, PublishFailure: "the push was refused"},
+		{Status: StatusSucceeded},
+	} {
+		summary := store.summarize(state)
+		if summary.StopClass != StopUnknown || state.RecordedStopClass() != StopUnknown || summary.Reason() != state.Reason() {
+			t.Fatalf("old record cause/reason differs: state %s/%q, summary %s/%q", state.RecordedStopClass(), state.Reason(), summary.StopClass, summary.Reason())
+		}
+	}
+}

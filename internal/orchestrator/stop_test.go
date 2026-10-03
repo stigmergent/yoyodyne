@@ -46,6 +46,9 @@ func TestARunStopsAtItsNextProviderCallWhenTheOperatorAsksIt(t *testing.T) {
 	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if outcome.StopClass != runstate.StopOperator {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopOperator)
+	}
 	if err == nil {
 		t.Fatal("Run() error = nil, want the stop reported as what ended the run")
 	}

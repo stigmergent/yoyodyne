@@ -261,7 +261,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	prompt := redactor.Redact(reviewEvidencePrompt(request))
 	inputBytes := len(systemPrompt) + len(prompt)
 	if inputBytes > MaxReviewInputBytes {
-		return Result{}, fmt.Errorf("review input is %d bytes, limit is %d", inputBytes, MaxReviewInputBytes)
+		return Result{}, runstate.StopError{Class: runstate.StopContextBound, Cause: fmt.Errorf("review input is %d bytes, limit is %d", inputBytes, MaxReviewInputBytes)}
 	}
 
 	sequence := execution.NewSequence(request.LastSequence)

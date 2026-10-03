@@ -163,7 +163,14 @@ func TestTheDurableSchemaStoresEveryStopClassThePipelineRecords(t *testing.T) {
 	t.Parallel()
 
 	want := []runstate.StopClass{"checks", "review", "integration", "publish", "cleanup",
-		"recording", "provider", "outside", "cancelled", "harness"}
+		"recording", "provider", "outside", "cancelled", "harness",
+		"unknown", "check-timeout", "provider-idle", "provider-budget", "relaunch-budget",
+		"repair-budget", "integration-budget", "promotion-wait", "usage-pause", "operator-stop",
+		"manager-stop", "redeploy-drain", "dead-claim", "developer-account", "review-account",
+		"work-item-escalated", "context-bound", "state-bound", "event-bound", "integration-policy", "recovery-window"}
+	for _, cause := range runstate.EnvironmentalCauses() {
+		want = append(want, cause.StopClass())
+	}
 	if got := runstate.StopClasses(); !slices.Equal(got, want) {
 		t.Fatalf("the stop vocabulary is %v, pinned as %v; changing it is changing a word every surface prints, so change both", got, want)
 	}
@@ -189,7 +196,7 @@ func TestTheDurableSchemaStoresEveryStopClassThePipelineRecords(t *testing.T) {
 			t.Errorf("a stored %q stop class is refused: %v", class, err)
 		}
 		// And every class leads the reason the way every surface prints it.
-		if reason := runstate.StopReason(class, "what happened"); !strings.HasPrefix(reason, string(class)+": ") {
+		if reason := runstate.StopReason(class, "what happened"); class != runstate.StopUnknown && !strings.HasPrefix(reason, string(class)+": ") {
 			t.Errorf("StopReason(%q) = %q, want the class as its first word", class, reason)
 		}
 	}

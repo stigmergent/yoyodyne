@@ -83,7 +83,7 @@ func (s *Store) LeasePromotion(ctx context.Context, targetBranch string) (*Lease
 		// than being cancelled, and the two must not read alike: one is a promotion
 		// queue nothing is draining, the other is the run being stopped.
 		if ctx.Err() == nil {
-			return nil, fmt.Errorf("wait to promote into %s: another promotion held the lease for the whole %s wait", branch, wait)
+			return nil, StopError{Class: StopPromotionWait, Cause: fmt.Errorf("wait to promote into %s: another promotion held the lease for the whole %s wait", branch, wait)}
 		}
 		return nil, fmt.Errorf("wait to promote into %s: %w", branch, err)
 	}

@@ -32,6 +32,36 @@ func testDocketEntry(runID, item string) triage.Entry {
 	}
 }
 
+func TestDocketCarriesTheClosedStopVocabularyAndReadsOldEntriesAsUnknown(t *testing.T) {
+	t.Parallel()
+	for _, class := range append(StopClasses(), "") {
+		t.Run(class.Name(), func(t *testing.T) {
+			store := newTestDocketStore(t, t.TempDir())
+			entry := testDocketEntry("run-0123456789abcdef0123456789abcdef", "yoyodyne-one")
+			entry.StopClass = class.Name()
+			if _, err := store.RecordOnce(entry); err != nil {
+				t.Fatal(err)
+			}
+			entries, err := store.List()
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("List() = %v, %v", entries, err)
+			}
+			want := class
+			if want == "" {
+				want = StopUnknown
+			}
+			if entries[0].StopClass != want.Name() || !strings.Contains(entries[0].Render(), want.Name()) {
+				t.Fatalf("cause missing from docket: %+v", entries[0])
+			}
+		})
+	}
+	entry := testDocketEntry("run-0123456789abcdef0123456789abcdef", "yoyodyne-one")
+	entry.StopClass = "invented-cause"
+	if _, err := newTestDocketStore(t, t.TempDir()).RecordOnce(entry); err == nil {
+		t.Fatal("docket accepted an unrecognized stop class")
+	}
+}
+
 // A docket entry outlives the process that made it, exactly as a report does:
 // the run is settled and its artifacts are removed long before anybody decides
 // what becomes of the work.
