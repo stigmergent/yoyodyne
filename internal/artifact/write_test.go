@@ -246,6 +246,32 @@ func TestCheckWriteResolvesARevisionsOwnerBeforeAnybodyIsAskedAboutIt(t *testing
 	}
 }
 
+func TestRevisionAuthorityUsesEveryRecordedIdentifier(t *testing.T) {
+	t.Parallel()
+	store := generatedStore(t.TempDir())
+	for _, draft := range []Draft{
+		{ID: "v1-design", Kind: KindDesign, Title: "How it is built", Directory: "docs/designs", Body: "# Design", Reason: "recorded"},
+		{ID: "v1-goals", Kind: KindGoals, Title: "What it serves", Directory: "docs/product", Body: "# Goals", Reason: "recorded"},
+	} {
+		owner, _ := Owner(draft.Kind)
+		if _, err := store.Create(owner, draft, moment()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, ids := range [][]string{
+		{"v1-design"}, {"missing", "v1-design"}, {"v1-goals", "v1-design"}, {" v1-design ", "v1-goals"},
+	} {
+		if err := store.AuthorizeRevisions(domain.RoleProductManager, ids); !errors.Is(err, ErrUnauthorized) || !strings.Contains(err.Error(), "v1-design") {
+			t.Fatalf("AuthorizeRevisions(%v) = %v, want the recorded design's ownership refusal", ids, err)
+		}
+	}
+	for _, ids := range [][]string{{"v1-goals"}, {"missing"}, {"missing", "v1-goals", "v1-goals"}} {
+		if err := store.AuthorizeRevisions(domain.RoleProductManager, ids); err != nil {
+			t.Fatalf("AuthorizeRevisions(%v) = %v, want no ownership refusal", ids, err)
+		}
+	}
+}
+
 func TestAnApprovedWriteBecomesADocumentWithFrontmatterAndAnApproval(t *testing.T) {
 	t.Parallel()
 

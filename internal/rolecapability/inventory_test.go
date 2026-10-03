@@ -84,6 +84,25 @@ var expresses = map[string]expression{
 		},
 		gap: "the repository block is refused unless the role holds both the read and the list; that the named read is the pair is a rule of the derivation rather than a capability either half states",
 	},
+	"conversation.authorize-carried-blocks": {
+		question: "does the role hold the capability a block asks for, whether or not its payload is valid?",
+		asks: []capability.Capability{
+			capability.ProposalRaise, capability.ConcernRaise, capability.ResearchCommission,
+			capability.EvaluationRecord, capability.ExchangeAsk, capability.WorkItemMutate,
+			capability.RepositoryRead, capability.RepositoryList, capability.AgentContextMutate,
+			capability.LaneReportWrite, capability.ServiceRequestRestart,
+			capability.ArtifactProductMutate, capability.ArtifactDesignMutate,
+		},
+		gap: "the block names are protocol framing; document ownership and the tracker action list are read through their existing derivations",
+	},
+	"conversation.authorize-block-actions": {
+		question: "does the role hold the capability for a known tracker action or document kind despite invalid arguments?",
+		asks: []capability.Capability{
+			capability.WorkItemRead, capability.WorkItemMutate, capability.BacklogAdmit,
+			capability.BacklogOrder, capability.WorkDecompose, capability.WorkTriage,
+		},
+		gap: "the action-to-capability and document-kind ownership mappings remain in the tracker and artifact packages; reading authority separately from validation cannot widen those answers",
+	},
 	"conversation.tracker-action": {
 		question: "does the role hold the capability the action it asked for belongs to?",
 		asks: []capability.Capability{
@@ -279,6 +298,11 @@ var expresses = map[string]expression{
 		question: "does the role hold the capability the kind belongs to, for a document filed in that kind's home?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
 		gap:      "which home a kind is filed in is the project's configuration rather than a capability, so the home half of this check is not expressed here",
+	},
+	"artifact.authorize-revisions": {
+		question: "does the role hold the capability for every recorded document a revision names, even when the reply cannot be validated?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+		gap:      "unrecorded identifiers are validation problems handled by CheckWrite; ownership is taken from the recorded document rather than from the reply",
 	},
 	"artifact.identify": {
 		question: "does the role recording goal identities hold the capability a goals document belongs to?",

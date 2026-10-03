@@ -264,3 +264,27 @@ func TestARefusedLaneReportIsOnThePassRecord(t *testing.T) {
 		t.Errorf("Current() = %v, %v; a refused report was written", found, err)
 	}
 }
+
+// The pass keeps its account when another block fails, and names that block
+// alongside the account so an unattended firing cannot hide the refusal.
+func TestAPassRecordsMalformedMemoryBesideItsAccount(t *testing.T) {
+	t.Parallel()
+	pass, _ := firePassOfProgramManager(t, "Looked at the lane.\n\n```yoyodyne-memory\n{invalid\n```\n"+laneReportSweep)
+	if pass.Result == nil || pass.Result.Summary != "looked at the lane" {
+		t.Fatalf("the valid account was lost: %+v", pass)
+	}
+	if !strings.Contains(pass.Problem, "yoyodyne-memory") || !strings.Contains(pass.Problem, "decode") {
+		t.Fatalf("the refusal was lost from the pass: %+v", pass)
+	}
+}
+
+func TestAPassKeepsItsAccountWhenATrackerCorrectionIsRefusedAgain(t *testing.T) {
+	t.Parallel()
+	pass, _ := firePassOfProgramManager(t, "Looked at the lane.\n\n```yoyodyne-tracker\n{invalid\n```\n"+laneReportSweep)
+	if pass.Result == nil || pass.Result.Summary != "looked at the lane" {
+		t.Fatalf("the valid account was lost: %+v", pass)
+	}
+	if !strings.Contains(pass.Problem, "tracker actions") {
+		t.Fatalf("the refused block was lost from the pass: %+v", pass)
+	}
+}

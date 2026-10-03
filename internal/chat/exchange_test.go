@@ -408,10 +408,14 @@ func TestAskingDoesNotSpendTheTrackerRoundBudget(t *testing.T) {
 			FinalText: "Looking and asking.\n\n" + acting + "\n" + ask,
 		})
 	}
+	// A malformed memory on the last round is owed to the next provider turn,
+	// even though that round's tracker results must wait for the next message.
+	results[maxTrackerRounds-1].FinalText += memoryBlock(`{"memories":`)
 	// The tracker budget runs out on the last of those, and the answer to that
 	// round's ask still has to reach the role, so one further turn closes the
 	// message.
 	results = append(results, backendapi.RunResult{SessionID: "session-1", FinalText: "That is all of it."})
+	results = append(results, backendapi.RunResult{SessionID: "session-1", FinalText: "I have the carried results now."})
 	provider := &fakeBackend{results: results}
 	options := testOptions(t, provider)
 	options.Tracker = &fakeTracker{items: map[string]beads.WorkItem{
@@ -444,5 +448,23 @@ func TestAskingDoesNotSpendTheTrackerRoundBudget(t *testing.T) {
 	}
 	if strings.Contains(provider.requests[maxTrackerRounds].Prompt, "Say who is speaking.") {
 		t.Fatal("the round past the budget delivered its results as well as carrying them")
+	}
+	problem := requireBlockRefusal(t, reply, err, "yoyodyne-memory")
+	if !strings.Contains(provider.requests[maxTrackerRounds].Prompt, problem) {
+		t.Fatal("the continuation did not receive the memory refusal")
+	}
+	recorded, err := options.Store.Load(options.identity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(recorded.PendingTrackerResults, "Say who is speaking.") || recorded.PendingBlockRefusals != "" {
+		t.Fatalf("pending results = %q, refusals = %q; want only the tracker results still owed", recorded.PendingTrackerResults, recorded.PendingBlockRefusals)
+	}
+	if _, err := session.Send(context.Background(), "Carry on."); err != nil {
+		t.Fatal(err)
+	}
+	prompt := provider.requests[maxTrackerRounds+1].Prompt
+	if !strings.Contains(prompt, "Say who is speaking.") || strings.Contains(prompt, problem) {
+		t.Fatalf("next message did not deliver only the pending tracker results: %q", prompt)
 	}
 }

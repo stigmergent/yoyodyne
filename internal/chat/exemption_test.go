@@ -8,7 +8,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -127,11 +126,8 @@ func TestExemptedWorkStillNamesAGoalTheRepositoryRecords(t *testing.T) {
 	}
 	session := openTestSession(t, options)
 
-	_, err := session.Send(context.Background(), "how many plugins are there?")
-	var unresolved *ProposalGoalError
-	if !errors.As(err, &unresolved) {
-		t.Fatalf("Send() error = %v, want the goal refused", err)
-	}
+	reply, err := session.Send(context.Background(), "how many plugins are there?")
+	requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
 	if len(tracker.created) != 0 {
 		t.Fatalf("created = %#v, want an exemption that does not exempt the goal", tracker.created)
 	}

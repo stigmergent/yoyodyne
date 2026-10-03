@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -103,28 +102,34 @@ func TestADoneConditionNamingAnUngrantedDesignIsRefusedAtEveryDoorIntoTheQueue(t
 	t.Run("proposal", func(t *testing.T) {
 		t.Parallel()
 		tracker := &fakeTracker{}
-		options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{
+		provider := &fakeBackend{results: []backendapi.RunResult{{
 			SessionID: "session-1",
 			FinalText: proposalReply("One item follows.",
 				`{"title":"Add the capacity-blocked state","description":"`+designCondition+`","rationale":"the dashboard needs it","goal":"`+recordedGoal+`"}`),
-		}}})
+		}, {SessionID: "session-1", FinalText: "The architect amends the design."}}}
+		options := testOptions(t, provider)
 		options.Tracker = tracker
 		options.Goals = recordedGoals(recordedGoal)
 		options.ArtifactHomes = testHomes()
 		session := openTestSession(t, options)
 
 		reply, err := session.Send(context.Background(), "what follows")
-		var unmeetable *ProposalConditionError
-		if !errors.As(err, &unmeetable) {
-			t.Fatalf("Send() error = %v, want a ProposalConditionError", err)
-		}
+		problem := requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
 		for _, want := range wanted {
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("refusal %q never says %q", err, want)
+			if !strings.Contains(problem, want) {
+				t.Fatalf("refusal %q never says %q", problem, want)
 			}
 		}
 		if len(reply.Proposals) != 0 || len(reply.Admitted) != 0 || len(tracker.created) != 0 {
 			t.Fatalf("proposals = %#v, admitted = %#v, created = %#v; want nothing put to the operator or the queue", reply.Proposals, reply.Admitted, tracker.created)
+		}
+		if _, err := session.Send(context.Background(), "Correct the proposal."); err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range wanted {
+			if !strings.Contains(provider.requests[1].Prompt, want) {
+				t.Fatalf("next turn lost correction guidance %q", want)
+			}
 		}
 	})
 }

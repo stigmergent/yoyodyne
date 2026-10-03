@@ -99,11 +99,10 @@ func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 		}
 	}
 
-	// A conversation with no configured persona is the contract alone, and the
-	// project's admission policy, which is part of the contract rather than
-	// something a persona could sit in front of.
+	// A conversation with no configured persona carries the contract and the
+	// admission and refusal policies, ahead of anything a persona could supply.
 	authority, _ := AuthorityFor(domain.RoleProductManager)
-	want := productManagerContract + "\n\n" + admissionClause(authority, Admission{})
+	want := productManagerContract + "\n\n" + admissionClause(authority, Admission{}) + "\n\n" + blockRefusalClause
 	if bare := SystemPrompt(domain.RoleProductManager, Admission{}, nil, "  "); bare != want {
 		t.Fatalf("empty persona changed the prompt: %q", bare)
 	}
@@ -800,8 +799,9 @@ func TestNothingIsCreatedWithoutAnApproval(t *testing.T) {
 		options.Tracker = tracker
 		session := openTestSession(t, options)
 		reply, err := session.Send(context.Background(), "what next?")
-		if err == nil || !strings.Contains(err.Error(), "description is required") {
-			t.Fatalf("Send() error = %v", err)
+		problem := requireBlockRefusal(t, reply, err, "yoyodyne-proposal")
+		if !strings.Contains(problem, "description is required") {
+			t.Fatalf("refusal = %q", problem)
 		}
 		// The answer is still the operator's to read, and nothing about an
 		// unreadable proposal turns into one.

@@ -421,12 +421,7 @@ func (s *Session) authorize(parsed parsedReply) error {
 			}
 		}
 	}
-	// An escalation is refused last, because it is the one condition that is not
-	// about authority at all: the role may escalate, and what is checked is that
-	// the escalation actually reaches somebody. It is refused the same way, whole
-	// and before anything runs, so an item is never left blocked by a decision
-	// nobody was told about.
-	return refuseUnreportedEscalation(parsed)
+	return nil
 }
 
 // authority is what this conversation's role may ask for. A session is never
@@ -479,6 +474,7 @@ func SystemPrompt(role domain.AgentRole, admission Admission, filing []artifact.
 	if clause := artifact.WriteContract(role, filing); clause != "" {
 		contract += "\n\n" + clause
 	}
+	contract += "\n\n" + blockRefusalClause
 	trimmed := strings.TrimSpace(persona)
 	if trimmed == "" {
 		return contract

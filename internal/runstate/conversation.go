@@ -146,12 +146,14 @@ type Conversation struct {
 	// acted, the process that watched it act may be gone, and an agent that never
 	// learns what its own actions did is one that will describe them wrongly.
 	//
-	// What it carries is the results of actions the harness carried out, and the
-	// refusal of a block it would not read at all. The second is the same fact in
-	// its starkest form — every action in the block is a thing the agent believes
-	// it did and did not — so it travels the same way rather than in a field of its
-	// own.
+	// It also carries tracker refusals whose correction must wait for another
+	// message. Refusals handed back within this message travel in the separate
+	// field below, so an exchange continuation cannot bypass the result limit.
 	PendingTrackerResults string `json:"pending_tracker_results,omitempty"`
+	// PendingBlockRefusals are validation refusals owed to the next provider
+	// turn, including a continuation within the same message. Tracker results
+	// held by the message's round limit wait for the next message instead.
+	PendingBlockRefusals string `json:"pending_block_refusals,omitempty"`
 	// ReplyCuts are the replies of this conversation's last turn that the event
 	// log holds only the beginning of, and that the role has not been told about
 	// yet. The log is where a role's ruling lives until it can write the document
@@ -588,8 +590,8 @@ const MaxDeliveredAmendmentIDs = 256
 // cannot be allowed to grow without limit on a pile nobody works through.
 const MaxDeliveredReportIDs = 256
 
-// MaxPendingTrackerResultBytes bounds the results a conversation may carry
-// forward. The record has to stay reloadable, so what waits inside it is bounded
+// MaxPendingTrackerResultBytes bounds each account of pending results or block
+// refusals. The record has to stay reloadable, so what waits inside it is bounded
 // well below the state file's own limit rather than growing with the tracker.
 const MaxPendingTrackerResultBytes = 64 << 10
 
@@ -656,6 +658,10 @@ func (c Conversation) Validate() error {
 	if len(c.PendingTrackerResults) > MaxPendingTrackerResultBytes {
 		problems = append(problems, fmt.Errorf("pending tracker results are %d bytes, limit is %d",
 			len(c.PendingTrackerResults), MaxPendingTrackerResultBytes))
+	}
+	if len(c.PendingBlockRefusals) > MaxPendingTrackerResultBytes {
+		problems = append(problems, fmt.Errorf("pending block refusals are %d bytes, limit is %d",
+			len(c.PendingBlockRefusals), MaxPendingTrackerResultBytes))
 	}
 	// A recorded refusal that says nothing about what was wrong is one nothing can
 	// act on: the wakeup carries the harness's own words, and a record without

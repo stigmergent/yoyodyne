@@ -39,8 +39,9 @@ const chatWorkItemStatus = "open"
 const chatTrackerTimeout = 30 * time.Second
 
 type chatOutput struct {
-	Evidence *chat.Evidence `json:"evidence,omitempty"`
-	Reply    string         `json:"reply,omitempty"`
+	BlockRefusals []chat.BlockRefusal `json:"block_refusals,omitempty"`
+	Evidence      *chat.Evidence      `json:"evidence,omitempty"`
+	Reply         string              `json:"reply,omitempty"`
 	// Proposals are what the turn proposed and nothing more. Nothing was created
 	// for any of them: a single message has nobody standing at a prompt, so what
 	// it proposes is reported and the decision arrives as its own message. What is
@@ -371,6 +372,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			EvaluationProblem:  reply.EvaluationProblem,
 			ResultsCarriedOver: reply.ResultsCarriedOver,
 			HandedBack:         reply.HandedBack,
+			BlockRefusals:      reply.BlockRefusals,
 			Reports:            reply.Reports,
 			ReportProblem:      reply.ReportProblem,
 		})
@@ -381,6 +383,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	// is the same answer an interactive conversation over the same stream gives.
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, reply.HandedBack)
+	printChatBlockRefusals(stdout, reply.BlockRefusals)
 	printChatActions(stdout, role, reply.Actions, reply.ResultsCarriedOver)
 	printChatResearch(stdout, reply.Research)
 	printChatRepositoryReads(stdout, reply.RepositoryReads)
@@ -1302,6 +1305,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		output.EvaluationProblem = reply.EvaluationProblem
 		output.ResultsCarriedOver = reply.ResultsCarriedOver
 		output.HandedBack = reply.HandedBack
+		output.BlockRefusals = reply.BlockRefusals
 		output.Reports = reply.Reports
 		output.ReportProblem = reply.ReportProblem
 	}
@@ -1316,6 +1320,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	}
 	theme := console.ThemeFor(stdout, os.Getenv)
 	printChatHandedBack(stdout, output.HandedBack)
+	printChatBlockRefusals(stdout, output.BlockRefusals)
 	printChatActions(stdout, role, output.Actions, output.ResultsCarriedOver)
 	printChatResearch(stdout, output.Research)
 	printChatRepositoryReads(stdout, output.RepositoryReads)
@@ -1796,4 +1801,10 @@ func artifactHomes(repository string, cfg config.Config, stderr io.Writer) prote
 		fmt.Fprintf(stderr, "warning: the documents the artifact homes own could not be read, so a done-condition naming one by its name rather than its path is not refused at admission: %v\n", err)
 	}
 	return protectedpath.ArtifactHomes(cfg, documents...)
+}
+
+func printChatBlockRefusals(out io.Writer, refusals []chat.BlockRefusal) {
+	for _, refusal := range refusals {
+		fmt.Fprintf(out, "[refused] %s: %s\n\n", refusal.Block, refusal.Problem)
+	}
 }

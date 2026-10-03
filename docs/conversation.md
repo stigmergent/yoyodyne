@@ -125,7 +125,7 @@ argument is validated before anything runs, at most ten actions happen per reply
 each one is recorded in the conversation's log as asked-for and then as applied
 or failed, and all of them are printed to you as they happen. An action that
 failed is reported as failed rather than described as done, and a block the
-harness cannot read changes nothing at all. Some actions are more than one write,
+harness cannot read changes nothing in that block. Some actions are more than one write,
 and one that failed after part of it landed — or that failed without anything
 being able to say whether it landed — is reported as neither: it says it did not
 finish, and lists what landed and what nothing can say either way. Only "failed"
@@ -136,7 +136,28 @@ where the spend an action makes before it writes is the case this exists for. Th
 deliberate: arbitrary execution is what was refused, and a typed call against the
 tracker is not that.
 
-**A block the harness refuses is handed straight back, inside the same
+**An unreadable or invalid block loses only that block.** Malformed JSON,
+unknown fields, a missing field, an invalid value, a broken fence, or repeated
+blocks of one kind refuse that kind's block whole: nothing in it happens, but
+other valid blocks in the reply are carried out. A malformed memory beside
+valid tracker actions therefore loses the memory and keeps the actions. The
+conversation records the refused block's name and the harness's reason, and the
+role's next turn opens with that reason so it can correct only what was refused.
+The refusal survives leaving and reopening the conversation. The transcript and
+`--json` (`block_refusals`) name it too. A scheduled pass records the refusal
+beside the account of what it decided, rather than losing the pass over it.
+Lane reports also retain their own refusal event and result, described below.
+
+**A block the role has no authority for refuses the whole reply.** A memory
+from a developer or reviewer, a lane report from the Lead Product Manager, a
+tracker action outside the role's authority, or a document belonging to another
+role is refused before any block is carried out. This holds even when the
+unauthorized block is malformed: a broken block cannot hide an authority
+violation. A tracker escalation missing its required warning report is a
+validation refusal of the tracker block; it never blocks the item without the
+report, and other valid blocks still go on.
+
+**An unreadable tracker block is handed straight back, inside the same
 message.** A refused block is refused whole, so nothing in it happens: one title
 over 200 bytes loses all ten actions beside it. The refusal is a result like any
 other, so it comes back to the role as a further round of the message you sent,
@@ -145,9 +166,10 @@ message has left, and the role reissues the corrected block before its reply
 ends. You are shown the refusal and then what the reissue did, and nobody has to
 relay anything. In the week to 2026-09-25 that relay was done by hand four times,
 because a refusal used to wait for the role's next turn. A refused round counts
-against the message's four rounds. Anything else the refused reply asked for —
-a proposal, a question, a read, a memory — was not taken up either, and the role
-is told so.
+against the message's four rounds. Other valid blocks the reply asked for —
+a proposal, a question, a read, a memory — are carried out before the tracker
+block is handed back. The role is told to correct only that block, so it does
+not repeat what already landed.
 
 A block refused again on the round it was handed back in goes to you as
 critical, and so does a round that answers without asking for any tracker
