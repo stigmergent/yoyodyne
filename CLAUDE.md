@@ -1,272 +1,203 @@
-# Project Instructions for AI Agents
+# Instructions for an AI session working in this repository
 
-This file provides instructions and context for AI coding agents working on this project.
+This file is the architect's instructions to a developer session — any AI coding
+session working in this repository, whether the harness started it or a person
+did — about how the repository is worked on. It states no product intent of its
+own. What the product is for, its goals, and the standing rules every role works
+under live in [the product home](docs/product/README.md), which is authoritative
+wherever this file seems to disagree with it; the standing rules are in
+[the operating rules](docs/product/operating-rules.md) there.
 
-## The tracker is not a developer-run tool
+`CLAUDE.md` and `AGENTS.md` are one file kept in two places, because Claude Code
+reads the first and Codex the second. A change goes into both, byte for byte;
+`make test` fails when they differ (`internal/composition`).
 
-**Writes to the tracker belong to the harness and to the product manager's
-conversation. A developer run reads tracker state and never writes it.**
+## Build and test
 
-The Beads store is a Dolt database in the primary checkout, under
-`.beads/embeddeddolt`, and a developer run's sandbox grants writes to its own
-worktree and to `.git` and nothing else. So it is not that the write commands
-fail and the read ones work: every `bd` invocation opens the store read-write,
-`bd show` included, and every one of them fails with
+`make check` runs the four checks this project declares — `make fmtcheck`,
+`make test`, `make race`, and `make vet` — and is what CI runs.
+[Working on yoyo itself](docs/developing-yoyo.md) is the rest: what a checkout
+needs, where the build cache goes, how tests wait, and what `make test` checks
+besides the Go code.
+
+## The tracker
+
+The harness reads and writes the tracker on the session's behalf.
+
+The tracker is Beads (`bd`), whose store is a Dolt database in the primary
+checkout under `.beads/embeddeddolt`. The product home's operating rules say a
+developer run never runs `bd`, and in a developer run it cannot: the run may
+write only to its own worktree and to `.git`, every `bd` command opens the store
+for writing, `bd show` included, and every one of them fails with
 
 ```
 failed to open database: embeddeddolt: init schema: embeddeddolt: open db: failed to load database "yoyodyne": openat LOCK: operation not permitted
 ```
 
-That is the sandbox working rather than a fault to route around. Do not run `bd`
-in a developer run, and do not spend attempts looking for a way to reach the
-store — there is not one, and two developer reports off one run have already
-found the refusal the expensive way
-(`docs/diagnoses/yoyodyne-ifd-206-coined-terms-sweep.md`).
+That refusal is the run's sandbox doing its job. Do not look for a way round it;
+there is none (`docs/diagnoses/yoyodyne-ifd-206-coined-terms-sweep.md`).
 
-### What a developer run uses instead
+What a developer run uses instead:
 
-- **Its own scope** is the work item the harness delivers in the run's prompt —
-  title, description, design guidance, acceptance criteria, notes. That is the
-  authoritative statement of what the run is for. No `bd show` is needed to get
-  it, and none would work.
-- **Surrounding tracker state** is `.beads/issues.jsonl` in the worktree, the
-  tracker's derived export, read with ordinary file tools. The harness copies the
-  primary checkout's own export into the worktree when it cuts it, rather than
-  leaving whatever the base commit carried, so it holds every item admitted up to
-  the moment this run started — the run's own included. It is a copy and not a
-  live view: an item admitted while the run works is not in it, and neither is
-  anything the store gained after the copy was taken. The copy is held out of the
-  run's change, so it is not something to edit and an edit to it reaches nobody.
-  Where the export and the delivered work item disagree, the delivered item wins.
-- **Tracking the run's own progress** is the run itself. Do not open, claim,
-  update, or close items to record what you are doing, and do not file work you
-  discover. Discovered work goes in the run's summary, named plainly, for the
-  product manager to admit or decline. Naming it is yours; deciding it is not.
+- **Its own work item** is the one the harness puts in the run's prompt: title,
+  description, design guidance, acceptance criteria, and notes. That is what the
+  run is for.
+- **The work around it** is in `.beads/issues.jsonl` in the worktree, read with
+  ordinary file tools. The harness copies it from the primary checkout when it
+  makes the worktree, so it holds every item that existed when the run started,
+  the run's own included, and nothing added since. It is held out of the run's
+  change, so do not edit it. Where it and the work item in the prompt disagree,
+  the prompt is right.
+- **Its own progress** is recorded by the run itself. Do not open, claim, update,
+  or close items, and do not file work you find. Name found work in the run's
+  summary, for the Lead Product Manager to admit or decline.
 
-### A work item requiring a tracker write is mis-admitted
+A work item that cannot be finished without writing to the tracker was admitted
+by mistake. Do the rest of it, and say in the summary which part needs a tracker
+write and that a developer run cannot make one.
 
-Standing admission practice is that tracker-write criteria never go on developer
-items. An item that cannot be finished without writing to the tracker was
-therefore admitted in error, rather than handed to a run that is expected to be
-clever about it. Do the rest of the item in full, then say in the summary which
-criterion needs a tracker write and that a developer run cannot make one.
+`bd setup` writes a section of its own into this file and `AGENTS.md`, between
+`BEADS INTEGRATION` or `BEADS CODEX SETUP` markers, telling every session to use
+`bd` for all its tracking. That section has been taken out, and `make test`
+fails if it comes back, so if `bd setup` is ever run here, remove what it wrote
+before committing. The Beads skill it installs under `.agents/skills/beads/` says
+the same and is read the same way: it describes a session that can reach the
+store, and a developer run is not one.
 
-### About the generated Beads sections
+## Writing to the tracker from a session that can
 
-The section below between the `BEADS INTEGRATION` markers, and the beads skill at
-`.agents/skills/beads/SKILL.md`, are generated by `bd setup` and rewritten
-wholesale when it runs again, so nothing here is edited into them. Where they say
-to use `bd` for all task tracking, read that as describing the harness and
-conversation contexts that can reach the store. In a developer run this section
-governs.
+These are for whoever can reach the store: the harness, the Lead Product
+Manager's conversation, and a person at an interactive session. They are not a
+reason for a developer run to try.
 
-## Never replace a work item's notes
+### Never replace a work item's notes
 
-**`bd update <id> --notes=...` replaces the notes field wholesale. Use
-`--append-notes` instead.**
+[The operating rules](docs/product/operating-rules.md#rules) govern changes to a
+work item's notes. For a session that can reach the store, `--append-notes`
+adds a note; `--notes` replaces the whole field:
 
 ```bash
 bd update <id> --append-notes="what you want to record"   # adds to the notes
 bd update <id> --notes="what you want to record"          # DESTROYS everything already there
 ```
 
-A work item records the goal it serves as a `Goal served:` line in its notes, so
-a wholesale replacement takes the attribution with it and the item afterwards
-reads as work nobody ever attributed. This is not hypothetical: it has happened
-twice, to six items and then to twelve more, every one of them from
-`bd update --notes=` typed into an agent session. `docs/diagnoses/yoyodyne-ifd-122-goal-attribution-loss.md`
-matches each destroyed record to the command that destroyed it.
+An item records the goal it serves as a `Goal served:` line in its notes, so a
+replacement can erase that with it. It has happened twice, to eighteen items, every
+time from `bd update --notes=` typed into an agent session
+(`docs/diagnoses/yoyodyne-ifd-122-goal-attribution-loss.md`).
 
-`yoyo goals guard` refuses the command before it runs, and allows a replacement
-that carries a `Goal served:` line through — so if the notes genuinely have to be
-rewritten, read the item's own line back with `bd show <id>` and carry it into
-the replacement verbatim. The guard decides from the command line alone and never
-reads the item, so it checks that such a line is present and not that it is the
-item's: a statement invented in the replacement passes it, and what catches that
-is the witness rather than the guard. The harness wires the guard into every
-developer run it makes on the Claude Code backend, which is where the hook is
-passed. An interactive Claude Code session gets it by adding a `PreToolUse` hook
-on `Bash` to `.claude/settings.json`:
+`yoyo goals guard` refuses a replacement that carries no `Goal served:` line.
+It reads only the command line, so it cannot tell whether the line is the
+item's own. A replacement carrying such a line can pass the guard even though
+the operating rules forbid rewriting notes; add a correction as a new note.
+The harness adds the guard to every developer run on Claude Code. An
+interactive Claude Code session gets it from a `PreToolUse` hook on `Bash` in
+`.claude/settings.json`:
 
 ```json
 {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"yoyo goals guard"}]}]}}
 ```
 
-Codex hooks have no tool gate, so a Codex session is covered by this rule and
-not by the guard. `yoyo goals attribution` reports and fails on an attribution
-destroyed on any item the tracker holds, whatever destroyed it and whatever
-status the item is in — closed work included, which is where nine of the twelve
-recorded losses were and which the audit could not see until yoyodyne-ifd.276.
+Codex hooks cannot stop a command, so a Codex session has only this paragraph.
+`yoyo goals attribution` reports any item, open or closed, whose goal line has
+been destroyed.
 
-This rule binds whoever can actually write to the tracker — the harness, the
-product manager's conversation, and a person at an interactive session. It is
-not a licence for a developer run to run `bd update`, which
-[cannot reach the store at all](#the-tracker-is-not-a-developer-run-tool). The
-guard is still wired into developer runs because a hook that is present
-everywhere is one nobody has to remember to install.
+### Never move a status backwards without a note
 
-## A tracker status is never moved backwards without a note
-
-**`bd update <id> --status=...` on its own moves a status and records nothing
-about what moved it. Put the account on the same command, with `--append-notes`,
-and never reopen an item that closed because its change merged.**
+`bd update <id> --status=...` on its own changes a status and records nothing
+about why. Put the reason on the same command, with `--append-notes`, and never
+reopen an item that closed because its change merged:
 
 ```bash
 bd update <id> --status=open --append-notes="released for the repair the development manager handed back at turn N"   # says what moved it
 bd update <id> --status=open                                                                                        # silent; REFUSED by the guard
 ```
 
-On 2026-09-18 four items were moved backwards this way inside a day, none of
-them carrying a word about it: yoyodyne-ifd.297 and .349, closed on confirmed
-forge merges, read as open again; yoyodyne-ifd.272 and .187, escalated to a
-person, read as released. The writer was not a merge of the export -- nothing
-merges it; the harness copies it one way, primary checkout to worktree, and
-holds it out of every change -- but an operator's script outside the repository
-that ran `bd update <id> --status=open` ahead of `yoyo triage rerun` on a queue
-of decisions that had already been carried out. The verb refused, correctly, and
-the status had already moved.
-`docs/diagnoses/yoyodyne-ifd-392-status-rewrites-by-the-carry-out-queue.md`
-matches each rewrite to the firing that made it.
+On 2026-09-18 an operator's script outside the repository did exactly that to
+four items in a day, reopening two whose changes had merged and releasing two
+that were waiting on a person
+(`docs/diagnoses/yoyodyne-ifd-392-status-rewrites-by-the-carry-out-queue.md`).
+Every status change the harness makes carries its note on the same command
+(`internal/beads/client.go`), and its re-run and repair commands claim the item
+themselves, so nothing has to reopen an item before asking the harness to run
+it. `yoyo goals guard` refuses a `bd update --status` with no note, and
+`bd reopen`, before either runs; it passes `--claim`. A script is a command line
+the guard cannot see inside, so whoever writes one is bound by this too.
 
-Every status the harness sets carries its account on the same invocation --
-`Block`, `Unblock`, `Reopen`, and the claim's own stale-block correction in
-`internal/beads/client.go` each pass `--status` and `--append-notes` together --
-and a re-run or repair verb claims the item itself and clears a stale blocked
-status with a note as it does, so nothing has to open an item ahead of asking
-the harness to run it. `yoyo goals guard` refuses a `bd update --status` that
-appends no note, and `bd reopen`, before either runs; it decides from the
-command line alone and cannot read which way the move goes, so it asks for a
-note on every status set there and passes `--claim`. A script is a command line
-the guard does not see inside, which is why this rule binds whoever writes the
-script as well as whoever types the command.
+## Scratch files go in the directory the run was given
 
-## A developer run writes its scratch files to the directory it was given
+The harness gives every developer run its own directory, outside its worktree,
+and names it in the run's prompt. Anything the work needs that the change must
+not carry goes there, check logs first among them.
 
-**The harness cuts every developer run its own directory, outside that run's
-worktree, and names it in the run's contract. Anything the work needs that the
-change must not carry goes there, the check log first among it.**
+`$TMPDIR` is not a substitute: it is one directory shared by every run on the
+machine. On 2026-09-01 two runs five seconds apart both wrote
+`$TMPDIR/probe-check.log`, and one reported a broken toolchain from the other's
+compile error while its own `make check` passed
+(`docs/diagnoses/yoyodyne-ifd-238-probe-verdict-crosstalk.md`). The worktree is
+not a substitute either: a scratch file there is untracked content every reviewer
+is shown.
 
-`$TMPDIR` is not the alternative. It is one directory per user on this machine
-rather than one per session or per run, so it is shared with every run working
-beside you, and an obvious name for a log is obvious to all of them. On
-2026-09-01 two runs five seconds apart redirected `make check` into
-`$TMPDIR/probe-check.log`; one of them read the other's compile error back out of
-it and reported a broken toolchain while its own `make check` was exiting 0.
-`docs/diagnoses/yoyodyne-ifd-238-probe-verdict-crosstalk.md` is the whole of
-that. The naming convention it left behind held only as far as each run's
-reading of it, which is why yoyodyne-ifd.247 replaced it with a directory nobody
-has to remember to name.
+A session the harness did not start has no such directory and shares `$TMPDIR`
+with whatever else is running.
 
-The worktree is not the alternative either: a scratch file there is untracked
-content in the change, which every reviewer is then shown.
+## Anything started in the background ends on its own
 
-A session the harness did not make — an interactive one in the checkout — is
-given no such directory and shares `$TMPDIR` with whatever is running beside it.
+Whatever you start in the background has to stop by itself, however the thing
+that started it ends. A cleanup that only runs when everything goes well is not
+enough.
 
-## Background load a run spawns carries its own bound
+On 2026-09-05 a load test started twenty-four endless loops and died before the
+line that would have killed them. They ran for hours after the run was over and
+slowed the run working beside it.
 
-**Anything you start in the background stops on its own, whatever became of the
-thing that started it. A cleanup that only runs on the happy path is not a
-bound.**
+Two things guard against that, and only the first is the harness's:
 
-On 2026-09-05 a load test spawned twenty-four infinite spin loops and died
-before the line that would have killed them. They ran on the operator's machine
-for hours after the run that started them was over, starved the run working
-beside it, and helped trip the intake brake. One run's sloppy test became a
-product-wide stall.
-
-Two things hold that down now, and only the first is the harness's:
-
-- **The group is reaped.** Every command the harness runs — your provider
-  invocation, and every check — leads a process group of its own, and that group
-  is killed when the command ends, success or failure alike
-  (`internal/execution/process.go`). Work you background is in that group unless
-  something deliberately took it out, so it dies when your invocation does.
-- **The load bounds itself.** The reap does not reach work that put itself in a
-  session of its own — `setsid`, a launchd job, a tool that detaches what it
-  starts — so the bound that always holds is the one the load carries. Write it
-  into the load rather than into a cleanup step you have to reach:
+- **The harness kills the process group.** Every command it runs — the AI
+  session and every check — leads a process group of its own, killed when the
+  command ends, pass or fail (`internal/execution/process.go`). Background work
+  stays in that group unless something moved it out.
+- **The work sets its own end.** The group kill does not reach something that
+  started a session of its own — `setsid`, a launchd job, a tool that detaches
+  what it starts — so put the deadline in the work itself:
 
 ```sh
-# a spinner that stops by itself after sixty seconds, however the test ends
+# a loop that stops by itself after sixty seconds, however the test ends
 ( end=$(( $(date +%s) + 60 )); while [ "$(date +%s)" -lt "$end" ]; do :; done ) &
 ```
 
-`timeout(1)` is not on macOS by default, so a deadline the load computes itself
-is the portable form. The same rule covers a server, a watcher, or a poller you
-start for a test: give it an end, and do not depend on reaching the line that
-would have stopped it.
+`timeout(1)` is not on macOS by default, so a deadline the work computes itself
+is the portable form. The same goes for a server, a watcher, or a poller started
+for a test.
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
-## Beads Issue Tracker
+## Shell commands must not prompt
 
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-### Quick Reference
+`cp`, `mv`, and `rm` may be aliased to ask before overwriting, which leaves a
+session waiting forever. Use the forms that do not ask:
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
+cp -f source dest           # NOT: cp source dest
+mv -f source dest           # NOT: mv source dest
+rm -f file                  # NOT: rm file
+rm -rf directory            # NOT: rm -r directory
+cp -rf source dest          # NOT: cp -r source dest
 ```
 
-### Rules
+Likewise `scp` and `ssh` with `-o BatchMode=yes`, `apt-get` with `-y`, and
+`brew` with `HOMEBREW_NO_AUTO_UPDATE=1`.
 
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+## Documents written in an interactive session
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+A design document, report, or analysis written in an interactive session is
+Markdown under `ai-output/`, unless the person asks for another format or place.
 
-## Agent Context Profiles
+- Read `ai-output/markdowns/AGENTS.md` first and follow its file-name and
+  metadata rules. This project's directory is `ai-output/markdowns/yoyodyne/`.
+- A requested page count is a length, not a request for Word or PDF.
+- `ai-output` is a symlink; resolve it before writing, and if writing there needs
+  permission, ask for it rather than choosing somewhere else.
+- Before handing a document over, check its format and path and link to it.
+  After a requested move, check the old path is gone and the text came across.
 
-The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
-
-- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
-- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
-- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
-
-## Session Completion
-
-This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
-
-1. **File issues for remaining work** - Create beads for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Handle git/sync by active profile**:
-   ```bash
-   # Conservative/minimal/default: report status and proposed commands; wait for approval.
-   git status
-
-   # Team-maintainer opt-in only, unless current instructions forbid it:
-   git pull --rebase
-   git push
-   git status
-   ```
-5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
-
-**Critical rules:**
-- Explicit user or orchestrator instructions override this Beads block.
-- Do not commit or push without clear authority from the active profile or the current user request.
-- If a required sync or push is blocked, stop and report the exact command and error.
-<!-- END BEADS INTEGRATION -->
-
-
-## Build & Test
-
-_Add your build and test commands here_
-
-```bash
-# Example:
-# npm install
-# npm test
-```
-
-## Architecture Overview
-
-_Add a brief overview of your project architecture_
-
-## Conventions & Patterns
-
-_Add your project-specific conventions here_
+This does not apply to governed repository documents or to a developer run's
+scratch files, which follow their own paths.
