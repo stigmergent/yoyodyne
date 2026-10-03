@@ -218,6 +218,8 @@ var reaches = map[Kind]Reach{
 	KindWatchReadRetrying: ReachRecord,
 	// A braked line has stopped and stays stopped until intake is released.
 	KindWatchBraked: ReachChannel,
+	// A machine refusing every start needs its cause visible beside the hold.
+	KindWatchBlocked: ReachChannel,
 	// The three readings of a line that is choosing nothing: the state said again
 	// while it stands, the silence nothing accounts for, and the silence the
 	// provider accounts for. Every one of them is what somebody scanning a quiet

@@ -1416,3 +1416,27 @@ func TestAHeartbeatWithNoStandingSaysSoRatherThanOmittingIt(t *testing.T) {
 		t.Fatalf("body %q does not say the four lines were unavailable", said.Body)
 	}
 }
+
+// A line that cannot start work is not an idle one, and the difference is the
+// whole of what the reader can act on. The session's own words carry the file
+// and the move that ends it, and they are repeated verbatim rather than
+// generalized back to a sentence written here — which would leave the reader
+// exactly where the three silences left them.
+func TestABlockedLineSaysWhatIsStoppingItAndWhatEndsIt(t *testing.T) {
+	t.Parallel()
+
+	const stopped = "runs cannot start: uncommitted changes in the primary checkout (docs/notes.md); commit or stash to release"
+	harness := newTestHarness(t, time.Time{})
+	harness.ready(5)
+	stalled := harness.now
+	harness.watched(t, runstate.WatchBlocked, stopped, stalled)
+
+	cursors := harness.poll(t, harness.start(), notify.KindWatchBlocked)
+	harness.now = stalled.Add(9 * time.Hour)
+	said := harness.say(t, cursors, notify.KindLineWaiting)
+	for _, fact := range []string{stopped, "9 hours", "5 items"} {
+		if !strings.Contains(said.Body, fact) {
+			t.Fatalf("body %q does not carry %q", said.Body, fact)
+		}
+	}
+}

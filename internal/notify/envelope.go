@@ -253,6 +253,7 @@ const (
 	KindWatchStarted Kind = "watch.started"
 	KindWatchIdle    Kind = "watch.idle"
 	KindWatchBraked  Kind = "watch.braked"
+	KindWatchBlocked Kind = "watch.blocked"
 	KindWatchResumed Kind = "watch.resumed"
 	KindWatchStopped Kind = "watch.stopped"
 	// A session stopping to be restarted into a build deployed over it. It is the
@@ -470,6 +471,7 @@ func Kinds() []Kind {
 		KindWatchStarted,
 		KindWatchIdle,
 		KindWatchBraked,
+		KindWatchBlocked,
 		KindWatchResumed,
 		KindWatchStopped,
 		KindWatchRedeploying,
@@ -508,7 +510,7 @@ func (k Kind) Valid() bool {
 		KindDirectiveRecorded, KindDirectiveResolved, KindDirectiveCarriedOut, KindDirectiveRefused,
 		KindDirectiveWithdrawn, KindQuestionHeard,
 		KindIntakeHeld, KindIntakeReleased, KindIntakeEscalated, KindHoldPlaced, KindHoldLifted, KindOperatorAction,
-		KindWatchStarted, KindWatchIdle, KindWatchBraked, KindWatchResumed, KindWatchStopped,
+		KindWatchStarted, KindWatchIdle, KindWatchBraked, KindWatchBlocked, KindWatchResumed, KindWatchStopped,
 		KindWatchRedeploying, KindWatchReadRetrying, KindLineWaiting, KindResidentStale, KindStallNoticed,
 		KindProviderWindow, KindCapacityHold, KindProviderOutage, KindProviderRestored,
 		KindRecurringTaskFailing, KindClaimReleased,

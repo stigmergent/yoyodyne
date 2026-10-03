@@ -428,3 +428,22 @@ func TestAHeldSwitchIsSaidOnceOnTheAttentionLine(t *testing.T) {
 		t.Fatalf("needs a human = %+v, want the hold said once", standing.NeedsHuman)
 	}
 }
+
+// The watch owns the refusal's cause; every surface receives the same line.
+func TestABlockedSessionCarriesItsCauseAheadOfAnIdleSession(t *testing.T) {
+	t.Parallel()
+	const cause = "runs cannot start: uncommitted changes in the primary checkout (.yoyodyne/config.yaml); commit or stash to release"
+	blocked := runstate.WatchTransition{SessionID: "blocked", State: runstate.WatchBlocked, At: moment.Add(-time.Hour), Reason: cause}
+	idle := runstate.WatchTransition{SessionID: "idle", State: runstate.WatchIdle, At: moment}
+	stall := WhyNothingStarts(Conditions{Sessions: held(blocked, idle), Now: moment})
+	if stall.Reason != ReasonSessionBlocked || stall.Says != cause || !stall.Since.Equal(blocked.At) {
+		t.Fatalf("stall = %+v, want the original refusal and when it started", stall)
+	}
+	if len(Choosing([]runstate.WatchTransition{blocked})) != 0 || len(Live([]runstate.WatchTransition{blocked})) != 1 {
+		t.Fatal("a blocked session is alive but choosing nothing")
+	}
+	watching := runstate.WatchTransition{SessionID: "working", State: runstate.WatchWatching, At: moment}
+	if got := WhyNothingStarts(Conditions{Sessions: held(blocked, watching), Now: moment}); got.Stopped() {
+		t.Fatalf("a session choosing work was reported as stopped: %+v", got)
+	}
+}

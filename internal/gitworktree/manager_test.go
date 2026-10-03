@@ -210,6 +210,13 @@ func TestManagerRejectsReuseAndDirtyPrimaryRepository(t *testing.T) {
 	if _, err := manager.Create(context.Background(), request); err == nil || !strings.Contains(err.Error(), "uncommitted") {
 		t.Fatalf("Create() dirty error = %v", err)
 	}
+	var dirty PrimaryDirtyError
+	if err := manager.ValidateReady(context.Background()); !errors.As(err, &dirty) || !errors.Is(err, ErrPrimaryNotReady) {
+		t.Fatalf("ValidateReady() error = %v, want the dirty paths and the environmental sentinel", err)
+	}
+	if len(dirty.Paths) != 1 || dirty.Paths[0] != "dirty.txt" {
+		t.Fatalf("dirty paths = %v, want dirty.txt", dirty.Paths)
+	}
 }
 
 // Development is parallel, so several runs can be given a worktree at the same

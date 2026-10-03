@@ -110,7 +110,7 @@ package orchestrator
 // reprioritization is honored at the next pull and an admission at the next poll
 // without anything here detecting either.
 //
-// What watching adds is three guards, and each one is against a failure that
+// What watching adds is four guards, and each one is against a failure that
 // only exists because the loop no longer ends. An item whose run failed before
 // it ever started is left alone until something about the item changes, because
 // a queue the harness cannot get past is one it would otherwise re-pull every
@@ -193,6 +193,9 @@ const claimedStatus = backlog.StatusClaimed
 // filling it.
 const maxScheduleReasonBytes = 240
 
+// Bound the cause alone, leaving the condition and remedy readable.
+const maxBlockedDetailBytes = 100
+
 // How a watch session rides through a reading of the harness that failed.
 //
 // The tracker is a database a reconcile and every settling run write to, so a
@@ -240,6 +243,7 @@ const (
 	// failed is on the schedule beside it; runs already started were waited out
 	// rather than abandoned.
 	ScheduleUnreadable = "the harness could not be read for another pull"
+	ScheduleBlocked    = "no run can be started until what is stopping them is cleared"
 	// ScheduleCancelled reports a scheduler whose context ended. Runs already
 	// started see the same cancellation and are waited out.
 	ScheduleCancelled = "the scheduler was cancelled"
@@ -454,6 +458,26 @@ type SessionState struct {
 	Draining *runstate.WatchDrain
 }
 
+// ScheduleEnvironment reports whether the machine can start a run at all. It is
+// the same readiness a run checks for itself, asked before anything is chosen
+// rather than after — satisfied by *gitworktree.Manager.
+//
+// Asking it here changes nothing about what is enforced, exactly as the intake
+// hold read below changes nothing: the run would refuse for itself either way.
+// What it changes is what the refusal is a fact about. Met inside a run, a dirty
+// primary checkout arrives as that item's failed start, and a watching session
+// records the item as one it has tried and moves down the queue doing the same to
+// every other item in it — after which a backlog full of ready work reads as an
+// exhausted one, and the operator has a silent machine with no line anywhere
+// saying why. Met here it is a state of the line, said in words that name the
+// file and the move that ends it.
+//
+// It is optional, and a pull wired without one chooses exactly what it would have
+// chosen. What is lost is the naming, not the choosing.
+type ScheduleEnvironment interface {
+	ValidateReady(ctx context.Context) error
+}
+
 // WatchSessions is where a watch session says what it is doing, for the reader
 // who is not at its terminal. It is optional: a session wired without one
 // behaves identically and is simply invisible between the runs it starts, which
@@ -646,6 +670,8 @@ type Pull struct {
 	// Staleness is optional; see ScheduleStaleness for what a pull without one
 	// loses, which is a sentence rather than a constraint.
 	Staleness ScheduleStaleness
+	// Environment is the readiness a run also checks before reserving.
+	Environment ScheduleEnvironment
 	// Capacity is execution.max_concurrent_developers as this pull read it. It
 	// bounds how many runs the scheduler starts; the reservation enforces the
 	// same number across every process, and this only keeps the scheduler from
@@ -1031,6 +1057,8 @@ type Schedule struct {
 	// Stopped says why the scheduler stopped pulling, in the words of one of the
 	// Schedule* reasons above.
 	Stopped string `json:"stopped"`
+	// Blocked is what refuses every run, as of the last pull.
+	Blocked string `json:"blocked,omitempty"`
 	// StalenessProblem names a staleness reading that failed. It costs the
 	// recorded reasons a sentence and costs the schedule nothing else, so it is
 	// reported beside the pass rather than failing it.
@@ -1402,6 +1430,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// pull that could be opened. It is held outside the loop because a run
 	// collected after the final pull still cost what it cost.
 	var spend ScheduleSpend
+	var environment ScheduleEnvironment
+	refused := ""
+	// A refusal cools only until the next poll, never until the item changes.
+	pollPassed := func() {
+		forget(tried)
+		refused = ""
+	}
 	// docket is where a dispatch that never became a run is recorded, taken from
 	// the same pull and held outside the loop for the same reason: a start that
 	// fails after the final pull failed just as much, and the record of it is the
@@ -1503,6 +1538,14 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			}
 		}
 		started.record(done)
+		refusal, byTheMachine := "", false
+		if started.Declined == "" {
+			refusal, byTheMachine = refusedByTheMachine(ctx, environment, done)
+		}
+		if byTheMachine {
+			started.environmental = true
+			refused, schedule.Blocked = refusal, refusal
+		}
 		// The run's own context is released with it, whether or not the drain
 		// bound cancelled it first.
 		if cancel, live := hosted[done.index]; live {
@@ -1537,7 +1580,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		// provider answers; and nothing is counted toward the brake below, because
 		// the brake's remedy lifts nothing here. What is recorded is the wait, so
 		// the next pull reads it before dispatching into the same refusal.
-		if unstartedAttempt(*started) && started.providerAway() {
+		if started.Declined != "" || byTheMachine {
+			// No work was attempted. Keep only the backoff, with no item fingerprint
+			// and no docket entry, so the next poll can retry the same work.
+			excluded = attempt{title: excluded.title, reason: excluded.reason, retryAtPoll: true}
+		} else if unstartedAttempt(*started) && started.providerAway() {
 			schedule.ProviderAway++
 			delete(tried, started.WorkItemID)
 			held = false
@@ -1649,6 +1696,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			finish(done)
 			return true
 		case <-woken:
+			pollPassed()
 			return ctx.Err() == nil
 		case <-drain.due:
 			// The drain bound ran out while the session was waiting on a run. The
@@ -1716,6 +1764,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			return true
 		case <-woken:
 			stop()
+			pollPassed()
 			return ctx.Err() == nil
 		case <-drain.due:
 			// The drain bound ran out while the session was waiting on a run; see
@@ -1724,6 +1773,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			drain.reached()
 			return true
 		case slept := <-interval:
+			if slept {
+				pollPassed()
+			}
 			return slept && ctx.Err() == nil
 		case <-ctx.Done():
 			return false
@@ -1741,7 +1793,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			return collectUntilDue(pull)
 		}
 		schedule.Polls++
-		return s.sleep(ctx, pull.Poll)
+		if !s.sleep(ctx, pull.Poll) {
+			return false
+		}
+		pollPassed()
+		return true
 	}
 
 	// awaitRunOrPoll waits for whichever comes first of a run of this session
@@ -1756,6 +1812,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			finish(done)
 			return true
 		case <-s.interval(pull.Poll):
+			pollPassed()
 			schedule.Polls++
 			return true
 		case <-ctx.Done():
@@ -2008,6 +2065,7 @@ pulling:
 			break
 		}
 		spend = pull.Spend
+		environment = pull.Environment
 		docket = pull.Triage
 		brake, summons, cooldown, cycleBound = pull.Brake, pull.Summons, pull.BrakeCooldown, pull.BrakeEscalationCycles
 		runs = pull.Runs
@@ -2478,6 +2536,20 @@ pulling:
 		} else {
 			schedule.IntakeHeld = nil
 		}
+
+		if stopped := pull.blocked(ctx); stopped != "" {
+			schedule.Blocked = stopped
+			if !s.Watching {
+				schedule.Stopped = ScheduleBlocked
+				break
+			}
+			if !wait(pull, runstate.WatchBlocked, account{reason: stopped, running: running}) {
+				schedule.Stopped = ScheduleCancelled
+				break
+			}
+			continue
+		}
+		schedule.Blocked = refused
 
 		schedule.Capacity = pull.Capacity
 		schedule.Occupied = len(occupied)
@@ -2957,7 +3029,10 @@ pulling:
 		// because it is a command somebody is waiting on and a run ending is the
 		// only thing that ends it.
 		var waited bool
-		if s.Watching {
+		if refused != "" {
+			said.reason = refused
+			waited = wait(pull, runstate.WatchBlocked, said)
+		} else if s.Watching {
 			waited = refill(pull, said)
 		} else {
 			waited = wait(pull, runstate.WatchIdle, said)
@@ -3068,6 +3143,9 @@ func (s Scheduler) cooling(tried map[string]attempt, item beads.WorkItem) bool {
 	if !attempted {
 		return false
 	}
+	if recorded.retryAtPoll {
+		return true
+	}
 	if !recorded.until.IsZero() {
 		return s.now().Before(recorded.until)
 	}
@@ -3083,6 +3161,8 @@ func (s Scheduler) cooling(tried map[string]attempt, item beads.WorkItem) bool {
 // this session is one no later pull dispatches, so by the time anybody asks why,
 // the only thing that still holds the answer is this.
 type attempt struct {
+	// retryAtPoll is a backoff for a start that attempted no work.
+	retryAtPoll bool
 	fingerprint string
 	title       string
 	reason      string
@@ -3090,6 +3170,104 @@ type attempt struct {
 	// but one: a run the provider's usage window stopped, which is held until the
 	// window resets and is then pulled again whatever became of the item.
 	until time.Time
+}
+
+// forget releases starts the environment refused after a poll interval.
+func forget(tried map[string]attempt) {
+	for id, recorded := range tried {
+		if recorded.retryAtPoll {
+			delete(tried, id)
+		}
+	}
+}
+
+// refusedByTheMachine reports a failed start that the machine refused rather
+// than the work failing, and says what refused it.
+//
+// It answers two ways, and it needs both. The first is what the refusal itself
+// says: a step that refuses before the work is ever attempted marks its failure
+// as the machine's, and that mark travels with the error. This is the half that
+// covers what nothing here can see — a shell the sandbox will not spawn, a state
+// store that will not open, an invariants directory that will not read — because
+// the site that met the condition is the only place that knows the condition was
+// not about the item. The second is asking the machine: where nothing declared
+// anything, a start that failed over a checkout that is still refusing work was
+// refused by that checkout, whatever else it looked like.
+//
+// Neither alone is the rule. A readiness read is blind to every way a machine can
+// be unusable that leaves the repository clean, and it was the whole of this
+// function once — which had a sandbox refusal recorded as the item's own failure,
+// held out until somebody edited work that was never the problem, and counted
+// toward a brake that then held intake over it. A declaration alone would miss a
+// refusal raised outside the pipeline, which is why the probe stayed.
+//
+// A start that got as far as reserving already has its own durable record, so
+// neither question is asked here. Its environmental classification comes from
+// that record rather than from a later readiness read.
+//
+// A session that has been stopped is not asked at all. Every run it started sees
+// the same cancellation, so a readiness read taken while it is unwinding reports
+// the stop rather than the machine — and a session's last recorded line must not
+// be an invented account of why it could not work.
+func refusedByTheMachine(ctx context.Context, environment ScheduleEnvironment, done completed) (string, bool) {
+	if done.err == nil || ctx.Err() != nil || strings.TrimSpace(done.outcome.RunID) != "" {
+		return "", false
+	}
+	var refused EnvironmentRefusedError
+	if errors.As(done.err, &refused) {
+		return blockedReason(done.err), true
+	}
+	if _, environmental := environmentalCauseOf(done.err); environmental {
+		return blockedReason(done.err), true
+	}
+	if environment == nil {
+		return "", false
+	}
+	err := environment.ValidateReady(ctx)
+	if err == nil {
+		return "", false
+	}
+	return blockedReason(err), true
+}
+
+// blocked is what the machine refuses every run for, in the words the operator
+// will read, and the empty string where it refuses nothing. A readiness that
+// cannot be established at all is itself a refusal to choose under: a machine
+// nothing can say is ready is not one to start work on.
+func (p Pull) blocked(ctx context.Context) string {
+	if p.Environment == nil {
+		return ""
+	}
+	if err := p.Environment.ValidateReady(ctx); err != nil {
+		return blockedReason(err)
+	}
+	return ""
+}
+
+// blockedReason is what a condition that refuses every run says: what cannot
+// happen, what is causing it, and, for a dirty checkout, the move that ends it.
+// A message that stops at the diagnosis leaves the reader where the silence did.
+//
+// The dirty checkout has its own sentence because it is the one this was written
+// for and because the file is the whole of the remedy. It is looked for first and
+// through whatever wrapped it, so the sentence an operator acts on is the same
+// whether the refusal was declared by a pipeline step or found by the readiness
+// read. Everything else is carried in the words of whatever refused — the
+// condition it named where it named one — which is more useful than a paraphrase
+// and is the only honest thing to say about a refusal nothing here anticipated.
+func blockedReason(err error) string {
+	var dirty gitworktree.PrimaryDirtyError
+	if errors.As(err, &dirty) {
+		return fmt.Sprintf("runs cannot start: uncommitted changes in the primary checkout (%s); commit or stash to release",
+			singleLine(strings.Join(dirty.Paths, ", "), maxBlockedDetailBytes))
+	}
+	var refused EnvironmentRefusedError
+	if errors.As(err, &refused) {
+		// describe bounds the cause itself; bounding it again here is what would
+		// spend the budget on the condition and cut the reason off the end.
+		return "runs cannot start: " + refused.describe()
+	}
+	return "runs cannot start: " + singleLine(err.Error(), maxBlockedDetailBytes)
 }
 
 // usageWindowReset is when the provider's usage window that stopped a run
@@ -5983,6 +6161,9 @@ func (s Schedule) Render() string {
 	rendered.WriteString(LandingSweep{Landed: s.Landed}.Render())
 	if s.LandingProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.LandingProblem)
+	}
+	if s.Blocked != "" {
+		fmt.Fprintln(&rendered, s.Blocked)
 	}
 	if s.IntakeHeld != nil {
 		fmt.Fprintf(&rendered, "intake has been held since %s: %s\n",

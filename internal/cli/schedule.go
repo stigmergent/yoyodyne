@@ -713,6 +713,7 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 			product:    parts.config.Product,
 			tracker:    tracker,
 		},
+		Environment:                 parts.worktrees,
 		Capacity:                    parts.config.Execution.MaxConcurrentDevelopers,
 		Slots:                       parts.config.Execution.DeveloperSlots,
 		Poll:                        parts.config.Execution.WorkPoll.Duration(),

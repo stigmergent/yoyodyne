@@ -1565,9 +1565,9 @@ func whyNothingStarts(sources Sources, held switches, running int, now time.Time
 func Choosing(sessions []runstate.WatchTransition) []runstate.WatchTransition {
 	return alive(sessions, func(state runstate.WatchState) bool {
 		switch state {
-		case runstate.WatchStopped, runstate.WatchIdle:
-			// A stopped session is gone, and an idle one is alive but choosing
-			// nothing — which is the same answer to "is anything being pulled".
+		case runstate.WatchStopped, runstate.WatchIdle, runstate.WatchBlocked:
+			// A stopped session is gone; idle and blocked sessions are alive but
+			// choosing nothing — the same answer to "is anything being pulled".
 			return false
 		default:
 			return true

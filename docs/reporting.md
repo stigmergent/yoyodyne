@@ -1032,7 +1032,7 @@ a workspace that refuses it costs the board and not one message.
 One message there is a state rather than an event, and it is the one an overnight
 asked for. A line that is **choosing nothing while work is ready** — intake held,
 everything held, a target branch the harness will not catch up to the remote's,
-the watch session idle, or no session running — says so again
+the watch session unable to start work, the watch session idle, or no session running — says so again
 every `--heartbeat`, an hour by default, naming what stopped it, how long that has
 been true, how much ready work is behind it, and how many promotions are waiting
 on the forge to publish them. That count is what a developer
@@ -1044,6 +1044,11 @@ that had not stopped. Everything else is a
 transition and is said once, which is right for a thread and wrong for a night:
 "intake is held" posted at 00:02 is ten hours stale by the time anybody reads it,
 and the silence after it is indistinguishable from a healthy queue or a dead sink.
+A session unable to start work repeats the cause recorded by the watch, such as
+`runs cannot start: uncommitted changes in the primary checkout (<file>); commit or stash to release`.
+That names the refusing file and what clears it, rather than describing the
+session as idle over an empty queue.
+
 It stops the moment the state clears, says nothing while a run is in flight, and
 stays completely silent on an idle line with nothing a run could take and nothing
 waiting on the forge — silence has to keep

@@ -684,7 +684,7 @@ func FromWatch(transition runstate.WatchTransition) (Notification, error) {
 	// A braked session is the one an operator has to do something about: the
 	// line has stopped and it stays stopped until intake is released.
 	severity := report.SeverityNote
-	if kind == KindWatchBraked {
+	if kind == KindWatchBraked || kind == KindWatchBlocked {
 		severity = report.SeverityWarning
 	}
 	// The runs the session could see and the conversation it is waiting on travel
@@ -718,6 +718,7 @@ var watchKinds = map[runstate.WatchState]Kind{
 	runstate.WatchWatching: KindWatchStarted,
 	runstate.WatchIdle:     KindWatchIdle,
 	runstate.WatchBraked:   KindWatchBraked,
+	runstate.WatchBlocked:  KindWatchBlocked,
 	runstate.WatchResumed:  KindWatchResumed,
 	runstate.WatchStopped:  KindWatchStopped,
 }

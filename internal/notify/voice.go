@@ -210,6 +210,13 @@ var harnessVoice = voice{
 		KindWatchStarted:             "A watch session is open on this product: {why}",
 		KindWatchIdle:                "The watch session started nothing at this poll and is polling again: {why}",
 		KindWatchBraked:              "The watch session is choosing nothing while intake is held: {why}",
+		KindWatchBlocked:             "The watch session can start nothing until the machine is put right: {why}",
+		KindWatchBlocked:             "There is work queued for me and nothing can be started on this machine: {why}",
+		KindWatchBlocked:             "No change can be started for me to judge, and it is the machine rather than the queue: {why}",
+		KindWatchBlocked:             "The queue has pullable work in it and nothing can be started from it: {why}",
+		KindWatchBlocked:             "Nothing I admit is being started, and admitting more would not change that: {why}",
+		KindWatchBlocked:             "Selection is choosing correctly and starting nothing, which is a state of the machine rather than of the queue: {why}",
+		KindWatchBlocked:             "The machine refused every start, and the queued work will be retried at the next poll: {why}",
 		KindWatchResumed:             "The watch session is choosing work again: {why}",
 		KindWatchStopped:             "The watch session ended: {why}",
 		KindWatchRedeploying:         "The watch session is restarting into the build deployed over it, having waited out every run it started: {why}",
@@ -739,6 +746,7 @@ var voices = map[string]voice{
 const nextMoveLead = " Next: "
 
 var nextMoves = map[Kind]string{
+	KindWatchBlocked: "the harness's — starts are retried at the next poll once the refusing condition clears.",
 	// Work sitting in the backlog. What follows is the harness choosing it, which
 	// is the one move in this whole table that happens without anybody deciding
 	// anything.
