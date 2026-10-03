@@ -1212,10 +1212,8 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	fired.Untraced = recorded.Untraced
 	// The harness's own reading of the forge joins the account after the role's
 	// turns, so what the role said is intact and what the harness noticed is
-	// stated beside it.
-	if recorded.Missed == nil {
-		problems = append(problems, t.noticeForge(ctx, task, &recorded))
-	}
+	// stated beside it, including when the conversation wait missed its turn.
+	problems = append(problems, t.noticeForge(ctx, task, &recorded))
 	// A pass whose own context was cancelled under it — the session carrying it
 	// stopped — did not fail on its own terms: it was stopped before it
 	// completed, and is recorded as a missed pass of the trigger that took it,

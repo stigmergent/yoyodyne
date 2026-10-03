@@ -219,8 +219,25 @@ func TestAProviderWaitLetsAScheduledPassRunAndPreservesItsTurn(t *testing.T) {
 	}
 }
 
+type conversationWaitForge struct {
+	notice runstate.ForgeNotice
+	calls  int
+}
+
+func (f *conversationWaitForge) Notice(ctx context.Context, reported map[int]bool) ([]runstate.ForgeNotice, error) {
+	f.calls++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if reported[f.notice.Number] {
+		return nil, nil
+	}
+	return []runstate.ForgeNotice{f.notice}, nil
+}
+
 // Both kinds of pass spend their own bounded wait behind a live turn. A miss
 // names its holder, counts no failed firing, and leaves event cursors unmoved.
+// The development manager's independent forge reading still records findings.
 func TestAScheduledPassBehindAHeldConversationIsMissedRatherThanFailed(t *testing.T) {
 	for _, role := range []domain.AgentRole{domain.RoleDevelopmentManager, domain.RoleProgramManager} {
 		t.Run(string(role), func(t *testing.T) {
@@ -244,7 +261,11 @@ func TestAScheduledPassBehindAHeldConversationIsMissedRatherThanFailed(t *testin
 				_, err := store.Claim(ctx, identity)
 				return nil, nil, err
 			}}
-			trigger := orchestrator.Trigger{Claims: sweeps, Reports: sweeps, Roles: roles}
+			forge := &conversationWaitForge{notice: runstate.ForgeNotice{
+				Number: 445, URL: "https://forge.invalid/pull/445", HeadBranch: "yoyodyne/yoyodyne-ifd-283/aaaaaaaa",
+				BaseBranch: "main", WorkItemID: "yoyodyne-ifd.283", ItemClosed: true,
+			}}
+			trigger := orchestrator.Trigger{Claims: sweeps, Reports: sweeps, Roles: roles, Forge: forge}
 			if role == domain.RoleProgramManager {
 				trigger.Instances = map[string]config.AgentConfig{identity.Agent: {Role: role, Triggers: config.Triggers{Every: config.Duration(time.Hour)}}}
 			} else {
@@ -254,9 +275,9 @@ func TestAScheduledPassBehindAHeldConversationIsMissedRatherThanFailed(t *testin
 			if err != nil || len(fired.Fired) != 1 || fired.Fired[0].NotStarted != "" {
 				t.Fatalf("Fire() = %+v, %v", fired, err)
 			}
-			recorded, _, err := sweeps.List()
-			if err != nil || len(recorded) != 1 {
-				t.Fatalf("List() = %+v, %v", recorded, err)
+			recorded, unreadable, err := sweeps.List()
+			if err != nil || len(recorded) != 1 || len(unreadable) != 0 {
+				t.Fatalf("List() = %+v, unreadable=%+v, %v", recorded, unreadable, err)
 			}
 			pass := recorded[0]
 			if pass.Missed == nil || pass.Missed.How != runstate.MissConversationHeld || pass.Failed || pass.NotStarted != "" || pass.Turns != 0 {
@@ -264,6 +285,20 @@ func TestAScheduledPassBehindAHeldConversationIsMissedRatherThanFailed(t *testin
 			}
 			if !strings.Contains(pass.Problem, fmt.Sprintf("process %d", os.Getpid())) || !strings.Contains(pass.Problem, "context deadline exceeded") {
 				t.Fatalf("miss did not name the holder and its bound: %s", pass.Problem)
+			}
+			if role == domain.RoleDevelopmentManager {
+				if forge.calls != 1 || pass.Result == nil || len(pass.Result.Findings) != 1 || len(pass.PullRequests) != 1 ||
+					pass.PullRequests[0].Number != forge.notice.Number || fired.Fired[0].Findings != 1 || fired.Fired[0].PullRequests != 1 {
+					t.Fatalf("the conversation miss lost the forge reading: calls=%d, pass=%+v, fired=%+v", forge.calls, pass, fired.Fired[0])
+				}
+				if !strings.Contains(pass.Result.Summary, "harness's own reading") || pass.Result.Findings[0].Issue != forge.notice.Finding().Issue {
+					t.Fatalf("the forge finding was lost or attributed to the role: %+v", pass.Result)
+				}
+				if rendered := renderSweep(pass); !strings.Contains(rendered, "MISSED PASS") || !strings.Contains(rendered, "pull request #445") {
+					t.Fatalf("the missed pass and independent forge finding are not both visible: %s", rendered)
+				}
+			} else if forge.calls != 0 || len(pass.PullRequests) != 0 || pass.Result != nil {
+				t.Fatalf("a program manager's miss read the forge: calls=%d, pass=%+v", forge.calls, pass)
 			}
 		})
 	}
