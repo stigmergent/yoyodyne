@@ -4045,7 +4045,6 @@ func (s Scheduler) fire(ctx context.Context, schedule *Schedule, pull Pull) recu
 			// notice already.
 			held.why = strings.TrimSpace(task.Problem)
 			held.refused = true
-			held.fired = task.Task
 		default:
 			held.why = fmt.Sprintf("the pass took its one firing for the recurring task %s", task.Task)
 			held.fired = task.Task
