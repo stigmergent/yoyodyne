@@ -29,7 +29,7 @@ func TestEverySlackPostFlagsRetiredWordsEvenWithoutATracker(t *testing.T) {
 		}
 	}
 	flagged := readmodel.ReadTextTerms("../..").Render("the posture changed")
-	if _, err := sink.post(context.Background(), Message{Text: flagged}); err != nil {
+	if _, err := sink.post(context.Background(), Message{Channel: "channel", Text: flagged}); err != nil {
 		t.Fatal(err)
 	}
 	if text := posts.requests[len(posts.requests)-1].Text; text != flagged {
