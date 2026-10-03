@@ -7141,8 +7141,10 @@ Four more things decide whether a wake is taken, and none of them is configured.
 An instance seen for the first time, or a stream it has just begun to watch, is
 positioned at that moment, so its first pass is handed what happened since it was
 watched rather than every run the product has recorded. A turn in flight on the
-instance's conversation skips the pass rather than queueing behind it, and the
-events wait past the cursor. A wake armed by events is not taken sooner than the
+instance's conversation queues the pass behind it, within the scheduled turn's
+fifteen-minute bound or the caller's earlier deadline. A wait that runs out is
+recorded as a missed pass naming the holder, and the events wait past the cursor.
+A wake armed by events is not taken sooner than the
 `5m` minimum after the instance's last pass, which also paces the retry of a pass
 that failed. And while the provider is answering nobody an armed wake waits
 rather than being recorded as a refusal on every pull; the schedule, which its

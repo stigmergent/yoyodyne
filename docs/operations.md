@@ -1139,10 +1139,13 @@ watching most needs to carry, and it must not weigh the same as checks passing.
 
 **A turn you typed waits anyway**, under the bounds above and on the same polling
 discipline: it sleeps the probe interval or the time left to the quoted reset,
-whichever is shorter, and asks the refused invocation again on the same provider
-session. Nothing the turn had already done is done twice — tracker actions
+whichever is shorter, and asks the refused invocation again. It releases the
+conversation while it waits, then takes it back and reloads its record before
+asking again, using the latest session if another turn has been taken. Nothing
+the turn had already done is done twice — tracker actions
 applied by a round that finished stay applied, because what is reissued is the
-single invocation the provider declined, with the prompt it was declined with.
+single invocation the provider declined, with its results carried into the
+conversation as it now stands.
 In an interactive conversation the wait is on the activity line, saying what is
 being waited out and when the turn will ask again — the end of this probe, which
 is the quoted reset only where that comes sooner; `yoyo chat --message` waits the
@@ -1595,6 +1598,11 @@ What the wait costs is nothing, and that is the whole of the rule:
   this path has, so a machine with nothing in its backlog and no watch running
   still finds the network back on its own. A served turn ends the wait; a
   refused one re-records it, and the next firing waits the interval again.
+- **A conversation you start waits within its message's budget.** It probes on
+  `execution.usage_limit_unknown_reset_pause`, sharing the same total waiting
+  budget as a usage window. It releases its conversation for each wait, records
+  the cause for `yoyo status`, and takes the hold back and reloads the record
+  before asking again. A cancelled wait writes no stale conversation state.
 - **The brake does not trip.** The failure-storm brake counts runs that blocked
   with nothing landing between them, and a dispatch or a run the provider turned
   away is neither. A brake tripped on this would summon the development manager
@@ -3719,6 +3727,10 @@ has the rule.
   which process it is, and a reading checks that the process is still there. A
   status that took the hold to find out — which is how this was first built —
   would refuse a chat that asked for its own conversation in the same instant.
+  A turn waiting out a provider usage window or an unreachable provider releases
+  that hold. Working lists it as waiting, naming the conversation, process, and
+  cause, separately from turns the provider is answering. The turn takes the
+  hold back and reloads the conversation before asking again.
 - **Not startable** is each admitted item that cannot be started now, with the
   refusal that stops it — the queue's own account where the queue has one, the children
   where an item's unfinished children already carry its execution, the directive
@@ -5738,7 +5750,10 @@ Five outcomes look similar in a listing and are not the same thing:
   pull that considers the instance, once the claim has stood five minutes with
   no ending and no turn in flight, and recorded then, starting when the pass was
   taken. `--json` marks each with `missed`, carrying the `trigger` (`schedule`,
-  `events`, or `summons`) and `how` (`unfired` or `cancelled`). The latest
+  `events`, or `summons`) and `how` (`unfired`, `cancelled`, or
+  `conversation-held`). The last is a pass whose bounded wait behind a turn in
+  flight ended before its first turn, naming the holder rather than recording
+  a failed firing. The latest
   missed pass since an instance's last completed one is also on its line in
   `yoyo status`, as the harness's move — see [the program managers'
   lines](#where-the-harness-stands-the-four-lines).

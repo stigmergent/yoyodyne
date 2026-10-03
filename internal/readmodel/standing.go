@@ -568,6 +568,10 @@ type Standing struct {
 
 	Working        []WorkingTurn `json:"working"`
 	WorkingProblem string        `json:"working_problem,omitempty"`
+	// Waiting turns have put down their conversation while no provider is
+	// serving them. They are visible without counting as turns in flight.
+	Waiting        []runstate.ConversationWait `json:"waiting,omitempty"`
+	WaitingProblem string                      `json:"waiting_problem,omitempty"`
 
 	NotStartable []Refused `json:"not_startable"`
 	// NotStartableGroups is the not-startable items counted by what they wait
@@ -721,6 +725,15 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 
 	standing.Working, standing.WorkingProblem = readWorking(sources, now)
+	if waits, ok := sources.Conversations.(interface {
+		WaitingTurns() ([]runstate.ConversationWait, error)
+	}); ok {
+		var err error
+		standing.Waiting, err = waits.WaitingTurns()
+		if err != nil {
+			standing.WaitingProblem = fmt.Sprintf("the waiting conversation turns could not be read: %v", err)
+		}
+	}
 
 	// The switches and the directives are read once and used twice: they are why
 	// admitted work is not being pulled, and they are themselves things waiting on

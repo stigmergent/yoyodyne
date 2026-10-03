@@ -210,6 +210,147 @@ func TestASaveTurnWithNothingToSaveIsRecorded(t *testing.T) {
 	}
 }
 
+func TestAProviderWaitPreservesTheSaveBeforeCompaction(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		savingMemory bool
+		cancel       bool
+		replace      bool
+	}{
+		{name: "waiting answer needs a save after another turn"},
+		{name: "save waits while another turn runs", savingMemory: true},
+		{name: "cancelled save preserves another turn", savingMemory: true, cancel: true},
+		{name: "save preserves a replacement conversation", savingMemory: true, replace: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			store := newTestStore(t, root)
+			memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			clock := &waitingClock{now: time.Now().UTC()}
+			const conclusion = "The scheduled pass found that checks take eleven minutes."
+			const pending = "The scheduled pass left a result for the waiting answer."
+			provider := &compactionBackend{speakingBackend: &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old-session", FinalText: "Learning."},
+				refusedForCapacity(clock.now.Add(30 * time.Minute)),
+				{SessionID: "session-after-pass", FinalText: strings.Repeat("earlier learning\n", 5000) +
+					memoryBlock(`{"memories":[{"action":"remember","memory":"slow-checks","text":"`+conclusion+`"}]}`)},
+				{SessionID: "session-after-pass", FinalText: "Nothing to save."},
+				{SessionID: "new-session", FinalText: "Here is the waiting answer."},
+			}}}
+			budget := 64 << 10
+			if test.savingMemory {
+				budget = 1
+			}
+			options := waitingOptions(compactingOptions(t, root, provider, budget), clock)
+			options.Store, options.Memories = store, memories
+			hold, err := store.Claim(context.Background(), options.identity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer hold.Release()
+			options.Hold = hold
+			provider.beforeRun = func(request backendapi.RunRequest) {
+				other, err := store.TryClaim(options.identity())
+				if other != nil {
+					other.Release()
+				}
+				if !errors.Is(err, runstate.ErrConversationHeld) {
+					t.Fatalf("provider invoked without the conversation hold: %v", err)
+				}
+			}
+			waits := 0
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var replacementID string
+			options.Sleep = func(ctx context.Context, duration time.Duration) error {
+				waits++
+				if waits != 1 || hold.Held() {
+					t.Fatal("the refused turn did not release its hold for one wait")
+				}
+				otherHold, err := store.Claim(ctx, options.identity())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer otherHold.Release()
+				otherOptions := options
+				otherOptions.Hold = otherHold
+				otherOptions.UsageLimitPause = UsageLimitPause{}
+				otherOptions.SessionBudgetBytes = 1 << 20
+				other := openTestSession(t, otherOptions)
+				if _, err := other.Send(ctx, "Scheduled pass."); err != nil {
+					t.Fatal(err)
+				}
+				latest, err := store.Load(options.identity())
+				if err != nil {
+					t.Fatal(err)
+				}
+				latest.PendingTrackerResults = pending
+				if err := store.Save(latest); err != nil {
+					t.Fatal(err)
+				}
+				if test.replace {
+					otherOptions.Fresh = true
+					replacementID = openTestSession(t, otherOptions).Evidence().ConversationID
+				}
+				if test.cancel {
+					cancel()
+					return ctx.Err()
+				}
+				return clock.sleep(ctx, duration)
+			}
+			session := openTestSession(t, options)
+			if _, err := session.Send(context.Background(), "First message."); err != nil {
+				t.Fatal(err)
+			}
+			reply, err := session.Send(ctx, "Waiting message.")
+			if test.cancel || test.replace {
+				if test.cancel && !errors.Is(err, context.Canceled) || test.replace && (err == nil || !strings.Contains(err.Error(), "another process started a new one")) {
+					t.Fatalf("interrupted save returned %v", err)
+				}
+				recorded, loadErr := store.Load(options.identity())
+				if loadErr != nil || len(provider.requests) != 3 || len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].Failure == "" {
+					t.Fatalf("interrupted save = %+v, %v; requests=%d; recorded=%+v, %v", reply, err, len(provider.requests), recorded, loadErr)
+				}
+				if test.cancel && (recorded.Turns != 2 || recorded.ProviderSessionID != "session-after-pass" || recorded.PendingTrackerResults != pending) {
+					t.Fatal("the cancelled save overwrote the turn taken while it waited")
+				}
+				if test.replace && (recorded.ConversationID != replacementID || recorded.Turns != 0 || recorded.ProviderSessionID != "") {
+					t.Fatal("the interrupted save overwrote a replacement conversation")
+				}
+				if waits, err := store.WaitingTurns(); err != nil || len(waits) != 0 {
+					t.Fatalf("interrupted wait remains recorded: %+v, %v", waits, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if waits != 1 || len(provider.requests) != 5 || session.state.Turns != 4 {
+				t.Fatalf("waits=%d, requests=%d, turns=%d", waits, len(provider.requests), session.state.Turns)
+			}
+			save, answer := provider.requests[3], provider.requests[4]
+			if save.SessionID != "session-after-pass" || !strings.Contains(save.Prompt, "compact this provider session next") ||
+				strings.Contains(save.Prompt, "Waiting message.") || strings.Contains(save.Prompt, rebuiltContextHeader) {
+				t.Fatalf("save did not resume the latest session before rebuilding: %+v", save)
+			}
+			if answer.SessionID != "" || !strings.Contains(answer.Prompt, conclusion) || !strings.Contains(answer.Prompt, pending) ||
+				strings.Count(answer.Prompt, "Waiting message.") != 1 {
+				t.Fatal("the rebuilt answer lost the later turn's memory or results, or repeated the waiting message")
+			}
+			if len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].Turn != 3 || reply.CompactionSaves[0].SessionID != "session-after-pass" {
+				t.Fatalf("save outcome does not name the turn that answered: %+v", reply.CompactionSaves)
+			}
+			if waits, err := store.WaitingTurns(); err != nil || len(waits) != 0 {
+				t.Fatalf("finished wait remains recorded: %+v, %v", waits, err)
+			}
+		})
+	}
+}
+
 func TestAFailedSaveLeavesTheOldSessionAndDoesNotRebuild(t *testing.T) {
 	t.Parallel()
 	for name, answer := range map[string]string{

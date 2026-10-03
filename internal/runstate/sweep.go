@@ -341,7 +341,8 @@ type Sweep struct {
 	Events map[string]int `json:"events,omitempty"`
 	// Missed marks a record that is a missed pass rather than a pass: a trigger
 	// fired and no pass followed it, or a pass was taken and cancelled before it
-	// completed. It names which trigger and which of the two, and Problem says
+	// completed, or its wait behind a held conversation ended before its turn.
+	// It names which trigger and how it was missed, and Problem says
 	// the cause where one is known. It is absent on every pass that completed or
 	// failed on its own terms, and on the misses recorded before it existed,
 	// which are read by their shape instead.
@@ -504,11 +505,14 @@ const (
 	// MissCancelled is a pass that was taken and stopped before it completed:
 	// its process cancelled it, or died carrying it and recorded nothing.
 	MissCancelled MissKind = "cancelled"
+	// MissConversationHeld is a due pass whose bounded wait behind a turn ended
+	// before it could ask the role anything.
+	MissConversationHeld MissKind = "conversation-held"
 )
 
 // Valid reports whether a kind is one of the vocabulary's.
 func (k MissKind) Valid() bool {
-	return k == MissUnfired || k == MissCancelled
+	return k == MissUnfired || k == MissCancelled || k == MissConversationHeld
 }
 
 // MissedPass is which trigger a missed pass was owed by, and how it was missed.

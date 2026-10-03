@@ -370,9 +370,8 @@ type Trigger struct {
 	Cursors PassCursors
 	Events  PassEvents
 	// Conversations says whether a turn is in flight on an instance's
-	// conversation, so a pass is skipped rather than queued behind it. Optional,
-	// and a trigger wired without it opens the conversation and records a pass
-	// that could not reach the role, as a recurring task does.
+	// conversation, so an unfinished pass is not mistaken for a dead one.
+	// A due pass queues when it opens the conversation, as a recurring task does.
 	Conversations InstanceConversations
 	// Breakage is where a missed cadence is said to somebody, as a report the
 	// harness files itself. Optional: a trigger wired without one still records
@@ -1098,6 +1097,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			recorded.ConversationID = conversation
 		}
 		if err != nil {
+			if turn == 0 && errors.Is(err, runstate.ErrConversationHeld) && f.trigger.Valid() {
+				recorded.Missed = &runstate.MissedPass{Trigger: f.trigger, How: runstate.MissConversationHeld}
+				problems = append(problems, fmt.Sprintf("the %s of %s missed its first turn because its wait for the conversation ended: %v; nothing was asked, and the next pass carries the work", f.trigger.Describe(), name, err))
+				// No provider turn failed. Keep the instance's cursor where it was
+				// and name the holder on the miss rather than raising a failure.
+				break
+			}
 			// A firing whose first turn never reached the provider is a failed
 			// firing, and the record says so by its cause rather than leaving it
 			// to read as a partial pass: nothing was asked, and nothing about the
@@ -1207,7 +1213,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// The harness's own reading of the forge joins the account after the role's
 	// turns, so what the role said is intact and what the harness noticed is
 	// stated beside it.
-	problems = append(problems, t.noticeForge(ctx, task, &recorded))
+	if recorded.Missed == nil {
+		problems = append(problems, t.noticeForge(ctx, task, &recorded))
+	}
 	// A pass whose own context was cancelled under it — the session carrying it
 	// stopped — did not fail on its own terms: it was stopped before it
 	// completed, and is recorded as a missed pass of the trigger that took it,
