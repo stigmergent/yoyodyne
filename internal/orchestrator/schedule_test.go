@@ -3279,8 +3279,8 @@ func TestTheDrainBoundLeavesARunAtItsPromotionToFinishAndKeepsFiring(t *testing.
 	// `yoyo status` names the session as restarting rather than idle.
 	declined := false
 	for _, transition := range sessions.recorded() {
-		if transition.state == runstate.WatchIdle && transition.draining != nil && transition.draining.PullSkipped &&
-			strings.Contains(transition.reason, "still going at its promotion or its checks, or still being stopped") && strings.Contains(transition.reason, "1 free seat(s)") {
+		if transition.state == runstate.WatchIdle && transition.draining != nil && transition.draining.BoundReached && transition.draining.PullSkipped &&
+			strings.Contains(transition.reason, "still going at its promotion") && strings.Contains(transition.reason, "1 free seat(s)") {
 			declined = true
 		}
 	}
