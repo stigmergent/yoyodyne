@@ -81,6 +81,11 @@ func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, repl
 	}); err != nil {
 		return err
 	}
+	// This internal turn is reported by its outcome, not as part of the answer.
+	// Keep its fragments and completion or failure markers off the answer stream.
+	stream := s.stream
+	s.stream = nil
+	defer func() { s.stream = stream }()
 	answer, err := s.takeTurn(ctx, notice, "", nil, true)
 	reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
 	s.turnCuts = nil

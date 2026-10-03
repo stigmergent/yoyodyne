@@ -33,7 +33,71 @@ func (b *compactionBackend) Run(ctx context.Context, request backendapi.RunReque
 	if b.beforeRun != nil {
 		b.beforeRun(request)
 	}
-	return b.speakingBackend.Run(ctx, request)
+	result, err := b.speakingBackend.Run(ctx, request)
+	if err == nil && request.ReplySink != nil {
+		request.ReplySink(result.FinalText)
+	}
+	return result, err
+}
+
+func TestACompactionSaveIsNotPartOfTheStreamedAnswer(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		save   backendapi.RunResult
+		writes int
+	}{
+		{name: "nothing to save", save: backendapi.RunResult{SessionID: "old", FinalText: "Nothing to save."}},
+		{
+			name: "recorded memory",
+			save: backendapi.RunResult{SessionID: "old", FinalText: "I saved a conclusion.\n\n" +
+				memoryBlock(`{"memories":[{"action":"remember","memory":"slow-checks","text":"The race check needs eleven minutes."}]}`)},
+			writes: 1,
+		},
+		{name: "failed save", save: backendapi.RunResult{IsError: true, FinalText: "I was saving a conclusion when the provider failed."}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider := &compactionBackend{speakingBackend: &speakingBackend{results: []backendapi.RunResult{
+				{SessionID: "old", FinalText: "First answer."},
+				test.save,
+				{SessionID: "new", FinalText: "Here is the waiting answer.\n\nThe checks come first."},
+			}}}
+			options := compactingOptions(t, root, provider, 1)
+			options.Memories = memories
+			session := openTestSession(t, options)
+			if _, err := session.Send(context.Background(), "First message."); err != nil {
+				t.Fatal(err)
+			}
+			var displayed bytes.Buffer
+			session.stream = newReplyStream(&displayed, dressedTheme())
+			reply, err := session.Send(context.Background(), "Waiting message.")
+			if (err != nil) != test.save.IsError {
+				t.Fatalf("Send() error = %v, want failed save %v", err, test.save.IsError)
+			}
+			session.stream.end()
+			want := ""
+			if reply.Text != "" {
+				want = replyOpening + reply.Text + "\n\n"
+			}
+			if got := escapes.ReplaceAllString(displayed.String(), ""); got != want {
+				t.Fatalf("displayed answer = %q, want only the returned answer %q", got, want)
+			}
+			if len(reply.Saved) != test.writes || len(reply.CompactionSaves) != 1 {
+				t.Fatalf("save outcome missing: saved=%+v, turns=%+v", reply.Saved, reply.CompactionSaves)
+			}
+			var reported bytes.Buffer
+			session.reportCompactionSaves(&reported, reply)
+			if !strings.HasPrefix(reported.String(), "[session] ") {
+				t.Fatalf("the save outcome was not reported separately: %q", reported.String())
+			}
+		})
+	}
 }
 
 func TestEveryMemoryKeepingRoleSavesBeforeTheSessionIsRebuilt(t *testing.T) {
