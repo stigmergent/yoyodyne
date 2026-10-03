@@ -141,6 +141,8 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
     developer.md
     reviewer.md
     program-manager.md # copied for a program manager you configure later
+  roles/               # optional, protected role definitions; loaded but inert
+    specialist.yaml
 ```
 
 Everything under `.yoyodyne/` is machine-independent and belongs in version
@@ -290,6 +292,61 @@ harness's, because those are what the `execution.usage_limit_*` settings below
 mean. [Provider plugins](provider-plugins.md) is the format and its limits — in
 particular that a provider speaking a protocol no compiled adapter speaks needs
 an adapter rather than a declaration.
+
+### Protected role definitions
+
+A person may define a named bundle in `.yoyodyne/roles/<name>.yaml`. The name
+is the file's name without `.yaml`, using lowercase letters and digits in
+hyphen-separated words and beginning with a letter. Each definition extends
+exactly one of the six shipped roles and lists the registered capability
+primitives it adds and removes:
+
+```yaml
+# .yoyodyne/roles/specialist.yaml
+extends: architect
+tools:
+  add:
+    - backlog.order
+  remove:
+    - repository.list
+```
+
+`tools`, `add`, and `remove` may be omitted when they change nothing. A removal
+must name a primitive the shipped base role holds. An unknown primitive in
+either list, a duplicate, a primitive in both lists, an unknown key, or an
+`extends` that names no shipped role or more than one refuses the file. The
+refusal names the file and the primitive or field that is wrong. A definition
+cannot extend another definition, and one file holds one YAML document, at most
+32 KiB.
+
+**The gates cannot be added as tools.** Checks and review evidence
+(`checks.execute`, `review.verdict`), publication (`forge.publish`), integration
+and its lease (`target-branch.mutate`, `promotion.lease`), and the run operations
+`worktree.mutate`, `provider.invoke`, and `run-state.mutate` are refused as
+additions. Gate-evidence minting and recording a human gate have no registered
+tool primitive, so names attempting either are refused too. The shipped base
+role's existing authority is unaffected by those addition rules.
+
+**Loading is validation, and gives no agent authority.** Configuration loading
+reads the definitions even when no agent names them, and an invalid definition
+refuses the configuration whole. A valid file remains inert: it changes no
+agent's capabilities, contract, or effective configuration revision, and an
+agent's `role` still accepts only a shipped role. Operator activation that pins
+the file's content digest, and binding an agent to the activated definition,
+are subsequent work; neither is available in this loader. A persona grants
+nothing through this file or any other.
+
+Definitions live beside the configuration in `roles/`, following the same
+directory order as personas for an external or legacy configuration. Where
+there are two possible directories, the first file for a name wins, and a bad
+first file never falls back to the second. A missing directory is allowed;
+dangling links, files that are not regular files, and links escaping the roles
+directory are refused.
+
+**Only a person writes these files.** The
+[protected-path gate](#protected-paths-in-a-developers-change) refuses changes
+under `.yoyodyne/roles/` from a developer run whatever its work item grants.
+Loading a definition creates no exception to that boundary.
 
 ### A program manager instance
 
@@ -5882,6 +5939,12 @@ These are all errors, reported before any work is claimed:
 - a `role` that is not one of the harness's six, which is how a typo in an
   agents block is caught: the message names what was written and lists what could
   have been meant. Adding a role is a change to the harness, not to this file;
+- a [role definition](#protected-role-definitions) with no single shipped base
+  role, an unknown primitive or key, duplicate or conflicting tool lists, a
+  removal the base role does not hold, or an addition of checks, review evidence,
+  publication, integration, its lease, or a run operation; and a definition
+  larger than 32 KiB, with more than one YAML document, or reached through a
+  broken or escaping link;
 - a role and backend combination the provider does not support, including a
   project-declared provider asked to serve a role it did not declare;
 - a provider asked to hold tool access it did not declare, such as a developer on

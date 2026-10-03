@@ -47,6 +47,9 @@ type Resolved struct {
 	Path    string            `json:"path,omitempty"`
 	Sources []string          `json:"sources"`
 	Origins map[string]string `json:"origins"`
+	// RoleDefinitions are validated files, not effective authority. Loading one
+	// never changes an agent's role, capabilities, or configuration revision.
+	RoleDefinitions map[string]RoleDefinition `json:"role_definitions,omitempty"`
 }
 
 // OriginKeys lists every recorded key in a stable order.
@@ -96,6 +99,10 @@ func LoadResolved(path string) (Resolved, error) {
 	}
 	resolved.Path = absolute
 	if err := resolved.Config.Validate(); err != nil {
+		return Resolved{}, err
+	}
+	resolved.RoleDefinitions, err = LoadRoleDefinitions(absolute)
+	if err != nil {
 		return Resolved{}, err
 	}
 	return resolved, nil
