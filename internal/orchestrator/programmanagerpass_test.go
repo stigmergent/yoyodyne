@@ -318,21 +318,21 @@ func TestAPausedHarnessPassesNoInstance(t *testing.T) {
 
 // A turn in flight on the instance's conversation skips the pass, and the
 // events wait past the cursor for the pass after.
-func TestATurnInFlightSkipsThePass(t *testing.T) {
+func TestATurnInFlightStillDispatchesTheDuePassToItsConversation(t *testing.T) {
 	t.Parallel()
 
 	h := newPassHarness(t, instance(time.Hour, config.TriggerLandings))
 	h.trigger.Conversations = busyConversations{instanceName: true}
 
-	if fired := h.fire(t, recurringNow); len(fired.Fired) != 0 || len(h.role.messages) != 0 {
-		t.Fatalf("fired = %+v, want a pass skipped while a turn is in flight", fired.Fired)
+	if fired := h.fire(t, recurringNow); len(fired.Fired) != 1 || len(h.role.messages) != 1 {
+		t.Fatalf("fired = %+v, want the due pass dispatched to queue for its conversation", fired.Fired)
 	}
-	if _, found, err := h.sweeps.Find(instanceName); err != nil || found {
-		t.Errorf("Find() = %v, %v, want no claim taken for a skipped pass", found, err)
+	if _, found, err := h.sweeps.Find(instanceName); err != nil || !found {
+		t.Errorf("Find() = %v, %v, want the due pass claimed", found, err)
 	}
 	h.trigger.Conversations = busyConversations{}
-	if fired := h.fire(t, recurringNow.Add(time.Minute)); len(fired.Fired) != 1 {
-		t.Errorf("fired = %+v, want the pass once the turn is over", fired.Fired)
+	if fired := h.fire(t, recurringNow.Add(time.Minute)); len(fired.Fired) != 0 {
+		t.Errorf("fired = %+v, want no second pass within the cadence", fired.Fired)
 	}
 }
 

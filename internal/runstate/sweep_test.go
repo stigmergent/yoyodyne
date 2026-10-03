@@ -597,8 +597,8 @@ func TestASettledProblemIsCutOnARuneBoundary(t *testing.T) {
 }
 
 // A missed pass is marked with the trigger that owed it and how it was missed,
-// both from their vocabularies, and carries no account: a pass that ended in
-// one completed. A summoned claim says so until the cadence claims again, and
+// both from their vocabularies, and carries no role account: a pass that ended
+// in one completed. A summoned claim says so until the cadence claims again, and
 // a claim reads as settled only once its ending is written.
 func TestAMissedPassIsMarkedAndItsClaimSaysHowItWasTaken(t *testing.T) {
 	t.Parallel()
@@ -636,6 +636,42 @@ func TestAMissedPassIsMarkedAndItsClaimSaysHowItWasTaken(t *testing.T) {
 	claimed, err := store.Claim(context.Background(), "reliability-pm", time.Hour, start.Add(time.Hour))
 	if err != nil || claimed.Summoned {
 		t.Fatalf("Claim() = %+v, %v; want the cadence's claim not summoned", claimed, err)
+	}
+}
+
+func TestAConversationHeldMissMayCarryOnlyTheHarnessForgeFindings(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)
+	notice := ForgeNotice{Number: 445, HeadBranch: "yoyodyne/yoyodyne-ifd-283/aaaaaaaa", ItemClosed: true, WorkItemID: "yoyodyne-ifd.283"}
+	missed := Sweep{
+		SchemaVersion: SweepSchemaVersion, ProductID: "example", Task: "a-sweep", Role: "development-manager",
+		StartedAt: start, EndedAt: start.Add(time.Minute), Problem: "the conversation wait ended before its first turn",
+		Missed:       &MissedPass{Trigger: PassTriggerSchedule, How: MissConversationHeld},
+		Result:       &sweep.Result{Status: sweep.StatusComplete, Summary: "The harness's own reading of the forge.", Findings: []sweep.Finding{notice.Finding()}},
+		PullRequests: []ForgeNotice{notice},
+	}
+	if err := missed.Validate(); err != nil {
+		t.Fatalf("the independent forge findings could not be recorded with a conversation miss: %v", err)
+	}
+	for name, spoil := range map[string]func(*Sweep){
+		"role took a turn":    func(s *Sweep) { s.Turns = 1 },
+		"another role":        func(s *Sweep) { s.Role = "program-manager" },
+		"another miss":        func(s *Sweep) { s.Missed = &MissedPass{Trigger: PassTriggerSchedule, How: MissCancelled} },
+		"notice not recorded": func(s *Sweep) { s.PullRequests = nil },
+		"role finding":        func(s *Sweep) { s.Result.Findings[0].Issue = "The role found another problem." },
+		"role question":       func(s *Sweep) { s.Result.Questions = []string{"Should this request be closed?"} },
+		"work filed":          func(s *Sweep) { s.Result.Findings[0].Filed = []string{"yoyodyne-ifd.283"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spoiled := missed
+			account := *missed.Result
+			account.Findings = append([]sweep.Finding(nil), missed.Result.Findings...)
+			spoiled.Result = &account
+			spoil(&spoiled)
+			if err := spoiled.Validate(); err == nil {
+				t.Fatal("a missed pass accepted an account beyond the independent forge reading")
+			}
+		})
 	}
 }
 

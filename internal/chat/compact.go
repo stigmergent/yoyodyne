@@ -40,6 +40,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
 )
 
 // SessionBudgetBytes is the size past which a provider session is compacted
@@ -67,6 +68,23 @@ You have one turn on this session to save what you have learned through your yoy
 `, maxRebuiltMessages, maxRebuiltContextBytes>>10)
 }
 
+// memorySaveRequest resumes only the endpoint holding the current session,
+// including when another turn moved that session while the save was waiting.
+func (s *Session) memorySaveRequest(request backend.RunRequest) (backend.RunRequest, modelfailover.Policy) {
+	endpoint := backend.Endpoint{Provider: s.state.Backend, AccountAlias: s.state.AccountAlias, Model: s.state.ProviderModel}
+	if endpoint.AccountAlias == "" {
+		// Older conversation records did not name the account.
+		endpoint.AccountAlias = s.options.AccountAlias
+	}
+	request.SessionID = s.state.ProviderSessionID
+	request.Model, request.AccountAlias, request.Effort = endpoint.Model, endpoint.AccountAlias, s.state.ProviderEffort
+	request.AccountConfigDir = ""
+	if s.alternateSession() != "" {
+		request.AccountConfigDir = s.options.FailoverAccountConfigDir
+	}
+	return request, modelfailover.Policy{Endpoint: endpoint}
+}
+
 func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, reply *Reply) error {
 	// Do not spend a save turn when the record cannot support the rebuild.
 	if _, err := s.options.Store.LoadEvents(s.state.ConversationID); err != nil {
@@ -92,6 +110,9 @@ func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, repl
 	reply.SpendProblem = appendProblem(reply.SpendProblem, s.spendProblem)
 	reply.FailoverProblem = appendProblem(reply.FailoverProblem, s.failoverProblem)
 	if err == nil {
+		// A turn taken while this save waited may have advanced both the session
+		// and its turn count. Report the save that actually answered.
+		save.SessionID, save.Turn = s.state.ProviderSessionID, s.state.Turns
 		var prose string
 		var writes []MemoryWrite
 		prose, writes, err = extractMemoryWrites(answer)
@@ -135,6 +156,12 @@ func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, repl
 		save.Failure = singleLine(err.Error(), maxTrackerFailureBytes)
 	}
 	reply.CompactionSaves = append(reply.CompactionSaves, save)
+	var interrupted *interruptedProviderWaitError
+	if errors.As(err, &interrupted) {
+		// The wait could not take back this conversation's record. Keep the
+		// failure on the reply without overwriting a turn taken while it waited.
+		return err
+	}
 	return errors.Join(err, s.emit(eventType, save))
 }
 

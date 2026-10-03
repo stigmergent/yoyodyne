@@ -788,6 +788,7 @@ func (i ConversationIdentity) validate() error {
 // role-keyed layout this replaced put it, so no existing conversation moves.
 type ConversationStore struct {
 	root      string
+	anchor    string
 	productID domain.ProductID
 	// queued is told, once per take, that a claim found the conversation held
 	// and is waiting its turn. It is nil in every store the harness builds and
@@ -803,8 +804,13 @@ func NewConversationStore(root string, productID domain.ProductID) (*Conversatio
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	stateRoot, anchor, err := confinedStateRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve the conversation state root: %w", err)
+	}
 	return &ConversationStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "conversations"),
+		root:      filepath.Join(stateRoot, "products", string(productID), "conversations"),
+		anchor:    anchor,
 		productID: productID,
 	}, nil
 }
@@ -836,6 +842,9 @@ const (
 // reads is written wherever the lock is taken rather than only where it was
 // first taken — a turn taken back at the prompt is as visible as the first one.
 func (s *ConversationStore) take(ctx context.Context, identity ConversationIdentity, wait bool) (*Lease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return nil, fmt.Errorf("create conversation directory: %w", err)
 	}
@@ -848,9 +857,26 @@ func (s *ConversationStore) take(ctx context.Context, identity ConversationIdent
 		return nil, fmt.Errorf("open conversation lease: %w", err)
 	}
 	if wait {
-		if err := queueForStateFile(ctx, file, s.queued); err != nil {
+		var holder conversationHolder
+		var contended bool
+		queued := func() {
+			contended = true
+			path, _ := s.holderFile(identity)
+			holder, _ = s.readHolder(path, identity)
+			if s.queued != nil {
+				s.queued()
+			}
+		}
+		if err := queueForStateFile(ctx, file, queued); err != nil {
 			file.Close()
-			return nil, fmt.Errorf("take up the %s conversation: %w", identity, err)
+			if !contended || (!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)) {
+				return nil, fmt.Errorf("take up the %s conversation: %w", identity, err)
+			}
+			path, _ := s.holderFile(identity)
+			if latest, readErr := s.readHolder(path, identity); readErr == nil {
+				holder = latest
+			}
+			return nil, &ConversationHeldError{Identity: identity, PID: holder.PID, HeldAt: holder.HeldAt, Cause: err}
 		}
 	} else {
 		held, err := tryLockStateFile(file)
@@ -860,7 +886,9 @@ func (s *ConversationStore) take(ctx context.Context, identity ConversationIdent
 		}
 		if !held {
 			file.Close()
-			return nil, fmt.Errorf("the %s conversation is %w", identity, ErrConversationHeld)
+			path, _ := s.holderFile(identity)
+			holder, _ := s.readHolder(path, identity)
+			return nil, &ConversationHeldError{Identity: identity, PID: holder.PID, HeldAt: holder.HeldAt}
 		}
 	}
 	// The label names what is owned, so a release that failed says which

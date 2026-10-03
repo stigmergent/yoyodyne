@@ -193,15 +193,6 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 	if !triggers.Defined() {
 		return Fired{}, false, nil
 	}
-	if t.Conversations != nil {
-		busy, err := t.Conversations.InFlight(agent)
-		if err != nil {
-			return Fired{}, false, fmt.Errorf("read whether a turn is in flight on the program manager instance %s's conversation: %w", agent, err)
-		}
-		if busy {
-			return Fired{}, false, nil
-		}
-	}
 	// A pass that was claimed and never ended is recorded as missed before the
 	// next one is claimed over it.
 	unfinished := t.unfinished(ctx, agent)
@@ -388,11 +379,18 @@ const UnfinishedPassGrace = config.MinRecurringInterval
 // instance's first pass on 2026-09-26 was lost with nothing saying it.
 //
 // It needs the instance's conversation to be readable, because a claim with no
-// ending is also a pass another process is carrying; the caller has already
-// found no turn in flight there. It reports what stopped it recording, and
+// ending is also a pass another process is carrying; this must find no turn in
+// flight there. It reports what stopped it recording, and
 // never stops the pass being considered.
 func (t Trigger) unfinished(ctx context.Context, agent string) error {
 	if t.Conversations == nil {
+		return nil
+	}
+	busy, err := t.Conversations.InFlight(agent)
+	if err != nil {
+		return fmt.Errorf("read whether a turn is in flight on the program manager instance %s's conversation: %w", agent, err)
+	}
+	if busy {
 		return nil
 	}
 	claimed, found, err := t.Claims.Find(agent)

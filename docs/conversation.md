@@ -1192,6 +1192,16 @@ does the opposite and comes back later instead of waiting: nothing has been aske
 of the agent yet, so there is nothing to lose by trying again, and a delivery that
 waited would hold its budget open for the length of somebody else's turn.
 
+A turn waiting out a provider usage window, or waiting for a provider nobody
+can reach, records the wait and releases the conversation while it sleeps.
+Before asking again it takes the conversation back and re-reads its record,
+so a turn taken during that wait is continued from. `yoyo status` names the
+waiting turn, its process, and what it waits on. A recurring pass or program
+manager pass queues behind a turn still in flight. Its wait shares the scheduled
+turn's fifteen-minute bound, or the caller's earlier deadline; if that runs out,
+the pass is recorded as missed, naming the holder, with no failed firing before
+its first turn. The next pass carries what the missed one would have read.
+
 The exception is an agent configured to
 [hold side threads](configuration.md#queueing-a-question-or-holding-it-on-a-side-thread).
 A `--message` that finds such an agent mid-turn is answered beside that turn
@@ -2547,11 +2557,11 @@ can wait on capacity for hours, and that is a thing you choose at a terminal
 rather than something a channel does to you while you watch a thread.
 
 That bound is on your wait rather than on the turn: a turn the channel stopped
-waiting for may still be running, since a provider sleeping out a usage limit
-never hears a cancellation. It holds the conversation until it lands, and the
-thread says so plainly rather than sending you somewhere that will not answer
-either. The next thing you say from the channel is answered with the Lead Product
-Manager being busy. `yoyo chat` is not refused, and it does not show you a turn
+waiting for may still be running. A turn sleeping out a provider usage window
+releases the conversation while it waits, and takes it back before asking again;
+other messages can reach the Lead Product Manager during that wait. While a
+provider is actively answering, the turn holds the conversation and a new channel
+message is answered with the Lead Product Manager being busy. `yoyo chat` is not refused, and it does not show you a turn
 that is still being written: it queues behind that turn, says that another
 process is mid-turn and that it is waiting, and then continues the same
 conversation from wherever the turn got to. `yoyo agent list` says whether the

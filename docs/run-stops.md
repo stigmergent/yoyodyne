@@ -383,7 +383,7 @@ These are the Go expressions behind the figures above, held by the value test.
 | `internal/beads/client.go` | `defaultTimeout` | `30 * time.Second` |
 | `internal/chat/chat.go` | `MaxOperatorMessageBytes` | `32 << 10` |
 | `internal/chat/chat.go` | `MaxPassMessageBytes` | `256 << 10` |
-| `internal/chat/chat.go` | `defaultTurnTimeout` | `15 * time.Minute` |
+| `internal/chat/chat.go` | `DefaultTurnTimeout` | `15 * time.Minute` |
 | `internal/config/recurring.go` | `DefaultRecurringTurns` | `3` |
 | `internal/config/recurring.go` | `MaxRecurringTurns` | `10` |
 | `internal/config/recurring.go` | `MaxRecurringPromptLen` | `16 << 10` |

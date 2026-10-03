@@ -274,13 +274,21 @@ func slotOf(run RunningRun) string {
 
 func (s Standing) renderWorking() string {
 	if s.WorkingProblem != "" && len(s.Working) == 0 {
-		return unreadable("Working", s.WorkingProblem)
+		return unreadable("Working", s.WorkingProblem) + s.renderWaitingTurns()
 	}
 	var rendered strings.Builder
 	if len(s.Working) == 0 {
-		rendered.WriteString("Working: nothing\n")
+		if len(s.Waiting) == 0 {
+			rendered.WriteString("Working: nothing\n")
+		} else {
+			fmt.Fprintf(&rendered, "Working (%s waiting):\n", count(len(s.Waiting), "conversation turn"))
+		}
 	} else {
-		fmt.Fprintf(&rendered, "Working (%s):\n", count(len(s.Working), "conversation"))
+		waiting := ""
+		if len(s.Waiting) > 0 {
+			waiting = "; " + count(len(s.Waiting), "turn") + " waiting"
+		}
+		fmt.Fprintf(&rendered, "Working (%s%s):\n", count(len(s.Working), "conversation"), waiting)
 		listed, further := bound(len(s.Working))
 		for _, turn := range s.Working[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s, a turn in flight for %s after %s\n",
@@ -293,6 +301,22 @@ func (s Standing) renderWorking() string {
 	// was told was partial is a count somebody trusts.
 	if s.WorkingProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.WorkingProblem)
+	}
+	return rendered.String() + s.renderWaitingTurns()
+}
+
+func (s Standing) renderWaitingTurns() string {
+	var rendered strings.Builder
+	if len(s.Waiting) > 0 {
+		listed, further := bound(len(s.Waiting))
+		for _, wait := range s.Waiting[:listed] {
+			fmt.Fprintf(&rendered, "  %s — conversation %s, process %d: %s; this turn releases the conversation while it waits\n",
+				wait.Agent, wait.ConversationID, wait.PID, wait.Reason)
+		}
+		rendered.WriteString(remainder(further, "waiting turn"))
+	}
+	if s.WaitingProblem != "" {
+		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.WaitingProblem)
 	}
 	return rendered.String()
 }

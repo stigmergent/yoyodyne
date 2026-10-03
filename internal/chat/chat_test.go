@@ -409,7 +409,7 @@ func TestConversationResumesAcrossProcessRestarts(t *testing.T) {
 	}
 }
 
-func TestOpenStartsANewConversationWhenAskedAndWhenNothingIsResumable(t *testing.T) {
+func TestOpenStartsANewConversationOnlyWhenAsked(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -441,8 +441,9 @@ func TestOpenStartsANewConversationWhenAskedAndWhenNothingIsResumable(t *testing
 		t.Fatal("a new conversation was not briefed")
 	}
 
-	// A record with no provider session cannot be continued, so it is replaced
-	// rather than silently resumed into nothing.
+	// The record survives even without a provider session. This matters when
+	// the first invocation was refused and put down its hold to wait: another
+	// turn continues that same conversation instead of replacing it.
 	stranded := newTestStore(t, root)
 	recorded, err := stranded.Load(runstate.ConversationIdentity{Agent: string(domain.RoleProductManager), Role: domain.RoleProductManager})
 	if err != nil {
@@ -455,8 +456,8 @@ func TestOpenStartsANewConversationWhenAskedAndWhenNothingIsResumable(t *testing
 	replacementOptions := testOptions(t, provider)
 	replacementOptions.Store = newTestStore(t, root)
 	replacement := openTestSession(t, replacementOptions)
-	if replacement.Resumed() {
-		t.Fatal("a conversation with no provider session was reported as resumed")
+	if !replacement.Resumed() || replacement.Evidence().ConversationID != recorded.ConversationID {
+		t.Fatal("a conversation with no provider session lost its durable record")
 	}
 }
 

@@ -113,7 +113,9 @@ const (
 	maxNoticeBytes    = 512
 )
 
-const defaultTurnTimeout = 15 * time.Minute
+// DefaultTurnTimeout bounds a provider turn and a scheduled turn's wait to
+// acquire its conversation. A caller's earlier deadline still takes precedence.
+const DefaultTurnTimeout = 15 * time.Minute
 
 // quietHoldWait is how long taking the conversation back may take before the
 // operator is told what is holding it up. Below it the wait is shorter than the
@@ -207,11 +209,9 @@ type Options struct {
 	Backend Backend
 	Store   Store
 	// Hold is this process's claim on the conversation, already taken by the
-	// caller. Only an interactive conversation ever puts it down: it does so
-	// while the operator is typing and takes it up again for each turn,
-	// re-reading the durable record whenever it had let go of it. A single
-	// message carries one too and never releases it, so it holds from end to end
-	// exactly as every conversation did before the prompt learned to let go.
+	// caller. An interactive conversation puts it down while the operator is
+	// typing, and any turn waiting for a provider puts it down for that wait.
+	// Both take it back and re-read the durable record before continuing.
 	//
 	// It is optional because a caller may have no claim to hand over — an
 	// embedder, or a test driving a session directly. Such a conversation is
@@ -1028,10 +1028,9 @@ func (r Reply) AdmittedWork() []string {
 	return admitted
 }
 
-// Open loads or starts a role's conversation. A recorded conversation with a
-// provider session is resumed; anything else starts a new one, because a
-// conversation with no session cannot be continued and pretending otherwise
-// would silently drop what was said before.
+// Open loads or starts a role's conversation. A recorded conversation is
+// continued even when its provider holds no session: later turns rebuild from
+// the durable record. Only Fresh or an absent record starts a new conversation.
 func Open(options Options) (*Session, error) {
 	if err := options.validate(); err != nil {
 		return nil, err
@@ -1048,7 +1047,7 @@ func Open(options Options) (*Session, error) {
 	existing, err := options.Store.Load(options.identity())
 	switch {
 	case err == nil:
-		if !options.Fresh && existing.ProviderSessionID != "" {
+		if !options.Fresh {
 			session.adopt(existing)
 			session.resumed = true
 			return session, nil
@@ -1162,16 +1161,16 @@ func (s *Session) adopt(existing runstate.Conversation) {
 }
 
 // reload re-reads the durable record after the conversation was put down at the
-// prompt. Whatever this process was not holding, something else may have
-// written: another process may have taken a turn, decided a proposal, or left
-// the agent something to be told, and carrying on from a stale copy would
+// prompt or during a provider wait. Whatever this process was not holding,
+// something else may have written: another process may have taken a turn,
+// decided a proposal, or left the agent something to be told, and carrying on
+// from a stale copy would
 // overwrite all of it — including the provider session, which would put this
 // conversation back onto a session the agent has already moved past.
 //
 // A conversation with no claim to put down needs none of this, and does none of
-// it: nothing else could have written while it was held. That is a session a
-// caller drove directly rather than a single message, which carries a claim and
-// holds it from end to end without ever reaching here.
+// it: that caller drove the session directly rather than sharing a held
+// conversation with other processes.
 func (s *Session) reload() error {
 	if s.options.Hold == nil {
 		return nil
@@ -1707,6 +1706,10 @@ Carry on answering the operator using these results. Say what you did, including
 // ahead of its answer; the prompt itself is not recorded, because the picture and
 // the notices it carries are recorded already, elsewhere, and once.
 func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, reply *Reply, savingMemory bool) (string, error) {
+	retryMessage := operatorMessage
+	if retryMessage == "" {
+		retryMessage = "Continue the interrupted turn using these results:\n\n" + prompt
+	}
 	// The operator's pause is read before every turn, including the further rounds
 	// one message takes: each of them is its own invocation, and a pause placed
 	// while the product manager was working on tracker results has to reach the
@@ -1743,8 +1746,15 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		due = s.compactionDue(systemPrompt, prompt)
 		if due != nil && s.keepsMemory() {
 			memoriesBeforeSave := len(reply.Memories)
+			turnsBeforeSave := s.state.Turns
 			if err := s.saveBeforeCompaction(ctx, *due, reply); err != nil {
 				return "", err
+			}
+			if s.state.Turns > turnsBeforeSave+1 {
+				// The save waited while another turn ran. Its pending results and
+				// picture belong in the waiting answer as well as its memories.
+				s.carried = nil
+				turnPrompt = s.turnPrompt(retryMessage, nil)
 			}
 			// The save turn may have revised or retired memories. Build this
 			// briefing after its writes, and include the results it is owed.
@@ -1856,21 +1866,14 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		ReplySink: s.stream.write,
 	}
 	policy := s.failoverPolicy()
+	configuredProvider := provider
 	if savingMemory {
 		// Only the endpoint holding the old session can save conclusions that
 		// have never reached the record. A refusal must not rebuild it first.
-		endpoint := backend.Endpoint{Provider: s.state.Backend, AccountAlias: s.state.AccountAlias, Model: s.state.ProviderModel}
-		if endpoint.AccountAlias == "" {
-			// Older conversation records did not name the account.
-			endpoint.AccountAlias = request.AccountAlias
-		}
-		request.SessionID = s.state.ProviderSessionID
-		request.Model, request.AccountAlias, request.Effort = endpoint.Model, endpoint.AccountAlias, s.state.ProviderEffort
+		request, policy = s.memorySaveRequest(request)
 		if s.alternateSession() != "" {
 			provider = s.meteredFailover()
-			request.AccountConfigDir = s.options.FailoverAccountConfigDir
 		}
-		policy = modelfailover.Policy{Endpoint: endpoint}
 	}
 	// A conversation that has taken turns and has no session to resume is one that
 	// crossed providers and is now being asked back on its own — the window it was
@@ -1897,9 +1900,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	}
 	// The invocation is what waits out a provider with no capacity for it, so it
 	// is taken in a loop: a refused attempt that the harness will wait for is the
-	// same attempt asked again, with the same prompt, on the same provider
-	// session. What this round already did to the tracker was done by rounds that
-	// finished and is not repeated by a reissue.
+	// same attempt asked again, continuing from the latest conversation record
+	// where another turn ran during the wait. What this round already did to the
+	// tracker was done by rounds that finished and is not repeated by a reissue.
 	var (
 		result backend.RunResult
 		served modelfailover.Served
@@ -1976,7 +1979,8 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 			}
 		}
 		limit := refusedForUsageLimit(result, err)
-		if limit == nil {
+		outage := providerAway(result, err)
+		if limit == nil && outage == nil {
 			break
 		}
 		// A provider that declined this turn for want of capacity is recorded
@@ -1991,8 +1995,95 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		if !s.options.waitsOutUsageLimits() {
 			break
 		}
-		if notReissued = s.waitOutUsageLimit(ctx, *limit); notReissued != nil {
-			break
+		// Save the refused attempt's events before giving up the hold. A turn
+		// taken while we wait must start after them, and cancellation while the
+		// hold is down must never write over that turn's record.
+		s.state.LastSequence = lastSequence
+		if len(s.turnCuts) > 0 {
+			s.state.ReplyCuts = s.turnCuts
+		}
+		if recordErr := s.record(); recordErr != nil {
+			return "", errors.Join(recordErr, refusal)
+		}
+		var changed bool
+		if limit != nil {
+			changed, notReissued = s.waitOutUsageLimit(ctx, *limit)
+		} else {
+			refusal = errors.Join(refusal, s.noteProviderOutage(result, err))
+			changed, notReissued = s.waitOutProviderOutage(ctx, *outage)
+		}
+		if notReissued != nil {
+			s.stream.cutOff()
+			return "", errors.Join(notReissued, providerDeclined(result, err), refusal)
+		}
+		lastSequence = s.state.LastSequence
+		request.LastSequence = lastSequence
+		if changed {
+			// Another turn may have moved the session, the picture, and pending
+			// results. Build from the record we just took back, never from the
+			// refused attempt's copy of any of those.
+			s.carried = nil
+			s.turnBegan = lastSequence
+			s.turnOperatorSequence = operatorSequence
+			s.turnCuts = nil
+			cutsTold = !savingMemory && len(s.state.ReplyCuts) > 0
+			if savingMemory {
+				request.Prompt = s.renderMemories() + turnPrompt
+			} else {
+				turnPrompt = s.turnPrompt(retryMessage, nil)
+				request.Prompt = renderReplyCuts(s.state.ReplyCuts) + s.renderMemories() + turnPrompt
+			}
+			request.Prompt = execution.NewRedactor(s.options.RedactValues...).Redact(request.Prompt)
+			s.compacting = false
+			s.rebuiltMessageBytes, s.rebuiltFrom = 0, nil
+			if !savingMemory {
+				if due := s.compactionDue(systemPrompt, request.Prompt); due != nil {
+					if s.keepsMemory() {
+						memoriesBeforeSave := len(reply.Memories)
+						turnsBeforeSave := s.state.Turns
+						if saveErr := s.saveBeforeCompaction(ctx, *due, reply); saveErr != nil {
+							return "", saveErr
+						}
+						if s.state.Turns > turnsBeforeSave+1 {
+							s.carried = nil
+							turnPrompt = s.turnPrompt(retryMessage, nil)
+						}
+						request.Prompt = execution.NewRedactor(s.options.RedactValues...).Redact(
+							renderReplyCuts(s.state.ReplyCuts) + s.renderMemories() + turnPrompt + renderMemoryResults(reply.Memories[memoriesBeforeSave:]))
+						due.sessionBytes = s.state.ProviderSessionBytes
+						due.turnBytes = len(systemPrompt) + len(request.Prompt)
+					}
+					s.turnBegan = s.state.LastSequence
+					s.turnOperatorSequence = operatorSequence
+					compacted, compactErr := s.compact(systemPrompt, request.Prompt, *due)
+					if compactErr != nil {
+						return "", compactErr
+					}
+					request.Prompt = compacted
+				}
+			}
+			request.SessionID = s.resumableSession()
+			policy = s.failoverPolicy()
+			if savingMemory {
+				request, policy = s.memorySaveRequest(request)
+				provider = configuredProvider
+				if s.alternateSession() != "" {
+					provider = s.meteredFailover()
+				}
+			}
+			if !savingMemory && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
+				rebuilt, rebuildErr := s.rebuildForOwnEndpoint(request)
+				if rebuildErr != nil {
+					return "", rebuildErr
+				}
+				request = rebuilt
+			}
+			request.LastSequence = s.state.LastSequence
+			lastSequence = request.LastSequence
+			if len(systemPrompt)+len(request.Prompt) > MaxTurnInputBytes {
+				return "", fmt.Errorf("rebuilt conversation turn exceeds %d bytes: %w", MaxTurnInputBytes, ErrTurnUnassembled)
+			}
+			replaced, shrunk = false, false
 		}
 		// Every provider call this conversation makes reads the operator's pause
 		// first, and a reissue is one. A wait can last hours, which is exactly long
@@ -4153,7 +4244,7 @@ func (o Options) refreshAfterLandings() int {
 
 func (o Options) timeout() time.Duration {
 	if o.Timeout == 0 {
-		return defaultTurnTimeout
+		return DefaultTurnTimeout
 	}
 	return o.Timeout
 }

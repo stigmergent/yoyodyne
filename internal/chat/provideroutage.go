@@ -9,8 +9,8 @@ package chat
 // fact every surface names. So the record here is the product's outage, kept
 // standing while turns keep meeting it and cleared by the first turn the
 // provider serves — which is what makes re-authentication resume the line
-// without anybody releasing anything. The turn itself fails exactly as it did
-// before; what is new is that the failure names the wait and leaves the trace.
+// without anybody releasing anything. An attended turn waits within its
+// provider waiting budget; a background turn defers to its next cadence.
 
 import (
 	"errors"

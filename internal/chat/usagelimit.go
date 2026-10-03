@@ -22,8 +22,9 @@ package chat
 //
 // Nothing a reissued turn does is done twice. Tracker actions this message
 // already applied were applied by rounds that finished, and the reissue resumes
-// the same provider session that holds them: what is asked again is the single
-// invocation the provider refused, with the prompt it was refused with.
+// the latest recorded provider session that holds them: what is asked again is
+// the single invocation the provider refused. A turn taken while it waits is
+// continued from rather than overwritten.
 //
 // The refusal is recorded either way. An exhausted limit is not this
 // conversation's problem — it is every process's, for as long as it lasts — so
@@ -209,7 +210,7 @@ func describeRefusal(limit backend.UsageLimit, model string) string {
 // probe) and reissues, whether or not a reset was named — so an unusable reset
 // time or a wait that no longer fits what this message may spend refuses the wait
 // instead of guessing one, and everything else sleeps a probe and reissues.
-func (s *Session) waitOutUsageLimit(ctx context.Context, limit backend.UsageLimit) error {
+func (s *Session) waitOutUsageLimit(ctx context.Context, limit backend.UsageLimit) (bool, error) {
 	pause := s.options.UsageLimitPause
 	interval := s.options.UsageLimitUnknownResetPause
 	refused := func(reason string) error {
@@ -229,7 +230,7 @@ func (s *Session) waitOutUsageLimit(ctx context.Context, limit backend.UsageLimi
 		// is not describing a wait. Honoring it would mean reissuing straight back
 		// into the same refusal with nothing bounding the attempts, and a clock skew
 		// or a window the provider has not rolled yet is a fact for a person.
-		return refused("the reset it names is not in the future, and the harness does not guess a wait it was not given")
+		return false, refused("the reset it names is not in the future, and the harness does not guess a wait it was not given")
 	}
 	probe := min(remaining, interval)
 	if s.usageLimitWaited+probe > pause.bound() {
@@ -237,7 +238,7 @@ func (s *Session) waitOutUsageLimit(ctx context.Context, limit backend.UsageLimi
 		if s.usageLimitWaited > 0 {
 			reason += fmt.Sprintf(", and it has already waited %s", s.usageLimitWaited)
 		}
-		return refused(reason)
+		return false, refused(reason)
 	}
 	// What the wait spends is counted before it is spent, so a wait interrupted
 	// part way cannot buy this message a fresh budget by forgetting it.
@@ -247,8 +248,12 @@ func (s *Session) waitOutUsageLimit(ctx context.Context, limit backend.UsageLimi
 	// exactly like a turn that has hung. What it names is the moment this probe
 	// ends, which is when the turn actually asks again — the quoted reset only
 	// where that is sooner than the next probe.
-	s.activity.doing(describeUsageLimitWait(limit, now.Add(probe)))
-	return s.options.sleep(ctx, probe)
+	reason := describeUsageLimitWait(limit, now.Add(probe))
+	s.activity.doing(reason)
+	if !limit.ResetsAt.IsZero() {
+		reason += "; the window resets at " + limit.ResetsAt.Local().Format("2006-01-02 15:04:05 MST")
+	}
+	return s.waitForProvider(ctx, probe, reason)
 }
 
 // describeUsageLimitWait says what the turn is waiting on and until when, in the

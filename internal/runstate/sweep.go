@@ -298,6 +298,8 @@ type Sweep struct {
 	// Result is the account the role gave, merged across the turns of this
 	// firing. It is absent where the pass produced none — a turn that failed, or
 	// one that answered in prose without the block — and Problem then says why.
+	// A development manager pass may instead carry the harness's forge findings,
+	// including when its conversation wait missed the role's first turn.
 	Result *sweep.Result `json:"result,omitempty"`
 	// Problem is what went wrong with the firing: the turn that failed, or the
 	// account that could not be read. A sweep record carrying one is a pass that
@@ -341,10 +343,12 @@ type Sweep struct {
 	Events map[string]int `json:"events,omitempty"`
 	// Missed marks a record that is a missed pass rather than a pass: a trigger
 	// fired and no pass followed it, or a pass was taken and cancelled before it
-	// completed. It names which trigger and which of the two, and Problem says
+	// completed, or its wait behind a held conversation ended before its turn.
+	// It names which trigger and how it was missed, and Problem says
 	// the cause where one is known. It is absent on every pass that completed or
 	// failed on its own terms, and on the misses recorded before it existed,
 	// which are read by their shape instead.
+	// Independent forge findings do not complete the role's missed pass.
 	Missed *MissedPass `json:"missed,omitempty"`
 	// Failed marks a pass a turn of which failed after the firing began: it did
 	// not complete, so a program manager instance's cursor was not moved and the
@@ -504,11 +508,14 @@ const (
 	// MissCancelled is a pass that was taken and stopped before it completed:
 	// its process cancelled it, or died carrying it and recorded nothing.
 	MissCancelled MissKind = "cancelled"
+	// MissConversationHeld is a due pass whose bounded wait behind a turn ended
+	// before it could ask the role anything.
+	MissConversationHeld MissKind = "conversation-held"
 )
 
 // Valid reports whether a kind is one of the vocabulary's.
 func (k MissKind) Valid() bool {
-	return k == MissUnfired || k == MissCancelled
+	return k == MissUnfired || k == MissCancelled || k == MissConversationHeld
 }
 
 // MissedPass is which trigger a missed pass was owed by, and how it was missed.
@@ -762,9 +769,10 @@ func (s Sweep) Validate() error {
 		if !s.Missed.How.Valid() {
 			problems = append(problems, fmt.Errorf("missed how %q is not one this harness has", s.Missed.How))
 		}
-		// A pass that ended in an account completed, whatever else happened to it.
-		if s.Result != nil {
-			problems = append(problems, errors.New("a missed pass carries no account"))
+		// The role's account completes its pass. An independent reading of the
+		// forge does not: the held conversation still owes its first turn.
+		if s.Result != nil && (s.Missed.How != MissConversationHeld || !s.forgeOnlyAccount()) {
+			problems = append(problems, errors.New("a missed pass carries no account except the harness's forge findings on a conversation-held miss"))
 		}
 	}
 	// A noticed request is stated as a finding, so a record naming requests and
@@ -808,6 +816,23 @@ func (s Sweep) Validate() error {
 		return fmt.Errorf("invalid sweep: %w", err)
 	}
 	return nil
+}
+
+// forgeOnlyAccount recognizes the independent findings a pass may record
+// without reaching the development manager. No role findings travel with them.
+func (s Sweep) forgeOnlyAccount() bool {
+	if s.Role != domain.RoleDevelopmentManager || s.Turns != 0 || s.Result == nil ||
+		s.Result.Status != sweep.StatusComplete || len(s.PullRequests) == 0 ||
+		len(s.Result.Findings) != len(s.PullRequests) || len(s.Result.Questions) != 0 || len(s.Result.Recommendations) != 0 {
+		return false
+	}
+	for i, notice := range s.PullRequests {
+		finding, want := s.Result.Findings[i], notice.Finding()
+		if finding.Issue != want.Issue || finding.Detail != want.Detail || finding.Disposition != want.Disposition || len(finding.Filed) != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // ErrSweepNotDue is what a firing claimed before its interval has passed unwraps

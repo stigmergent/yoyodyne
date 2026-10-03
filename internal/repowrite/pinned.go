@@ -270,6 +270,16 @@ func (r *PinnedRoot) ReadDirectory(relative string) ([]fs.DirEntry, error) {
 
 func (r *PinnedRoot) Remove(relative string) error { return r.root.Remove(relative) }
 
+// Sync makes changes to the held directory durable without reopening its path,
+// which may have been replaced since the directory was pinned.
+func (r *PinnedRoot) Sync() error {
+	directory, err := r.root.Open(".")
+	if err != nil {
+		return err
+	}
+	return errors.Join(directory.Sync(), directory.Close())
+}
+
 func (r *PinnedRoot) Exists(relative string) (bool, error) {
 	_, err := r.root.Lstat(relative)
 	if errors.Is(err, fs.ErrNotExist) {

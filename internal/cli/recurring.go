@@ -107,8 +107,8 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	}
 	// The program manager instances their triggers wake, with the cursor each
 	// keeps over the streams it watches and the streams themselves, and whether a
-	// turn is already in flight on an instance's conversation, which skips its
-	// pass rather than queueing it.
+	// turn is already in flight on an instance's conversation, which prevents
+	// an unfinished pass being mistaken for one whose process died.
 	if len(instances) > 0 {
 		trigger.Instances = instances
 		trigger.Cursors = parts.store.PassCursors()
@@ -251,9 +251,12 @@ type roleConversation struct {
 	// can see it.
 	stderr io.Writer
 	// open is how the conversation is opened for a turn, and nil for every
-	// trigger but a test's: it is openChatOnModel then, which is the operator's own
-	// way into the conversation with the task's model for the turn.
+	// trigger but a test's: production prepares and opens the operator's own
+	// conversation with the task's model, waiting for its hold within the bound.
 	open func(ctx context.Context, role domain.AgentRole, agent, model string) (*chat.Session, *runstate.ConversationHold, error)
+	// timeout is a test's shorter bound; production shares the conversation's
+	// turn bound, including the time spent waiting for its hold.
+	timeout time.Duration
 }
 
 // Wake puts one message into a role's conversation and reads the account it gave
@@ -278,6 +281,12 @@ type roleConversation struct {
 // and a report it carried that was refused is on the pass's record beside
 // whatever else the pass has to say about itself.
 func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string) (orchestrator.Turn, error) {
+	bound := r.timeout
+	if bound <= 0 {
+		bound = chat.DefaultTurnTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
 	session, lease, err := r.opener()(ctx, role, agent, model)
 	if err != nil {
 		return orchestrator.Turn{}, passNotOpened(err)
@@ -386,12 +395,12 @@ func notWoken(err error) error {
 // passNotOpened is a conversation that could not be opened for the turn. It is
 // always unreachable — nothing was asked — and it is a firing that failed
 // before its first turn as well, unless what stopped the opening was the
-// provider answering nobody or the operator's pause, which are waits with
-// records of their own rather than something the next firing will meet again.
+// provider answering nobody, the operator's pause, or a held conversation,
+// which are waits with records of their own.
 func passNotOpened(err error) error {
 	unreachable := fmt.Errorf("%w: %w", orchestrator.ErrRoleUnreachable, err)
 	var held *chat.OperatorHoldError
-	if errors.Is(err, chat.ErrProviderCapacity) || errors.Is(err, chat.ErrProviderAway) || errors.As(err, &held) || errors.Is(err, chat.ErrTurnAbandoned) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, chat.ErrProviderCapacity) || errors.Is(err, chat.ErrProviderAway) || errors.As(err, &held) || errors.Is(err, chat.ErrTurnAbandoned) || errors.Is(err, context.Canceled) || errors.Is(err, runstate.ErrConversationHeld) {
 		return unreachable
 	}
 	return &orchestrator.NotStartedError{Cause: runstate.PreTurnConversationUnopened, Err: unreachable}
@@ -402,7 +411,25 @@ func (r roleConversation) opener() func(context.Context, domain.AgentRole, strin
 		return r.open
 	}
 	return func(ctx context.Context, role domain.AgentRole, agent, model string) (*chat.Session, *runstate.ConversationHold, error) {
-		return openChatOnModel(ctx, role, agent, r.configPath, model, false, false, r.errors())
+		prepared, err := prepareChat(ctx, role, agent, r.configPath, r.errors())
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := prepared.onModel(model); err != nil {
+			return nil, nil, err
+		}
+		// A scheduled pass waits for the hold like an operator's command, but
+		// still defers a provider refusal to its next cadence instead of sleeping
+		// through a usage window. Queueing and provider waiting are independent.
+		hold, err := prepared.claim(ctx, true, r.errors())
+		if err != nil {
+			return nil, nil, err
+		}
+		session, err := prepared.open(ctx, hold, false, false, r.errors())
+		if err != nil {
+			return nil, nil, errors.Join(err, hold.Release())
+		}
+		return session, hold, nil
 	}
 }
 
@@ -615,6 +642,8 @@ func renderSweep(recorded runstate.Sweep) string {
 		how := "no pass followed it"
 		if recorded.Missed.How == runstate.MissCancelled {
 			how = "cancelled before it completed"
+		} else if recorded.Missed.How == runstate.MissConversationHeld {
+			how = "its wait for a held conversation ended before its first turn"
 		}
 		fmt.Fprintf(&rendered, "  MISSED PASS: its %s — %s\n", recorded.Missed.Trigger.Describe(), how)
 	}
