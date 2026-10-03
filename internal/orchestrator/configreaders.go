@@ -40,7 +40,7 @@ type configComparison struct {
 	templateError error
 }
 
-func (c configLanding) compare(ctx context.Context, integration runstate.Integration) configComparison {
+func (c configLanding) compare(ctx context.Context, integration gitworktree.Integration) configComparison {
 	if c.readers == nil {
 		return configComparison{}
 	}
@@ -83,7 +83,7 @@ func (r Reconciler) nameConfigReaders(ctx context.Context, state runstate.State,
 	if state.Integration == nil || r.ConfigReaders == nil {
 		return configComparison{}, nil
 	}
-	integration := *state.Integration
+	integration := integrationOf(state)
 	if confirmed != "" {
 		integration.TargetCommit = confirmed
 	}
@@ -103,7 +103,7 @@ func (r Reconciler) nameConfigReaders(ctx context.Context, state runstate.State,
 // templateConfigMismatches compares keys added to shipped templates at this
 // landing, independently of the active files. Both versions come from Git:
 // the checkout and the checker's embedded template can each be older.
-func (c configLanding) templateConfigMismatches(ctx context.Context, integration runstate.Integration) ([]runstate.ConfigTemplateMismatch, error) {
+func (c configLanding) templateConfigMismatches(ctx context.Context, integration gitworktree.Integration) ([]runstate.ConfigTemplateMismatch, error) {
 	var mismatches []runstate.ConfigTemplateMismatch
 	var problems []error
 	for _, path := range config.BuiltinTemplatePaths() {
