@@ -932,7 +932,7 @@ Where each goes:
    falls among the operator's entries and never folded into `and N things not
    named here`:
    `report-… needs your hand: <what> (found by …; recorded in …)`,
-   `yoyodyne-ifd.272 (<its title>) needs your hand: <the development manager's reason> (found
+   `(P1, reliability) A claimed-but-dead item is audited, reported once, and released for retry (yoyodyne-ifd.272) needs your hand: <the development manager's reason> (found
    by the development manager, escalating the stopped run to the operator;
    recorded in …)`, `the architect's batch of 3 proposed changes needs your
    hand: decide amendment-… approve; …`, and for the brake `intake is held, since <trip time>: …;
@@ -2258,8 +2258,8 @@ load raised, and which check it is on:
 
 ```text
 Running (2 developer runs):
-  yoyodyne-ifd.389 (Timing-bound tests do not fail the gate under machine load) — checks: 14m of 30m, on make race, 1h02m elapsed, $4.10 so far
-  yoyodyne-ifd.432.13 (…) — checks: 41m of 90m (30m configured, scaled for a one-minute load average of 48.0 on 16 cores), on make race, 1h20m elapsed, $6.75 so far
+  (P1, reliability) Timing-bound tests do not fail the gate under machine load (yoyodyne-ifd.389) — checks: 14m of 30m, on make race, 1h02m elapsed, $4.10 so far
+  (P3) The attention line tells a succeeded run whose landing checks a live process is still running apart from one that ended still owing a step (yoyodyne-ifd.432.13) — checks: 41m of 90m (30m configured, scaled for a one-minute load average of 48.0 on 16 cores), on make race, 1h20m elapsed, $6.75 so far
 ```
 
 `yoyo status <beads-id>` prints the same line under a run that is in its checks
@@ -3647,8 +3647,8 @@ remote gained, which is by definition work this repository has never seen.
 
 ```text
 Running (2 developer runs):
-  yoyodyne-ifd.194 (The four-line status: running, working, not-startable-with-reasons, needs-a-human) — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far
-  yoyodyne-ifd.201 (The invariant loader skips the directory README, as everything else already documents) — reviewing, 3m elapsed, cost unknown (its event log is gone)
+  (P0) The four-line status: running, working, not-startable-with-reasons, needs-a-human (yoyodyne-ifd.194) — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far
+  (P2) The invariant loader skips the directory README, as everything else already documents (yoyodyne-ifd.201) — reviewing, 3m elapsed, cost unknown (its event log is gone)
 Working (1 conversation):
   product-manager — product-manager, on claude-opus-5 at medium effort, a turn in flight for 40s after 270 recorded turns
 Not startable (4 of 7 admitted items; 1 awaits the development manager's decision, 1 awaits the harness carrying out a decision already recorded):
@@ -3658,10 +3658,10 @@ Not startable (4 of 7 admitted items; 1 awaits the development manager's decisio
   - 1 waits on other items — next: the harness pulls each once the work it waits on lands; whose: the harness's
   - 1 is parked by the Lead Product Manager — next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's
   - nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one
-  yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
-  yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
-  yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
-  yoyodyne-ifd.150 (The release gate commits the tracker's derived exports instead of refusing on them) — held since 2026-09-15 07:05 PDT, 5 hours ago; run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
+  (P2) The status probe observes leases without acquiring them (yoyodyne-ifd.200) — waiting on (P1) Harness-invoked sessions carry no plan-mode workflow: session mode is set per role (yoyodyne-ifd.199)
+  (P3) The architect rules whether bin/yoyo-status is bound by the one-read-model invariant (yoyodyne-ifd.212) — parked, so no pull selects it however far the queue drains: the design is being reworked
+  (P1, reliability) Interactive sessions get the notes-writer guard: the uncovered loss population (yoyodyne-ifd.153) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
+  (P0) The release gate commits the tracker's derived exports instead of refusing on them (yoyodyne-ifd.150) — held since 2026-09-15 07:05 PDT, 5 hours ago; run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
 Needs a human (1):
   directive directive-4f2c… is unresolved: which branch does this land on? — the operator's — the work it affects waits until `yoyo directive resolve` settles it
 Waiting on the development manager (1):
@@ -3697,7 +3697,7 @@ has the rule.
 
   ```text
   Running (2 developer runs, 1 with no process behind it):
-    yoyodyne-ifd.428.34 (…) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-09-27T01:05:29Z; recorded as checking; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h02m elapsed, $41.20 so far
+    (P0, reliability) A deploy restart does not idle developer slots: a draining session releases the watch lease as it stops choosing, and the new build fills the free slots while the old runs finish (yoyodyne-ifd.428.34) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-09-27T01:05:29Z; recorded as checking; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h02m elapsed, $41.20 so far
   ```
 
   What ends it depends on what it was parked on, because the

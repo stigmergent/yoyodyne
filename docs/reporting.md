@@ -562,9 +562,9 @@ Every listing prints the build beside the run, and says how far it is behind the
 target branch's tip:
 
 ```text
-  !  report-… [warning] 2026-09-22T09:14:02Z from the developer on yoyodyne-ifd.380 (No run's invariant delivery names the invariants README as an unreadable invariant) (run-…, build 0123456789ab, 31 change(s) behind the target branch)
-     report-… [note] 2026-09-22T11:02:41Z from the reviewer on yoyodyne-ifd.402 (A docket entry names the open publication and how to arm it, …) (run-…, build fedcba987654, the target branch's tip)
-     report-… [note] 2026-08-25T18:30:00Z from the developer on yoyodyne-ifd.201 (The invariant loader skips the directory README, as everything else already documents) (run-…, no build recorded)
+  !  report-… [warning] 2026-09-22T09:14:02Z from the developer on (P2) No run's invariant delivery names the invariants README as an unreadable invariant (yoyodyne-ifd.380) (run-…, build 0123456789ab, 31 change(s) behind the target branch)
+     report-… [note] 2026-09-22T11:02:41Z from the reviewer on (P1, reliability) A docket entry names the open publication and how to arm it, and an approved change left unarmed on the forge is a stoppage, never silence (yoyodyne-ifd.402) (run-…, build fedcba987654, the target branch's tip)
+     report-… [note] 2026-08-25T18:30:00Z from the developer on (P2) The invariant loader skips the directory README, as everything else already documents (yoyodyne-ifd.201) (run-…, no build recorded)
 ```
 
 `yoyo reports` and `/reports` print it that way, each item
@@ -1319,15 +1319,15 @@ of those cycles with no escalation of hers, the harness escalates the hold to
 the operators itself and says so **once, the moment the record shows it, sent
 to them directly and tagged to them by member id**, at `warning` severity:
 
-> :warning: Warning — The brake's hold on intake is escalated to the operator
-> by the harness: the harness's own brake placed it after 3 run(s) blocked in a
-> row with nothing landing between them, which is the configured brake at 3,
-> and the harness escalated it to the operator after 4 summons-and-probe cycles
-> with the development manager not escalating it (the last probe run, of
-> yoyodyne-ifd.405 (Every yoyo verb runs from inside a harness-managed
-> worktree), blocked: the checks failed on main), so it stays held until
-> somebody releases it. Next: the operator's — the harness has stopped probing,
-> and nothing new is chosen until `yoyo release` lifts it.
+> :warning: Warning — The brake's hold on intake is escalated to the operator by
+> the harness: the harness's own brake placed it after 3 run(s) blocked in a row
+> with nothing landing between them, which is the configured brake at 3, and the
+> harness escalated it to the operator after 4 summons-and-probe cycles with the
+> development manager not escalating it (the last probe run, of (P3) Every yoyo
+> verb runs from inside a harness-managed worktree (yoyodyne-ifd.405), blocked:
+> the checks failed on main), so it stays held until somebody releases it. Next:
+> the operator's — the harness has stopped probing, and nothing new is chosen
+> until `yoyo release` lifts it.
 
 It is never said again on a later pass: the hourly line above carries the hold
 from there, tagged as any hold that waits on a person is, and the release says
@@ -1583,14 +1583,18 @@ are told it happened:
 > @operator Intake is held for this product: the harness's own brake placed it
 > after 3 run(s) blocked in a row with nothing landing between them, which is
 > the configured brake at 3, and the development manager was summoned at … to
-> decide what happens to it …; the runs it counted: run run-7c27… of
-> yoyodyne-ifd.398 (A draining watch session keeps pulling and running
-> recurring tasks until it restarts, …): its reviewer still required repair …;
-> run run-a17c… of yoyodyne-ifd.401 (A check stage cannot take hours: …):
-> check `make test` failed (exit 1) …; run run-5035… of yoyodyne-ifd.402 (A
-> docket entry names the open publication and how to arm it, …): ….
-> `yoyo release`, or `/release` in the conversation,
-> lifts it sooner. Next: the development manager's — …
+> decide what happens to it …; the runs it counted: run run-7c27… of (P0,
+> reliability) A draining watch session keeps pulling and running recurring
+> tasks until it restarts, and the drain is bounded (yoyodyne-ifd.398): its
+> reviewer still required repair …; run run-a17c… of (P0, reliability) A check
+> stage cannot take hours: the race suite runs once per landing on main or
+> narrowed to the touched packages, and the per-run check stage has a declared
+> time bound the operator sees (yoyodyne-ifd.401): check `make test` failed
+> (exit 1) …; run run-5035… of (P1, reliability) A docket entry names the open
+> publication and how to arm it, and an approved change left unarmed on the
+> forge is a stoppage, never silence (yoyodyne-ifd.402): …. `yoyo release`, or
+> `/release` in the conversation, lifts it sooner. Next: the development
+> manager's — …
 
 When she escalates it to you, that hold is said to you once more, directly and
 tagged, in its own account of who decided it; the harness escalating it at the
