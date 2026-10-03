@@ -319,14 +319,18 @@ path_checks:
 # default; an exact identifier such as claude-opus-5 pins a version. Persona
 # paths are relative to this .yoyodyne directory and must be Markdown inside it.
 # Delete an agent to remove it, edit one to change it.
-# Managers prefer Claude Fable and may fall back to Codex Astra when capacity
-# is unavailable (operator, 2026-10-02). Other roles retain the recovery routing
-# through Codex; cross-provider failover does not cover every invocation path.
+# The architect and development manager prefer Codex Astra, with Claude Fable
+# as fallback (operator, 2026-10-03). Product managers retain Fable with Astra
+# fallback. Cross-provider failover currently covers conversation turns only.
 agents:
   architect:
     role: architect
     backend: codex
-    model: gpt-6.1-sol
+    model: gpt-6-astra
+    failover:
+      enabled: true
+      model: fable
+      provider: claude-code
     instances: 1
     persona:
       version: v2
@@ -370,13 +374,12 @@ agents:
       on: [admissions, stoppages]
   development-manager:
     role: development-manager
-    backend: claude-code
-    model: fable
-    effort: high
+    backend: codex
+    model: gpt-6-astra
     failover:
       enabled: true
-      model: gpt-6-astra
-      provider: codex
+      model: fable
+      provider: claude-code
     instances: 1
     persona:
       version: v2
