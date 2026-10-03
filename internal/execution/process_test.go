@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,28 @@ import (
 	"testing"
 	"time"
 )
+
+func TestProcessResultRecordsOutputClosureOnlyWhenObserved(t *testing.T) {
+	t.Parallel()
+	for _, closedAt := range []time.Time{{}, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)} {
+		result := ProcessResult{OutputClosedAt: closedAt}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, present := fields["OutputClosedAt"]; present == closedAt.IsZero() {
+			t.Fatalf("encoded result = %s, want output closure recorded only when observed", encoded)
+		}
+		var restored ProcessResult
+		if err := json.Unmarshal(encoded, &restored); err != nil || !restored.OutputClosedAt.Equal(closedAt) {
+			t.Fatalf("output closure round trip = %v, %v, want %v", restored.OutputClosedAt, err, closedAt)
+		}
+	}
+}
 
 func TestOSProcessRunnerPreservesRawObjectBytes(t *testing.T) {
 	t.Parallel()
@@ -150,6 +173,117 @@ func TestOSProcessRunnerRealBudgetEndsAProcessThatOutlivesIt(t *testing.T) {
 	}
 	if result.Status != ProcessTimedOut {
 		t.Fatalf("Run() status = %q, want %q from the runner's own timer", result.Status, ProcessTimedOut)
+	}
+}
+
+// EOF ends the output's idle bound, not the process's budget. Fire both only
+// once the runner has seen EOF, so this cannot pass by killing the helper
+// before it closed its streams, even on a loaded machine.
+func TestOSProcessRunnerKeepsItsBudgetAfterOutputCloses(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []bool{false, true} {
+		t.Run(fmt.Sprintf("raw stdout %t", raw), func(t *testing.T) {
+			budget := newHeldBudget()
+			idle := newHeldIdleBound()
+			command := helperCommand("close-output-then-linger", "")
+			command.Timeout = time.Hour
+			command.IdleTimeout = time.Hour
+			if raw {
+				command.RawStdout = io.Discard
+			}
+			runner := OSProcessRunner{
+				budget: budget.arm,
+				idle:   idle.arm,
+				outputClosed: func() {
+					idle.trip()
+					budget.spend()
+				},
+			}
+			result, err := runner.Run(context.Background(), command, nil)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if result.Status != ProcessTimedOut {
+				t.Fatalf("Run() status = %q, want the budget to end it, not EOF or the idle bound", result.Status)
+			}
+			if result.ExitCode == 0 {
+				t.Fatal("the helper slept to its own end instead of being killed at the budget")
+			}
+			if result.OutputClosedAt.IsZero() || result.OutputClosedAt.After(result.FinishedAt) {
+				t.Fatalf("Run() = %#v, want output closure recorded before completion", result)
+			}
+		})
+	}
+}
+
+// A real timer still ends a process after EOF. It starts at EOF here so helper
+// startup cannot spend the timer first and make the test miss the wait at exit.
+func TestOSProcessRunnerRealBudgetEndsAProcessAfterOutputCloses(t *testing.T) {
+	t.Parallel()
+	var timer *time.Timer
+	spent := make(chan time.Time, 1)
+	command := helperCommand("close-output-then-linger", "")
+	command.Timeout = 50 * time.Millisecond
+	runner := OSProcessRunner{
+		budget: func(span time.Duration) (<-chan time.Time, func()) {
+			return spent, func() {
+				if timer != nil {
+					timer.Stop()
+				}
+			}
+		},
+		outputClosed: func() {
+			timer = time.AfterFunc(command.Timeout, func() { spent <- time.Now() })
+		},
+	}
+	result, err := runner.Run(context.Background(), command, nil)
+	if err != nil || result.Status != ProcessTimedOut {
+		t.Fatalf("Run() = %#v, %v, want the timer to end the process after EOF", result, err)
+	}
+	if result.ExitCode == 0 {
+		t.Fatal("the helper slept to its own end instead of being killed at the budget")
+	}
+}
+
+func TestOSProcessRunnerWaitsForExitAfterOutputCloses(t *testing.T) {
+	t.Parallel()
+	for _, cancelProcess := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel %t", cancelProcess), func(t *testing.T) {
+			read, release, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer read.Close()
+			defer release.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			idle := newHeldIdleBound()
+			command := helperCommand("close-output-then-finish", "")
+			command.Stdin = read
+			command.IdleTimeout = time.Hour
+			runner := OSProcessRunner{
+				idle: idle.arm,
+				outputClosed: func() {
+					idle.trip()
+					if cancelProcess {
+						cancel()
+					} else if _, err := release.Write([]byte("go\n")); err != nil {
+						t.Errorf("release the helper: %v", err)
+					}
+				},
+			}
+			result, err := runner.Run(ctx, command, nil)
+			want := ProcessSucceeded
+			if cancelProcess {
+				want = ProcessCancelled
+			}
+			if err != nil || result.Status != want {
+				t.Fatalf("Run() = %#v, %v, want %q after EOF", result, err, want)
+			}
+			if !cancelProcess && result.ExitCode != 0 {
+				t.Fatalf("Run() exit code = %d, want the helper's successful exit", result.ExitCode)
+			}
+		})
 	}
 }
 
@@ -660,6 +794,20 @@ func TestProcessHelper(t *testing.T) {
 		// lets this exit on its own first, and bounded, so a kill that regressed
 		// leaves nothing running past the minute.
 		time.Sleep(time.Minute)
+		os.Exit(0)
+	case "close-output-then-linger", "reply-close-output-then-linger", "close-output-then-finish":
+		if mode == "reply-close-output-then-linger" {
+			fmt.Println("final reply")
+		}
+		os.Stdout.Close()
+		os.Stderr.Close()
+		// Every helper ends on its own even if the runner's group kill breaks.
+		if mode == "close-output-then-finish" {
+			time.AfterFunc(time.Minute, func() { os.Exit(97) })
+			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		} else {
+			time.Sleep(time.Minute)
+		}
 		os.Exit(0)
 	case "counted-chatter":
 		// Numbered so a retained copy can be checked for being a prefix rather

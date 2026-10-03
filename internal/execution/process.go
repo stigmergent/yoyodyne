@@ -36,9 +36,10 @@ const (
 	ProcessCancelled ProcessStatus = "cancelled"
 	ProcessTimedOut  ProcessStatus = "timed_out"
 	// ProcessStalled is a process that stopped producing output for longer than
-	// its idle bound allowed. It is deliberately not ProcessTimedOut: a stalled
-	// process demonstrably stopped doing anything, while a timed-out one may have
-	// been working the whole time and simply ran out of budget.
+	// its idle bound allowed while its output streams were open. It is deliberately
+	// not ProcessTimedOut: a stalled process demonstrably stopped doing anything,
+	// while a timed-out one may have been working the whole time and simply ran
+	// out of budget.
 	ProcessStalled ProcessStatus = "stalled"
 )
 
@@ -77,6 +78,8 @@ type Command struct {
 	// producing nothing is stalled however recently it started. Zero or less
 	// disables the check, which is what a command whose output arrives in one
 	// burst at the end needs.
+	// Once both output streams close, there is no output left to wait for and
+	// this bound stops applying; the total and after-reply budgets still apply.
 	IdleTimeout time.Duration
 	// Replied reports that the process has written its final reply, and is asked
 	// after each line has been handed to the observer, which is where a caller
@@ -132,6 +135,10 @@ type ProcessResult struct {
 	FinishedAt time.Time
 	Stdout     string
 	Stderr     string
+	// OutputClosedAt records when both output streams finished draining,
+	// separately from FinishedAt: closing output does not mean the process
+	// exited, and its budgets keep running while it is waited for.
+	OutputClosedAt time.Time `json:",omitzero"`
 	// OutputTruncation is the marker standing where the retained output above
 	// was cut, naming the bound and the record holding the whole. It is empty
 	// when nothing was cut, so its presence is the fact and its text is what to
@@ -184,6 +191,9 @@ type OSProcessRunner struct {
 	// that the process has outlived it, and the bound it is waited out to — and
 	// is nil for real timers, for the same reason as the two above.
 	afterReply func(time.Duration) (<-chan time.Time, func())
+	// outputClosed lets a test wait until the runner has drained both streams,
+	// before firing a bound that must still apply while waiting for exit.
+	outputClosed func()
 }
 
 // armAfterReply starts one of the clocks a final reply starts. A span of zero
@@ -199,7 +209,10 @@ func (r OSProcessRunner) armAfterReply(span time.Duration) (<-chan time.Time, fu
 	return timer.C, func() { timer.Stop() }
 }
 
-// armBudget starts the total budget's clock.
+// armBudget starts the total budget's clock. Like the after-reply clocks it
+// uses a runtime timer, not the wall timestamps recorded in ProcessResult:
+// where the monotonic clock pauses during machine sleep, the budget pauses
+// too, as the rule to wait out a sleeping laptop requires.
 func (r OSProcessRunner) armBudget(timeout time.Duration) (<-chan time.Time, func()) {
 	if r.budget != nil {
 		return r.budget(timeout)
@@ -329,16 +342,32 @@ func (r OSProcessRunner) Run(ctx context.Context, command Command, observer Outp
 		}
 		return account
 	}
+	var waited <-chan error
+	var waitErr error
 drain:
 	for {
 		idleExpired := idle.expired()
-		if !repliedAt.IsZero() {
+		if outputs == nil || !repliedAt.IsZero() {
 			idleExpired = nil
 		}
 		select {
+		case waitErr = <-waited:
+			break drain
 		case output, received := <-outputs:
 			if !received {
-				break drain
+				outputs = nil
+				idle.stop()
+				result.OutputClosedAt = clock.Now()
+				// Wait may only begin after all pipe reads have finished: it
+				// closes the pipes itself. Keep watching the same deadlines
+				// until it returns, because EOF alone proves nothing about exit.
+				finished := make(chan error, 1)
+				waited = finished
+				go func() { finished <- process.Wait() }()
+				if r.outputClosed != nil {
+					r.outputClosed()
+				}
+				continue
 			}
 			// Any line at all is proof the process is still doing something, so
 			// the idle bound starts over from here rather than from the start.
@@ -441,7 +470,6 @@ drain:
 		}
 	}
 
-	waitErr := process.Wait()
 	// Nothing this command spawned outlives it, whatever became of the command:
 	// the group goes here on the succeeding path as much as on the failing one.
 	// A command that exits 0 having backgrounded work is the case that costs,

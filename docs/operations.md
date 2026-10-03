@@ -1919,6 +1919,17 @@ neither is ever described as the agent having reported a failure, because it
 reported nothing. Only a stop with nothing to continue from — no session, no
 worktree — ends the run, and it still says the harness stopped the provider.
 
+**The total budget and the wait after a reply hold until the process exits.**
+A process that closes both its output streams is still waited for under those
+bounds, and reaching either ends its process tree just as it would while the
+streams were open. The limit on waiting without output stops applying once both
+streams close, because there is no output left to wait for. The process result
+records when the streams closed as `OutputClosedAt`, separately from when the process
+finished, so a process that closed its output and kept running says so.
+These clocks use Go's runtime timers: on systems whose monotonic clock pauses
+during machine sleep, their budgets pause too. The recorded start and finish
+times are wall time and can include that sleep; a sleeping laptop is waited out.
+
 **A session that has written its final reply has ended its turn, and is never
 stopped as stalled.** Both adapters read the provider's own result — Claude
 Code's `result`, Codex's terminal — as the end of the turn, and from that line

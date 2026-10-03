@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -130,6 +131,54 @@ func TestOSProcessRunnerEndsWhatOutlivesAFinalReplyWithoutAStall(t *testing.T) {
 	}
 	if said := got.Describe(time.Now()); !strings.Contains(said, "were still running at the 5m bound and were ended") {
 		t.Fatalf("Describe() once ended = %q", said)
+	}
+}
+
+// Both clocks a final reply starts still apply after the process closes its
+// output. The notice is fired at EOF and the bound only after the notice was
+// observed, so neither assertion can be satisfied while the pipes are open.
+func TestOSProcessRunnerKeepsTheAfterReplyClocksAfterOutputCloses(t *testing.T) {
+	t.Parallel()
+	for _, totalBudget := range []bool{false, true} {
+		t.Run(fmt.Sprintf("total budget %t", totalBudget), func(t *testing.T) {
+			budget := newHeldBudget()
+			clocks := newHeldAfterReply()
+			reply := &replied{}
+			command := helperCommand("reply-close-output-then-linger", "")
+			command.Timeout = time.Hour
+			command.Replied = reply.done
+			command.AfterReplyTimeout = 5 * time.Minute
+			notices := 0
+			command.AfterReplyWaiting = func(account AfterReply) {
+				notices++
+				if !account.Waiting() {
+					t.Errorf("waiting account = %+v, want no outcome yet", account)
+				}
+				if totalBudget {
+					budget.spend()
+				} else {
+					clocks.fire(command.AfterReplyTimeout)
+				}
+			}
+			runner := OSProcessRunner{
+				budget:       budget.arm,
+				afterReply:   clocks.arm,
+				outputClosed: func() { clocks.fire(afterReplyNotice) },
+			}
+			result, err := runner.Run(context.Background(), command, reply.observe)
+			if err != nil || result.Status != ProcessSucceeded {
+				t.Fatalf("Run() = %#v, %v, want a completed reply", result, err)
+			}
+			if notices != 1 || result.AfterReply == nil || result.AfterReply.Outcome != AfterReplyEnded || result.AfterReply.Lines != 0 {
+				t.Fatalf("Run() = %#v after %d notice(s), want work ended after its reply, with no further output", result, notices)
+			}
+			if result.ExitCode == 0 {
+				t.Fatal("the helper slept to its own end instead of being killed after its reply")
+			}
+			if result.OutputClosedAt.IsZero() {
+				t.Fatal("output closure was not recorded")
+			}
+		})
 	}
 }
 
