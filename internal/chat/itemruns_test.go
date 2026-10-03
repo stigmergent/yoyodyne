@@ -42,7 +42,7 @@ func TestAnItemReadCarriesTheRunItsHoldIsAboutWhenTheNotesAreCut(t *testing.T) {
 		t.Fatal("the continuous notes view did not cut past the run's note")
 	}
 	rendered := renderWorkItemEvidence(item, recordedGoals(recordedGoal))
-	for _, want := range []string{stoppedRun, "Latest stop and recorded decisions from the cut notes", "are cut; treat them as unread rather than absent"} {
+	for _, want := range []string{stoppedRun, "Stop and decision excerpts from the cut notes", "Older notes have no recorded append boundaries", "are cut; treat them as unread rather than absent"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("the item rendering does not carry %q:\n%s", want, rendered)
 		}

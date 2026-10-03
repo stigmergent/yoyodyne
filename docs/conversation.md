@@ -958,12 +958,23 @@ them separately before the continuous end of the notes. It keeps the latest
 record of each decision kind, including a repair grant, a cap crossing, and the
 harness's recorded continuation, with their reasons and their order in the
 notes. The stop excerpt keeps its run and failure reason, including a multiline
-failure. These extracts are outside the notes' byte bound; captured check output,
-diffs, older decisions and other details can still be cut, and the read says so.
+failure. The latest review also keeps its decision, what an approval approved,
+and its reasoning, even when those fields follow a long diff or a newer stop
+has no review. These extracts are outside the notes' byte bound; captured check
+output, diffs, older decisions and other details can still be cut, and the read
+says so.
 A later report mapping or recovery follow-up cannot displace those records.
 The extracts quote what the notes record: a follow-up asking whether a repair
 ran does not establish execution, and omitted evidence is unread rather than
 absent.
+
+The harness records each new append's boundary and byte length with the note,
+so stop or triage sentences inside captured output or quoted reasons stay inside
+that append. The read leaves these storage markers out. Older notes have no
+recorded append boundaries: the read retains all matching excerpts from that
+history and says their order cannot establish separate writes or which decision
+was latest. It does not let a matching sentence silently replace an earlier
+record.
 
 ## Directives, and the work they pause
 

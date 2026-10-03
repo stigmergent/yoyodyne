@@ -2693,8 +2693,8 @@ func renderWorkItemEvidence(item beads.WorkItem, goals goal.Set) string {
 		}
 		fmt.Fprintf(&rendered, "\n%s:\n%s\n", section.label, strings.TrimSpace(section.text))
 	}
-	notes := strings.TrimSpace(item.Notes)
-	if notes == "" {
+	notes := item.Notes
+	if strings.TrimSpace(notes) == "" {
 		return boundText(rendered.String(), maxTrackerItemBytes)
 	}
 	// The notes are rendered last and cut from the front, and everything else about
