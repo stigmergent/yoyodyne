@@ -654,13 +654,14 @@ which is usually what you want, since a build you just installed is the likelies
 reason the attempt would go differently.
 
 A start the environment refuses before reserving a run is eligible again after
-one poll interval, without any change to the item. Uncommitted changes in the primary checkout, a
-lost race for capacity, and failures to read repository readiness, durable state,
-or architectural invariants leave no memory that the work was tried and count
-nothing toward `blocked_runs_before_intake_hold`. The refusing step records that
-the cause is outside the work. A sandbox that will not spawn a shell is covered
-when that step marks its refusal that way. A readiness read also covers an
-unmarked failed start while the checkout is still refusing work.
+one poll interval, without any change to the item. Uncommitted changes in the
+primary checkout, a lost race for capacity, and failures to read repository
+readiness, durable state, or architectural invariants leave no memory that the
+work was tried and count nothing toward `blocked_runs_before_intake_hold`.
+The refusing step records that the cause is outside the work. A sandbox that
+will not spawn a shell is covered when that step marks its refusal that way.
+A readiness read also covers an unmarked failed start while the checkout is
+still refusing work.
 
 The primary checkout's readiness is read at every pull before new work is chosen.
 A watching session waits and reads again; a drain stops on the refusal. The watch
