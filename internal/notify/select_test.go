@@ -1804,6 +1804,7 @@ func TestAWatchSessionIsAddressedToTheWholeLine(t *testing.T) {
 		runstate.WatchWatching: KindWatchStarted,
 		runstate.WatchIdle:     KindWatchIdle,
 		runstate.WatchBraked:   KindWatchBraked,
+		runstate.WatchBlocked:  KindWatchBlocked,
 		runstate.WatchResumed:  KindWatchResumed,
 		runstate.WatchStopped:  KindWatchStopped,
 	}
@@ -1826,7 +1827,7 @@ func TestAWatchSessionIsAddressedToTheWholeLine(t *testing.T) {
 			t.Fatalf("body %q does not carry what the session said about itself", message.Body)
 		}
 		wantSeverity := report.SeverityNote
-		if state == runstate.WatchBraked {
+		if state == runstate.WatchBraked || state == runstate.WatchBlocked {
 			wantSeverity = report.SeverityWarning
 		}
 		if notification.Event.Severity != wantSeverity {

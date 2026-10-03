@@ -1855,7 +1855,7 @@ found holding the watch and taken as it is, and `yoyo stop` stops the session
 with the rest, which cancels the runs it is hosting exactly as stopping it
 yourself does.
 
-Three things guard a loop that no longer ends. A session does not start the same
+Four things guard a loop that no longer ends. A session does not start the same
 item twice unless the item has changed — what it says, what it is for, its
 priority, its status, what it depends on, its notes — so a start the harness
 cannot get past is not retried every minute forever, and a blocker you release is
@@ -1872,7 +1872,7 @@ round `execution.brake_escalation_cycles` times.
 Stops the environment made count toward nothing. What reports that hold
 names the brake rather than you, because the hold records which of the two
 placed it, names the runs it counted with what stopped each, and says who is
-deciding it. And it records what it is doing — watching, idle, braked, resumed,
+deciding it. And it records what it is doing — watching, idle, braked, blocked, resumed,
 stopped — where `yoyo status` and the Slack sink read it, because an idle
 session and a dead one are otherwise the same silence. A
 poll that starts nothing names the runs going and what it passed over. It records
@@ -1880,7 +1880,26 @@ that account in classes as well as in words — how many items were held for a
 person, parked, carried in a conversation, sequenced behind a run — so that the
 stall alarm below states the same cause rather than deriving a second one.
 
-The first of those three guards says why, against each item it holds out. An
+A start the environment refuses before reserving a run is eligible again after
+one poll interval, without any change to the item. Uncommitted changes in the
+primary checkout, a lost race for capacity, and failures to read repository
+readiness, durable state, or architectural invariants leave no memory that the
+work was tried and count nothing toward `blocked_runs_before_intake_hold`.
+The refusing step records that the cause is outside the work. A sandbox that
+will not spawn a shell is covered when that step marks its refusal that way.
+A readiness read also covers an unmarked failed start while the checkout is
+still refusing work.
+
+The primary checkout's readiness is read at every pull before new work is chosen.
+A watching session waits and reads again; a drain stops on the refusal. The watch
+log, `yoyo status`, and the Slack heartbeat carry the cause, including
+`runs cannot start: uncommitted changes in the primary checkout (<file>); commit or stash to release`.
+Once you commit or stash, the next poll can start the queued work without a
+session restart or an edit to the item. Other refusals carry the condition and
+the beginning of the cause separately, so bounding a long cause does not spend
+the detail limit repeating the condition.
+
+The first of those four guards says why, against each item it holds out. An
 item passed over as *already tried this session* is the one exclusion whose
 cause is not somewhere you can go and look — every other class names a state of
 the item, the queue, or the machine, and this one names an attempt only the
@@ -1893,7 +1912,7 @@ record, so nothing built on the run store — the sweep, the docket, `yoyo statu
 the stall alarm — can ever see it; on 2026-09-13 a session tried two items four
 hours into a returned capacity window, both died that way, and it then excluded
 both for the rest of its life with no surface saying why, over a queue of
-seventy-four. So a dispatch that fails before a run is reserved is put on the
+seventy-four. So a dispatch that fails on the work before a run is reserved is put on the
 development manager's docket by the session that tried it, as an *attempt that
 never became a run*, carrying the item, why it was selected, what stopped it,
 and that the session will not try it again until the item changes. It is keyed

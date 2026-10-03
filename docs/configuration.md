@@ -3226,7 +3226,7 @@ question nobody asked it — but it means an operator who holds intake to stop
 spending is still charged a turn per cadence. `yoyo pause` is the switch that
 stops those too.
 
-**Three guards, because the loop no longer ends.**
+**Four guards, because the loop no longer ends.**
 
 **A watching session does not start the same item twice unless the item has
 changed.** The case that forces this is a run that fails *before it starts* —
@@ -3256,6 +3256,25 @@ for the life of the session. Restarting the session, or touching the item, asks
 for another attempt — and the restart it makes for itself when you deploy counts,
 which is usually what you want, since a build you just installed is the likeliest
 reason the attempt would go differently.
+
+A start the environment refuses before reserving a run is eligible again after
+one poll interval, without any change to the item. Uncommitted changes in the
+primary checkout, a lost race for capacity, and failures to read repository
+readiness, durable state, or architectural invariants leave no memory that the
+work was tried and count nothing toward `blocked_runs_before_intake_hold`.
+The refusing step records that the cause is outside the work. A sandbox that
+will not spawn a shell is covered when that step marks its refusal that way.
+A readiness read also covers an unmarked failed start while the checkout is
+still refusing work.
+
+The primary checkout's readiness is read at every pull before new work is chosen.
+A watching session waits and reads again; a drain stops on the refusal. The watch
+log, `yoyo status`, and the Slack heartbeat carry the cause, including
+`runs cannot start: uncommitted changes in the primary checkout (<file>); commit or stash to release`.
+Once you commit or stash, the next poll can start the queued work without a
+session restart or an edit to the item. Other refusals carry the condition and
+the beginning of the cause separately, so bounding a long cause does not spend
+the detail limit repeating the condition.
 
 `blocked_runs_before_intake_hold` is the failure-storm brake, a different thing
 from that cooldown: it is aimed at a broken machine rather than a broken item.
@@ -3335,7 +3354,7 @@ item and what stopped it — on the channel's message and under `Needs a human`
 on `yoyo status`, and a release is said once, naming who lifted it.
 
 And the session says what it is doing, because an idle session and a dead one are
-otherwise the same silence. Each transition — watching, idle, braked, resumed,
+otherwise the same silence. Each transition — watching, idle, braked, blocked, resumed,
 stopped — is recorded once, where `yoyo status` prints it and the Slack sink
 posts it. A session idling all night writes one line rather than one a minute. A
 stop says whether it is an ending or a restart, so the one below reads as a

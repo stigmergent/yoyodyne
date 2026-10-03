@@ -108,6 +108,8 @@ const (
 	// thing about it, and because telling them to start a session they are already
 	// running is worse than telling them nothing.
 	ReasonSessionIdle Reason = "idle"
+	// ReasonSessionBlocked is a machine refusing starts, with its own cause.
+	ReasonSessionBlocked Reason = "blocked"
 	// ReasonRedeploying is a session restarting into a build deployed over it: it
 	// has found the deploy, its bounded drain has run out with runs still going,
 	// and it is stopping and preserving them, or it has already stopped and is
@@ -138,6 +140,7 @@ func Reasons() []Reason {
 		ReasonProviderWindow,
 		ReasonTrackerWait,
 		ReasonStoreUnreadable,
+		ReasonSessionBlocked,
 		ReasonSessionIdle,
 		ReasonRedeploying,
 		ReasonNoWatchSession,
@@ -174,6 +177,8 @@ func (r Reason) Whose() string {
 		return "nobody's — the dispatch asks the tracker again on its own, and puts the item on the development manager's docket only once the recovery window is spent"
 	case ReasonStoreUnreadable:
 		return "the harness's — the queue could not be read, and it is read again until it answers or the session gives up on it"
+	case ReasonSessionBlocked:
+		return "the harness's — runs are retried at the next poll once the refusing condition clears"
 	case ReasonSessionIdle:
 		return "the operator's — a queue with ready work and an idle session is a stall rather than a rest"
 	case ReasonRedeploying:
@@ -236,7 +241,8 @@ type Stall struct {
 	// Says is the state as a clause, with no remedy in it, because it is read
 	// inside sentences the surfaces write around it.
 	//
-	// ReasonProviderWindow is the one exception, and it is the operator's rather
+	// ReasonSessionBlocked carries the watch's own cause and remedy verbatim.
+	// ReasonProviderWindow is another exception, and it is the operator's rather
 	// than an inconsistency: he asked that when the harness is paused on a usage
 	// window the cause be the first words of any message that reaches him, so that
 	// one is a whole sentence and the surfaces open with it instead of writing
@@ -440,10 +446,15 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 		}
 	}
 	for _, transition := range live {
-		if transition.State != runstate.WatchIdle {
+		if transition.State != runstate.WatchIdle && transition.State != runstate.WatchBlocked {
 			// Watching, braked, or resumed: a session is alive and either choosing or
 			// stopped by a hold, which was read before this.
 			return Stall{}
+		}
+	}
+	for _, transition := range live {
+		if transition.State == runstate.WatchBlocked {
+			return Stall{Reason: ReasonSessionBlocked, Says: transition.Reason, Since: transition.At}
 		}
 	}
 	if len(live) > 0 {
