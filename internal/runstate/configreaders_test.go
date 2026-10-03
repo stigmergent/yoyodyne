@@ -56,6 +56,27 @@ func TestConfigReaderMismatchesNameTheRunningPartsThatCannotReadTheFile(t *testi
 			t.Errorf("Says() = %q, want it to name %q", says, want)
 		}
 	}
+
+	// A template-only key still names the old build, even when the active file
+	// has no such key. Current builds and exited parts remain absent.
+	if err := os.WriteFile(configPath, []byte("agents: {developer: {role: developer}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := store.Mismatches(); err != nil || len(active) != 0 {
+		t.Fatalf("healthy active file = %+v, %v", active, err)
+	}
+	prospective, err := store.TemplateMismatches("internal/config/builtin/v1/bundle.yaml", []string{"agents.*.effort"})
+	if err != nil || len(prospective) != 1 || prospective[0].Service != "dashboard" {
+		t.Fatalf("TemplateMismatches() = %+v, %v, want the dashboard alone", prospective, err)
+	}
+	for _, want := range []string{"build 0123456789ab", "agents.*.effort", "adopting those keys", "would make"} {
+		if !strings.Contains(prospective[0].Says(), want) {
+			t.Errorf("prospective finding %q lacks %q", prospective[0].Says(), want)
+		}
+	}
+	if strings.Contains(prospective[0].Says(), "every read it makes of the configuration fails") {
+		t.Fatal("prospective finding claims the healthy active file is already broken")
+	}
 }
 
 func TestConfigReaderRefusesAPartTheProductDoesNotHave(t *testing.T) {

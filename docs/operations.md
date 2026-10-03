@@ -564,9 +564,17 @@ configuration this landing left:`, and in the run's outcome under
 `config_mismatches`, so a landing that adds a key names the parts it leaves
 behind at the moment it lands rather than when somebody next opens the
 dashboard. A part that reads a file outside the repository is compared against
-that file as it stands, since no landing changed it. The template `yoyo init`
-ships is not compared: no running part reads it, and a key that reaches a
-project's file is compared by the landing that puts it there.
+that file as it stands, since no landing changed it. The landing also compares
+the shipped templates at the previous and integrated commits. Keys newly
+introduced there are compared against every running part's recorded schema,
+even when its active configuration has not adopted them. Incompatible parts
+are named separately, with their builds and the new keys, in a note opening
+`Running parts that cannot read new keys in shipped templates:` and in the
+outcome under `template_config_mismatches`. This is a warning that adopting the
+keys would make those builds fail to read the configuration; it does not say
+the file they read now is broken. Changing a value or repeating an existing
+key on another agent introduces no key. Both comparisons include keys supplied
+by YAML merges, with explicit values and earlier merge sources taking precedence.
 
 It changes nothing. Nothing here installs, authenticates, restarts, or edits a
 configuration, and no credential is ever read: whether a secret is stored is

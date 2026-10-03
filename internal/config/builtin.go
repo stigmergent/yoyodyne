@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -88,6 +89,18 @@ func (b bundle) unboundPersonas(bound Config) ([]string, error) {
 // they are reported to an operator diagnosing a configuration.
 func BuiltinBundleNames() []string {
 	return []string{BuiltinV1}
+}
+
+// BuiltinTemplatePaths names the repository sources of the templates this
+// executable ships. Landing checks read these at the previous and landed
+// commits, rather than using the older templates embedded in the checker.
+func BuiltinTemplatePaths() []string {
+	paths := make([]string, 0, len(builtinBundleDirectories))
+	for _, directory := range builtinBundleDirectories {
+		paths = append(paths, path.Join("internal/config", directory, "bundle.yaml"))
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func loadBuiltinBundle(name string) (bundle, error) {

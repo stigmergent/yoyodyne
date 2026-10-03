@@ -154,12 +154,11 @@ func UnreadableKeys(source []byte, schema []string) ([]string, error) {
 	if root.Kind == 0 {
 		return nil, errors.New("read the configuration's keys: the configuration is empty")
 	}
-	patterns := make([][]string, 0, len(schema))
-	for _, key := range schema {
-		patterns = append(patterns, strings.Split(key, "."))
-	}
+	patterns := schemaPatterns(schema)
 	var unreadable []string
-	walkFile(documentContent(&root), nil, nil, patterns, &unreadable)
+	if err := walkFile(documentContent(&root), nil, nil, patterns, &unreadable); err != nil {
+		return nil, fmt.Errorf("read the configuration's keys: %w", err)
+	}
 	sort.Strings(unreadable)
 	return unreadable, nil
 }
@@ -174,39 +173,53 @@ func documentContent(node *yaml.Node) *yaml.Node {
 // walkFile descends one node of the file. shape is the path in the schema's
 // terms, which is what is matched; named is the same path in the file's own
 // names, which is what is reported.
-func walkFile(node *yaml.Node, shape, named []string, patterns [][]string, unreadable *[]string) {
+func walkFile(node *yaml.Node, shape, named []string, patterns [][]string, unreadable *[]string) error {
 	for node.Kind == yaml.AliasNode && node.Alias != nil {
 		node = node.Alias
 	}
 	switch node.Kind {
 	case yaml.MappingNode:
-		for index := 0; index+1 < len(node.Content); index += 2 {
-			key, value := node.Content[index], node.Content[index+1]
-			if key.Value == "<<" {
-				// A merge key brings another mapping's keys in; those are looked at
-				// where they are written.
-				continue
-			}
-			childNamed := appendPath(named, key.Value)
-			childShape, known := matchKey(shape, key.Value, patterns)
+		fields, err := mappingFields(node)
+		if err != nil {
+			return err
+		}
+		for key, value := range fields {
+			childNamed := appendPath(named, key)
+			childShape, known := matchKey(shape, key, patterns)
 			if !known {
 				*unreadable = append(*unreadable, strings.Join(childNamed, "."))
 				continue
 			}
 			if hasChildren(childShape, patterns) {
-				walkFile(value, childShape, childNamed, patterns, unreadable)
+				if err := walkFile(&value, childShape, childNamed, patterns, unreadable); err != nil {
+					return err
+				}
 			}
 		}
 	case yaml.SequenceNode:
 		itemShape := appendPath(shape, SchemaItem)
 		if !matches(itemShape, patterns) || !hasChildren(itemShape, patterns) {
-			return
+			return nil
 		}
 		for index, item := range node.Content {
 			itemNamed := appendPath(named, fmt.Sprintf("[%d]", index))
-			walkFile(item, itemShape, itemNamed, patterns, unreadable)
+			if err := walkFile(item, itemShape, itemNamed, patterns, unreadable); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
+}
+
+// Decoding only the mapping expands merges with the loader's precedence:
+// explicit keys override merged ones, and earlier merge sources win. Child
+// nodes remain nodes, so keys are compared where their values are used.
+func mappingFields(node *yaml.Node) (map[string]yaml.Node, error) {
+	var fields map[string]yaml.Node
+	if err := node.Decode(&fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
 }
 
 // matchKey finds the key under shape in the schema: by its own name where the

@@ -1738,6 +1738,23 @@ func servicesConfig(entry string) string {
 func TestDoctorNamesTheRunningPartWhoseBuildCannotReadTheConfiguration(t *testing.T) {
 	t.Parallel()
 
+	t.Run("a merged key the dashboard cannot read", func(t *testing.T) {
+		t.Parallel()
+		world := newWorld(t)
+		world.configuration = strings.Replace(healthyConfig, "    model: opus\n", "    <<: {model: opus, effort: medium}\n", 1)
+		world.runningPart("dashboard", 4242, staleBuild, schemaWithout("agents.*.effort"))
+		report := world.diagnose()
+		finding, found := findingFor(report, "config-readers:dashboard")
+		if !found || finding.Status != StatusWarning {
+			t.Fatalf("no warning for the dashboard's merged key: %s", render(report))
+		}
+		for _, want := range []string{"the dashboard service", "build " + staleBuild[:12], "agents.developer.effort"} {
+			if !strings.Contains(finding.Summary, want) {
+				t.Errorf("summary %q does not name %q", finding.Summary, want)
+			}
+		}
+	})
+
 	t.Run("a dashboard on an older build", func(t *testing.T) {
 		t.Parallel()
 		world := newWorld(t)

@@ -86,6 +86,32 @@ func TestUnreadableKeysStopsAtTheUnknownSection(t *testing.T) {
 	}
 }
 
+func TestUnreadableKeysExpandsMergesAtTheirDestination(t *testing.T) {
+	older := slices.DeleteFunc(SchemaKeys(), func(key string) bool { return key == "agents.*.effort" })
+	for _, test := range []struct {
+		name   string
+		source string
+		want   []string
+	}{
+		{"inline merge", "agents: {developer: {<<: {role: developer, model: opus, effort: medium}}}", []string{"agents.developer.effort"}},
+		{"alias merge", "agents:\n  developer: &defaults {role: developer, effort: medium}\n  reviewer: {<<: *defaults, role: reviewer}\n", []string{"agents.developer.effort", "agents.reviewer.effort"}},
+		{"explicit mapping replaces merged mapping", "<<: {agents: {developer: {effort: medium}}}\nagents: {developer: {role: developer}}\n", nil},
+		{"first merge mapping wins", "agents: {<<: [{developer: {role: developer}}, {developer: {effort: medium}}]}", nil},
+		{"first merge mapping carries the key", "agents: {<<: [{developer: {effort: medium}}, {developer: {role: developer}}]}", []string{"agents.developer.effort"}},
+		{"quoted merge name is an ordinary key", "agents: {developer: {'<<': {effort: medium}}}", []string{"agents.developer.<<"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := UnreadableKeys([]byte(test.source), older)
+			if err != nil || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("UnreadableKeys() = %v, %v; want %v", got, err, test.want)
+			}
+		})
+	}
+	if _, err := UnreadableKeys([]byte("agents: {developer: {<<: medium}}"), older); err == nil {
+		t.Fatal("an invalid merge was reported as readable")
+	}
+}
+
 // Every key the shipped template writes and every key this project's own file
 // carries is one this build reads: were the derivation to miss a key the
 // decoder accepts, every running service would be reported unable to read it.

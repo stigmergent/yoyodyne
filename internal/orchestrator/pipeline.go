@@ -726,8 +726,11 @@ type Outcome struct {
 	// read a key in the configuration this landing left, as the landing found
 	// them once the run was over. It is absent where every part reads the file.
 	ConfigMismatches []runstate.ConfigMismatch `json:"config_mismatches,omitempty"`
-	Changes          gitworktree.ChangeSummary `json:"changes"`
-	Summary          string                    `json:"summary,omitempty"`
+	// TemplateConfigMismatches names parts that could not adopt the new keys
+	// this landing adds to shipped templates. Their active files may be healthy.
+	TemplateConfigMismatches []runstate.ConfigTemplateMismatch `json:"template_config_mismatches,omitempty"`
+	Changes                  gitworktree.ChangeSummary         `json:"changes"`
+	Summary                  string                            `json:"summary,omitempty"`
 	// Reports are what this run's agents noticed and reported while their work
 	// carried on: risks worked around, assumptions that may not hold, things
 	// outside the assigned work. They are collected beside the run rather than
@@ -5935,10 +5938,12 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 }
 
 // ConfigReaders is what the running parts of the product recorded about the
-// configuration keys their builds read, compared against the file each reads.
+// configuration keys their builds read, compared against the file each reads
+// and against newly introduced shipped-template keys.
 // It is satisfied by *runstate.ConfigReaderStore.
 type ConfigReaders interface {
 	MismatchesIn(read func(configPath string) ([]byte, error)) ([]runstate.ConfigMismatch, error)
+	TemplateMismatches(templatePath string, added []string) ([]runstate.ConfigTemplateMismatch, error)
 }
 
 // nameUnreadingParts compares the configuration this landing left against
@@ -5958,10 +5963,9 @@ type ConfigReaders interface {
 // the repository — is compared against the file as it stands, which nothing
 // this landing did has changed.
 //
-// Only the project's own configuration is compared, and not the template `yoyo
-// init` ships: no running part reads the template, so a key that is only in it
-// breaks nothing until it reaches a project's file, and the landing that puts
-// it there is compared then.
+// Keys newly introduced in shipped templates are compared separately. A part
+// that cannot adopt those keys is named prospectively; that does not say its
+// active configuration is already unreadable.
 func (a *activeRun) nameUnreadingParts() {
 	p := a.pipeline
 	if a.outcome.Integration == nil || p.ConfigReaders == nil {
@@ -5974,9 +5978,12 @@ func (a *activeRun) nameUnreadingParts() {
 		return p.configAtCommit(readCtx, commit, configPath)
 	})
 	a.outcome.ConfigMismatches = mismatches
-	if len(mismatches) == 0 && err == nil {
+	templateMismatches, templateErr := a.templateConfigMismatches(readCtx)
+	a.outcome.TemplateConfigMismatches = templateMismatches
+	if len(mismatches) == 0 && err == nil && len(templateMismatches) == 0 && templateErr == nil {
 		return
 	}
+	var notes []string
 	lines := make([]string, 0, len(mismatches)+1)
 	for _, mismatch := range mismatches {
 		lines = append(lines, mismatch.Says()+"; "+runstate.ConfigMismatchRemedy(mismatch.Service))
@@ -5984,11 +5991,24 @@ func (a *activeRun) nameUnreadingParts() {
 	if err != nil {
 		lines = append(lines, "whether every running part of the product can read the configuration could not be read whole: "+err.Error())
 	}
+	if len(lines) > 0 {
+		notes = append(notes, "Running parts that cannot read the configuration this landing left: "+strings.Join(lines, "; "))
+	}
+	lines = nil
+	for _, mismatch := range templateMismatches {
+		lines = append(lines, mismatch.Says()+"; "+runstate.ConfigMismatchRemedy(mismatch.Service))
+	}
+	if templateErr != nil {
+		lines = append(lines, "whether every running part can adopt the new keys in shipped templates could not be read whole: "+templateErr.Error())
+	}
+	if len(lines) > 0 {
+		notes = append(notes, "Running parts that cannot read new keys in shipped templates: "+strings.Join(lines, "; "))
+	}
 	noteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	// A note the item will not take loses only the note: the outcome still
-	// carries the mismatches, and `yoyo status` names them from the records.
-	_, _ = p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, "Running parts that cannot read the configuration this landing left: "+strings.Join(lines, "; "))
+	// carries both the active and prospective mismatches.
+	_, _ = p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, strings.Join(notes, "\n"))
 }
 
 // landingQueueSlack is the margin a landing's wait allows beyond the checks of

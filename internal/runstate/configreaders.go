@@ -110,6 +110,28 @@ type ConfigMismatch struct {
 	Keys []string `json:"keys"`
 }
 
+// ConfigTemplateMismatch is prospective: adopting keys introduced in a shipped
+// template would make a running part unable to read its configuration. It says
+// nothing about whether the file the part currently reads is already broken.
+type ConfigTemplateMismatch struct {
+	Service      string    `json:"service"`
+	PID          int       `json:"pid"`
+	Build        string    `json:"build,omitempty"`
+	ConfigPath   string    `json:"config_path"`
+	StartedAt    time.Time `json:"started_at"`
+	TemplatePath string    `json:"template_path"`
+	Keys         []string  `json:"keys"`
+}
+
+func (m ConfigTemplateMismatch) Says() string {
+	build := "a build that recorded no revision"
+	if m.Build != "" {
+		build = "build " + shortBuild(m.Build)
+	}
+	return fmt.Sprintf("the %s service, running %s as pid %d since %s, cannot read new template keys %s in %s; adopting those keys in %s would make its configuration reads fail",
+		m.Service, build, m.PID, m.StartedAt.Local().Format("2006-01-02 15:04 MST"), strings.Join(m.Keys, ", "), m.TemplatePath, m.ConfigPath)
+}
+
 // Says is the mismatch in a sentence: the part, its build, and the keys.
 func (m ConfigMismatch) Says() string {
 	build := "a build that recorded no revision"
@@ -284,6 +306,25 @@ func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {
 // in the returned error rather than a part reported current.
 func (s *ConfigReaderStore) Mismatches() ([]ConfigMismatch, error) {
 	return s.MismatchesIn(os.ReadFile)
+}
+
+// TemplateMismatches compares newly introduced template keys against every
+// running part's schema independently of the file it reads now.
+func (s *ConfigReaderStore) TemplateMismatches(templatePath string, added []string) ([]ConfigTemplateMismatch, error) {
+	readers, err := s.Running()
+	var mismatches []ConfigTemplateMismatch
+	for _, reader := range readers {
+		keys := config.UnreadableSchemaKeys(added, reader.Keys)
+		if len(keys) == 0 {
+			continue
+		}
+		mismatches = append(mismatches, ConfigTemplateMismatch{
+			Service: reader.Service, PID: reader.PID, Build: reader.Build,
+			ConfigPath: reader.ConfigPath, StartedAt: reader.StartedAt,
+			TemplatePath: templatePath, Keys: keys,
+		})
+	}
+	return mismatches, err
 }
 
 // MismatchesIn is Mismatches with the file each part reads read by read

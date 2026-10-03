@@ -11,12 +11,67 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // maxLandedConfigBytes bounds the configuration a landing reads at its commit,
 // the bound every state record here is held to.
 const maxLandedConfigBytes = 1 << 20
+
+// templateConfigMismatches compares keys added to shipped templates at this
+// landing, independently of the active files. Both versions come from Git:
+// the checkout and the checker's embedded template can each be older.
+func (a *activeRun) templateConfigMismatches(ctx context.Context) ([]runstate.ConfigTemplateMismatch, error) {
+	p := a.pipeline
+	var mismatches []runstate.ConfigTemplateMismatch
+	var problems []error
+	for _, path := range config.BuiltinTemplatePaths() {
+		after, err := p.templateAtCommit(ctx, a.outcome.Integration.TargetCommit, path)
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		if after == nil {
+			continue
+		}
+		before, err := p.templateAtCommit(ctx, a.outcome.Integration.PreviousTargetCommit, path)
+		if err != nil {
+			problems = append(problems, err)
+			continue
+		}
+		added, err := config.AddedTemplateKeys(before, after)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("compare shipped template %s: %w", path, err))
+			continue
+		}
+		if len(added) == 0 {
+			continue
+		}
+		found, err := p.ConfigReaders.TemplateMismatches(path, added)
+		mismatches = append(mismatches, found...)
+		problems = append(problems, err)
+	}
+	return mismatches, errors.Join(problems...)
+}
+
+func (p *Pipeline) templateAtCommit(ctx context.Context, commit, path string) ([]byte, error) {
+	if strings.TrimSpace(commit) == "" || p.Worktrees == nil {
+		return nil, fmt.Errorf("read shipped template %s: the landing names no commit or repository reader", path)
+	}
+	file, err := p.Worktrees.FileAtCommit(ctx, commit, path, maxLandedConfigBytes)
+	if errors.Is(err, gitworktree.ErrNotAtCommit) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read shipped template %s at %s: %w", path, commit, err)
+	}
+	if file.Content == nil && file.Size > 0 {
+		return nil, fmt.Errorf("%s at %s is %d bytes, past the %d byte bound", path, commit, file.Size, maxLandedConfigBytes)
+	}
+	return file.Content, nil
+}
 
 // configAtCommit reads a configuration file a running part reads as commit
 // holds it, where the file is inside the repository and the commit carries
