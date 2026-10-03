@@ -147,6 +147,7 @@ func TestARunEndsWhenItsDeveloperNeverAccountsForTheWork(t *testing.T) {
 	pipeline, store := newAutomaticPipeline(t, pipelineRepository(t), tracker, provider, []string{"exit 0"})
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopDeveloperAccount)
 	if err == nil || !strings.Contains(err.Error(), "without accounting for the work") {
 		t.Fatalf("Run() error = %v, want a run that failed naming the unaccounted reply", err)
 	}

@@ -227,7 +227,7 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 	if !parked(before) && parked(after) {
 		say(KindRunParked, parkSeverity(after), Harness(), Detail{Cause: causeOf(after)})
 	}
-	// A run that ended without succeeding, said in the read model's own outcome
+	// A run that ended without landing, said in the read model's own outcome
 	// vocabulary rather than in one word over all four. A stoppage somebody has to
 	// decide about is said as loudly as whoever decides it and whatever stopped it
 	// warrant — see stoppageSeverity; the other three endings leave nobody a
@@ -244,7 +244,7 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 	// most needs, silently swallowed by the fact the run was already over. So a
 	// blocker appearing on a run that had already ended is itself a crossing, and
 	// the stoppage line it says corrects the ending that preceded it.
-	endedNow := !endedBadly(before) && endedBadly(after)
+	endedNow := !endedWithoutLanding(before) && endedWithoutLanding(after)
 	stoppageNow := !handedToAPerson(before) && handedToAPerson(after)
 	if endedNow || stoppageNow {
 		found := lookedAt(after, look)
@@ -299,6 +299,9 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 			if after.DiedBeforeClaiming() {
 				remains.Mover = unstartedMove
 			}
+			if after.Escalated() {
+				remains.Mover = mover.Possessive() + " — the run raised the work item as one that cannot be met as written; its docket entry is where the development manager decides what happens next."
+			}
 			sayWith(KindRunEnded, endingSeverity(outcome), Harness(), remains, endingReason(after))
 		}
 	}
@@ -332,7 +335,10 @@ func endingReason(state runstate.State) string {
 		reason = strings.TrimSpace(state.PublishFailure)
 	}
 	if reason == "" {
-		return runstate.NoReasonSays
+		reason = runstate.NoReasonSays
+	}
+	if state.RecordedStopClass() == runstate.StopUnknown {
+		reason = string(runstate.StopUnknown) + ": " + reason
 	}
 	if strings.TrimSpace(state.Failure) != "" {
 		return environmentallyRefused(state) + reason
@@ -425,7 +431,7 @@ func stoppageSeverity(state runstate.State, mover readmodel.Mover) report.Severi
 // warnings, because nobody chose either and what follows both is silence that
 // looks exactly like work in progress.
 func endingSeverity(outcome runstate.RunOutcome) report.Severity {
-	if outcome == runstate.OutcomeCancelled {
+	if outcome == runstate.OutcomeCancelled || outcome == runstate.OutcomeSucceeded {
 		return report.SeverityNote
 	}
 	return report.SeverityWarning
@@ -1460,13 +1466,10 @@ func parkSeverity(state runstate.State) report.Severity {
 	return report.SeverityWarning
 }
 
-// endedBadly reports a run that reached a terminal status without succeeding,
-// which is the crossing said above however it ended. Which of the four endings
-// it was is the read model's to say, not this one's: a second classification
-// here is a second chance for the channel and `yoyo status` to disagree about
-// one run.
-func endedBadly(state runstate.State) bool {
-	return state.Status.Terminal() && state.Status != runstate.StatusSucceeded
+// An escalation or an integration policy can complete a run without landing
+// code. They name their stop cause too, as the throughput reading does.
+func endedWithoutLanding(state runstate.State) bool {
+	return state.Status.Terminal() && (state.Outcome() != runstate.OutcomeSucceeded || state.Integration == nil)
 }
 
 // handedToAPerson reports a run whose ending is a stoppage somebody has to

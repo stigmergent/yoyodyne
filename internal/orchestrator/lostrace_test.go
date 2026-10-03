@@ -160,6 +160,10 @@ func TestAReplayThatStopsOnTheChangePastTheBudgetStopsThere(t *testing.T) {
 	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 5
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegrationBudget)
+	if outcome.StopClass != runstate.StopIntegrationBudget {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopIntegrationBudget)
+	}
 	if err == nil || !strings.Contains(err.Error(), "2 of 1 permitted replay stop(s) spent") || !strings.Contains(err.Error(), "independent review requires repair") {
 		t.Fatalf("Run() error = %v, want the second charged replay to stop the run on its repair verdict", err)
 	}
@@ -200,6 +204,10 @@ func TestAtBudgetZeroTheFirstReplayThatFailsItsChecksStopsTheRun(t *testing.T) {
 	pipeline.Config.Execution.IntegrationRetriesBeforeReconciliation = 0
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegrationBudget)
+	if outcome.StopClass != runstate.StopIntegrationBudget {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopIntegrationBudget)
+	}
 	if err == nil || !strings.Contains(err.Error(), "1 of 0 permitted replay stop(s) spent") {
 		t.Fatalf("Run() error = %v, want the failing replay to stop the run", err)
 	}

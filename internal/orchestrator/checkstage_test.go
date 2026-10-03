@@ -52,6 +52,10 @@ func TestTheCheckStageEndsAtItsBoundNamingTheBoundAndTheCheck(t *testing.T) {
 	}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.CauseCheckStageBound.StopClass())
+	if outcome.StopClass != runstate.CauseCheckStageBound.StopClass() {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.CauseCheckStageBound.StopClass())
+	}
 	if err == nil {
 		t.Fatal("Run() error = nil, want the run stopped at the stage bound")
 	}

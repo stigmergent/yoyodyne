@@ -103,6 +103,9 @@ type Window struct {
 	// It is nil where the runs could not be read, as the endings are nothing
 	// then, and empty rather than absent otherwise.
 	LandedItems []LandedRun `json:"landed_items"`
+	// StopsByCause counts every terminal run that did not land, including a
+	// successful escalation. Old records count as unknown, never an inferred cause.
+	StopsByCause map[runstate.StopClass]int `json:"stops_by_cause"`
 }
 
 // LandedRun is one run whose work reached the target branch inside a window:
@@ -179,6 +182,7 @@ func absent(what, problem string) string {
 func countEndings(window *Window, recorded []runstate.State, now time.Time) {
 	since := startOfLocalDay(now, window.Days)
 	window.LandedItems = []LandedRun{}
+	window.StopsByCause = map[runstate.StopClass]int{}
 	for _, state := range recorded {
 		if !state.StartedAt.Before(since) && !state.StartedAt.After(now) {
 			window.Started++
@@ -189,6 +193,9 @@ func countEndings(window *Window, recorded []runstate.State, now time.Time) {
 		ended := EndedAt(state)
 		if ended.Before(since) || ended.After(now) {
 			continue
+		}
+		if state.Outcome() != runstate.OutcomeSucceeded || state.Integration == nil {
+			window.StopsByCause[state.RecordedStopClass()]++
 		}
 		switch state.Outcome() {
 		case runstate.OutcomeSucceeded:

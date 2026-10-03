@@ -131,7 +131,7 @@ func TestAProbeTheEnvironmentRefusedEndsTheRunNamingIt(t *testing.T) {
 	if !strings.Contains(recorded.Environmental.Detail, "argument limit") {
 		t.Errorf("the refusal does not say what refused: %q", recorded.Environmental.Detail)
 	}
-	if recorded.StopClass != runstate.StopOutside || outcome.StopClass != runstate.StopOutside {
+	if recorded.StopClass != runstate.CauseSandboxSpawnFailure.StopClass() || outcome.StopClass != runstate.CauseSandboxSpawnFailure.StopClass() {
 		t.Errorf("stop class = %q on the record and %q on the outcome, want the environment named as what stopped the run", recorded.StopClass, outcome.StopClass)
 	}
 }

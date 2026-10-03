@@ -2652,9 +2652,9 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 	blocked := fmt.Errorf("the change replayed onto its moved target stopped on the change with %d of %d permitted replay stop(s) spent: %s",
 		a.state.ChargedReplays, limit, stop)
 	if err := a.block(renderChargedReplayBlockerNotes(a.outcome, blocked.Error(), limit)); err != nil {
-		return stoppedBy(runstate.StopIntegration, withFailedRecord(blocked, fmt.Errorf("record the charged replay as a blocker: %w", err)))
+		return stoppedBy(runstate.StopIntegrationBudget, withFailedRecord(blocked, fmt.Errorf("record the charged replay as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopIntegration, blocked)
+	return stoppedBy(runstate.StopIntegrationBudget, blocked)
 }
 
 // continueOnRebaseConflict hands a change that cannot be replayed back to the
@@ -2824,9 +2824,9 @@ func recordedReplayConflict(worktree gitworktree.Worktree, cause error, phase ru
 func (a *activeRun) blockOnRebaseConflict(cause error, limit int) error {
 	a.outcome.ReplayConflict = a.state.ReplayConflict
 	if err := a.block(renderRebaseConflictNotes(a.outcome, cause.Error(), a.state.ReplayConflict, limit)); err != nil {
-		return stoppedBy(runstate.StopIntegration, withFailedRecord(cause, fmt.Errorf("record the replay conflict as a blocker: %w", err)))
+		return stoppedBy(runstate.StopRepairBudget, withFailedRecord(cause, fmt.Errorf("record the replay conflict as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopIntegration, cause)
+	return stoppedBy(runstate.StopRepairBudget, cause)
 }
 
 // ErrDivergedTarget is what a run stopped because its target branch could not
@@ -3099,9 +3099,9 @@ func (a *activeRun) blockOnUnresolvedFindings(limit int) error {
 	cause := fmt.Errorf("independent review requires repair after %d of %d permitted attempt(s): %s",
 		a.state.RepairAttempts, limit, a.outcome.ReviewSummary)
 	if err := a.block(renderBlockerNotes(a.outcome, limit)); err != nil {
-		return stoppedBy(runstate.StopReview, withFailedRecord(cause, fmt.Errorf("record unresolved review findings as a blocker: %w", err)))
+		return stoppedBy(runstate.StopRepairBudget, withFailedRecord(cause, fmt.Errorf("record unresolved review findings as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopReview, cause)
+	return stoppedBy(runstate.StopRepairBudget, cause)
 }
 
 // blockOnFailingCheck ends a run whose repair budget was spent on a check that
@@ -3113,9 +3113,9 @@ func (a *activeRun) blockOnFailingCheck(limit int) error {
 	cause := fmt.Errorf("verification failed after %d of %d permitted attempt(s): %s exited with %d",
 		a.state.RepairAttempts, limit, failure.Command, failure.ExitCode)
 	if err := a.block(renderCheckBlockerNotes(a.outcome, failure, limit)); err != nil {
-		return stoppedBy(runstate.StopChecks, withFailedRecord(cause, fmt.Errorf("record the failing check as a blocker: %w", err)))
+		return stoppedBy(runstate.StopRepairBudget, withFailedRecord(cause, fmt.Errorf("record the failing check as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopChecks, cause)
+	return stoppedBy(runstate.StopRepairBudget, cause)
 }
 
 // verifyHandback proves the worktree a run is re-entered in still holds the
@@ -3525,9 +3525,9 @@ func (a *activeRun) blockOnRefusedPaths(refused pathRefusal, limit int) error {
 	cause := fmt.Errorf("protected paths refused after %d of %d permitted attempt(s): %s",
 		a.state.RepairAttempts, limit, strings.Join(refused.refusal.Paths, ", "))
 	if err := a.block(renderPathRefusalBlockerNotes(a.outcome, refused, limit)); err != nil {
-		return stoppedBy(runstate.StopChecks, withFailedRecord(cause, fmt.Errorf("record the refused protected paths as a blocker: %w", err)))
+		return stoppedBy(runstate.StopRepairBudget, withFailedRecord(cause, fmt.Errorf("record the refused protected paths as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopChecks, cause)
+	return stoppedBy(runstate.StopRepairBudget, cause)
 }
 
 // develop runs one developer attempt in the run's worktree and records what the
@@ -3700,7 +3700,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 					a.observe(ctx, deliveryDevelop, "reissued")
 					continue
 				}
-				recorded = stoppedBy(runstate.StopProvider, fmt.Errorf("the developer ended two invocations without accounting for the work: %s", unaccounted.reason))
+				recorded = stoppedBy(runstate.StopDeveloperAccount, fmt.Errorf("the developer ended two invocations without accounting for the work: %s", unaccounted.reason))
 			}
 			if recorded != nil {
 				// The developer invocation is what this round delivers with, so an
@@ -3844,6 +3844,11 @@ func (a *activeRun) recordRelaunch() error {
 // second thing wrong rather than another way of saying this one.
 func (a *activeRun) blockOnSpentRelaunchBudget(ctx context.Context, failure backend.TransientFailure, recorded error) error {
 	limit := a.pipeline.Config.Execution.TransientRelaunchesBeforeBlocking
+	class := runstate.StopRelaunchBudget
+	boundary := runstate.RetryProviderInvocation
+	if recovery.RecoverableDetail(failure.Detail) && a.state.RetryWaited(boundary)+recovery.Interval(a.state.RetryAttempts(boundary)+1) > recovery.Window {
+		class = runstate.StopRecoveryWindow
+	}
 	blocked := fmt.Errorf("the provider ended this run without judging the work after %d of %d permitted relaunch(es): %s",
 		a.state.TransientRelaunches, limit, failure.Detail)
 	var reported phaseError
@@ -3852,9 +3857,9 @@ func (a *activeRun) blockOnSpentRelaunchBudget(ctx context.Context, failure back
 	}
 	cause := error(phaseError{status: failureStatus(ctx, recorded), cause: blocked})
 	if err := a.block(renderRelaunchBlockerNotes(a.outcome, failure, a.state.CheckFailure, a.state.PathRefusal, a.state.ReplayConflict, limit)); err != nil {
-		return stoppedBy(runstate.StopProvider, withFailedRecord(cause, fmt.Errorf("record the spent relaunch budget as a blocker: %w", err)))
+		return stoppedBy(class, withFailedRecord(cause, fmt.Errorf("record the spent relaunch budget as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopProvider, cause)
+	return stoppedBy(class, cause)
 }
 
 // account is where this run's invocations are made. It is read off the run's own
@@ -4079,7 +4084,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		if resumable {
 			return providerStop{reason: reason}
 		}
-		return stoppedBy(runstate.StopProvider, phaseError{
+		return stoppedBy(runstate.ProviderStopClass(reason), phaseError{
 			status: statusForProcess(providerResult.Process.Status),
 			cause: fmt.Errorf("the harness stopped the developer: %s, and this run has nothing to continue from",
 				describeProviderStop(reason)),
@@ -4549,9 +4554,9 @@ func (a *activeRun) blockOnUsageLimit(reason string) error {
 	cause := fmt.Errorf("this run was refused by %s and cannot wait for it: %s",
 		runstate.DescribePause(a.state.PauseCause, a.state.UsageLimitKind), reason)
 	if err := a.block(renderUsageLimitBlockerNotes(a.outcome, reason)); err != nil {
-		return stoppedBy(runstate.StopProvider, withFailedRecord(cause, fmt.Errorf("record the provider's refusal as a blocker: %w", err)))
+		return stoppedBy(runstate.StopUsagePause, withFailedRecord(cause, fmt.Errorf("record the provider's refusal as a blocker: %w", err)))
 	}
-	return stoppedBy(runstate.StopProvider, cause)
+	return stoppedBy(runstate.StopUsagePause, cause)
 }
 
 // capacityWindow reports a pause cause that is an exhausted usage limit: a
@@ -5367,9 +5372,9 @@ func (a *activeRun) verify(ctx context.Context) error {
 			// was flat and a contended suite grew past it. So the failure names
 			// both numbers and the setting that moves the ceiling, rather than
 			// reporting the kill as an exit code nobody chose.
-			cause = fmt.Errorf(
+			cause = stoppedBy(runstate.StopCheckTimeout, fmt.Errorf(
 				"verification timed out: %s ran for %s and was stopped at its %s execution.check_timeout budget; raise that budget or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
-				check.Command, check.Elapsed().Round(time.Second), check.Timeout)
+				check.Command, check.Elapsed().Round(time.Second), check.Timeout))
 		}
 		return stoppedBy(runstate.StopChecks, phaseError{status: statusForProcess(check.Process.Status), cause: cause})
 	}
@@ -6221,6 +6226,8 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	a.state.CompletedAt = &completedAt
 	if a.outcome.Integration == nil {
 		a.state.Phase = runstate.PhaseComplete
+		a.state.StopClass = runstate.StopIntegrationPolicy
+		a.outcome.StopClass = a.state.StopClass
 	}
 	if err := p.Store.Save(a.state); err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("save successful run state: %w", err)), runstate.StatusFailed)
@@ -6440,6 +6447,8 @@ func (a *activeRun) escalate(ctx context.Context) (Outcome, error) {
 	a.state.ProviderStop = ""
 	a.state.RedeployStop = nil
 	a.state.OperatorHeldSince = nil
+	a.state.StopClass = runstate.StopEscalated
+	a.outcome.StopClass = a.state.StopClass
 	a.state.Status = runstate.StatusSucceeded
 	a.state.Phase = runstate.PhaseComplete
 	a.state.UpdatedAt = completedAt
@@ -7191,6 +7200,7 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 			if resumable {
 				return "", providerStop{reason: reason}
 			}
+			return "", stoppedBy(runstate.ProviderStopClass(reason), err)
 		}
 		// A reply the verdict contract could not read at all is a failed review
 		// invocation rather than a failed change: the reviewer said nothing about
@@ -7214,6 +7224,9 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		if !reasked && (errors.As(err, &undecodable) || errors.As(err, &incomplete) || errors.As(err, &unaccounted)) {
 			reasked = true
 			continue
+		}
+		if reasked && (errors.As(err, &undecodable) || errors.As(err, &incomplete) || errors.As(err, &unaccounted)) {
+			return "", stoppedBy(runstate.StopReviewAccount, err)
 		}
 		// A verdict that was actually reached is recorded against the work item
 		// before it is acted on, and what it costs depends on which way it went.
@@ -7804,17 +7817,74 @@ func stoppedBy(class runstate.StopClass, cause error) error {
 // checks'. Past those, the class the stopping site gave is the one that knew most
 // when the run stopped, and a stop no site classified is the harness's own step.
 func (a *activeRun) classifyStop(cause error, status runstate.Status) runstate.StopClass {
-	if a.state.Environmental != nil && !a.state.Environmental.Settled {
-		return runstate.StopOutside
+	class, classified := recordedStopIn(cause)
+	if a.state.Environmental != nil && !a.state.Environmental.Settled && class != runstate.StopRecoveryWindow {
+		if a.state.Environmental.Cause == runstate.CauseProcessVanished && a.state.Environmental.ProviderStop != "" {
+			return runstate.ProviderStopClass(a.state.Environmental.ProviderStop)
+		}
+		return a.state.Environmental.Cause.StopClass()
+	}
+	if a.state.ApprovedAwaitingIntegration() && a.state.ReplayConflict == nil && class != runstate.StopRecoveryWindow {
+		if named, environmental := integrationStopCauseOf(cause); environmental {
+			return named.StopClass()
+		}
+	}
+	var requested operatorStop
+	if errors.As(cause, &requested) {
+		return stopRequestClass(requested.request)
+	}
+	var drained RedeployDrain
+	if errors.As(cause, &drained) {
+		return runstate.StopRedeploy
 	}
 	if status == runstate.StatusCancelled {
 		return runstate.StopCancelled
 	}
-	var classified classifiedStop
-	if errors.As(cause, &classified) {
-		return classified.class
+	if classified {
+		return class
 	}
 	return runstate.StopHarness
+}
+
+// A specific bound outranks a broader gate, whether the gate wrapped it or
+// supplied the error that spent the bound. For joined errors the original
+// failure comes before its recording failure.
+func recordedStopIn(cause error) (runstate.StopClass, bool) {
+	if cause == nil {
+		return "", false
+	}
+	var own runstate.StopClass
+	switch stopped := cause.(type) {
+	case classifiedStop:
+		own = stopped.class
+	case runstate.StopError:
+		own = stopped.Class
+	case *runstate.StopError:
+		own = stopped.Class
+	}
+	choose := func(child runstate.StopClass, found bool) (runstate.StopClass, bool) {
+		if found && (own == "" || own.Gate() || !child.Gate()) {
+			return child, true
+		}
+		return own, own != ""
+	}
+	if joined, ok := cause.(interface{ Unwrap() []error }); ok {
+		for _, child := range joined.Unwrap() {
+			if class, found := recordedStopIn(child); found {
+				return choose(class, true)
+			}
+		}
+	} else {
+		return choose(recordedStopIn(errors.Unwrap(cause)))
+	}
+	return own, own != ""
+}
+
+func stopRequestClass(request runstate.StopRequest) runstate.StopClass {
+	if strings.TrimSpace(request.Decision) != "" {
+		return runstate.StopManager
+	}
+	return runstate.StopOperator
 }
 
 func failureStatus(ctx context.Context, err error) runstate.Status {

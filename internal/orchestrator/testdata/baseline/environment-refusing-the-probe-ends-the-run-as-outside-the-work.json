@@ -1,6 +1,6 @@
 {
   "scenario": "environment-refusing-the-probe-ends-the-run-as-outside-the-work",
-  "freezes": "A developer that could not start its probe at all ends the run on its first reply, before the checks and the reviewer, with the round recorded as refused from outside the work and stop_class outside rather than as anything the change did.",
+  "freezes": "A developer that could not start its probe at all ends the run on its first reply, before the checks and the reviewer, with the round recorded as refused from outside the work and stop_class sandbox-spawn-failure rather than as anything the change did.",
   "steps": [
     {
       "name": "run",
@@ -35,7 +35,7 @@
         "provider_session_id": "developer-session",
         "run_id": "run-0123456789abcdef0123456789abcdef",
         "status": "failed",
-        "stop_class": "outside",
+        "stop_class": "sandbox-spawn-failure",
         "summary": "I cannot run anything in this worktree.",
         "verification": {
           "probe": {
@@ -84,7 +84,7 @@
     "schema_version": 1,
     "started_at": "\u003ctime\u003e",
     "status": "failed",
-    "stop_class": "outside",
+    "stop_class": "sandbox-spawn-failure",
     "target_branch": "main",
     "updated_at": "\u003ctime\u003e",
     "verification": {

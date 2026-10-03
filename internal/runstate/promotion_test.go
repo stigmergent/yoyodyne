@@ -119,6 +119,10 @@ func TestPromotionLeaseWaitIsBounded(t *testing.T) {
 	if !strings.Contains(err.Error(), "another promotion held the lease") || !strings.Contains(err.Error(), "main") {
 		t.Fatalf("LeasePromotion() error = %v, want the branch and the queue named", err)
 	}
+	var bound StopError
+	if !errors.As(err, &bound) || bound.Class != StopPromotionWait {
+		t.Fatalf("LeasePromotion() error = %v, want the promotion-wait cause", err)
+	}
 	if ctx.Err() != nil {
 		t.Fatal("the bounded wait spent the caller's own context")
 	}

@@ -1018,6 +1018,9 @@ func TestPipelineStopsBeforePromotingIntoADivergedRemoteTarget(t *testing.T) {
 	if outcome.IntegrationStop == nil || outcome.IntegrationStop.Cause != runstate.CauseDivergedTarget {
 		t.Fatalf("outcome integration stop = %#v, want the diverged target on the outcome too", outcome.IntegrationStop)
 	}
+	if state.StopClass != runstate.CauseDivergedTarget.StopClass() || outcome.StopClass != state.StopClass {
+		t.Errorf("saved cause = %q, outcome cause = %q; want the diverged target", state.StopClass, outcome.StopClass)
+	}
 	if !strings.Contains(tracker.BlockReason, "`yoyo triage resume "+pipelineRunID+"`") {
 		t.Errorf("blocker does not name the resume:\n%s", tracker.BlockReason)
 	}

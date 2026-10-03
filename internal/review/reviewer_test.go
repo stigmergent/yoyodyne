@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
@@ -853,6 +854,11 @@ func TestReviewRejectsIncompleteRequestsAndOversizedInput(t *testing.T) {
 	oversized.Changes = gitworktree.ChangeDiff{Patch: strings.Repeat("x", MaxReviewInputBytes)}
 	if _, err := (Reviewer{Backend: provider, Model: testReviewModel}).Review(context.Background(), oversized); err == nil || !strings.Contains(err.Error(), "review input is") {
 		t.Fatalf("Review() oversized input error = %v", err)
+	} else {
+		var bound runstate.StopError
+		if !errors.As(err, &bound) || bound.Class != runstate.StopContextBound {
+			t.Fatalf("review input refusal = %v, want context-bound", err)
+		}
 	}
 	if provider.calls != 0 {
 		t.Fatalf("backend was invoked %d times for a rejected request", provider.calls)

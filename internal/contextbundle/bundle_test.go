@@ -1,6 +1,7 @@
 package contextbundle
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func TestAssembleUsesExplicitDeterministicReferences(t *testing.T) {
@@ -470,6 +472,10 @@ func TestAssembleRefusesAnItemThatDoesNotFitWithoutItsNotes(t *testing.T) {
 	_, err := Assemble(Request{RepositoryRoot: root, WorkItem: item, MaxBytes: 4 << 10})
 	if err == nil {
 		t.Fatal("Assemble() error = nil, want an item whose core does not fit to be refused")
+	}
+	var bound runstate.StopError
+	if !errors.As(err, &bound) || bound.Class != runstate.StopContextBound {
+		t.Fatalf("context refusal = %v, want context-bound", err)
 	}
 	if !strings.Contains(err.Error(), "before any of its notes") {
 		t.Fatalf("Assemble() error = %v, want it to say the core alone does not fit", err)

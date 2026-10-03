@@ -1747,6 +1747,7 @@ func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, f
 		RunID:         state.RunID,
 		WorkItemID:    state.WorkItemID,
 		WorkItemTitle: state.WorkItemTitle,
+		StopClass:     state.RecordedStopClass().Name(),
 		RecordedAt:    now.UTC(),
 		Blocker:       state.Blocker,
 		// The reason the run gave for dying is carried only where it is what makes
@@ -1851,6 +1852,7 @@ func (d Docketer) unstartedRunEntry(state runstate.State, now time.Time) (triage
 		// that never claimed still has: it is written onto the record when the run is
 		// reserved, off the item the dispatch was made for.
 		WorkItemTitle: state.WorkItemTitle,
+		StopClass:     state.RecordedStopClass().Name(),
 		RecordedAt:    now.UTC(),
 		// Bounded to what an entry may carry, for the reason a preserved death's
 		// failure is: an entry refused for its length is a failure the development
@@ -1887,6 +1889,7 @@ func (d Docketer) escalationEntry(state runstate.State, now time.Time) (triage.E
 		RunID:         state.RunID,
 		WorkItemID:    state.WorkItemID,
 		WorkItemTitle: state.WorkItemTitle,
+		StopClass:     state.RecordedStopClass().Name(),
 		RecordedAt:    now.UTC(),
 		Escalation: &triage.Escalation{
 			RaisedBy: state.EscalatedBy(),
@@ -1930,6 +1933,7 @@ func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.
 		RunID:         state.RunID,
 		WorkItemID:    state.WorkItemID,
 		WorkItemTitle: state.WorkItemTitle,
+		StopClass:     state.RecordedStopClass().Name(),
 		RecordedAt:    now.UTC(),
 		Summary:       docketSummary(state),
 		Findings:      docketFindings(state.ReviewFindingDetails),

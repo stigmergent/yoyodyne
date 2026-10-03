@@ -801,7 +801,7 @@ func (s *Store) AppendEvent(event execution.Event) error {
 		return err
 	}
 	if len(encoded) > maxEncodedEventBytes {
-		return fmt.Errorf("encoded event is %d bytes, limit is %d", len(encoded), maxEncodedEventBytes)
+		return StopError{Class: StopEventBound, Cause: fmt.Errorf("encoded event is %d bytes, limit is %d", len(encoded), maxEncodedEventBytes)}
 	}
 	path, err := s.eventPath(event.RunID)
 	if err != nil {
@@ -953,7 +953,7 @@ func writeJSONFile(file *os.File, label string, value any) error {
 		return err
 	}
 	if len(encoded) > maxEncodedStateBytes {
-		return fmt.Errorf("encoded %s is %d bytes, limit is %d", label, len(encoded), maxEncodedStateBytes)
+		return StopError{Class: StopStateBound, Cause: fmt.Errorf("encoded %s is %d bytes, limit is %d", label, len(encoded), maxEncodedStateBytes)}
 	}
 	written, err := file.Write(encoded)
 	if err != nil {

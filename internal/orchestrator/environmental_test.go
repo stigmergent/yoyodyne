@@ -93,6 +93,7 @@ func TestAnEmptyDiffRoundTheEnvironmentRefusedSpendsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
+	assertSavedStopClass(t, store, stopped.RunID, runstate.CauseHandbackMissingChange.StopClass())
 	// The class is on the run, named, and settled.
 	environmental := refused.Environmental
 	if environmental == nil {
@@ -292,6 +293,7 @@ func TestARoundTurnedAwayByThePrimaryCheckoutIsRefusedEnvironmentally(t *testing
 	starting.Worktrees = dirtyPrimaryWorktrees{starting.Worktrees}
 
 	outcome, err := starting.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.CauseDirtyPrimary.StopClass())
 	if err == nil {
 		t.Fatal("Run() started work in a checkout no worktree could be cut from")
 	}
@@ -342,6 +344,7 @@ func TestAProviderInvocationTheMachineNeverStartedIsRefusedEnvironmentally(t *te
 	starting.NewRunID = runstate.NewRunID
 
 	outcome, err := starting.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.CauseSandboxSpawnFailure.StopClass())
 	if err == nil {
 		t.Fatal("Run() finished on an invocation the machine never started")
 	}
@@ -667,6 +670,7 @@ func TestARoundTurnedAwayByAKilledWorktreeCheckoutIsRefusedEnvironmentally(t *te
 	starting.Worktrees = killedCheckoutWorktrees{starting.Worktrees}
 
 	outcome, err := starting.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.CauseWorktreeCheckoutKilled.StopClass())
 	if err == nil {
 		t.Fatal("Run() started work with no worktree to do it in")
 	}

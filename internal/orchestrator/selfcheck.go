@@ -273,9 +273,9 @@ func (a *activeRun) blockOnMissingVerification(missing missingVerification, limi
 	cause := fmt.Errorf("the developer recorded no execution against its change after %d of %d permitted attempt(s): %s",
 		a.state.RepairAttempts, limit, strings.Join(missing.verification.Owed, "; "))
 	if err := a.block(renderMissingVerificationBlockerNotes(a.outcome, missing, limit)); err != nil {
-		return stoppedBy(runstate.StopChecks, fmt.Errorf("record the missing execution evidence as a blocker: %w", err))
+		return stoppedBy(runstate.StopRepairBudget, fmt.Errorf("record the missing execution evidence as a blocker: %w", err))
 	}
-	return stoppedBy(runstate.StopChecks, cause)
+	return stoppedBy(runstate.StopRepairBudget, cause)
 }
 
 // renderMissingVerificationBlockerNotes describes a run that kept handing over a

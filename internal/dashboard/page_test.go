@@ -694,6 +694,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			// A stopped run is said as what it ended as, never as a wait it is
 			// still in.
 			"9 stopped on a blocker, 3 cancelled",
+			"Stops by cause",
+			"operator-stop: 3, provider-idle: 1, repair-budget: 9, unknown: 4",
 			"at least $1,232.58 from 452 invocations",
 			"1 exchange record could not be read, so the cost is a floor",
 			`<span class="held-state">capacity-blocked</span>`,

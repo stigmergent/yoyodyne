@@ -510,6 +510,35 @@ func TestAnUnclassifiableProviderDeathStillBlocksOnTheRelaunchBudget(t *testing.
 	if len(state.Retries) != 0 {
 		t.Errorf("retries = %#v, want none: nothing here was classified as recoverable", state.Retries)
 	}
+	if state.StopClass != runstate.StopRelaunchBudget || outcome.StopClass != state.StopClass {
+		t.Errorf("saved cause = %q, outcome cause = %q; want the relaunch budget", state.StopClass, outcome.StopClass)
+	}
+}
+
+func TestRecoverableProviderDeathsEndOnTheRecoveryWindow(t *testing.T) {
+	t.Parallel()
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := transientDeathBackend(1000, approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Config.Execution.TransientRelaunchesBeforeBlocking = 2
+	pipeline = waiting(pipeline, &pausingClock{now: baseTime}, 6*time.Hour, 6*time.Hour)
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err == nil || !outcome.Blocked {
+		t.Fatalf("Run() = %+v, %v; want the exhausted recovery window to block", outcome, err)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.StopClass != runstate.StopRecoveryWindow || outcome.StopClass != state.StopClass {
+		t.Errorf("saved cause = %q, outcome cause = %q; want the recovery window", state.StopClass, outcome.StopClass)
+	}
+	boundary := runstate.RetryProviderInvocation
+	waited := state.RetryWaited(boundary)
+	if waited > recovery.Window || waited+recovery.Interval(state.RetryAttempts(boundary)+1) <= recovery.Window {
+		t.Errorf("waited %s over %d retries; want the next wait to exceed the recovery window", waited, state.RetryAttempts(boundary))
+	}
 }
 
 // A process that dies mid-wait must come back to the window it had already

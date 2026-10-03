@@ -212,6 +212,11 @@ func TestStoreRejectsStateItsReaderCannotLoad(t *testing.T) {
 	state.WorkItemLabels = []string{strings.Repeat("x", maxEncodedStateBytes)}
 	if err := store.Create(state); err == nil || !strings.Contains(err.Error(), "encoded run state is") {
 		t.Fatalf("Create() oversized state error = %v", err)
+	} else {
+		var bound StopError
+		if !errors.As(err, &bound) || bound.Class != StopStateBound {
+			t.Fatalf("size refusal = %v, want StopStateBound", err)
+		}
 	}
 	path, err := store.statePath(state.RunID)
 	if err != nil {
@@ -228,6 +233,11 @@ func TestStoreRejectsStateItsReaderCannotLoad(t *testing.T) {
 	state.WorkItemLabels = []string{strings.Repeat("x", maxEncodedStateBytes)}
 	if err := store.Save(state); err == nil || !strings.Contains(err.Error(), "encoded run state is") {
 		t.Fatalf("Save() oversized state error = %v", err)
+	} else {
+		var bound StopError
+		if !errors.As(err, &bound) || bound.Class != StopStateBound {
+			t.Fatalf("size refusal = %v, want StopStateBound", err)
+		}
 	}
 	loaded, err := store.Load(state.RunID)
 	if err != nil {
@@ -526,6 +536,11 @@ func TestStoreRejectsEventsItsReaderCannotLoad(t *testing.T) {
 	}
 	if err := store.AppendEvent(oversizedEvent); err == nil || !strings.Contains(err.Error(), "encoded event is") {
 		t.Fatalf("AppendEvent() oversized error = %v", err)
+	} else {
+		var bound StopError
+		if !errors.As(err, &bound) || bound.Class != StopEventBound {
+			t.Fatalf("size refusal = %v, want StopEventBound", err)
+		}
 	}
 	after, err := os.Stat(path)
 	if err != nil {

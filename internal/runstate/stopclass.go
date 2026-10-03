@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// StopClass names which gate stopped a run, as the pipeline knew it at the
+// StopClass names which gate or bound stopped a run, as the pipeline knew it at the
 // moment it stopped. It is the one field a reader can answer "what stopped this"
 // from without inferring it, and inferring it is what went wrong before it
 // existed: a check failure, a refused path, and a reviewer's findings are all
@@ -14,11 +14,35 @@ import (
 // them it found as the reason read that run as a failed change.
 //
 // It is written where the run is stopped and by nothing that reads the record
-// afterwards. A record written before the field existed carries none, and a
-// reader says it names none rather than guessing one.
+// afterwards. A record written before the field existed reads as unknown
+// rather than having its cause guessed from the remaining evidence.
 type StopClass string
 
 const (
+	// These causes distinguish the bounds within a gate. The older gate values
+	// remain valid so historical records keep what was actually recorded.
+	StopUnknown           StopClass = "unknown"
+	StopCheckTimeout      StopClass = "check-timeout"
+	StopProviderIdle      StopClass = "provider-idle"
+	StopProviderBudget    StopClass = "provider-budget"
+	StopRelaunchBudget    StopClass = "relaunch-budget"
+	StopRepairBudget      StopClass = "repair-budget"
+	StopIntegrationBudget StopClass = "integration-budget"
+	StopPromotionWait     StopClass = "promotion-wait"
+	StopUsagePause        StopClass = "usage-pause"
+	StopOperator          StopClass = "operator-stop"
+	StopManager           StopClass = "manager-stop"
+	StopRedeploy          StopClass = "redeploy-drain"
+	StopDeadClaim         StopClass = "dead-claim"
+	StopDeveloperAccount  StopClass = "developer-account"
+	StopReviewAccount     StopClass = "review-account"
+	StopEscalated         StopClass = "work-item-escalated"
+	StopContextBound      StopClass = "context-bound"
+	StopStateBound        StopClass = "state-bound"
+	StopEventBound        StopClass = "event-bound"
+	StopIntegrationPolicy StopClass = "integration-policy"
+	StopRecoveryWindow    StopClass = "recovery-window"
+
 	// StopChecks is the checking gate: a configured check that kept failing or
 	// could not run, a protected path the change kept touching, or a change nobody
 	// recorded running anything against.
@@ -67,14 +91,87 @@ const (
 var stopClasses = []StopClass{
 	StopChecks, StopReview, StopIntegration, StopPublish, StopCleanup,
 	StopRecording, StopProvider, StopOutside, StopCancelled, StopHarness,
+	StopUnknown, StopCheckTimeout, StopProviderIdle, StopProviderBudget,
+	StopRelaunchBudget, StopRepairBudget, StopIntegrationBudget, StopPromotionWait,
+	StopUsagePause, StopOperator, StopManager, StopRedeploy, StopDeadClaim,
+	StopDeveloperAccount, StopReviewAccount, StopEscalated, StopContextBound,
+	StopStateBound, StopEventBound, StopIntegrationPolicy, StopRecoveryWindow,
 }
 
 // StopClasses is the stop vocabulary as a caller outside this package reads it,
 // answered with a copy for the reason the other vocabularies are.
-func StopClasses() []StopClass { return slices.Clone(stopClasses) }
+func StopClasses() []StopClass {
+	classes := slices.Clone(stopClasses)
+	for _, cause := range EnvironmentalCauses() {
+		classes = append(classes, cause.StopClass())
+	}
+	return classes
+}
+
+// StopClass is the one named conversion from budget-accounting causes to the
+// stop vocabulary. It changes no refund policy and introduces no second list.
+func (c EnvironmentalCause) StopClass() StopClass { return StopClass(c) }
+
+// Name is the wire name for projections that cannot import this package.
+func (c StopClass) Name() string { return string(c) }
+
+// StopError carries a bound's cause through callers that add a gate label.
+// It is evidence of a refusal only; it authorizes no recovery or budget return.
+type StopError struct {
+	Class StopClass
+	Cause error
+}
+
+func (e StopError) Error() string { return e.Cause.Error() }
+func (e StopError) Unwrap() error { return e.Cause }
+
+// RecordedStopClass returns unknown for a stopped historical record. It never
+// infers a cause from prose or from evidence left by an earlier attempt.
+func (s State) RecordedStopClass() StopClass {
+	return recordedStopClass(s.StopClass, s.Status, s.Outcome(), s.Integration != nil)
+}
+
+func (s RunSummary) RecordedStopClass() StopClass {
+	return recordedStopClass(s.StopClass, s.Status, s.Outcome, s.Integrated)
+}
+
+func recordedStopClass(class StopClass, status Status, outcome RunOutcome, integrated bool) StopClass {
+	if class != "" {
+		return class
+	}
+	if status.Terminal() && (outcome != OutcomeSucceeded || !integrated) {
+		return StopUnknown
+	}
+	return ""
+}
+
+// ProviderStopClass distinguishes the invocation's two clocks.
+func ProviderStopClass(reason string) StopClass {
+	switch reason {
+	case ProviderStopStalled:
+		return StopProviderIdle
+	case ProviderStopBudgetExhausted:
+		return StopProviderBudget
+	default:
+		return StopProvider
+	}
+}
 
 // Valid reports a class the durable schema stores.
-func (c StopClass) Valid() bool { return slices.Contains(stopClasses, c) }
+func (c StopClass) Valid() bool {
+	return slices.Contains(stopClasses, c) || EnvironmentalCause(c).Valid()
+}
+
+// Gate reports the older, broader labels that a more specific bound replaces.
+func (c StopClass) Gate() bool {
+	switch c {
+	case StopChecks, StopReview, StopIntegration, StopPublish, StopCleanup,
+		StopRecording, StopProvider, StopOutside, StopCancelled, StopHarness:
+		return true
+	default:
+		return false
+	}
+}
 
 // StopReason is a recorded reason with the class that stopped the run as its
 // first word, which is how every surface prints the reason. A record naming no
@@ -83,7 +180,7 @@ func (c StopClass) Valid() bool { return slices.Contains(stopClasses, c) }
 func StopReason(class StopClass, reason string) string {
 	reason = strings.TrimSpace(reason)
 	switch {
-	case class == "":
+	case class == "" || class == StopUnknown:
 		return reason
 	case reason == "":
 		return string(class)

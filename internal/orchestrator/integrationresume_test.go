@@ -1165,6 +1165,7 @@ func TestAnIntegrationStoppedRunIsNeitherReleasedNorRestartedAndItsResumePromote
 	pipeline := publishing(automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"test -f feature.txt"}), provider), forge)
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	assertSavedStopClass(t, store, outcome.RunID, runstate.CauseDirtyPrimary.StopClass())
 	if err == nil || !errors.Is(err, gitworktree.ErrPrimaryNotReady) {
 		t.Fatalf("Run() error = %v, want the promotion refused for the dirty checkout", err)
 	}
