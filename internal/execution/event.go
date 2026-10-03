@@ -233,6 +233,11 @@ const (
 	// provider's request limit.
 	EventSessionCompacted        EventType = "session.compacted"
 	EventSessionCompactionFailed EventType = "session.compaction_failed"
+	// The role's opportunity to save memories on the old session, and what it
+	// recorded before the session was rebuilt. No event copies memory text.
+	EventSessionMemorySaveRequested EventType = "session.memory_save_requested"
+	EventSessionMemorySaved         EventType = "session.memory_saved"
+	EventSessionMemorySaveFailed    EventType = "session.memory_save_failed"
 )
 
 // MaxEventTextBytes bounds the text one recorded event carries — a command's

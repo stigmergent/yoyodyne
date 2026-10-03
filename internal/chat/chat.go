@@ -709,13 +709,13 @@ type Session struct {
 	// already answered, and throwing that away to report that the log missed
 	// would cost the operator the answer as well as the record.
 	failoverProblem string
-	// turnBegan is where the event log had reached when the turn in flight began,
-	// before anything the turn itself recorded. A rebuild replays the record up to
-	// it and no further: the turn's own operator message is recorded ahead of the
-	// invocation and is also the prompt the invocation carries, and a rebuild that
-	// read it back would hand the provider the question twice — once as history
-	// and once as the thing to answer.
+	// turnBegan is where the event log stood before this invocation, including
+	// any preceding memory save. A rebuild reads up to it and no further, and
+	// omits the waiting operator message named by turnOperatorSequence below.
 	turnBegan uint64
+	// turnOperatorSequence is the waiting message already on the log. A save
+	// turn may have followed it, so a rebuild omits it by sequence as well.
+	turnOperatorSequence uint64
 	// turnCuts are the replies the turn in flight recorded cut; see replycut.go.
 	turnCuts []execution.ReplyCut
 	// compacting says the turn in flight is being sent without the session it
@@ -984,6 +984,8 @@ type Reply struct {
 	// order it asked, with the revision each became or why it was refused. They
 	// already happened, so they are reported rather than put to anybody.
 	Memories []MemoryOutcome `json:"memories,omitempty"`
+	// CompactionSaves are the memory turns taken before rebuilding a session.
+	CompactionSaves []CompactionSave `json:"compaction_saves,omitempty"`
 	// LaneReport is what became of the lane report this reply carried: the
 	// version it became, or why it was refused and the report before it stands.
 	// A reply that carried none has none.
@@ -1379,7 +1381,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// what that round asked for, and record nothing as the operator's.
 	operatorMessage := trimmed
 	for round := 0; ; round++ {
-		answer, err := s.takeTurn(ctx, prompt, operatorMessage)
+		answer, err := s.takeTurn(ctx, prompt, operatorMessage, &reply, false)
 		if round == 0 && errors.Is(err, errTurnInputTooLarge) {
 			err = fmt.Errorf("%w: %w", ErrTurnUnassembled, err)
 		}
@@ -1704,7 +1706,7 @@ Carry on answering the operator using these results. Say what you did, including
 // for. It is recorded before the provider is asked, so the log holds the question
 // ahead of its answer; the prompt itself is not recorded, because the picture and
 // the notices it carries are recorded already, elsewhere, and once.
-func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) (string, error) {
+func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, reply *Reply, savingMemory bool) (string, error) {
 	// The operator's pause is read before every turn, including the further rounds
 	// one message takes: each of them is its own invocation, and a pause placed
 	// while the product manager was working on tracker results has to reach the
@@ -1716,11 +1718,11 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		return "", &OperatorHoldError{Hold: hold}
 	}
 	systemPrompt := WithRemit(SystemPrompt(s.state.Role, s.options.Admission, s.artifactFiling(), s.options.Persona), s.state.Role, s.options.Remit)
-	// A reply the record cut last turn is the first thing this one is told, so
-	// the role can restate what the record lost; see replycut.go.
-	cutsTold := len(s.state.ReplyCuts) > 0
-	prompt = renderReplyCuts(s.state.ReplyCuts) + prompt
-	s.turnCuts = nil
+	turnPrompt := prompt
+	prompt = s.renderMemories() + turnPrompt
+	if !savingMemory {
+		prompt = renderReplyCuts(s.state.ReplyCuts) + prompt
+	}
 	// The repository documents, the tracker's own text, and the operator's words
 	// all go to the provider, so anything recognizably sensitive is redacted on
 	// the way out rather than only in what comes back.
@@ -1728,17 +1730,37 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	if inputBytes := len(systemPrompt) + len(prompt); inputBytes > MaxTurnInputBytes {
 		return "", fmt.Errorf("conversation turn is %d bytes, limit is %d: %w", inputBytes, MaxTurnInputBytes, errTurnInputTooLarge)
 	}
-	// The operator's side goes into the record here, after the checks that would
-	// refuse the turn without asking anybody and before the invocation whose
-	// events follow it. A turn the provider then fails still has its question on
-	// the record, exactly as it has whatever the provider managed to say. Where
-	// the record stood before it is what a rebuild of this turn replays up to.
-	s.turnBegan = s.state.LastSequence
+	// Keep the waiting message even if the save turn fails before it is answered.
+	var operatorSequence uint64
 	if operatorMessage != "" {
 		if err := s.recordOperatorMessage(operatorMessage); err != nil {
 			return "", err
 		}
+		operatorSequence = s.state.LastSequence
 	}
+	var due *compaction
+	if !savingMemory {
+		due = s.compactionDue(systemPrompt, prompt)
+		if due != nil && s.keepsMemory() {
+			memoriesBeforeSave := len(reply.Memories)
+			if err := s.saveBeforeCompaction(ctx, *due, reply); err != nil {
+				return "", err
+			}
+			// The save turn may have revised or retired memories. Build this
+			// briefing after its writes, and include the results it is owed.
+			prompt = execution.NewRedactor(s.options.RedactValues...).Redact(
+				renderReplyCuts(s.state.ReplyCuts) + s.renderMemories() + turnPrompt + renderMemoryResults(reply.Memories[memoriesBeforeSave:]))
+			due.sessionBytes = s.state.ProviderSessionBytes
+			due.turnBytes = len(systemPrompt) + len(prompt)
+		}
+	}
+	// A save turn does not consume notices owed to the waiting message.
+	cutsTold := !savingMemory && len(s.state.ReplyCuts) > 0
+	s.turnCuts = nil
+	// The save turn is now history; the waiting message is already recorded and
+	// is omitted from a rebuild by sequence so it is not delivered twice.
+	s.turnBegan = s.state.LastSequence
+	s.turnOperatorSequence = operatorSequence
 	// A session this turn would take past its budget is compacted before the turn
 	// is sent, while that can still be done; see compact.go. It is decided here,
 	// after the operator's side is on the record and before the invocation's
@@ -1746,7 +1768,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	s.compacting = false
 	s.rebuiltMessageBytes, s.rebuiltFrom = 0, nil
 	defer func() { s.compacting = false }()
-	if due := s.compactionDue(systemPrompt, prompt); due != nil {
+	if due != nil {
 		compacted, err := s.compact(systemPrompt, prompt, *due)
 		if err != nil {
 			return "", err
@@ -1782,7 +1804,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// charged for exactly as one that answered.
 	s.spendProblem = ""
 	s.failoverProblem = ""
-	provider := spend.Metered{
+	var provider modelfailover.Invoker = spend.Metered{
 		Provider:    s.options.Backend,
 		Log:         s.options.Spend,
 		Attribution: s.spendAttribution(),
@@ -1834,6 +1856,22 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		ReplySink: s.stream.write,
 	}
 	policy := s.failoverPolicy()
+	if savingMemory {
+		// Only the endpoint holding the old session can save conclusions that
+		// have never reached the record. A refusal must not rebuild it first.
+		endpoint := backend.Endpoint{Provider: s.state.Backend, AccountAlias: s.state.AccountAlias, Model: s.state.ProviderModel}
+		if endpoint.AccountAlias == "" {
+			// Older conversation records did not name the account.
+			endpoint.AccountAlias = request.AccountAlias
+		}
+		request.SessionID = s.state.ProviderSessionID
+		request.Model, request.AccountAlias, request.Effort = endpoint.Model, endpoint.AccountAlias, s.state.ProviderEffort
+		if s.alternateSession() != "" {
+			provider = s.meteredFailover()
+			request.AccountConfigDir = s.options.FailoverAccountConfigDir
+		}
+		policy = modelfailover.Policy{Endpoint: endpoint}
+	}
 	// A conversation that has taken turns and has no session to resume is one that
 	// crossed providers and is now being asked back on its own — the window it was
 	// waiting out has lifted — or one whose session was set aside as too long and
@@ -1849,7 +1887,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// Which endpoint will serve is the failover's answer rather than a second
 	// reading of the same log taken here, so the preparation and the routing cannot
 	// come apart.
-	if s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
+	if !savingMemory && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
 		rebuilt, rebuildErr := s.rebuildForOwnEndpoint(request)
 		if rebuildErr != nil {
 			s.failoverProblem = appendProblem(s.failoverProblem, singleLine(rebuildErr.Error(), maxTrackerFailureBytes))
@@ -1913,7 +1951,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		if policy.AlternateSessionID != "" && refusedOn.Provider == policy.AlternateEndpoint.Provider {
 			resumed = policy.AlternateSessionID
 		}
-		if why := refusedAsTooLong(result, err); why != "" && resumed != "" && !replaced {
+		if why := refusedAsTooLong(result, err); !savingMemory && why != "" && resumed != "" && !replaced {
 			replaced = true
 			s.state.LastSequence = lastSequence
 			request = s.replaceSession(request, refusedOn, resumed, why)
@@ -1929,7 +1967,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 		// which is what every later turn would send again. So the rebuild is made
 		// once more on half the bound, and the turn asked again; a rebuild the
 		// halving would not shrink, or a second refusal, ends the turn as before.
-		if why := refusedAsTooLong(result, err); why != "" && resumed == "" && !shrunk {
+		if why := refusedAsTooLong(result, err); !savingMemory && why != "" && resumed == "" && !shrunk {
 			shrunk = true
 			if smaller, ok := s.shrinkRebuild(request); ok {
 				request = smaller
@@ -2044,6 +2082,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// read before the record moves on to the endpoint that served it, because the
 	// question is about the session the record held until now.
 	resumed := s.resumedOn(s.servingEndpoint(served))
+	if savingMemory {
+		resumed = request.SessionID != ""
+	}
 	if result.SessionID != "" {
 		s.state.ProviderSessionID = result.SessionID
 		// A fresh session has served a turn, so nothing is set aside any more.
@@ -2086,9 +2127,11 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// The activity and the results were carried into the prompt this turn
 	// answered, so neither is pending any more. A turn that failed keeps them,
 	// because a product manager that never saw them still has not been told.
-	s.notices = nil
-	s.noticesDropped = false
-	s.state.PendingTrackerResults = ""
+	if !savingMemory {
+		s.notices = nil
+		s.noticesDropped = false
+		s.state.PendingTrackerResults = ""
+	}
 	// And of the cuts it was told about, unless it was cut again itself.
 	if cutsTold && len(s.turnCuts) == 0 {
 		s.state.ReplyCuts = nil
@@ -2096,7 +2139,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string) 
 	// The same is true of the picture: it stops being owed only once the turn that
 	// delivered it succeeded, and its text is kept as what the agent last received,
 	// which is what the next refresh's changes are measured against.
-	delivered := s.carried != nil
+	delivered := !savingMemory && s.carried != nil
 	if delivered {
 		s.state.ContextGatheredAt = s.carried.GatheredAt
 		s.state.ContextCommit = s.carried.Commit
@@ -2913,6 +2956,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
 		s.reportMemories(out, reply)
+		s.reportCompactionSaves(out, reply)
 		// What became of its lane report, because a refused one leaves the report
 		// before it standing and the operator reading this has to know which.
 		s.reportLaneReport(out, reply)
@@ -3846,9 +3890,8 @@ func (s *Session) turnPrompt(message string, picture *PictureAge) string {
 	// carrying one in, which is what a report channel with no standing reader
 	// otherwise depends on.
 	prompt.WriteString(s.renderUnhandledReports())
-	// What this agent concluded in earlier turns and recorded for itself, labelled
-	// as its own conclusions rather than as evidence or instruction.
-	prompt.WriteString(s.renderMemories())
+	// The memory briefing is added when the turn is taken, after any save turn
+	// preceding compaction has recorded its writes.
 	// What this agent's own side threads concluded, as memory rather than as their
 	// dialogue: the two transcripts never meet, and a commitment one of them
 	// drafted is ratified here or nowhere.

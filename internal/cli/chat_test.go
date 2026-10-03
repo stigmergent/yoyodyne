@@ -21,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -124,6 +125,114 @@ func TestAMessageThatIsNotACommandIsStillSaidToTheProductManager(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "The backlog holds four items.") {
 		t.Fatalf("stdout = %q, want the answer", stdout.String())
+	}
+}
+
+func TestASingleMessageReportsTheSaveBeforeCompaction(t *testing.T) {
+	t.Parallel()
+	remember := "I saved a conclusion.\n\n```yoyodyne-memory\n" +
+		`{"memories":[{"action":"remember","memory":"slow-checks","text":"The race check needs eleven minutes."}]}` + "\n```"
+	for _, test := range []struct {
+		name          string
+		save          string
+		writes        int
+		nothingToSave bool
+		saveFailed    bool
+		answerFailed  bool
+		status        string
+	}{
+		{name: "recorded memory", save: remember, writes: 1, status: "recorded 1 memory write(s)"},
+		{name: "nothing to save", save: "Nothing to save.", nothingToSave: true, status: "had nothing to save"},
+		{name: "failed save", save: "All done.", saveFailed: true, status: "did not finish:"},
+		{name: "recorded memory before a failed answer", save: remember, writes: 1, answerFailed: true, status: "recorded 1 memory write(s)"},
+	} {
+		for _, format := range []string{"text", "json"} {
+			t.Run(test.name+"/"+format, func(t *testing.T) {
+				t.Parallel()
+				root := t.TempDir()
+				store, err := runstate.NewConversationStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				provider := &sequencingBackend{results: []backendapi.RunResult{
+					{Backend: domain.BackendClaudeCode, SessionID: "old", FinalText: "First answer."},
+					{Backend: domain.BackendClaudeCode, SessionID: "old", FinalText: test.save},
+					{Backend: domain.BackendClaudeCode, SessionID: "new", FinalText: "The waiting answer.", IsError: test.answerFailed},
+				}}
+				session, err := chat.Open(chat.Options{
+					Role: domain.RoleProductManager, Agent: "product-manager",
+					Backend: provider, Store: store, Memories: memories,
+					Model: "opus", Provider: domain.BackendClaudeCode, AccountAlias: config.DefaultAccountAlias,
+					Repository: filepath.Join(root, "repository"), ProductID: "yoyodyne", RepositoryID: "yoyodyne",
+					Briefing:           chat.Briefing{Text: "the product is a harness", GatheredAt: time.Now().UTC()},
+					SessionBudgetBytes: 1,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := session.Send(context.Background(), "First message."); err != nil {
+					t.Fatal(err)
+				}
+				var stdout, stderr bytes.Buffer
+				code := runChatMessage(context.Background(), session, domain.RoleProductManager, "Waiting message.", format == "json", &stdout, &stderr)
+				failed := test.saveFailed || test.answerFailed
+				if (code != 0) != failed {
+					t.Fatalf("runChatMessage() code = %d, want failure %v; stderr = %q", code, failed, stderr.String())
+				}
+				events, err := store.LoadEvents(session.Evidence().ConversationID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var recorded []chat.CompactionSave
+				for _, event := range events {
+					if event.Type == execution.EventSessionMemorySaved || event.Type == execution.EventSessionMemorySaveFailed {
+						var save chat.CompactionSave
+						if err := json.Unmarshal(event.Payload, &save); err != nil {
+							t.Fatal(err)
+						}
+						recorded = append(recorded, save)
+					}
+				}
+				if len(recorded) != 1 || recorded[0].SessionID != "old" || recorded[0].Turn != 2 ||
+					recorded[0].MemoriesRecorded != test.writes || recorded[0].NothingToSave != test.nothingToSave ||
+					(recorded[0].Failure != "") != test.saveFailed {
+					t.Fatalf("recorded save = %+v, want the turn's outcome", recorded)
+				}
+				if format == "json" {
+					var decoded struct {
+						Reply           string                `json:"reply"`
+						Error           string                `json:"error"`
+						CompactionSaves []chat.CompactionSave `json:"compaction_saves"`
+					}
+					if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+						t.Fatalf("Unmarshal() error = %v over %q", err, stdout.String())
+					}
+					if len(decoded.CompactionSaves) != 1 || decoded.CompactionSaves[0] != recorded[0] {
+						t.Fatalf("JSON saves = %+v, want the recorded save %+v", decoded.CompactionSaves, recorded)
+					}
+					if (decoded.Error != "") != failed || (!failed && !strings.Contains(decoded.Reply, "The waiting answer.")) {
+						t.Fatalf("JSON reply or failure missing: %+v", decoded)
+					}
+				} else {
+					if strings.Count(stdout.String(), "[session] ") != 1 || !strings.Contains(stdout.String(), test.status) {
+						t.Fatalf("stdout = %q, want one save outcome saying %q", stdout.String(), test.status)
+					}
+					if test.saveFailed && !strings.Contains(stdout.String(), recorded[0].Failure) {
+						t.Fatalf("stdout = %q, want the recorded save failure %q", stdout.String(), recorded[0].Failure)
+					}
+					if !failed && !strings.Contains(stdout.String(), "The waiting answer.") {
+						t.Fatalf("stdout = %q, want the waiting answer", stdout.String())
+					}
+				}
+				if strings.Contains(stdout.String(), "I saved a conclusion.") || strings.Contains(stdout.String(), "yoyodyne-memory") {
+					t.Fatalf("the internal save reply leaked into the output: %q", stdout.String())
+				}
+			})
+		}
 	}
 }
 
