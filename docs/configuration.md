@@ -2570,9 +2570,10 @@ each inside a thirty-minute budget are a check stage that may run for two hours,
 and on 2026-09-19 one did: a run on this repository sat in its checks for over
 two hours under load, with `make race` alone past ninety minutes, holding its
 developer seat and the watch session's drain for the whole of it. So the stage
-has a bound of its own, beside the per-check one — and it is also what caps how
-long a session [draining to restart into a deployed build](#watching-instead-of-draining)
-waits out a check stage in flight:
+has a bound of its own, beside the per-check one. A session
+[draining to restart into a deployed build](#watching-instead-of-draining)
+waits out a running check stage only until `redeploy_drain_limit`, independently
+of the stage's bound:
 
 ```yaml
 execution:
@@ -3386,28 +3387,25 @@ execution:
 ```
 
 Past that bound the session restarts anyway. Each run it still hosts at its
-developer attempt or its review is stopped where it is and preserved whole:
+developer attempt, its checks, or its review is stopped where it is and preserved whole:
 worktree, branch, claim, developer session, and every counter. The session that
 comes back re-adopts each one at its first pull, ahead of anything new, and
 continues it from the phase it was stopped at — the session that stopped it
-never does, however long it goes on pulling. Two phases are waited out past the
-bound rather than interrupted. A run at its promotion is one. A run at its
-checks is the other, to the end of that check stage and no further than the
-stage's start plus its bound — [`check_stage_timeout`](#what-a-whole-check-stage-may-cost)
-as the machine's load scaled it, which the run's record carries —
-because a check stage stopped part-way is run again whole: on 2026-09-28, with
-a build deployed on nearly every landing, three stops in ten hours were each a
-check stage of twenty minutes or more that the fifteen-minute bound cut short.
-Once the stage ends the run moves on to its review or a repair and is stopped
-there; the session's line and `yoyo status` say it is waiting out a check stage
-and until when. A run that has already landed and is running its
+never does, however long it goes on pulling. A run at its promotion is waited
+out past the bound rather than interrupted, because it holds the target
+branch's lease. A running check stage is stopped at the drain bound, however
+far the machine's load has scaled
+[`check_stage_timeout`](#what-a-whole-check-stage-may-cost); the session that
+comes back runs the checks again from the start. A stage that has already
+finished gets up to a minute's grace to record its verdict and move the run
+on to its review or a repair, where the next look stops it. A run that has
+already landed and is running its
 [landing checks](#where-the-whole-suite-runs) is stopped too: nothing about the
 run is at stake by then, and the landing is recorded as unverified and files
 nothing. The bound is minutes rather than hours on purpose: on 2026-09-19 a
 session waited two hours on one run's race suite under load, with its second
-seat empty and two recurring passes missed — a wait the check-stage bound now
-caps at thirty minutes by default on a machine within its cores, and at that
-figure scaled for the load past them. What a run the bound stops loses is the
+seat empty and two recurring passes missed — a wait the restart drain limit
+caps at fifteen minutes by default, independently of load. What a run the bound stops loses is the
 minutes its current phase had spent, and a developer attempt and a review
 resume where they were. Set it longer if that trade is wrong for your project, and never to
 nothing — a drain with no bound is the wait this exists to end, and the

@@ -569,15 +569,12 @@ type WatchDrain struct {
 	// BoundReached marks the drain having run out: the session has stopped and
 	// preserved the runs it hosts, pulls nothing more into a free seat, and
 	// restarts as soon as it hosts nothing — which, for a run at its promotion,
-	// is when that promotion ends, and for a run at its checks, when that check
-	// stage ends. Its recurring tasks go on firing meanwhile.
+	// is when that promotion ends. A running check stage is stopped at the
+	// bound too. Its recurring tasks go on firing meanwhile.
 	BoundReached bool `json:"bound_reached,omitempty"`
-	// Checking is how many of the hosted runs the session is waiting out at their
-	// checks past the bound rather than stopping, and ChecksUntil is the latest
-	// moment one of those check stages can run to: its start plus
-	// execution.check_stage_timeout. A check stage stopped part-way is run again
-	// whole by the session that comes back, so it is waited out as a promotion
-	// is, and the stage's own bound is what caps that wait.
+	// Checking and ChecksUntil retain older watch records in which sessions
+	// waited out check stages past the drain bound, until the stage's own bound.
+	// New sessions stop running stages at the drain bound and leave both empty.
 	Checking    int       `json:"checking,omitempty"`
 	ChecksUntil time.Time `json:"checks_until,omitzero"`
 	// PullSkipped marks a poll that declined to pull into a free seat because
