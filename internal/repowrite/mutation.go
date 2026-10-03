@@ -101,9 +101,9 @@ func (r *PinnedRoot) OpenAppend(relative string, file, directory fs.FileMode) (*
 	return r.openFile(relative, appendFlags, file, directory)
 }
 
-// OpenLease opens the stable inode shared by advisory lock holders. It never
+// OpenReadWrite opens the stable inode shared by advisory lock holders. It never
 // truncates or replaces that inode, so queued claimants lock the same file.
-func (r *PinnedRoot) OpenLease(relative string) (*os.File, error) {
+func (r *PinnedRoot) OpenReadWrite(relative string) (*os.File, error) {
 	return r.openFile(relative, os.O_RDWR|os.O_CREATE, 0o600, 0o700)
 }
 
@@ -115,7 +115,20 @@ func (r *PinnedRoot) openFile(relative string, flags int, file, directory fs.Fil
 	if err := r.root.MkdirAll(filepath.Dir(target), directory); err != nil {
 		return nil, err
 	}
-	return r.root.OpenFile(target, flags, file)
+	parent, err := r.OpenDirectory(filepath.Dir(target))
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	// Concurrent creators can receive ENOENT on macOS even with O_CREATE.
+	// Retry only that creation race, through the same held parent; never
+	// replace the file whose inode advisory lock holders must keep sharing.
+	for attempt := 0; ; attempt++ {
+		opened, err := parent.root.OpenFile(filepath.Base(target), flags, file)
+		if flags&os.O_CREATE == 0 || !errors.Is(err, fs.ErrNotExist) || attempt == 9 {
+			return opened, err
+		}
+	}
 }
 
 func (r *PinnedRoot) Truncate(relative string, size int64) error {

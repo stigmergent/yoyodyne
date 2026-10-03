@@ -2,12 +2,109 @@ package repowrite
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 )
+
+// Independent callers creating one missing parent must all open the same
+// append inode. Tracker writes use this descriptor for an advisory lock before
+// they append notes, so a failed open loses that writer's update altogether.
+func TestConcurrentAppendCreationOpensOneSharedFile(t *testing.T) {
+	t.Parallel()
+	root, _ := repository(t)
+	const writers = 32
+	for round := range 32 {
+		relative := fmt.Sprintf("logs/%d/shared", round)
+		start := make(chan struct{})
+		results := make(chan error, writers)
+		var finished sync.WaitGroup
+		for range writers {
+			finished.Add(1)
+			go func() {
+				defer finished.Done()
+				<-start
+				caller, err := NewRoot(root.Path())
+				var file *os.File
+				if err == nil {
+					file, err = caller.OpenAppend(relative, 0o600, 0o700)
+				}
+				if err == nil {
+					_, err = file.WriteString("x")
+					err = errors.Join(err, file.Close())
+				}
+				results <- err
+			}()
+		}
+		close(start)
+		finished.Wait()
+		close(results)
+		for err := range results {
+			if err != nil {
+				t.Fatalf("round %d: concurrent append failed: %v", round, err)
+			}
+		}
+		if content := readFile(t, filepath.Join(root.Path(), relative)); len(content) != writers {
+			t.Fatalf("round %d: file has %d appended bytes, want %d", round, len(content), writers)
+		}
+	}
+}
+
+func TestConcurrentReadWriteCreationOpensOneSharedFile(t *testing.T) {
+	t.Parallel()
+	root, _ := repository(t)
+	const writers = 32
+	for round := range 32 {
+		relative := fmt.Sprintf("logs/%d/shared", round)
+		start := make(chan struct{})
+		results := make(chan struct {
+			info fs.FileInfo
+			err  error
+		}, writers)
+		var finished sync.WaitGroup
+		for range writers {
+			finished.Add(1)
+			go func() {
+				defer finished.Done()
+				<-start
+				caller, err := OpenPinnedRoot(root.Path())
+				var file *os.File
+				if err == nil {
+					defer caller.Close()
+					file, err = caller.OpenReadWrite(relative)
+				}
+				var info fs.FileInfo
+				if err == nil {
+					info, err = file.Stat()
+					err = errors.Join(err, file.Close())
+				}
+				results <- struct {
+					info fs.FileInfo
+					err  error
+				}{info, err}
+			}()
+		}
+		close(start)
+		finished.Wait()
+		close(results)
+		shared, err := os.Stat(filepath.Join(root.Path(), relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for result := range results {
+			if result.err != nil {
+				t.Fatalf("round %d: concurrent read-write open failed: %v", round, result.err)
+			}
+			if !os.SameFile(shared, result.info) {
+				t.Fatalf("round %d: callers opened different lock file inodes", round)
+			}
+		}
+	}
+}
 
 // Every public mutation is stopped at the former resolve-to-write gap. Replacing
 // the root, a parent, or the target there must never change the external tree.

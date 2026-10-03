@@ -864,7 +864,7 @@ func (s *ConversationStore) take(ctx context.Context, identity ConversationIdent
 			root.Close()
 		}
 	}()
-	file, err := root.OpenLease(filepath.Base(path))
+	file, err := root.OpenReadWrite(filepath.Base(path))
 	if err != nil {
 		return nil, fmt.Errorf("open conversation lease: %w", err)
 	}
