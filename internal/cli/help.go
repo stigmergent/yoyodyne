@@ -20,6 +20,7 @@ func commandHelp() string {
 		printSetupUsage,
 		printChatUsage,
 		printAgentUsage,
+		printRoleUsage,
 		printConfigUsage,
 		printArtifactUsage,
 		printAmendmentUsage,

@@ -165,7 +165,8 @@ func reportRoleError(stdout, stderr io.Writer, jsonOutput bool, err error) int {
 }
 
 func printRoleUsage(output io.Writer) {
-	fmt.Fprintln(output, `Usage:
+	fmt.Fprintln(output, `Usage: yoyo role <command> [options]
+
   yoyo role activate <name> [--by <person>] [--config <path>] [--json]
   yoyo role list [--config <path>] [--json]
   yoyo role history [--config <path>] [--json]

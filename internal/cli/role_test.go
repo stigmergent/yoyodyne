@@ -21,9 +21,9 @@ func TestRoleActivationRecordsTheDigestAndListsAnEditedDefinition(t *testing.T) 
 	t.Setenv(runstate.StateHomeVariable, stateRoot)
 	t.Setenv("USER", "Grace")
 	configPath := writeConfig(t, validConfig)
-	source := filepath.Join(filepath.Dir(configPath), "roles", "specialist.yaml")
-	body := "extends: architect\ntools:\n  add: [log.read]\n"
-	writeArtifact(t, filepath.Dir(configPath), "roles/specialist.yaml", body)
+	source := filepath.Join(filepath.Dir(configPath), config.DirectoryName, "roles", "specialist.yaml")
+	body := "extends: architect\ntools:\n  add: [backlog.order]\n"
+	writeArtifact(t, filepath.Dir(configPath), config.DirectoryName+"/roles/specialist.yaml", body)
 	before, err := config.LoadResolved(configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestRoleActivationCommandsValidateArgumentsAndReportEmptyState(t *testing.T
 			t.Fatalf("empty %s = %d, %q, %q", verb, code, stdout, stderr)
 		}
 	}
-	writeArtifact(t, filepath.Dir(configPath), "roles/specialist.yaml", "extends: architect\n")
+	writeArtifact(t, filepath.Dir(configPath), config.DirectoryName+"/roles/specialist.yaml", "extends: architect\n")
 	stdout, stderr, code := runCLI(t, "role", "activate", "specialist", "--config", configPath)
 	if code != 2 || !strings.Contains(stderr, "requires --by") {
 		t.Fatalf("missing person = %d, %q, %q", code, stdout, stderr)
@@ -121,12 +121,19 @@ func TestRoleActivationRefusesInvalidOrMissingDefinitionsWithoutWriting(t *testi
 			t.Setenv(runstate.StateHomeVariable, stateRoot)
 			configPath := writeConfig(t, validConfig)
 			if body != "" {
-				writeArtifact(t, filepath.Dir(configPath), "roles/specialist.yaml", body)
+				writeArtifact(t, filepath.Dir(configPath), config.DirectoryName+"/roles/specialist.yaml", body)
 			}
 			stdout, stderr, code := runCLI(t, "role", "activate", "specialist", "--by", "Ada", "--config", configPath, "--json")
 			var output roleOutput
 			if err := json.Unmarshal([]byte(stdout), &output); err != nil || code != 1 || output.Error == "" {
 				t.Fatalf("activate = %d, %q, %q, %v", code, stdout, stderr, err)
+			}
+			if body == "" {
+				if !strings.Contains(output.Error, "no role definition") {
+					t.Fatalf("missing definition error = %q", output.Error)
+				}
+			} else if !strings.Contains(output.Error, "specialist.yaml") || strings.Contains(output.Error, "no role definition") {
+				t.Fatalf("invalid definition was not loaded and refused: %q", output.Error)
 			}
 			if entries, err := os.ReadDir(stateRoot); err != nil || len(entries) != 0 {
 				t.Fatalf("refused activation created state: %v, %v", entries, err)
