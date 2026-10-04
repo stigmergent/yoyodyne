@@ -130,8 +130,9 @@ fmt:
 
 # Formatting is a gate, not a suggestion: gofmt -l exits 0 even when it finds
 # unformatted files, so the result has to be inspected rather than trusted.
+# Parse and tool failures must also fail the gate; stderr remains visible.
 fmtcheck:
-	@unformatted=$$(gofmt -l .); \
+	@unformatted=$$(gofmt -l .) || exit $$?; \
 	if [ -n "$$unformatted" ]; then \
 		echo "gofmt needed:"; echo "$$unformatted"; exit 1; \
 	fi
