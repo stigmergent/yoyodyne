@@ -942,7 +942,7 @@ func TestSchedulingRecoversRepairSuccessNotesWithoutAnotherDispatch(t *testing.T
 				}
 				before := harness.reload(t)
 				if terminal {
-					before.Status, before.Phase = runstate.StatusSucceeded, runstate.PhaseCompleted
+					before.Status, before.Phase = runstate.StatusSucceeded, runstate.PhaseComplete
 					completed := docketedNow.Add(time.Minute)
 					before.CompletedAt = &completed
 					harness.save(t, before)
