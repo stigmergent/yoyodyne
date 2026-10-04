@@ -1,47 +1,32 @@
 package beads
 
-// The writer that destroys an attribution, read in a command line before it
+// The writer that replaces earlier notes, read in a command line before it
 // runs rather than found in the wreckage afterwards.
 //
-// Nothing in this package destroys one: Update passes --append-notes, and
-// Create passes --notes onto an item that does not exist yet. Every loss came
-// from outside those paths -- `bd update <id> --notes="..."` typed into an
+// The client preserves earlier notes: Update passes --append-notes, and
+// Create passes --notes onto an item that does not exist yet. Recorded losses
+// came from outside those paths -- `bd update <id> --notes="..."` typed into an
 // agent session, twelve times across twelve items, each replacement taking the
 // `Goal served:` line with it and leaving the item reading as work nobody ever
 // attributed. The flag is the mechanism and the sessions are the writer, so
 // this is the flag recognised where the session is still able to be stopped.
 //
-// What is refused is narrower than the flag. A replacement that carries an
-// attribution through destroys nothing, and is allowed: the rule is that the
-// record survives, not that one spelling is banned. It is also the escape hatch
-// for the one legitimate reason to replace notes wholesale, which is why
-// refusing outright was rejected -- a guard with no way past it is a guard
-// somebody removes.
+// Notes are append-only: a correction adds a new note and preserves every
+// earlier one. Carrying a goal attribution through a replacement does not
+// preserve the rest of the record, so every recognised replacement is refused.
 //
 // The rule is decidable from the command line alone, deliberately. This runs in
 // front of every shell command an agent takes, and a guard that asked the
 // tracker what the item currently records would be a guard that waits on a
-// locked database on every command. What that costs is a refusal on an item
-// recording no goal, where the replacement would have destroyed nothing; what
-// it buys is a guard that cannot itself become the reason a session stalls, and
-// the refusal costs whoever meets it one flag.
-//
-// The same bound is what the escape hatch can and cannot check, and the refusal
-// says so rather than implying otherwise. A command line carries a `Goal
-// served:` line or it does not; whether that line is the one the item itself
-// recorded is a fact about the item, and this never reads the item. So a
-// replacement carrying some other statement passes here, and what catches that
-// is the witness rather than this: the tracker still holds the statement that
-// was written, `goals attribution` reads the notes against it, and the words to
-// put back survive the substitution. This stops the loss that leaves nothing
-// behind; the witness is what makes every other one recoverable.
+// locked database on every command. Recognising the replacement flag is enough
+// to refuse it, regardless of what the item records.
+// The refusal directs the writer to append instead, without reading the item
+// or offering a replacement escape.
 
 import (
 	"fmt"
 	"path"
 	"strings"
-
-	"github.com/mason-bryant/yoyodyne/internal/goal"
 )
 
 // notesFlag replaces an item's notes wholesale, and appendNotesFlag adds to
@@ -54,49 +39,41 @@ const (
 )
 
 // DestroyedAttribution says why a shell command line must not run: some command
-// in it replaces a work item's notes wholesale and carries no goal through, so
-// an attribution recorded on that item would be gone with nothing left saying it
-// was ever there. It is empty for every other command line, which is nearly all
-// of them.
+// in it replaces a work item's notes wholesale, contrary to the append-only
+// rule. A goal line in the replacement does not preserve every earlier note.
+// It is empty for every other command line, which is nearly all of them.
 //
 // The first such command decides the answer. A line carrying two of them is one
 // refusal to act on, not two, and the writer meets the second only after
 // rewriting the first.
 func DestroyedAttribution(command string) string {
 	for _, words := range simpleCommands(command) {
-		replaced, notes, replaces := notesReplacement(words)
+		replaced, replaces := notesReplacement(words)
 		if !replaces {
 			continue
 		}
-		if _, records := goal.NamedIn(notes); records {
-			continue
-		}
-		return fmt.Sprintf("`bd update %s %s` replaces that item's notes rather than adding to them, "+
-			"and an item's notes are where the goal it serves is recorded, on a `%s` line. "+
-			"A replacement that does not carry that line through destroys the attribution, and the item afterwards "+
-			"reads as work nobody ever attributed -- which has already happened, to eighteen items across two occasions. "+
-			"Use `%s` instead: it adds to the notes and takes nothing away. "+
-			"If the notes really do have to be replaced, carry the item's own `%s ...` line into the replacement "+
-			"verbatim -- read it back with `bd show %s` first -- and this will allow it. It checks only that such a "+
-			"line is there, not that it is the item's, so a statement invented here is a substitution nothing stops.",
-			replaced, notesFlag, goal.AttributionPrefix, appendNotesFlag, goal.AttributionPrefix, replaced)
+		return fmt.Sprintf("`bd update %s %s` replaces that item's notes wholesale. "+
+			"A work item's notes are append-only: nothing rewrites, reorders, or removes an earlier note. "+
+			"Use `%s` instead, including for corrections: it adds a new note and takes nothing away. "+
+			"The replacement is refused even if it includes a `Goal served:` line.",
+			replaced, notesFlag, appendNotesFlag)
 	}
 	return ""
 }
 
 // notesReplacement reads one command's words as a wholesale notes replacement:
-// the item whose notes it replaces, what it would replace them with, and
-// whether it is one at all.
+// the item whose notes it replaces and whether it is one at all. The
+// replacement's contents do not decide whether it is refused.
 //
 // The item is what the command names first that is not a flag, and it is only
 // ever used to say which item is at stake. A command that names none -- or
 // whose first bare word belongs to some other flag -- is still refused, because
 // what decides that is the replacement rather than the naming.
-func notesReplacement(words []string) (string, string, bool) {
+func notesReplacement(words []string) (string, bool) {
 	if len(words) < 2 || !invokesBd(words[0]) || words[1] != "update" {
-		return "", "", false
+		return "", false
 	}
-	replaced, notes, replaces := "", "", false
+	replaced, replaces := "", false
 	for index := 2; index < len(words); index++ {
 		word := words[index]
 		switch {
@@ -107,10 +84,9 @@ func notesReplacement(words []string) (string, string, bool) {
 			replaces = true
 			if index+1 < len(words) {
 				index++
-				notes = words[index]
 			}
 		case strings.HasPrefix(word, notesFlag+"="):
-			notes, replaces = strings.TrimPrefix(word, notesFlag+"="), true
+			replaces = true
 		case strings.HasPrefix(word, "-"):
 			// Every other flag, `--append-notes` among them, which is the whole
 			// point: it is not this one.
@@ -121,7 +97,7 @@ func notesReplacement(words []string) (string, string, bool) {
 	if replaced == "" {
 		replaced = "<id>"
 	}
-	return replaced, notes, replaces
+	return replaced, replaces
 }
 
 // invokesBd reports a word that runs the tracker, however it was reached: bare

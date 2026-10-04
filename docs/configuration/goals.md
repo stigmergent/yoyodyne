@@ -358,12 +358,10 @@ the sweep it walks every status the tracker holds.
 
 `yoyo goals guard` is the same loss stopped rather than reported. Wired as a
 `PreToolUse` hook on `Bash`, it reads the command an agent session is about to
-run and refuses `bd update <id> --notes`, which replaces an item's notes and
-takes the goal recorded in them with it; a replacement carrying a
-`Goal served:` line through is allowed, because that one destroys nothing. It
-decides from the command line alone and never reads the item, so it checks such a
-line is present and not that it is the item's own — a substitution passes it, and
-the witness rather than the guard is what holds the words that were replaced. It
+run and refuses every recognized `bd update <id> --notes` replacement, even
+one carrying a `Goal served:` line. An item's notes are append-only: preserve
+every earlier note and add a correction with `--append-notes`. It decides from
+the command line alone and never reads the item or opens the tracker. It
 also refuses `bd update <id> --status=...` with no `--append-notes` on the same
 command: a status set with no note saying what moved it is the other silent
 rewrite, the one that on 2026-09-18 reopened two items closed on confirmed merges
@@ -381,7 +379,7 @@ yoyo goals list          # the goals work may be attributed to, their identities
 yoyo goals attribution   # what each work item the tracker holds says it is for
 yoyo goals witness       # witness the goals already recorded on work items
 yoyo goals reattribute   # move an attribution off the wording and onto the goal's identity
-yoyo goals guard         # refuse a command that would replace notes and destroy a goal, or set a status with no note
+yoyo goals guard         # refuse wholesale notes replacement or a status set with no note
 ```
 
 `attribution` exits non-zero for an item whose attribution is `unresolved` or

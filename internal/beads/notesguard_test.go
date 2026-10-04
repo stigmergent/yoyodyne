@@ -8,9 +8,9 @@ import (
 )
 
 // The command that destroyed twelve attributions, refused before it runs. The
-// spellings here are the ones the diagnosis found in the session transcripts,
-// not invented ones: the flag written with an `=`, the flag written as two
-// words, and the whole thing behind a `cd` into the repository.
+// spellings include the ones the diagnosis found in the session transcripts:
+// the flag written with an `=`, the flag written as two words, and the whole
+// thing behind a `cd` into the repository.
 func TestTheWholesaleNotesWriterIsRefusedHoweverItIsSpelled(t *testing.T) {
 	t.Parallel()
 
@@ -22,9 +22,12 @@ func TestTheWholesaleNotesWriterIsRefusedHoweverItIsSpelled(t *testing.T) {
 		{"the flag and its value as two words", `bd update yoyodyne-ifd.45 --notes 'Fresh evidence.'`},
 		{"reached through a path rather than the PATH", `/opt/homebrew/bin/bd update yoyodyne-ifd.45 --notes=replaced`},
 		{"behind a change of directory", `cd /Users/mbryant/github/yoyodyne && bd update yoyodyne-ifd.45 --notes="replaced"`},
+		{"an attribution behind a change of directory", `cd repo && bd update yoyodyne-ifd.45 --notes="Goal served: Run development nearly autonomously."`},
 		{"after a command that succeeded", "bd show yoyodyne-ifd.45; bd update yoyodyne-ifd.45 --notes=replaced"},
+		{"an invented attribution after a quoted example", `echo 'bd update x --notes=y'; bd update yoyodyne-ifd.45 --notes 'Goal served: Something nobody attributed this to.'`},
 		{"the flag named before the item", `bd update --notes="replaced" yoyodyne-ifd.45`},
 		{"replacing the notes with nothing at all", `bd update yoyodyne-ifd.45 --notes=""`},
+		{"the flag with no value", `bd update yoyodyne-ifd.45 --notes`},
 		{"the prefix with no statement after it", `bd update yoyodyne-ifd.45 --notes="Goal served:"`},
 		{"spread across a continued line", "bd update yoyodyne-ifd.45 \\\n  --notes='replaced'"},
 	} {
@@ -45,40 +48,47 @@ func TestTheWholesaleNotesWriterIsRefusedHoweverItIsSpelled(t *testing.T) {
 	}
 }
 
-// The narrower rule, which is the whole reason this refuses rather than bans:
-// what must survive is the record, so a replacement carrying the record through
-// destroys nothing and is allowed. It is also the way past a refusal for the one
-// legitimate reason to replace notes, and a guard with no way past it is a guard
-// somebody removes.
-func TestAReplacementCarryingTheAttributionThroughIsAllowed(t *testing.T) {
+// Preserving a goal line is not preserving every earlier note. Replacements
+// are refused regardless of what the command claims the item's goal was.
+func TestAReplacementIsRefusedRegardlessOfItsGoalLine(t *testing.T) {
 	t.Parallel()
 
-	autonomy := "Run development nearly autonomously."
-	carried := `bd update yoyodyne-ifd.45 --notes="Admitted by the product manager.
-
-` + goal.Note(autonomy) + `"`
-	if refusal := DestroyedAttribution(carried); refusal != "" {
-		t.Fatalf("a replacement carrying the attribution through was refused: %s", refusal)
+	for _, test := range []struct {
+		name  string
+		notes string
+	}{
+		{"a genuine-looking attribution", "Admitted by the product manager.\n\n" + goal.Note("Run development nearly autonomously.")},
+		{"an invented attribution", goal.Note("Something nobody ever attributed this to.")},
+		{"an empty goal line", "Goal served:"},
+		{"no goal line", "Fresh evidence."},
+		{"empty notes", ""},
+	} {
+		for _, flag := range []string{notesFlag + "=", notesFlag + " "} {
+			t.Run(test.name+"/"+flag, func(t *testing.T) {
+				t.Parallel()
+				command := "bd update yoyodyne-ifd.45 " + flag + `"` + test.notes + `"`
+				if refusal := DestroyedAttribution(command); refusal == "" {
+					t.Fatalf("DestroyedAttribution(%q) allowed a wholesale replacement", command)
+				}
+			})
+		}
 	}
 }
 
-// What the escape hatch does not check, asserted so it is a stated bound rather
-// than a surprise. The rule is decidable from the command line alone, so a
-// `Goal served:` line the writer invented reads exactly like the item's own and
-// passes. The refusal is required to say so, because the one path this guard
-// actively teaches is the one place it must not overclaim: what catches a
-// substitution is the witness the tracker holds, not this.
-func TestTheEscapeHatchDoesNotVerifyTheStatementIsTheItemsOwn(t *testing.T) {
+// A correction adds a note rather than replacing the record. The refusal must
+// direct the writer to that operation without teaching a replacement escape.
+func TestTheRefusalDirectsCorrectionsToAppendWithoutAReplacementEscape(t *testing.T) {
 	t.Parallel()
 
-	invented := `bd update yoyodyne-ifd.45 --notes="` + goal.Note("Something nobody ever attributed this to.") + `"`
-	if refusal := DestroyedAttribution(invented); refusal != "" {
-		t.Fatalf("the command-line-only rule was expected to allow an invented statement, got: %s", refusal)
-	}
 	refusal := DestroyedAttribution(`bd update yoyodyne-ifd.45 --notes="replaced"`)
-	for _, stated := range []string{"not that it is the item's", "bd show yoyodyne-ifd.45"} {
+	for _, stated := range []string{"append-only", "correction", appendNotesFlag} {
 		if !strings.Contains(refusal, stated) {
-			t.Fatalf("the refusal does not state its own bound: %q is missing from %q", stated, refusal)
+			t.Fatalf("the refusal does not explain appending corrections: %q is missing from %q", stated, refusal)
+		}
+	}
+	for _, escape := range []string{"bd show", "this will allow it", "carry the item's own"} {
+		if strings.Contains(refusal, escape) {
+			t.Fatalf("the refusal still teaches a replacement escape: %q is in %q", escape, refusal)
 		}
 	}
 }
@@ -92,10 +102,13 @@ func TestOrdinaryCommandsAndTheAppendingWriterPassUnremarked(t *testing.T) {
 
 	for _, allowed := range []string{
 		`bd update yoyodyne-ifd.45 --append-notes="what I did"`,
+		`bd update yoyodyne-ifd.45 --append-notes 'Correction: preserve the earlier notes.'`,
+		`bd update yoyodyne-ifd.45 --append-notes="bd update x --notes=y is what broke it"`,
 		// Not this rule's to refuse: it destroys no attribution. The status
 		// guard beside this one is what refuses it, for what it leaves unsaid.
 		`bd update yoyodyne-ifd.45 --status=open`,
 		`bd create --title="A new item" --notes="Goal served: nothing yet"`,
+		`bd create --title="A new item" --notes 'Goal served: nothing yet'`,
 		`bd show yoyodyne-ifd.45 --json`,
 		`git commit -m "bd update x --notes=y is what broke it"`,
 		`echo 'bd update x --notes=y'`,

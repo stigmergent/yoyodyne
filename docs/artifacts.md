@@ -307,7 +307,7 @@ the item.
 ./bin/yoyo goals attribution   # what each work item the tracker holds says it is for
 ./bin/yoyo goals witness       # witness the goals already recorded on work items
 ./bin/yoyo goals reattribute   # move an attribution off the wording and onto the goal's identity
-./bin/yoyo goals guard         # refuse a command that would replace notes and destroy a goal, or set a status with no note
+./bin/yoyo goals guard         # refuse wholesale notes replacement or a status set with no note
 ```
 
 No command there decides what a piece of work is for, for the same reason no
@@ -359,13 +359,11 @@ is worth reading before a run over a live backlog.
 The witness is what survives a loss; `yoyo goals guard` stops the write that
 causes one. It reads a tool call an agent session is about to make and
 refuses a shell command running `bd update <id> --notes`, which is where every
-recorded loss came from. A replacement carrying a `Goal served:` line through is
-allowed, because that one destroys nothing — and it is the way past a refusal
-when the notes genuinely have to be rewritten. It decides from the command line
-alone and never reads the item, which is what keeps it from waiting on a locked
-tracker in front of every command an agent runs; the price is that it checks such
-a line is present and not that it is the item's own, so a statement invented in
-the replacement passes and the witness is what catches it. The same guard refuses
+recorded loss came from. It refuses every recognized replacement, even one
+carrying a `Goal served:` line. An item's notes are append-only: preserve every
+earlier note and add a correction with `--append-notes`. It decides from the
+command line alone and never reads the item, which is what keeps it from waiting
+on a locked tracker in front of every command an agent runs. The same guard refuses
 `bd update <id> --status=...` with no `--append-notes` on the same command: a
 status set with no note saying what moved it is the other silent rewrite, and on
 2026-09-18 it moved four items backwards — two closed on confirmed merges, two
