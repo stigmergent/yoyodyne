@@ -567,9 +567,9 @@ type hookDecisionOutput struct {
 }
 
 // guardNotesReplacement decides one shell command an agent session is about to
-// run: it refuses `bd update --notes` where the replacement would destroy the
-// goal the item records, refuses `bd update --status` where no note is appended
-// saying what moved the status, and says nothing about anything else.
+// run: it refuses `bd update --notes` because notes are append-only, refuses
+// `bd update --status` where no note is appended saying what moved the status,
+// and says nothing about anything else.
 //
 // It is deliberately the only thing here that never fails a session. A tool call
 // this cannot read is allowed, and said so on stderr: this stands in front of
@@ -608,7 +608,7 @@ func guardNotesReplacement(args []string, stdin io.Reader, stdout, stderr io.Wri
 	if call.ToolName != "Bash" {
 		return 0
 	}
-	// Two rules over the same line, the attribution first: a command replacing
+	// Two rules over the same line, the notes first: a command replacing
 	// the notes is refused for what it destroys before anything is said about
 	// where it moves the status, because the destroyed record is the loss that
 	// leaves nothing behind. A bare status move is the other silent rewrite --
@@ -1123,13 +1123,12 @@ while any item is left behind. "--dry-run" reports the same thing and writes
 nothing.
 
 "guard" is the same loss stopped before it happens. It reads a `+"`PreToolUse`"+` tool
-call on stdin, as an agent session's hook gives it, and refuses a shell command
-running `+"`bd update <id> --notes`"+` -- which replaces an item's notes rather than
-adding to them, taking the recorded goal with them. A replacement that carries a
-`+"`Goal served:`"+` line through is allowed, because the record survives one. It
-decides from the command line alone and never reads the item, so it checks that
-such a line is present and not that it is the item's own; a substitution is
-caught by the witness rather than here. It also refuses `+"`bd update <id> --status`"+`
+call on stdin, as an agent session's hook gives it, and refuses every recognized
+shell command running `+"`bd update <id> --notes`"+`. Notes are append-only: preserve
+every earlier note and append a correction with `+"`--append-notes`"+`. A replacement
+is refused even when it carries a `+"`Goal served:`"+` line. It decides from the
+command line alone and never reads the item or opens the tracker. It also refuses
+`+"`bd update <id> --status`"+`
 where no `+"`--append-notes`"+` is on the same command, because a status set with no
 note saying what moved it is the other silent rewrite -- four items were moved
 backwards that way on 2026-09-18 -- and the direction of the move is not readable

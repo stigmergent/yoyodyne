@@ -86,10 +86,10 @@ replacement can erase that with it. It has happened twice, to eighteen items, ev
 time from `bd update --notes=` typed into an agent session
 (`docs/diagnoses/yoyodyne-ifd-122-goal-attribution-loss.md`).
 
-`yoyo goals guard` refuses a replacement that carries no `Goal served:` line.
-It reads only the command line, so it cannot tell whether the line is the
-item's own. A replacement carrying such a line can pass the guard even though
-the operating rules forbid rewriting notes; add a correction as a new note.
+`yoyo goals guard` refuses every recognized `bd update --notes` replacement,
+even one carrying a `Goal served:` line. Notes are append-only: preserve every
+earlier note and add a correction with `--append-notes`. The guard reads only the
+command line and never opens the tracker.
 The harness adds the guard to every developer run on Claude Code. An
 interactive Claude Code session gets it from a `PreToolUse` hook on `Bash` in
 `.claude/settings.json`:

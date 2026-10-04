@@ -591,6 +591,12 @@ func TestTheGuardRefusesTheWriterAndSaysNothingAboutAnythingElse(t *testing.T) {
 		{
 			name:    "the same write carrying the attribution through",
 			payload: `{"tool_name":"Bash","tool_input":{"command":"bd update yoyodyne-ifd.45 --notes=\"` + goal.Note(autonomy) + `\""}}`,
+			denied:  true,
+		},
+		{
+			name:    "a separate flag value carrying an invented attribution",
+			payload: `{"tool_name":"Bash","tool_input":{"command":"bd update yoyodyne-ifd.45 --notes \"` + goal.Note("Something nobody ever attributed this to.") + `\""}}`,
+			denied:  true,
 		},
 		{
 			name:    "the spelling that adds rather than replaces",
