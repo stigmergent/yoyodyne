@@ -420,6 +420,22 @@ func TestTriageRepairTellsAWaitFromARefusal(t *testing.T) {
 	}
 }
 
+func TestTriageRepairReportsAnUncertainSaveWithoutClaimingNothingWasWritten(t *testing.T) {
+	t.Parallel()
+	result := orchestrator.RepairContinueResult{
+		WorkItemID: "yoyodyne-ifd.428.65",
+		RunID:      "run-0123456789abcdef0123456789abcdef",
+	}
+	uncertain := errors.New("the continuation is present in the run record, but its durable save was not confirmed")
+	var stdout, stderr bytes.Buffer
+	if code := reportRepair(&stdout, &stderr, false, result, uncertain); code != 1 {
+		t.Fatalf("reportRepair() code = %d; want an unconfirmed transition to fail", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), uncertain.Error()) || !strings.Contains(stderr.String(), "repair continuation was not confirmed") || strings.Contains(stderr.String(), "nothing was continued") {
+		t.Fatalf("stdout = %q, stderr = %q; want the uncertain save reported without a success or a claim that nothing was written", stdout.String(), stderr.String())
+	}
+}
+
 // The verb needs the publication it acts on, exactly as the two beside it need
 // the stoppage.
 func TestTriageRearmRequiresThePublicationItActsOn(t *testing.T) {

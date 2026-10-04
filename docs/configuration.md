@@ -5348,8 +5348,19 @@ back with the decision recorded on it first, and the run's blocker is cleared on
 the continuation that supersedes it, which keeps the words it was recorded in and
 the grant that bought the attempt. The order is the item first, because a run
 recorded as running behind an item that still says it is blocked is the one
-half-finished state nothing else here would notice, and every refusal is asked
-before either write, so a refused re-entry leaves the grant exactly where it was.
+half-finished state nothing else here would notice. The note before the claim
+describes preparation, and the success note is appended only after the run's
+continuation has been saved and read back. A refused claim or an unconfirmed save
+reports that outcome and dispatches no developer. A save that replaced the record
+but failed to confirm its durability is reported as uncertain, even when the
+continuation can be read back.
+
+Recovery reads the item and run before making another transition. It reuses an
+item already claimed and confirms a continuation already recorded for the
+standing repair decision without adding another continuation, attempt, or grant.
+It checks the item's existing notes before retrying a success note whose response
+was lost. Once the continuation is confirmed, a failed note is reported alongside
+it rather than making a recorded continuation look absent.
 
 The continuations are recorded on the run itself, under `repair_continuations` in
 its state file, and they are what the continued run's repair loop adds to

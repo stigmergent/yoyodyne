@@ -498,10 +498,9 @@ func TestARepairSupersedesTheBlockerOnBothTheRunAndTheItem(t *testing.T) {
 	if !harness.tracker.Claimed || harness.tracker.Item.Status != "in_progress" {
 		t.Fatalf("item status = %q, claimed = %t, want the item put back by the re-entry itself", harness.tracker.Item.Status, harness.tracker.Claimed)
 	}
-	// The decision is recorded before the claim, so the item never reads as work
-	// somebody quietly restarted.
-	if got := strings.Join(harness.tracker.Calls, ","); got != "record,claim" {
-		t.Fatalf("tracker calls = %q, want the decision recorded and then the item claimed", got)
+	// Preparation precedes the claim; success follows the durable run transition.
+	if got := strings.Join(harness.tracker.Calls, ","); got != "record,claim,record" {
+		t.Fatalf("tracker calls = %q, want preparation, claim, and confirmed success", got)
 	}
 	// An item put back from blocked is not told about a claim it never held.
 	if strings.Contains(harness.tracker.Notes, "still read in_progress") {
@@ -512,7 +511,7 @@ func TestARepairSupersedesTheBlockerOnBothTheRunAndTheItem(t *testing.T) {
 // The item's other stale status: the stopped run left it claimed rather than
 // blocked. The run is terminal and nothing of the item is in flight, so the
 // claim has nothing working behind it; the continuation supersedes it, and the
-// item is told what moved it and why before the claim changes hands.
+// item is told what superseded it once the continuation is durably recorded.
 func TestARepairSupersedesAClaimTheStoppedRunLeftAndSaysSo(t *testing.T) {
 	t.Parallel()
 
@@ -526,12 +525,273 @@ func TestARepairSupersedesAClaimTheStoppedRunLeftAndSaysSo(t *testing.T) {
 	if !result.Continued || len(harness.started) != 1 {
 		t.Fatalf("continued = %t, started = %#v, want the decision carried out", result.Continued, harness.started)
 	}
-	if got := strings.Join(harness.tracker.Calls, ","); got != "record,claim" {
-		t.Fatalf("tracker calls = %q, want the account recorded and then the item claimed", got)
+	if got := strings.Join(harness.tracker.Calls, ","); got != "record,record" {
+		t.Fatalf("tracker calls = %q, want the existing claim reused and success recorded after preparation", got)
 	}
 	for _, want := range []string{result.Reason, "still read in_progress from run " + result.RunID, "no run of this item in flight"} {
 		if !strings.Contains(harness.tracker.Notes, want) {
 			t.Fatalf("item notes = %q, want them to say %q", harness.tracker.Notes, want)
+		}
+	}
+}
+
+// repairRecordItems can fail a note before or after the tracker wrote it, and
+// keeps Notes on the item returned by Show as the real tracker does.
+type repairRecordItems struct {
+	*orchestratortest.Tracker
+	onRecord func(string) error
+}
+
+func (f *repairRecordItems) RecordOutcome(ctx context.Context, id, note string) (beads.WorkItem, error) {
+	if f.onRecord != nil {
+		if err := f.onRecord(note); err != nil {
+			return beads.WorkItem{}, err
+		}
+	}
+	item, err := f.Tracker.RecordOutcome(ctx, id, note)
+	f.Item.Notes = f.Notes
+	item.Notes = f.Notes
+	return item, err
+}
+
+type repairRecordRuns struct {
+	RepairRuns
+	saveErr        error
+	writeBeforeErr bool
+	loadErr        error
+	readInstead    *runstate.State
+}
+
+func (f *repairRecordRuns) Save(state runstate.State) error {
+	if f.saveErr != nil && !f.writeBeforeErr {
+		return f.saveErr
+	}
+	if err := f.RepairRuns.Save(state); err != nil {
+		return err
+	}
+	return f.saveErr
+}
+
+func (f *repairRecordRuns) Load(runID string) (runstate.State, error) {
+	if f.loadErr != nil {
+		return runstate.State{}, f.loadErr
+	}
+	if f.readInstead != nil {
+		return *f.readInstead, nil
+	}
+	return f.RepairRuns.Load(runID)
+}
+
+func requireNoRepairSuccess(t *testing.T, harness *continueHarness, result RepairContinueResult) {
+	t.Helper()
+	if result.Continued || len(harness.started) != 0 || result.Reason != "" {
+		t.Fatalf("result = %+v, started = %+v; want no confirmed continuation or dispatch", result, harness.started)
+	}
+	for _, success := range []string{"and the harness re-entered", "and the run was continued", "carried out 2 further repair", "superseded blocker:"} {
+		if strings.Contains(harness.tracker.Notes, success) || strings.Contains(result.Render(), success) {
+			t.Fatalf("notes = %q, rendered = %q; want no success account containing %q", harness.tracker.Notes, result.Render(), success)
+		}
+	}
+	if !strings.Contains(result.Render(), "no repair continuation was confirmed") || !strings.Contains(harness.tracker.Notes, "was not confirmed") {
+		t.Fatalf("result = %q, notes = %q; want the unconfirmed transition reported", result.Render(), harness.tracker.Notes)
+	}
+}
+
+func TestARepairClaimRefusalRecordsNoSuccessAndCanRetryTheSameGrant(t *testing.T) {
+	t.Parallel()
+	harness := newContinueHarness(t, continuableState())
+	refusal := errors.New("tracker refused the claim")
+	harness.tracker.OnClaim = func() error { return refusal }
+	result, err := harness.continuer().Continue(context.Background(), continueRequest())
+	if !errors.Is(err, refusal) {
+		t.Fatalf("Continue() error = %v, want the claim refusal", err)
+	}
+	requireNoRepairSuccess(t, harness, result)
+	if harness.carried(t) != 0 || harness.reload(t).Status != runstate.StatusFailed {
+		t.Fatal("a refused claim changed the stopped run or spent its grant")
+	}
+	harness.tracker.OnClaim = nil
+	result, err = harness.continuer().Continue(context.Background(), continueRequest())
+	if err != nil || !result.Continued || harness.carried(t) != continueGrantRounds {
+		t.Fatalf("retry = %+v, %v; want the original grant continued once", result, err)
+	}
+}
+
+func TestARepairReusesAClaimWhoseConfirmationFailed(t *testing.T) {
+	t.Parallel()
+	harness := newContinueHarness(t, continuableState())
+	claims := 0
+	harness.tracker.OnClaim = func() error {
+		claims++
+		harness.tracker.Item.Status = "in_progress"
+		return errors.New("the claim was written but its response was lost")
+	}
+	result, err := harness.continuer().Continue(context.Background(), continueRequest())
+	if err == nil {
+		t.Fatal("a claim without a confirmed response reported success")
+	}
+	requireNoRepairSuccess(t, harness, result)
+	result, err = harness.continuer().Continue(context.Background(), continueRequest())
+	if err != nil || !result.Continued || claims != 1 {
+		t.Fatalf("retry = %+v, %v, claims = %d; want the recorded claim reused", result, err, claims)
+	}
+	if state := harness.reload(t); len(state.RepairContinuations) != 1 || state.RepairAttempts != continuableState().RepairAttempts+1 {
+		t.Fatalf("run = %+v; want one continuation and one attempt", state)
+	}
+}
+
+func TestARepairPersistenceFailureNeverAnnouncesSuccessAndRecoverySpendsOnce(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"write refused", "sync failed after replacement", "read-back failed", "read-back disagrees"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			harness := newContinueHarness(t, continuableState())
+			runs := &repairRecordRuns{RepairRuns: harness.runs}
+			failure := errors.New(mode)
+			switch mode {
+			case "write refused":
+				runs.saveErr = failure
+			case "sync failed after replacement":
+				runs.saveErr, runs.writeBeforeErr = failure, true
+			case "read-back failed":
+				runs.loadErr = failure
+			case "read-back disagrees":
+				stopped := harness.reload(t)
+				runs.readInstead = &stopped
+			}
+			continuer := harness.continuer()
+			continuer.Runs = runs
+			continuer.Items = &repairRecordItems{Tracker: harness.tracker}
+			claims := 0
+			harness.tracker.OnClaim = func() error { claims++; return nil }
+			result, err := continuer.Continue(context.Background(), continueRequest())
+			if err == nil {
+				t.Fatal("an unconfirmed run save reported success")
+			}
+			requireNoRepairSuccess(t, harness, result)
+			if mode == "write refused" && harness.carried(t) != 0 {
+				t.Fatal("a refused run save carried out the grant")
+			}
+			// A later invocation reads both stores, then either finishes the
+			// original transition or confirms the one already present.
+			runs.saveErr, runs.loadErr, runs.readInstead = nil, nil, nil
+			result, err = continuer.Continue(context.Background(), continueRequest())
+			if err != nil || !result.Continued || len(harness.started) != 1 || claims != 1 {
+				t.Fatalf("recovery = %+v, %v, started = %+v, claims = %d; want one dispatch and no repeated claim", result, err, harness.started, claims)
+			}
+			state := harness.reload(t)
+			if len(state.RepairContinuations) != 1 || state.RepairAttempts != continuableState().RepairAttempts+1 || harness.carried(t) != continueGrantRounds {
+				t.Fatalf("run = %+v; want one continuation and no repeated budget expenditure", state)
+			}
+			if spent := harness.spent(t); spent.RepairGrants != 1 || spent.GrantedRounds != continueGrantRounds {
+				t.Fatalf("triage = %+v; want only the original decision's grant", spent)
+			}
+		})
+	}
+}
+
+func TestRepairSuccessNotesFollowTheConfirmedRunRecord(t *testing.T) {
+	t.Parallel()
+	harness := newContinueHarness(t, continuableState())
+	items := &repairRecordItems{Tracker: harness.tracker}
+	items.onRecord = func(note string) error {
+		state := harness.reload(t)
+		if strings.Contains(note, "and the harness re-entered") {
+			if state.Status != runstate.StatusRunning || len(state.RepairContinuations) != 1 || harness.tracker.Item.Status != "in_progress" {
+				t.Fatalf("success note before the transition: run = %+v, item = %+v", state, harness.tracker.Item)
+			}
+		} else if state.Status != runstate.StatusFailed || len(state.RepairContinuations) != 0 {
+			t.Fatalf("preparation = %q, run = %+v; want preparation before the transition", note, state)
+		}
+		return nil
+	}
+	continuer := harness.continuer()
+	continuer.Items = items
+	result, err := continuer.Continue(context.Background(), continueRequest())
+	if err != nil || !result.Continued || result.RecordProblem != "" {
+		t.Fatalf("Continue() = %+v, %v; want a confirmed continuation and note", result, err)
+	}
+}
+
+func TestRepairRecoveryChecksWhetherAnUnconfirmedSuccessNoteWasWritten(t *testing.T) {
+	t.Parallel()
+	for _, written := range []bool{false, true} {
+		t.Run(map[bool]string{false: "note refused", true: "note written but response lost"}[written], func(t *testing.T) {
+			t.Parallel()
+			harness := newContinueHarness(t, continuableState())
+			items := &repairRecordItems{Tracker: harness.tracker}
+			items.onRecord = func(note string) error {
+				if !strings.Contains(note, "and the harness re-entered") {
+					return nil
+				}
+				if written {
+					_, _ = harness.tracker.RecordOutcome(context.Background(), docketedItem, note)
+					harness.tracker.Item.Notes = harness.tracker.Notes
+				}
+				return errors.New("the success note could not be confirmed")
+			}
+			// No provider ran after the first dispatch, leaving the recorded
+			// continuation for recovery to pick up.
+			harness.failure = errors.New("dispatch stopped before invoking the provider")
+			continuer := harness.continuer()
+			continuer.Items = items
+			result, err := continuer.Continue(context.Background(), continueRequest())
+			if err == nil || !result.Continued || !strings.Contains(result.RecordProblem, "success note") {
+				t.Fatalf("first continuation = %+v, %v; want the durable transition and unconfirmed note reported separately", result, err)
+			}
+			items.onRecord, harness.failure = nil, nil
+			result, err = continuer.Continue(context.Background(), continueRequest())
+			if err != nil || !result.Continued || result.RecordProblem != "" {
+				t.Fatalf("recovery = %+v, %v", result, err)
+			}
+			if state := harness.reload(t); len(state.RepairContinuations) != 1 || state.RepairAttempts != continuableState().RepairAttempts+1 {
+				t.Fatalf("run = %+v; want the existing transition reused", state)
+			}
+			if got := strings.Count(harness.tracker.Notes, result.Reason); got != 1 {
+				t.Fatalf("success notes = %d; want exactly one confirmed account", got)
+			}
+		})
+	}
+}
+
+func TestRepairRecoveryRefusesAContinuationThatDoesNotCarryTheStandingDecision(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"grant returned", "continuation predates decision", "decision superseded"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			harness := newContinueHarness(t, continuableState())
+			if _, err := harness.continuer().Continue(context.Background(), continueRequest()); err != nil {
+				t.Fatal(err)
+			}
+			state := harness.reload(t)
+			switch mode {
+			case "grant returned":
+				state.RepairContinuations[0].Returned = true
+			case "continuation predates decision":
+				state.RepairContinuations[0].ContinuedAt = docketedNow.Add(-time.Hour)
+			case "decision superseded":
+				if _, err := harness.runs.Triage().RecordDecision(context.Background(), docketedItem, triageDecided(runstate.TriageDecisionWait, docketedRunID), docketedNow); err != nil {
+					t.Fatal(err)
+				}
+			}
+			harness.save(t, state)
+			notes := harness.tracker.Notes
+			result, err := harness.continuer().Continue(context.Background(), continueRequest())
+			if err == nil || result.Continued || len(harness.started) != 1 || harness.tracker.Notes != notes {
+				t.Fatalf("recovery = %+v, %v, started = %+v; want no new write or dispatch on a different decision", result, err, harness.started)
+			}
+			if len(harness.reload(t).RepairContinuations) != 1 {
+				t.Fatal("recovery added another continuation")
+			}
+		})
+	}
+}
+
+func TestUnconfirmedRepairResultsNeverRenderSuccess(t *testing.T) {
+	t.Parallel()
+	for _, result := range []RepairContinueResult{{}, {Stall: true}, {Stall: true, ResumesAt: runstate.PhaseReviewing}, {Checks: true}} {
+		if got := result.Render(); got != "no repair continuation was confirmed; no developer was dispatched\n" {
+			t.Fatalf("render = %q; want only the unconfirmed outcome", got)
 		}
 	}
 }

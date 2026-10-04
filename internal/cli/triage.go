@@ -633,7 +633,7 @@ func reportRepair(stdout, stderr io.Writer, jsonOutput bool, result orchestrator
 			fmt.Fprint(stdout, result.Render())
 			return 0
 		}
-		fmt.Fprintf(stderr, "the repair was refused and nothing was continued: %v\n", err)
+		fmt.Fprintf(stderr, "the repair continuation was not confirmed: %v\n", err)
 		if errors.Is(err, orchestrator.ErrWorktreeNotAsLeft) {
 			fmt.Fprintln(stderr, "nothing was spent and the item is still blocked: say what became of that worktree before the run is continued")
 		}
