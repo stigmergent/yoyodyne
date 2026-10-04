@@ -733,6 +733,8 @@ func TestRepairRecoveryChecksWhetherAnUnconfirmedSuccessNoteWasWritten(t *testin
 			// No provider ran after the first dispatch, leaving the recorded
 			// continuation for recovery to pick up.
 			harness.failure = errors.New("dispatch stopped before invoking the provider")
+			accepted := harness.outcome
+			harness.outcome = Outcome{}
 			continuer := harness.continuer()
 			continuer.Items = items
 			result, err := continuer.Continue(context.Background(), continueRequest())
@@ -740,6 +742,7 @@ func TestRepairRecoveryChecksWhetherAnUnconfirmedSuccessNoteWasWritten(t *testin
 				t.Fatalf("first continuation = %+v, %v; want the durable transition and unconfirmed note reported separately", result, err)
 			}
 			items.onRecord, harness.failure = nil, nil
+			harness.outcome = accepted
 			result, err = continuer.Continue(context.Background(), continueRequest())
 			if err != nil || !result.Continued || result.RecordProblem != "" {
 				t.Fatalf("recovery = %+v, %v", result, err)

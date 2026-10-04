@@ -5358,8 +5358,14 @@ continuation can be read back.
 Recovery reads the item and run before making another transition. It reuses an
 item already claimed and confirms a continuation already recorded for the
 standing repair decision without adding another continuation, attempt, or grant.
-It checks the item's existing notes before retrying a success note whose response
-was lost. Once the continuation is confirmed, a failed note is reported alongside
+The recorded continuation carries `dispatch_pending` until the pipeline confirms
+that it accepted the named run. Later scheduling passes offer a pending
+continuation whose run has no live lease holder, even though it has consumed its grant
+and still occupies a developer slot. Recovery confirms durability and reuses
+that slot before dispatching; it takes no new slot or grant. A live leased run
+is left to finish, and an accepted dispatch is not offered again.
+Recovery checks the item's existing notes before retrying a success note whose
+response was lost. Once the continuation is confirmed, a failed note is reported alongside
 it rather than making a recorded continuation look absent.
 
 The continuations are recorded on the run itself, under `repair_continuations` in

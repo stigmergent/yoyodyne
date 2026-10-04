@@ -801,6 +801,119 @@ func (h *continueHarness) carryOut() CarryOut {
 	}
 }
 
+// A save can replace the run file and then fail at the sync or read-back.
+// Scheduling must find that unserved transition even though it has consumed
+// the grant and occupies the only developer slot. No explicit Continue call
+// makes any part of this recovery happen.
+func TestSchedulingRecoversARepairWhoseReplacementWasNotConfirmed(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"sync failed after replacement", "read-back failed"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			harness := newContinueHarness(t, continuableState())
+			harness.capacity = 1
+			runs := &repairRecordRuns{RepairRuns: harness.runs}
+			failure := errors.New(mode)
+			if mode == "sync failed after replacement" {
+				runs.saveErr, runs.writeBeforeErr = failure, true
+			} else {
+				runs.loadErr = failure
+			}
+			claims := 0
+			harness.tracker.OnClaim = func() error { claims++; return nil }
+			continuer := harness.continuer()
+			continuer.Runs = runs
+			continuer.Items = &repairRecordItems{Tracker: harness.tracker}
+			carrying := harness.carryOut()
+			carrying.Repairer = continuer
+			pulls := newScheduleHarness()
+			scheduler := Scheduler{Limit: 1, Open: func(ctx context.Context) (Pull, error) {
+				pull, err := pulls.open(ctx)
+				pull.Runs, pull.CarryOut = harness.runs, carrying
+				return pull, err
+			}}
+			pass := func() Schedule {
+				t.Helper()
+				schedule, err := scheduler.Schedule(context.Background())
+				if err != nil {
+					t.Fatalf("Schedule() = %v: %s", err, schedule.Render())
+				}
+				return schedule
+			}
+			first := pass()
+			if len(first.Started) != 1 || first.Started[0].Declined == "" || len(first.CarriedOut) != 0 || len(harness.started) != 0 {
+				t.Fatalf("first pass = %s, dispatches = %+v; want an unconfirmed transition with no dispatch", first.Render(), harness.started)
+			}
+			if strings.Contains(harness.tracker.Notes, "and the harness re-entered") {
+				t.Fatalf("an uncertain save announced success: %s", harness.tracker.Notes)
+			}
+			pending := harness.reload(t)
+			if !pending.RepairDispatchPending() || len(pending.RepairContinuations) != 1 || claims != 1 {
+				t.Fatalf("pending = %+v, claims = %d; want one charged, unserved continuation", pending, claims)
+			}
+			// The transient refusal is paced rather than immediately repeated.
+			if paced := pass(); len(paced.Started) != 0 {
+				t.Fatalf("the refusal was retried before its pacing passed: %s", paced.Render())
+			}
+			carrying.Clock = laterClock{after: runstate.TriageCarryOutRetryDelay + time.Minute}
+			_, lease, err := harness.runs.AdoptRun(context.Background(), docketedRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A live pipeline carrying the same pending record must not be
+			// dispatched beside itself by another scheduling pass.
+			leased := pass()
+			lease.Release()
+			if len(leased.Started) != 0 {
+				t.Fatalf("a live leased run was offered for recovery: %s", leased.Render())
+			}
+			if task := theOneOutstanding(t, carrying); !task.Recover {
+				t.Fatalf("task = %+v; want recovery of the already charged continuation", task)
+			}
+			// Another pass with storage still failing must remain unconfirmed,
+			// rather than treating a readable replacement as a durable save.
+			stillFailing := pass()
+			if len(stillFailing.Started) != 1 || stillFailing.Started[0].Declined == "" || len(stillFailing.CarriedOut) != 0 || len(harness.started) != 0 || strings.Contains(harness.tracker.Notes, "and the harness re-entered") {
+				t.Fatalf("recovery before storage cleared = %s; want no success or dispatch", stillFailing.Render())
+			}
+			// Once the storage failure clears, the next ordinary pass confirms
+			// the same record before dispatching it, in its already held slot.
+			runs.saveErr, runs.loadErr = nil, nil
+			carrying.Clock = laterClock{after: 2 * (runstate.TriageCarryOutRetryDelay + time.Minute)}
+			continuer.Start = func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+				state, lease, err := harness.runs.AdoptRun(ctx, runID)
+				if err != nil {
+					return Outcome{}, err
+				}
+				defer lease.Release()
+				if !state.RepairDispatchPending() || len(state.RepairContinuations) != 1 || state.RepairAttempts != pending.RepairAttempts {
+					t.Errorf("dispatched state = %+v; want the original continuation confirmed without another attempt", state)
+				}
+				if tasks, err := carrying.Outstanding(); err != nil || len(tasks) != 0 {
+					t.Errorf("outstanding while dispatched = %+v, %v; want the lease to prevent another dispatch", tasks, err)
+				}
+				harness.started = append(harness.started, continuedRun{workItemID: workItemID, runID: runID})
+				return harness.outcome, nil
+			}
+			carrying.Repairer = continuer
+			recovered := pass()
+			if len(recovered.Started) != 1 || len(recovered.CarriedOut) != 1 || !recovered.CarriedOut[0].Carried || len(harness.started) != 1 {
+				t.Fatalf("recovered pass = %s, dispatches = %+v; want exactly one dispatch", recovered.Render(), harness.started)
+			}
+			state := harness.reload(t)
+			if state.RepairDispatchPending() || len(state.RepairContinuations) != 1 || state.RepairAttempts != pending.RepairAttempts || claims != 1 || harness.carried(t) != continueGrantRounds {
+				t.Fatalf("recovered = %+v, claims = %d; want one continuation, claim, and budget expenditure", state, claims)
+			}
+			if spent := harness.spent(t); spent.RepairGrants != 1 || spent.GrantedRounds != continueGrantRounds {
+				t.Fatalf("triage = %+v; recovery granted another repair", spent)
+			}
+			if next := pass(); len(next.Started) != 0 || len(harness.started) != 1 {
+				t.Fatalf("a served continuation was dispatched again: %s", next.Render())
+			}
+		})
+	}
+}
+
 // grantedAgainstTheStoppage records the repair the development manager decided
 // about the docketed stoppage itself, which is what her conversation writes: a
 // decision naming another run of the same item is refused where it is recorded.

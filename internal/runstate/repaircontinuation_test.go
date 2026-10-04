@@ -135,3 +135,35 @@ func TestStoreRoundTripsTheGrantsARunWasContinuedOn(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want the bound on recorded continuations enforced", err)
 	}
 }
+
+func TestAPendingRepairDispatchSurvivesStorageAndKeepsItsBudgetAndSlot(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	continuation := grantedContinuation()
+	continuation.DispatchPending = true
+	state.RepairContinuations = []RepairContinuation{continuation}
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(state.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.RepairDispatchPending() || !loaded.HoldsDeveloperSlot() || loaded.CarriedOutRepairAttempts() != continuation.GrantedAttempts || loaded.RepairContinuations[0] != continuation {
+		t.Fatalf("loaded = %+v; want a pending dispatch still charged and holding its slot", loaded)
+	}
+	for name, mutate := range map[string]func(*State){
+		"served":   func(s *State) { s.RepairContinuations[0].DispatchPending = false },
+		"returned": func(s *State) { s.RepairContinuations[0].Returned = true },
+		"stopped":  func(s *State) { s.Status = StatusFailed },
+		"older":    func(s *State) { s.RepairContinuations = append(s.RepairContinuations, grantedContinuation()) },
+	} {
+		state := loaded
+		state.RepairContinuations = append([]RepairContinuation(nil), loaded.RepairContinuations...)
+		mutate(&state)
+		if state.RepairDispatchPending() {
+			t.Fatalf("a %s continuation was still offered for pending dispatch", name)
+		}
+	}
+}

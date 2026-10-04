@@ -547,7 +547,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 	c.confirmedContinuation(&result, continued)
 	c.recordContinuation(ctx, &result, itemRecord(reason, item, prior))
-	return c.dispatchContinuation(ctx, result, lease)
+	return c.dispatchContinuation(ctx, result, continued.RepairContinuations[len(continued.RepairContinuations)-1], lease)
 }
 
 // recoverContinuation finishes an interrupted carry-out without granting or
@@ -585,7 +585,7 @@ func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate
 	result.Truncated = counters.TruncatedGrants > 0
 	c.confirmedContinuation(&result, confirmed)
 	c.recordContinuation(ctx, &result, continuation.Reason)
-	return c.dispatchContinuation(ctx, result, lease)
+	return c.dispatchContinuation(ctx, result, continuation, lease)
 }
 
 func (c RepairContinuer) confirmedContinuation(result *RepairContinueResult, continued runstate.State) {
@@ -622,7 +622,7 @@ func (c RepairContinuer) unconfirmedContinuation(ctx context.Context, result Rep
 	return result, err
 }
 
-func (c RepairContinuer) dispatchContinuation(ctx context.Context, result RepairContinueResult, lease *runstate.Lease) (RepairContinueResult, error) {
+func (c RepairContinuer) dispatchContinuation(ctx context.Context, result RepairContinueResult, continuation runstate.RepairContinuation, lease *runstate.Lease) (RepairContinueResult, error) {
 	// The finding a refused carry-out left is taken back here, once the re-entry is
 	// recorded and before the run goes: a finding that stood for the length of the
 	// run would have the docket say the decision is not happening while it runs.
@@ -647,7 +647,36 @@ func (c RepairContinuer) dispatchContinuation(ctx context.Context, result Repair
 	// else in flight for the item refuses instead of continuing it.
 	outcome, runErr := c.Start(ctx, result.WorkItemID, result.RunID)
 	result.Outcome = outcome
+	// A named outcome means the pipeline accepted this run. Clear the pending
+	// dispatch only after that hand-off: clearing it before Start would leave a
+	// process death between the two invisible to the next scheduling pass.
+	if outcome.RunID == result.RunID {
+		if err := c.recordDispatchedContinuation(ctx, result.RunID, continuation); err != nil {
+			result.RecordProblem = strings.TrimSpace(result.RecordProblem + " " + err.Error())
+		}
+	}
 	return result, runErr
+}
+
+func (c RepairContinuer) recordDispatchedContinuation(ctx context.Context, runID string, continuation runstate.RepairContinuation) error {
+	write, stopWriting := recordContext(ctx)
+	defer stopWriting()
+	state, lease, err := c.Runs.AdoptRun(write, runID)
+	if err != nil {
+		return fmt.Errorf("the pipeline accepted run %s, but its dispatch could not be recorded: %w", runID, err)
+	}
+	defer lease.Release()
+	for index, recorded := range state.RepairContinuations {
+		if !recorded.ContinuedAt.Equal(continuation.ContinuedAt) || recorded.Reason != continuation.Reason || !recorded.DispatchPending {
+			continue
+		}
+		state.RepairContinuations[index].DispatchPending = false
+		if err := c.Runs.Save(state); err != nil {
+			return fmt.Errorf("the pipeline accepted run %s, but its dispatch could not be recorded: %w", runID, err)
+		}
+		break
+	}
+	return nil
 }
 
 // repairGrant is the development manager's grant as this carry-out found it:
@@ -952,6 +981,7 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	continued.RepairContinuations = append(append([]runstate.RepairContinuation{}, prior.RepairContinuations...),
 		runstate.RepairContinuation{
 			GrantedAttempts:   granted.attempts,
+			DispatchPending:   true,
 			Reason:            reason,
 			ContinuedAt:       c.now(),
 			SupersededBlocker: prior.Blocker,
