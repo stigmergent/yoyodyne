@@ -187,7 +187,8 @@ type PreservedChanges interface {
 // It is satisfied by Pipeline.Continue, which re-enters the run named or refuses
 // — every recorded loss of a repair round was a dispatch that started something
 // fresh instead, so what this type asks for is deliberately not something a
-// fresh run can satisfy.
+// fresh run can satisfy. Acceptance is confirmed by the adopted pipeline's
+// outcome, not by a run ID a pre-adoption pause can also report.
 type RepairContinueStarter func(ctx context.Context, workItemID, runID string) (Outcome, error)
 
 // RepairContinuer re-enters one stopped run's repair loop under a grant of
@@ -263,6 +264,9 @@ type RepairContinueResult struct {
 	RepairAttempts   int  `json:"repair_attempts,omitempty"`
 	Continued        bool `json:"continued"`
 	WorktreeRestored bool `json:"worktree_restored,omitempty"`
+	// AlreadyContinued reports a served continuation read from durable state;
+	// this request made no transition and dispatched nothing.
+	AlreadyContinued bool `json:"already_continued,omitempty"`
 	// Stall says what was carried out was a stalled attempt being carried on
 	// rather than a change being repaired: the harness stopped this run's
 	// provider before anything was returned to its developer, so the
@@ -567,6 +571,24 @@ func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate
 	if continuation.Returned || continuation.ByHarness || continuation.ContinuedAt.Before(decision.DecidedAt) || !strings.Contains(continuation.Reason, decision.Cite()) {
 		return result, fmt.Errorf("run %s is already running but its continuation does not carry the standing repair decision, so no repair transition was repeated", prior.RunID)
 	}
+	if !continuation.DispatchPending {
+		result.Decided = counters.GrantedRounds
+		result.Truncated = counters.TruncatedGrants > 0
+		c.confirmedContinuation(&result, prior)
+		result.AlreadyContinued = true
+		result.Outcome = Outcome{
+			RunID:             prior.RunID,
+			WorkItemID:        prior.WorkItemID,
+			Status:            prior.Status,
+			Phase:             prior.Phase,
+			Branch:            prior.Branch,
+			WorktreePath:      prior.WorktreePath,
+			BaseCommit:        prior.BaseCommit,
+			ProviderSessionID: prior.ProviderSessionID,
+			RepairAttempts:    prior.RepairAttempts,
+		}
+		return result, nil
+	}
 	item, err := c.Items.Show(ctx, prior.WorkItemID)
 	if err != nil {
 		return result, fmt.Errorf("read the item before recovering its recorded continuation: %w", err)
@@ -647,10 +669,10 @@ func (c RepairContinuer) dispatchContinuation(ctx context.Context, result Repair
 	// else in flight for the item refuses instead of continuing it.
 	outcome, runErr := c.Start(ctx, result.WorkItemID, result.RunID)
 	result.Outcome = outcome
-	// A named outcome means the pipeline accepted this run. Clear the pending
-	// dispatch only after that hand-off: clearing it before Start would leave a
-	// process death between the two invisible to the next scheduling pass.
-	if outcome.RunID == result.RunID {
+	// Only the pipeline's adopted path confirms acceptance. A pause before
+	// adoption can return the same run ID while leaving that run untouched.
+	// Clearing before this confirmation would hide an unserved dispatch.
+	if outcome.continuationAccepted && outcome.RunID == result.RunID {
 		if err := c.recordDispatchedContinuation(ctx, result.RunID, continuation); err != nil {
 			result.RecordProblem = strings.TrimSpace(result.RecordProblem + " " + err.Error())
 		}
@@ -1175,6 +1197,11 @@ func (result RepairContinueResult) Render() string {
 		if result.RecordProblem != "" {
 			fmt.Fprintln(&rendered, result.RecordProblem)
 		}
+		return rendered.String()
+	}
+	if result.AlreadyContinued {
+		fmt.Fprintf(&rendered, "run %s already has a served repair continuation; its recorded outcome is %s at the %s phase\n", result.RunID, result.Outcome.Status, result.Outcome.Phase)
+		fmt.Fprintln(&rendered, "no new transition or dispatch was made")
 		return rendered.String()
 	}
 	switch {

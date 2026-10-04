@@ -848,9 +848,13 @@ that stopped -- same branch, same worktree, same developer session, the
 reviewer's findings handed back exactly as they were written -- under a grant of
 further repair attempts sized by triage.repair_grant_attempts.
 
-Everything that refuses is asked before anything is claimed or granted, so a
-refusal costs nothing and asking again once it no longer applies carries out the
-same decision.
+Precondition refusals happen before a claim or continuation is written, so they
+cost nothing. A later failure can leave a claim or a charged continuation already
+recorded, and a save whose durability was not confirmed is reported as uncertain.
+Recovery reads the existing item and run first, reuses recorded claims and
+expenditure, and dispatches only a continuation that is still pending. A pause
+before the pipeline adopts the run leaves that dispatch pending; a repeated
+request for an already served continuation reports its existing outcome.
 
 A re-run and a repair each take the run and nothing else. What either records as
 why its run is going -- the decision, who recorded it, in which conversation and

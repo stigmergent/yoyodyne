@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -155,7 +156,7 @@ func newUndecidedHarness(t *testing.T, state runstate.State) *continueHarness {
 		tracker:   &orchestratortest.Tracker{Item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "blocked"}},
 		ownership: &fakeOwnership{},
 		capacity:  2,
-		outcome:   Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: runstate.StatusSucceeded},
+		outcome:   Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: runstate.StatusSucceeded, continuationAccepted: true},
 	}
 }
 
@@ -754,6 +755,65 @@ func TestRepairRecoveryChecksWhetherAnUnconfirmedSuccessNoteWasWritten(t *testin
 				t.Fatalf("success notes = %d; want exactly one confirmed account", got)
 			}
 		})
+	}
+}
+
+func TestRepairKeepsAPreAdoptionPausedPipelinePending(t *testing.T) {
+	t.Parallel()
+	harness := newContinueHarness(t, continuableState())
+	provider := orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict)
+	pipeline, _ := newPipeline(t, pipelineRepository(t), harness.tracker, provider, []string{"exit 0"})
+	pipeline.Store = harness.runs
+	holds := newOperatorHoldStore(t)
+	pipeline.Holds = holds
+	continuer := harness.continuer()
+	var beforePause runstate.State
+	continuer.Start = func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+		// Activity is paused after carry-out has recorded the continuation,
+		// but before the real pipeline gets a chance to adopt it.
+		if _, err := holds.Hold(baseTime); err != nil {
+			return Outcome{}, err
+		}
+		var err error
+		beforePause, err = harness.runs.Load(runID)
+		if err != nil {
+			return Outcome{}, err
+		}
+		return pipeline.Continue(ctx, workItemID, runID)
+	}
+	result, err := continuer.Continue(context.Background(), continueRequest())
+	if err != nil || !result.Continued || !result.Outcome.Paused || result.Outcome.RunID != docketedRunID || result.Outcome.continuationAccepted {
+		t.Fatalf("Continue() = %+v, %v; want the real pre-adoption pause naming the untouched run", result, err)
+	}
+	afterPause := harness.reload(t)
+	if !afterPause.RepairDispatchPending() || !reflect.DeepEqual(afterPause, beforePause) || len(provider.Requests) != 0 {
+		t.Fatalf("run = %+v, provider calls = %d; want no adoption acknowledgement or provider dispatch", afterPause, len(provider.Requests))
+	}
+	if task := theOneOutstanding(t, harness.carryOut()); !task.Recover {
+		t.Fatalf("task = %+v; want the paused continuation still offered for recovery", task)
+	}
+}
+
+func TestRepairRecoveryReportsAnAlreadyServedContinuationWithoutDispatchingAgain(t *testing.T) {
+	t.Parallel()
+	harness := newContinueHarness(t, continuableState())
+	harness.outcome.Status = runstate.StatusRunning
+	continuer := harness.continuer()
+	first, err := continuer.Continue(context.Background(), continueRequest())
+	if err != nil || !first.Continued || harness.reload(t).RepairDispatchPending() {
+		t.Fatalf("first = %+v, %v; want accepted dispatch recorded", first, err)
+	}
+	before := harness.reload(t)
+	notes, calls := harness.tracker.Notes, append([]string(nil), harness.tracker.Calls...)
+	repeated, err := continuer.Continue(context.Background(), continueRequest())
+	if err != nil || !repeated.Continued || !repeated.AlreadyContinued || repeated.Outcome.RunID != before.RunID || repeated.Outcome.Status != before.Status || repeated.Outcome.Phase != before.Phase {
+		t.Fatalf("repeated = %+v, %v; want the existing running outcome", repeated, err)
+	}
+	if len(harness.started) != 1 || !reflect.DeepEqual(harness.reload(t), before) || harness.tracker.Notes != notes || !reflect.DeepEqual(harness.tracker.Calls, calls) {
+		t.Fatalf("starts = %+v; want the served continuation read without another write or dispatch", harness.started)
+	}
+	if rendered := repeated.Render(); !strings.Contains(rendered, "no new transition or dispatch was made") || strings.Contains(rendered, "carried out 2 further") {
+		t.Fatalf("rendered = %q; want an existing outcome rather than a new expenditure", rendered)
 	}
 }
 

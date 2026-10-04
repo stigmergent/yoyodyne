@@ -151,10 +151,15 @@ func TestTriageUsageSaysWhatBoundsEachDecision(t *testing.T) {
 	for _, want := range []string{
 		"once", "intake hold", "--reason", "no free developer",
 		"triage.repair_grant_attempts", "supersedes the blocker", "same developer session",
+		"Precondition refusals", "reported as uncertain", "reuses recorded claims",
+		"expenditure", "already served continuation reports its existing outcome",
 	} {
 		if !strings.Contains(usage.String(), want) {
 			t.Fatalf("usage does not mention %q:\n%s", want, usage.String())
 		}
+	}
+	if strings.Contains(usage.String(), "Everything that refuses") {
+		t.Fatalf("usage still promises every refusal costs nothing:\n%s", usage.String())
 	}
 }
 
