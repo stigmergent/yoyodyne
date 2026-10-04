@@ -855,6 +855,9 @@ Recovery reads the existing item and run first, reuses recorded claims and
 expenditure, and dispatches only a continuation that is still pending. A pause
 before the pipeline adopts the run leaves that dispatch pending; a repeated
 request for an already served continuation reports its existing outcome.
+An unconfirmed success note remains pending independently of dispatch. Later
+pulls or repair requests check the existing notes and confirm delivery without
+another continuation, expenditure, or dispatch, even after the run finishes.
 
 A re-run and a repair each take the run and nothing else. What either records as
 why its run is going -- the decision, who recorded it, in which conversation and

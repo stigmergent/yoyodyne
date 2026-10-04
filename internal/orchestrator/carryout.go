@@ -1325,18 +1325,24 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	return carried
 }
 
-// DeliverNotes retries tracker notes independently of the refused actions. It
-// includes closed docket entries, so a new decision cannot lose an earlier note.
+// DeliverNotes retries tracker notes independently of the refused actions and
+// accepted repair dispatches. It includes closed docket entries and completed
+// repair runs, so finishing work or making a new decision loses no earlier note.
 func (c CarryOut) DeliverNotes(ctx context.Context) error {
+	var problems []error
+	if repairs, delivers := c.Repairer.(interface{ DeliverNotes(context.Context) error }); delivers {
+		if err := repairs.DeliverNotes(ctx); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if c.Notes == nil {
-		return nil
+		return errors.Join(problems...)
 	}
 	entries, err := c.Docket.List()
 	if err != nil {
-		return fmt.Errorf("read the docket for pending carry-out notes: %w", err)
+		return errors.Join(append(problems, fmt.Errorf("read the docket for pending carry-out notes: %w", err))...)
 	}
 	seen := make(map[string]bool)
-	var problems []error
 	for _, entry := range entries {
 		if entry.WorkItemID == "" || seen[entry.WorkItemID] {
 			continue

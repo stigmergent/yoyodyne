@@ -167,3 +167,23 @@ func TestAPendingRepairDispatchSurvivesStorageAndKeepsItsBudgetAndSlot(t *testin
 		}
 	}
 }
+
+func TestARepairSuccessNoteRemainsPendingAfterDispatchAndCompletion(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := testState(t, StatusSucceeded)
+	continuation := grantedContinuation()
+	continuation.SuccessNotePending = true
+	state.RepairContinuations = []RepairContinuation{continuation, grantedContinuation()}
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(state.RunID)
+	if err != nil || !loaded.RepairSuccessNotePending() || loaded.RepairDispatchPending() || loaded.RepairContinuations[0] != continuation {
+		t.Fatalf("loaded = %+v, %v; want an older success note still pending after dispatch and completion", loaded, err)
+	}
+	loaded.RepairContinuations[0].SuccessNotePending = false
+	if loaded.RepairSuccessNotePending() {
+		t.Fatal("a confirmed success note was still pending")
+	}
+}

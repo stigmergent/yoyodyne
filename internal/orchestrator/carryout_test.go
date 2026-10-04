@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -911,6 +913,87 @@ func TestSchedulingRecoversARepairWhoseReplacementWasNotConfirmed(t *testing.T) 
 				t.Fatalf("a served continuation was dispatched again: %s", next.Render())
 			}
 		})
+	}
+}
+
+func TestSchedulingRecoversRepairSuccessNotesWithoutAnotherDispatch(t *testing.T) {
+	t.Parallel()
+	for _, terminal := range []bool{false, true} {
+		for _, written := range []bool{false, true} {
+			t.Run(fmt.Sprintf("terminal=%t/note-written=%t", terminal, written), func(t *testing.T) {
+				t.Parallel()
+				harness := newContinueHarness(t, continuableState())
+				items := &repairRecordItems{Tracker: harness.tracker}
+				items.onRecord = func(note string) error {
+					if !strings.Contains(note, "and the harness re-entered") {
+						return nil
+					}
+					if written {
+						_, _ = items.Tracker.RecordOutcome(context.Background(), docketedItem, note)
+						items.Item.Notes = items.Notes
+					}
+					return errors.New("the success note could not be confirmed")
+				}
+				continuer := harness.continuer()
+				continuer.Items = items
+				first, err := continuer.Continue(context.Background(), continueRequest())
+				if err != nil || first.RecordProblem == "" {
+					t.Fatalf("first = %+v, %v; want accepted dispatch with an unconfirmed note", first, err)
+				}
+				before := harness.reload(t)
+				if terminal {
+					before.Status, before.Phase = runstate.StatusSucceeded, runstate.PhaseCompleted
+					completed := docketedNow.Add(time.Minute)
+					before.CompletedAt = &completed
+					harness.save(t, before)
+					// Completed runs need no current docket entry to recover a note.
+					harness.docket.entries = nil
+				}
+				carrying := harness.carryOut()
+				carrying.Repairer = continuer
+				pulls := newScheduleHarness()
+				scheduler := Scheduler{Limit: 1, Open: func(ctx context.Context) (Pull, error) {
+					pull, err := pulls.open(ctx)
+					pull.Runs, pull.CarryOut = harness.runs, carrying
+					return pull, err
+				}}
+				pass := func() Schedule {
+					t.Helper()
+					schedule, err := scheduler.Schedule(context.Background())
+					if err != nil || len(schedule.Started) != 0 || len(harness.started) != 1 {
+						t.Fatalf("Schedule() = %s, %v; want only note recovery and no dispatch", schedule.Render(), err)
+					}
+					return schedule
+				}
+				_, lease, err := harness.runs.AdoptRun(context.Background(), docketedRunID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pass()
+				lease.Release()
+				if !harness.reload(t).RepairSuccessNotePending() {
+					t.Fatal("a note was recovered beside a live run lease")
+				}
+				if !written {
+					if failed := pass(); failed.CarryOutNoteProblem == "" || !harness.reload(t).RepairSuccessNotePending() {
+						t.Fatalf("failed note retry = %s; want the pending note failure reported", failed.Render())
+					}
+				}
+				items.onRecord = nil
+				if recovered := pass(); recovered.CarryOutNoteProblem != "" {
+					t.Fatalf("recovered = %s; want the note confirmed", recovered.Render())
+				}
+				after := harness.reload(t)
+				if after.RepairSuccessNotePending() || after.RepairDispatchPending() || after.RepairAttempts != before.RepairAttempts || len(after.RepairContinuations) != 1 || after.Status != before.Status || strings.Count(items.Notes, first.Reason) != 1 {
+					t.Fatalf("state = %+v, notes = %q; want one success note and the same continuation and outcome", after, items.Notes)
+				}
+				calls := append([]string(nil), items.Calls...)
+				pass()
+				if !reflect.DeepEqual(harness.reload(t), after) || !reflect.DeepEqual(items.Calls, calls) {
+					t.Fatal("a later pass repeated confirmed note delivery")
+				}
+			})
+		}
 	}
 }
 

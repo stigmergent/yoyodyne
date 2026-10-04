@@ -758,6 +758,54 @@ func TestRepairRecoveryChecksWhetherAnUnconfirmedSuccessNoteWasWritten(t *testin
 	}
 }
 
+func TestRepairRecoveryConfirmsASuccessNoteAfterAcceptedDispatch(t *testing.T) {
+	t.Parallel()
+	for _, written := range []bool{false, true} {
+		t.Run(map[bool]string{false: "note refused", true: "note written but response lost"}[written], func(t *testing.T) {
+			t.Parallel()
+			harness := newContinueHarness(t, continuableState())
+			harness.outcome.Status = runstate.StatusRunning
+			items := &repairRecordItems{Tracker: harness.tracker}
+			items.onRecord = func(note string) error {
+				if !strings.Contains(note, "and the harness re-entered") {
+					return nil
+				}
+				if written {
+					_, _ = harness.tracker.RecordOutcome(context.Background(), docketedItem, note)
+					items.Item.Notes = items.Notes
+				}
+				return errors.New("the success note could not be confirmed")
+			}
+			continuer := harness.continuer()
+			continuer.Items = items
+			first, err := continuer.Continue(context.Background(), continueRequest())
+			before := harness.reload(t)
+			if err != nil || !first.Continued || first.RecordProblem == "" || before.RepairDispatchPending() || !before.RepairSuccessNotePending() {
+				t.Fatalf("first = %+v, %v, state = %+v; want accepted dispatch with its note still pending", first, err, before)
+			}
+			if !written {
+				failed, err := continuer.Continue(context.Background(), continueRequest())
+				if err != nil || !failed.AlreadyContinued || failed.RecordProblem == "" || !strings.Contains(failed.Render(), "success note") || !harness.reload(t).RepairSuccessNotePending() {
+					t.Fatalf("failed recovery = %+v, %v; want the note problem to remain visible", failed, err)
+				}
+			}
+			items.onRecord = nil
+			recovered, err := continuer.Continue(context.Background(), continueRequest())
+			after := harness.reload(t)
+			if err != nil || !recovered.AlreadyContinued || recovered.RecordProblem != "" || after.RepairSuccessNotePending() || after.RepairDispatchPending() || len(harness.started) != 1 {
+				t.Fatalf("recovery = %+v, %v, state = %+v, starts = %+v; want only the success note confirmed", recovered, err, after, harness.started)
+			}
+			if len(after.RepairContinuations) != len(before.RepairContinuations) || after.RepairAttempts != before.RepairAttempts || harness.carried(t) != continueGrantRounds || strings.Count(items.Notes, first.Reason) != 1 {
+				t.Fatalf("state = %+v, notes = %q; want one continuation, expenditure, and success note", after, items.Notes)
+			}
+			calls := append([]string(nil), items.Calls...)
+			if _, err := continuer.Continue(context.Background(), continueRequest()); err != nil || !reflect.DeepEqual(harness.reload(t), after) || !reflect.DeepEqual(items.Calls, calls) {
+				t.Fatalf("confirmed note recovery repeated a write: %v", err)
+			}
+		})
+	}
+}
+
 func TestRepairKeepsAPreAdoptionPausedPipelinePending(t *testing.T) {
 	t.Parallel()
 	harness := newContinueHarness(t, continuableState())
@@ -814,6 +862,36 @@ func TestRepairRecoveryReportsAnAlreadyServedContinuationWithoutDispatchingAgain
 	}
 	if rendered := repeated.Render(); !strings.Contains(rendered, "no new transition or dispatch was made") || strings.Contains(rendered, "carried out 2 further") {
 		t.Fatalf("rendered = %q; want an existing outcome rather than a new expenditure", rendered)
+	}
+}
+
+func TestRepairDispatchAcknowledgementWaitsForAnotherRecordHolder(t *testing.T) {
+	t.Parallel()
+	harness := newContinueHarness(t, continuableState())
+	continuer := harness.continuer()
+	released := make(chan struct{})
+	continuer.Start = func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+		harness.started = append(harness.started, continuedRun{workItemID: workItemID, runID: runID})
+		_, lease, err := harness.runs.AdoptRun(ctx, runID)
+		if err != nil {
+			return Outcome{}, err
+		}
+		// The short-lived holder stops on its own, even if Continue fails.
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			lease.Release()
+			close(released)
+		}()
+		return harness.outcome, nil
+	}
+	result, err := continuer.Continue(context.Background(), continueRequest())
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("the record holder did not finish")
+	}
+	if err != nil || result.RecordProblem != "" || harness.reload(t).RepairDispatchPending() || len(harness.started) != 1 {
+		t.Fatalf("Continue() = %+v, %v; want dispatch acknowledged once the other holder finishes", result, err)
 	}
 }
 

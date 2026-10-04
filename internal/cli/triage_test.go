@@ -153,6 +153,7 @@ func TestTriageUsageSaysWhatBoundsEachDecision(t *testing.T) {
 		"triage.repair_grant_attempts", "supersedes the blocker", "same developer session",
 		"Precondition refusals", "reported as uncertain", "reuses recorded claims",
 		"expenditure", "already served continuation reports its existing outcome",
+		"success note remains pending independently of dispatch",
 	} {
 		if !strings.Contains(usage.String(), want) {
 			t.Fatalf("usage does not mention %q:\n%s", want, usage.String())

@@ -5366,10 +5366,15 @@ holder, even though it has consumed its grant and still occupies a developer
 slot. Recovery confirms durability and reuses that slot before dispatching; it
 takes no new slot or grant. A live leased run is left to finish, and an accepted
 dispatch is not offered again. A repeated repair command reads and reports an
-already served continuation without another save or dispatch. Recovery checks
-the item's existing notes before retrying a success note whose response was
-lost. Once the continuation is confirmed, a failed note is reported alongside
-it rather than making a recorded continuation look absent.
+already served continuation without another continuation or dispatch. Success
+notes carry a separate `success_note_pending` marker on their continuation.
+Accepted dispatch and a completed run leave an unconfirmed note pending: later
+pulls retry note delivery without taking a developer slot, making a new
+continuation, or charging another attempt. Recovery checks the item's existing
+notes before appending a missing success note or recognizing one whose response
+was lost, then records its confirmation. It leaves live leased runs alone.
+Once the continuation is confirmed, a failed note is reported alongside it
+rather than making a recorded continuation look absent.
 
 The continuations are recorded on the run itself, under `repair_continuations` in
 its state file, and they are what the continued run's repair loop adds to

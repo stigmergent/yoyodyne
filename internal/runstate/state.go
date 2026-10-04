@@ -2104,6 +2104,10 @@ type RepairContinuation struct {
 	// a later pass recovers this transition in its existing slot once no process
 	// holds the run.
 	DispatchPending bool `json:"dispatch_pending,omitempty"`
+	// SuccessNotePending is independent of dispatch: the continuation is recorded,
+	// but its success note on the work item has not been confirmed. A later note
+	// delivery pass retries it even after the pipeline has finished the run.
+	SuccessNotePending bool `json:"success_note_pending,omitempty"`
 	// Reason is the development manager's triage reasoning as the harness was
 	// given it, which is why this run is going again. A continuation nobody can
 	// account for is exactly the work that looks like it is happening behind
@@ -2146,6 +2150,9 @@ func (c RepairContinuation) Validate() error {
 	var problems []error
 	if c.DispatchPending && c.ByHarness {
 		problems = append(problems, errors.New("a pending repair dispatch belongs to a decided continuation, not a harness grant"))
+	}
+	if c.SuccessNotePending && c.ByHarness {
+		problems = append(problems, errors.New("a pending repair success note belongs to a decided continuation, not a harness grant"))
 	}
 	if c.CheckStage && (c.Stall || c.ByHarness) {
 		problems = append(problems, errors.New("a decided check-stage continuation is neither a stall nor a harness grant"))
@@ -3838,6 +3845,17 @@ func (s State) RepairDispatchPending() bool {
 	}
 	continuation := s.RepairContinuations[last]
 	return continuation.DispatchPending && !continuation.Returned && !continuation.ByHarness
+}
+
+// RepairSuccessNotePending reports an unconfirmed note from any continuation.
+// Finishing the run or dispatching another continuation does not deliver it.
+func (s State) RepairSuccessNotePending() bool {
+	for _, continuation := range s.RepairContinuations {
+		if continuation.SuccessNotePending {
+			return true
+		}
+	}
+	return false
 }
 
 // ContinuedStall reports a run the triage carry-out made live again to carry on
